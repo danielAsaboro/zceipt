@@ -34,9 +34,10 @@ enum Cmd {
         /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
-        /// Transaction id (as shown by block explorers).
-        #[arg(long)]
-        txid: String,
+        /// Transaction id (as shown by block explorers). Repeat it to make one batch link that
+        /// proves several payments, e.g. a whole payroll or grant round.
+        #[arg(long = "txid", required = true)]
+        txids: Vec<String>,
         /// Message or challenge to bind into the receipt (for example an invoice number).
         #[arg(short, long, default_value = "")]
         msg: String,
@@ -97,6 +98,40 @@ enum Cmd {
         #[arg(long)]
         hex: bool,
     },
+}
+
+fn read_arg_text(arg: &str) -> anyhow::Result<String> {
+    Ok(if let Some(path) = arg.strip_prefix('@') {
+        std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
+    } else {
+        arg.to_string()
+    })
+}
+
+async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::path::Path>, json: bool) -> anyhow::Result<()> {
+    let i = text.find(receipts_core::BATCH_TEXT_PREFIX).unwrap();
+    let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    let batch = receipts_core::ReceiptBatch::from_text(&body)?;
+    let id = receipts_core::check_batch(&batch).map_err(|e| anyhow!("batch is inconsistent: {e}"))?;
+    let mut reports = Vec::new();
+    for r in &batch.receipts {
+        reports.push(chain::verify_against_chain(r, server, regtest).await?);
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&reports)?);
+        return Ok(());
+    }
+    let mut totals: std::collections::BTreeMap<String, u64> = Default::default();
+    println!("VALID batch {id}: {} payments, each proven by its sender", reports.len());
+    for rep in &reports {
+        for o in &rep.outputs {
+            *totals.entry(o.recipient.clone()).or_default() += o.zatoshis;
+            println!("  {} ZEC  tx {}…  {}", o.zec, &rep.txid[..12], o.memo.clone().unwrap_or_default());
+        }
+    }
+    let sum: u64 = totals.values().sum();
+    println!("  total {} ZEC to {} recipient(s)", chain::zec(sum), totals.len());
+    Ok(())
 }
 
 fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
@@ -184,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txid, msg, outputs, pool, link_base, out, from_chain, server, request } => {
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request } => {
             let pool = match pool.as_deref() {
                 None => None,
                 Some("ironwood") => Some(Pool::Ironwood),
@@ -202,6 +237,30 @@ async fn main() -> anyhow::Result<()> {
                 None => link_base,
             };
             let source = if from_chain { wallet::WitnessSource::Chain } else { wallet::WitnessSource::Auto };
+            if txids.len() > 1 {
+                if !outputs.is_empty() {
+                    bail!("--output selects actions of one transaction; omit it for a batch");
+                }
+                let id = format!("{:016x}", rand::random::<u64>());
+                let n = txids.len();
+                let mut receipts = Vec::with_capacity(n);
+                for (i, t) in txids.iter().enumerate() {
+                    let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
+                    eprintln!("[{}/{n}] {t}", i + 1);
+                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref()).await?);
+                }
+                let batch = receipts_core::ReceiptBatch { receipts };
+                receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
+                let text = batch.to_text();
+                if let Some(out) = out {
+                    std::fs::write(&out, &text)?;
+                    eprintln!("wrote {}", out.display());
+                }
+                eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link:", batch.to_bytes().len());
+                println!("{}#{}", link_base, text);
+                return Ok(());
+            }
+            let txid = &txids[0];
             let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref()).await?;
             let text = receipt.to_text();
             if let Some(r) = &req {
@@ -238,6 +297,10 @@ async fn main() -> anyhow::Result<()> {
             println!("{}#{}", link_base, text);
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest } => {
+            let text = read_arg_text(&receipt)?;
+            if text.contains(receipts_core::BATCH_TEXT_PREFIX) {
+                return verify_batch(&text, server.as_deref(), regtest.as_deref(), json).await;
+            }
             let receipt = read_receipt_arg(&receipt)?;
             let report = chain::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
             if let Some(addr) = &expect_address {

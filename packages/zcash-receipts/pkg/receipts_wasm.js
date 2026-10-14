@@ -95,17 +95,43 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_export_3.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
+}
+/**
+ * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+ * @param {string} batch
+ * @returns {string}
+ */
+export function open_batch(batch) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(batch, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.open_batch(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
 function passArray8ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 1, 1) >>> 0;
     getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
-}
-
-function takeFromExternrefTable0(idx) {
-    const value = wasm.__wbindgen_export_3.get(idx);
-    wasm.__externref_table_dealloc(idx);
-    return value;
 }
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.

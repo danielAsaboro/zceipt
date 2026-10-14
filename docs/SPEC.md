@@ -84,6 +84,19 @@ text     := "zrcpt1" || base64url_nopad(receipt)
 A receipt with one spend and one output is about 5.2 KB (7 KB as text). That is small enough
 for a URL fragment, which browsers never send to a server.
 
+## Batches
+
+```
+batch := "ZRCB" | version:u8 = 1 | count:u16le | { len:u32le | receipt }*
+text  := "zrcptb1" || base64url_nopad(batch)
+```
+
+Every receipt in a batch carries `batch:<id> <i>/<n>` as the first line of `msg`, which its
+signature covers. A verifier checks that all ids match, `n` equals the count, and each
+position `1..n` appears exactly once, then verifies each receipt on its own. Spend
+authorities are not linked across receipts: each proof uses a fresh `rk`, so a batch does
+not reveal that the payments came from one wallet.
+
 ## Verification
 
 1. Decode the receipt and reject it if it has no spends (ZIP 311: stripping signatures must

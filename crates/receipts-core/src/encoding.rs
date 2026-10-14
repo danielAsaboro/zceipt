@@ -183,3 +183,101 @@ impl Receipt {
         Self::from_bytes(&bytes)
     }
 }
+
+/// Prefix of the text encoding of a batch of receipts.
+pub const BATCH_TEXT_PREFIX: &str = "zrcptb1";
+const BATCH_MAGIC: &[u8; 4] = b"ZRCB";
+const MAX_BATCH: usize = 256;
+
+/// Several receipts shared as one link, e.g. every payout of a grant round.
+///
+/// ```text
+/// batch := "ZRCB" | version:u8 = 1 | count:u16le | { len:u32le | receipt }*
+/// text  := "zrcptb1" || base64url_nopad(batch)
+/// ```
+///
+/// Each receipt is verified on its own and signs `batch:<id> <i>/<n>` in its message, so the
+/// set cannot be silently extended, truncated or reordered without breaking a signature.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceiptBatch {
+    pub receipts: Vec<Receipt>,
+}
+
+impl ReceiptBatch {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(BATCH_MAGIC);
+        v.push(VERSION);
+        v.extend_from_slice(&(self.receipts.len() as u16).to_le_bytes());
+        for r in &self.receipts {
+            let b = r.to_bytes();
+            v.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            v.extend_from_slice(&b);
+        }
+        v
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader { buf: bytes };
+        if r.take(4)? != BATCH_MAGIC {
+            return Err(DecodeError::BadMagic);
+        }
+        let version = r.u8()?;
+        if version != VERSION {
+            return Err(DecodeError::UnsupportedVersion(version));
+        }
+        let n = r.u16()? as usize;
+        if n == 0 || n > MAX_BATCH {
+            return Err(DecodeError::TooLarge);
+        }
+        let mut receipts = Vec::with_capacity(n);
+        for _ in 0..n {
+            let len = r.u32()? as usize;
+            receipts.push(Receipt::from_bytes(r.take(len)?)?);
+        }
+        if !r.buf.is_empty() {
+            return Err(DecodeError::TrailingBytes);
+        }
+        Ok(ReceiptBatch { receipts })
+    }
+
+    pub fn to_text(&self) -> String {
+        format!("{BATCH_TEXT_PREFIX}{}", URL_SAFE_NO_PAD.encode(self.to_bytes()))
+    }
+
+    pub fn from_text(s: &str) -> Result<Self, DecodeError> {
+        let body = s.trim().strip_prefix(BATCH_TEXT_PREFIX).ok_or(DecodeError::BadMagic)?;
+        Self::from_bytes(&URL_SAFE_NO_PAD.decode(body).map_err(|_| DecodeError::Base64)?)
+    }
+}
+
+/// Parses the `batch:<id> <i>/<n>` line a batched receipt signs.
+pub fn batch_position(msg: &[u8]) -> Option<(String, u16, u16)> {
+    let text = std::str::from_utf8(msg).ok()?;
+    let line = text.lines().find_map(|l| l.strip_prefix("batch:"))?;
+    let (id, pos) = line.split_once(' ')?;
+    let (i, n) = pos.split_once('/')?;
+    Some((id.to_string(), i.parse().ok()?, n.parse().ok()?))
+}
+
+/// Checks that the batch is complete and consistent: one id, positions 1..=n each exactly once.
+pub fn check_batch(batch: &ReceiptBatch) -> Result<String, String> {
+    let n = batch.receipts.len();
+    let mut id = None;
+    let mut seen = vec![false; n];
+    for r in &batch.receipts {
+        let (bid, i, total) = batch_position(&r.unsigned.msg).ok_or("a receipt in the batch has no batch position")?;
+        if total as usize != n {
+            return Err(format!("receipt says the batch has {total} payments, but it contains {n}"));
+        }
+        if i == 0 || i as usize > n || std::mem::replace(&mut seen[i as usize - 1], true) {
+            return Err(format!("bad or repeated batch position {i}"));
+        }
+        match &id {
+            None => id = Some(bid),
+            Some(x) if *x != bid => return Err("receipts from different batches".into()),
+            _ => {}
+        }
+    }
+    Ok(id.unwrap_or_default())
+}

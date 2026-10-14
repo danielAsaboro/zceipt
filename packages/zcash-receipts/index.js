@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction };
@@ -26,6 +26,13 @@ async function load() {
     })();
   }
   return ready;
+}
+
+/** Extracts a `zrcptb1…` batch from a link, a fragment or bare text, or returns null. */
+export function extractBatch(input) {
+  const s = decodeURIComponent(String(input).trim());
+  const i = s.indexOf("zrcptb1");
+  return i < 0 ? null : s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
 }
 
 /** Extracts the `zrcpt1…` receipt from a link, a fragment or bare text. */
@@ -87,4 +94,23 @@ export async function verifyReceipt(input, options = {}) {
     v.paidToExpected = paid;
   }
   return v;
+}
+
+/**
+ * Verifies a batch link (`zrcptb1…`): checks it is complete and consistent (every receipt signs
+ * `batch:<id> <i>/<n>`), then verifies each receipt against the chain.
+ * Resolves to `{ id, results: [verifyReceipt result, …], totals: { recipient: zatoshis } }`.
+ * Options are passed to each `verifyReceipt` call, except `rawTx`/`height`.
+ */
+export async function verifyBatch(input, options = {}) {
+  await load();
+  const text = extractBatch(input);
+  if (!text) throw new Error("no zrcptb1 batch found");
+  const { id, receipts } = JSON.parse(open_batch(text));
+  const { rawTx, height, expectAddress, minZatoshis, ...rest } = options;
+  const results = [];
+  for (const r of receipts) results.push(await verifyReceipt(r, rest));
+  const totals = {};
+  for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
+  return { id, results, totals };
 }

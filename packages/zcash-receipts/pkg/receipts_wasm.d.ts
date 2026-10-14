@@ -1,6 +1,11 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
+ * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+ */
+export function open_batch(batch: string): string;
+/**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
  * Returns JSON describing what the receipt proves, or throws why it is invalid.
@@ -24,6 +29,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly inspect: (a: number, b: number) => [number, number, number, number];
+  readonly open_batch: (a: number, b: number) => [number, number, number, number];
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;

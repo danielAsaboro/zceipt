@@ -174,3 +174,14 @@ pub fn orchard_receiver_hex(ua: &str) -> Result<String, JsError> {
         })
         .ok_or_else(|| JsError::new("no Orchard receiver in that address"))
 }
+
+/// Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
+/// Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+#[wasm_bindgen]
+pub fn open_batch(batch: &str) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let b = receipts_core::ReceiptBatch::from_text(batch).map_err(|e| JsError::new(&e.to_string()))?;
+    let id = receipts_core::check_batch(&b).map_err(|e| JsError::new(&e))?;
+    let receipts: Vec<String> = b.receipts.iter().map(|r| r.to_text()).collect();
+    Ok(serde_json::json!({ "id": id, "receipts": receipts }).to_string())
+}

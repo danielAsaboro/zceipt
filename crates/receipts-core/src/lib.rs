@@ -37,7 +37,7 @@ use rand_core::{CryptoRng, Rng};
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 mod encoding;
-pub use encoding::DecodeError;
+pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX};
 
 /// SLIP-44 coin type for Zcash mainnet (index form).
 pub const COIN_TYPE_MAINNET: u32 = 133;

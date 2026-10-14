@@ -31,12 +31,13 @@ const call = (op, args = {}) =>
 // Start building the verifying key in the worker as soon as the page opens (about 8s, once).
 // Quick calls (decoding, address checks) run on this thread so they never wait behind it.
 call("warm").catch(() => {});
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
   if (op === "inspect") return JSON.parse(inspectLocal(args.receipt));
   if (op === "receiver") return orchard_receiver_hex(args.ua);
+  if (op === "batch") return JSON.parse(open_batch(args.batch));
 };
 
 // ---------- grpc-web: CompactTxStreamer.GetTransaction ----------
@@ -279,14 +280,81 @@ async function run(receiptText) {
   }
 }
 
+async function runBatch(batchText) {
+  $("#result").hidden = true;
+  $("#progress").hidden = false;
+  resetSteps();
+  let b;
+  try {
+    setStep("decode", "busy");
+    b = await quick("batch", { batch: batchText });
+    setStep("decode", "done", `batch ${b.id}: ${b.receipts.length} receipts, complete and in order`);
+  } catch (e) {
+    setStep("decode", "fail", e.message);
+    return showError(`This batch is not valid: ${e.message}`);
+  }
+  const results = [];
+  try {
+    for (const [i, r] of b.receipts.entries()) {
+      const s = await quick("inspect", { receipt: r });
+      setStep("fetch", "busy", `transaction ${i + 1} of ${b.receipts.length}`);
+      const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
+      const tx = await fetchRawTx(endpoint, s.txid);
+      setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
+      results.push(await call("verify", { receipt: r, rawTx: tx.raw, height: tx.height, regtest: regtest() }));
+    }
+    setStep("fetch", "done", `${results.length} transactions fetched`);
+    setStep("verify", "done", `all ${results.length} proofs and signatures valid`);
+  } catch (e) {
+    setStep("verify", "fail", e.message);
+    return showError(`Payment ${results.length + 1} of the batch failed: ${e.message}`);
+  }
+  const lines = results.flatMap((v) => v.outputs.map((o) => ({ v, o })));
+  const total = lines.reduce((s, l) => s + l.o.zatoshis, 0);
+  const recipients = new Set(lines.map((l) => l.o.recipient)).size;
+  const note = (results[0].message || "").split("\n").filter((l) => !l.startsWith("batch:")).join(" ");
+  $("#result").hidden = false;
+  $("#result").innerHTML = `
+    <div class="ticket">
+      <div class="head"><div class="brand">RECEIPT</div><div class="sub">Zcash · ${results[0].network} · ${results.length} payments</div></div>
+      ${note ? `<div class="sub" style="text-align:center;margin-top:6px">${escapeHtml(note)}</div>` : ""}
+      <div class="dash"></div>
+      ${lines.map(({ v, o }) => `
+        <div class="line"><span class="k">${zec(o.zatoshis)}</span><span class="v">${o.memo ? escapeHtml(o.memo) : `<span class="mono">${short(o.recipient, 10)}</span>`}<br><span class="mono" style="font-size:11px;color:var(--ink-2)">${short(o.recipient, 10)} · block ${v.mined_height.toLocaleString()}</span></span></div>`).join("")}
+      <div class="dash"></div>
+      <div class="line paid"><span class="k">TOTAL</span><span class="v amount">${zec(total)} <small>ZEC</small></span></div>
+      <div class="line"><span class="k">TO</span><span class="v">${recipients} recipient${recipients === 1 ? "" : "s"}</span></div>
+      <div class="dash"></div>
+      <div class="stamp good">VERIFIED</div>
+      <ul class="facts">
+        <li>Every payment was proven by the wallet that sent it.</li>
+        <li>The batch is complete: each receipt signs its place in it, so nothing was dropped or added.</li>
+        <li><strong>Not revealed:</strong> the treasury's address, balance, or any other transaction.</li>
+      </ul>
+    </div>`;
+}
+
+function batchFromHash() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  const i = h.indexOf("zrcptb1");
+  return i >= 0 ? h.slice(i) : "";
+}
+
 function receiptFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
+  if (h.includes("zrcptb1")) return "";
   const i = h.indexOf("zrcpt1");
   return i >= 0 ? h.slice(i) : "";
 }
 
 $("#verifyBtn").onclick = () => {
   const t = $("#paste").value.trim();
+  const bi = t.indexOf("zrcptb1");
+  if (bi >= 0) {
+    const bt = t.slice(bi).replace(/[^A-Za-z0-9_-].*$/s, "");
+    history.replaceState(null, "", "#" + bt);
+    return runBatch(bt);
+  }
   const i = t.indexOf("zrcpt1");
   if (i < 0) return showError("Paste a receipt that starts with zrcpt1, or a link containing one.");
   const r = t.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
@@ -294,10 +362,17 @@ $("#verifyBtn").onclick = () => {
   run(r);
 };
 window.addEventListener("hashchange", () => {
+  const bt = batchFromHash();
+  if (bt) return runBatch(bt);
   const r = receiptFromHash();
   if (r) run(r);
 });
 
+const initialBatch = batchFromHash();
+if (initialBatch) {
+  $("#paste").value = initialBatch;
+  runBatch(initialBatch);
+}
 const initial = receiptFromHash();
 if (initial) {
   $("#paste").value = initial;

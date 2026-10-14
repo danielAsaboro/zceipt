@@ -252,3 +252,23 @@ fn only_the_spender_can_create() {
     .unwrap_err();
     assert_eq!(err, Error::WrongNullifier(s.spend_index as u32));
 }
+
+#[test]
+fn batch_roundtrip_and_checks() {
+    use receipts_core::{check_batch, ReceiptBatch};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mk = |i: u16, n: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/{n}\nGrant round 3").as_bytes());
+    let batch = ReceiptBatch { receipts: vec![mk(1, 2), mk(2, 2)] };
+    let text = batch.to_text();
+    assert!(text.starts_with("zrcptb1"));
+    let parsed = ReceiptBatch::from_text(&text).unwrap();
+    assert_eq!(parsed, batch);
+    assert_eq!(check_batch(&parsed).unwrap(), "ab12cd34");
+
+    // Dropping one receipt is detected.
+    let short = ReceiptBatch { receipts: vec![batch.receipts[0].clone()] };
+    assert!(check_batch(&short).is_err());
+    // Duplicating a position is detected.
+    let dup = ReceiptBatch { receipts: vec![mk(1, 2), mk(1, 2)] };
+    assert!(check_batch(&dup).is_err());
+}

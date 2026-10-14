@@ -35,3 +35,11 @@ test("testnet request answer verifies against the live chain", { skip: !!process
   assert.equal(v.mined_height, 4500997);
   await assert.rejects(verifyReceipt(link, { challenge: "000000000000" }), /challenge/);
 });
+
+test("testnet batch of three payments verifies", { skip: !!process.env.OFFLINE }, async () => {
+  const { verifyBatch } = await import("../index.js");
+  const text = await readFile(ex("testnet/batch.txt"), "utf8");
+  const b = await verifyBatch(text);
+  assert.equal(b.results.length, 3);
+  assert.equal(Object.values(b.totals).reduce((s, z) => s + z, 0), 2_200_000);
+});

@@ -1,6 +1,6 @@
 # Conformance vectors
 
-`vectors.json` holds 77 cases built from real receipts (a regtest and a testnet Ironwood payment)
+`vectors.json` holds 105 cases built from real receipts (an Orchard payment and an Ironwood payment on regtest, and an Ironwood payment on testnet)
 and a real testnet "Sign in with Zcash". Each case says what any correct verifier must answer:
 
 - valid receipts, with the amounts and memos they must open to;

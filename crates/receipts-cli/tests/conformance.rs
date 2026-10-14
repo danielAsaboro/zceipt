@@ -12,7 +12,7 @@ fn run(v: &Value) -> Result<Value, String> {
     match v["type"].as_str() {
         Some("receipt") => {
             let r = Receipt::from_text(&s("receipt")).map_err(|e| e.to_string())?;
-            let heights = Path::new(ROOT).join("examples/regtest/heights.toml");
+            let heights = Path::new(ROOT).join(v["heights"].as_str().unwrap_or("examples/regtest/heights.toml"));
             let regtest = v["regtest"].as_bool().unwrap().then_some(heights.as_path());
             let rep = receipts_chain::chain::verify_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, regtest).map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(&rep).unwrap())

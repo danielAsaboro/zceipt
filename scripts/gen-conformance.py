@@ -20,10 +20,13 @@ def spread(s, prefix, n):
 vectors = []
 cases = [
     ("regtest", ex("regtest/receipt.txt"), ex("regtest/tx.hex"), 222, True, [{"zatoshis": 42_000_000, "memo": "Invoice 42: two coffees"}]),
+    ("regtest-orchard", ex("regtest-orchard/receipt.txt"), ex("regtest-orchard/tx.hex"), 212, True, [{"zatoshis": 42_000_000, "memo": "Invoice 7: Orchard espresso"}]),
     ("testnet", ex("testnet/receipt.txt"), ex("testnet/tx.hex"), 4_500_997, False, [{"zatoshis": 1_000_000, "memo": "Invoice 42: two coffees"}]),
 ]
 for name, r, tx, h, regtest, outs in cases:
     base = {"type": "receipt", "raw_tx": tx, "height": h, "regtest": regtest}
+    if regtest:
+        base["heights"] = f"examples/{name}/heights.toml"
     vectors.append({"name": f"{name}/valid", **base, "receipt": r, "expect": {"valid": True, "outputs": outs}})
     for i in spread(r, "zrcpt1", 24):
         vectors.append({"name": f"{name}/flip-{i}", **base, "receipt": flip(r, i), "expect": {"valid": False}})
@@ -31,7 +34,7 @@ for name, r, tx, h, regtest, outs in cases:
     vectors.append({"name": f"{name}/extra-bytes", **base, "receipt": r + "AAAA", "expect": {"valid": False}})
     vectors.append({"name": f"{name}/wrong-prefix", **base, "receipt": "zrcpt2" + r[6:], "expect": {"valid": False}})
 # A receipt checked against some other transaction.
-vectors.append({"name": "cross/regtest-receipt-testnet-tx", "type": "receipt", "receipt": cases[0][1], "raw_tx": cases[1][2], "height": 4_500_997, "regtest": True, "expect": {"valid": False}})
+vectors.append({"name": "cross/regtest-receipt-testnet-tx", "type": "receipt", "receipt": cases[0][1], "raw_tx": cases[1][2], "height": 4_500_997, "regtest": True, "heights": "examples/regtest/heights.toml", "expect": {"valid": False}})
 
 s = ex("testnet/sign-in.txt")
 si = {"type": "sign_in", "domain": "kemis-coffee.test", "nonce": "example-nonce-0001"}

@@ -55,7 +55,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component |
 | **Refunds** | the payer signs `refund-to:` into their receipt; `POST /v1/requests/{id}/refunds` returns a ZIP-321 link to that address, and a receipt for the refund settles it (`refund.created`, `refund.succeeded`) |
 | **Sign in with Zcash** | `POST /v1/sign_in/challenges` + `receipts sign-in`: prove control of a shielded address for one domain and one nonce, with no transaction. Phishing and replay are refused; `verifySignIn()` checks it offline |
-| **Conformance** | [77 shared vectors](conformance/README.md) from real receipts that the Rust and npm verifiers both run, plus a decoder fuzz pass in `cargo test` |
+| **Conformance** | [105 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts that the Rust and npm verifiers both run, plus a decoder fuzz pass in `cargo test` |
 | **Sandbox** | `zrcpt_test_*` fixtures with a fixed outcome for every error path, so you can integrate with no wallet and no faucet |
 | **Local dev tools** | `receipts listen --forward-to …` and `receipts trigger request.fulfilled`, like the Stripe CLI |
 | **For AI agents** | `/llms.txt`, `/llms-full.txt`, every doc as Markdown, and `receipts mcp`, an MCP server with `verify_receipt`, `create_proof_request`, `get_proof_request` and `submit_receipt` |

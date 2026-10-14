@@ -14,6 +14,7 @@
 
 pub mod db;
 pub mod error;
+pub mod requests;
 pub mod sandbox;
 pub mod verify;
 pub mod webhooks;
@@ -26,6 +27,7 @@ use axum::{
     Json, Router,
 };
 use db::{new_id, now, Db};
+use requests::{create_request, get_request, list_requests, request_qr, submit_receipt};
 use error::ApiError;
 use receipts_chain::{chain, Net};
 use rusqlite::{params, OptionalExtension};
@@ -48,6 +50,8 @@ pub struct Config {
     pub webhook_backoff_secs: i64,
     /// Attempts before a delivery is marked `failed`.
     pub webhook_max_attempts: i64,
+    /// Public base URL of this API, for hosted pay pages and campaign pages.
+    pub public_url: String,
 }
 
 impl Config {
@@ -60,6 +64,7 @@ impl Config {
             verifier_url: verifier_url.into(),
             webhook_backoff_secs: 10,
             webhook_max_attempts: webhooks::MAX_ATTEMPTS,
+            public_url: "http://127.0.0.1:8723".into(),
         }
     }
 }
@@ -125,19 +130,19 @@ pub enum Mode {
 }
 
 impl Mode {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Mode::Test => "test",
             Mode::Live => "live",
         }
     }
-    fn net(self, c: &Config) -> Net {
+    pub(crate) fn net(self, c: &Config) -> Net {
         match self {
             Mode::Test => c.test_net,
             Mode::Live => Net::Main,
         }
     }
-    fn server(self, c: &Config) -> Option<String> {
+    pub(crate) fn server(self, c: &Config) -> Option<String> {
         match self {
             Mode::Test => c.test_lightwalletd.clone(),
             Mode::Live => c.live_lightwalletd.clone(),
@@ -229,7 +234,7 @@ fn idem_store(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw:
 
 /// Runs `f` once per Idempotency-Key, storing and replaying its result (successes and
 /// verification failures alike, so a retry never changes the answer).
-async fn idempotent<F, Fut>(st: &Shared, auth: &Auth, headers: &HeaderMap, route: &str, raw: &str, f: F) -> Response
+pub(crate) async fn idempotent<F, Fut>(st: &Shared, auth: &Auth, headers: &HeaderMap, route: &str, raw: &str, f: F) -> Response
 where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<(StatusCode, Value), ApiError>>,
@@ -251,12 +256,12 @@ where
 
 // ---------- helpers ----------
 
-fn zec(z: u64) -> String {
+pub(crate) fn zec(z: u64) -> String {
     let s = format!("{}.{:08}", z / 100_000_000, z % 100_000_000);
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-fn urlenc(s: &str) -> String {
+pub(crate) fn urlenc(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
@@ -265,7 +270,7 @@ fn urlenc(s: &str) -> String {
         .collect()
 }
 
-fn check_payee(net: Net, payee: &str) -> Result<(), ApiError> {
+pub(crate) fn check_payee(net: Net, payee: &str) -> Result<(), ApiError> {
     let (nt, _, _) = unified::Address::decode(payee)
         .map_err(|e| ApiError::invalid("parameter_invalid", format!("payee is not a unified address: {e}")).param("payee"))?;
     let want = net.network_type();
@@ -275,64 +280,6 @@ fn check_payee(net: Net, payee: &str) -> Result<(), ApiError> {
     }
     chain::orchard_receiver_of(payee).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param("payee"))?;
     Ok(())
-}
-
-type RequestRow = (String, String, String, String, Option<i64>, Option<String>, String, String, i64, Option<i64>, Option<i64>, Option<String>, Option<i64>, Option<String>);
-
-const REQUEST_COLS: &str = "id, mode, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification";
-
-fn load_request(st: &AppState, mode: Mode, id: &str) -> Result<RequestRow, ApiError> {
-    let c = st.db.0.lock().unwrap();
-    c.query_row(&format!("SELECT {REQUEST_COLS} FROM requests WHERE id = ?1 AND mode = ?2"), params![id, mode.as_str()], row_to_request)
-        .optional()?
-        .ok_or_else(|| ApiError::not_found("request_not_found", format!("no proof request {id}")))
-}
-
-fn row_to_request(r: &rusqlite::Row) -> rusqlite::Result<RequestRow> {
-    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?))
-}
-
-fn request_json(st: &AppState, r: &RequestRow) -> Value {
-    let (id, mode, challenge, payee, amount, label, metadata, status, created, expires_at, fulfilled_at, txid, paid, verification) = r;
-    let status = if status == "open" && expires_at.is_some_and(|e| e <= now()) { "expired" } else { status.as_str() };
-    let memo = format!("Receipts request {id}");
-    let mut uri = format!("zcash:{payee}?");
-    if let Some(a) = amount {
-        uri.push_str(&format!("amount={}&", zec(*a as u64)));
-    }
-    uri.push_str(&format!("memo={}", base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, memo.as_bytes())));
-    if let Some(l) = label {
-        uri.push_str(&format!("&message={}", urlenc(l)));
-    }
-    let mut link = format!("{}?request={challenge}&to={}", st.config.verifier_url, urlenc(payee));
-    if let Some(a) = amount {
-        link.push_str(&format!("&min={a}"));
-    }
-    if let Some(l) = label {
-        link.push_str(&format!("&label={}", urlenc(l)));
-    }
-    json!({
-        "id": id,
-        "object": "proof_request",
-        "livemode": mode == "live",
-        "status": status,
-        "challenge": challenge,
-        "payee": payee,
-        "amount_zatoshis": amount,
-        "label": label,
-        "metadata": serde_json::from_str::<Value>(metadata).unwrap_or(json!({})),
-        "created": created,
-        "expires_at": expires_at,
-        "payment_uri": uri,
-        "receipt_link": link,
-        "cli_command": format!("receipts create -w <wallet> -i <key.age> --txid <txid> --request '{link}'"),
-        "fulfillment": fulfilled_at.map(|t| json!({
-            "fulfilled_at": t,
-            "txid": txid,
-            "paid_zatoshis": paid,
-            "verification": verification.as_deref().and_then(|v| serde_json::from_str::<Value>(v).ok()),
-        })),
-    })
 }
 
 /// Records an event and queues a delivery to every enabled endpoint subscribed to it.
@@ -398,155 +345,12 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
 }
 
 #[derive(Deserialize)]
-struct CreateRequest {
-    payee: Option<String>,
-    amount_zatoshis: Option<u64>,
-    label: Option<String>,
-    metadata: Option<serde_json::Map<String, Value>>,
-    expires_in: Option<i64>,
-}
-
-async fn create_request(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateRequest>) -> Response {
-    let st2 = st.clone();
-    let mode = auth.mode;
-    idempotent(&st, &auth, &headers, "POST /v1/requests", &raw, || async move {
-        let payee = req.payee.ok_or_else(|| ApiError::missing("payee"))?;
-        check_payee(mode.net(&st2.config), &payee)?;
-        if req.label.as_ref().is_some_and(|l| l.len() > 200) {
-            return Err(ApiError::invalid("parameter_invalid", "label is longer than 200 characters").param("label"));
-        }
-        if req.expires_in.is_some_and(|e| e <= 0) {
-            return Err(ApiError::invalid("parameter_invalid", "expires_in must be positive (seconds)").param("expires_in"));
-        }
-        let id = new_id("preq_");
-        let mut ch = [0u8; 8];
-        getrandom::fill(&mut ch).expect("OS RNG");
-        let challenge = hex::encode(ch);
-        let created = now();
-        let row = {
-            let c = st2.db.0.lock().unwrap();
-            c.execute(
-                "INSERT INTO requests (id, mode, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at) VALUES (?1,?2,?3,?4,?5,?6,?7,'open',?8,?9)",
-                params![id, mode.as_str(), challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e)],
-            )?;
-            c.query_row(&format!("SELECT {REQUEST_COLS} FROM requests WHERE id = ?1"), [&id], row_to_request)?
-        };
-        let obj = request_json(&st2, &row);
-        emit(&st2, mode, "request.created", obj.clone())?;
-        Ok((StatusCode::CREATED, obj))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-struct ListQuery {
-    status: Option<String>,
-    limit: Option<u32>,
-    starting_after: Option<String>,
-}
-
-async fn list_requests(State(st): State<Shared>, auth: Auth, Query(q): Query<ListQuery>) -> Result<Json<Value>, ApiError> {
-    let limit = q.limit.unwrap_or(20).clamp(1, 100);
-    let rows: Vec<RequestRow> = {
-        let c = st.db.0.lock().unwrap();
-        let after = match &q.starting_after {
-            Some(id) => c.query_row("SELECT created FROM requests WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.unwrap_or(i64::MAX),
-            None => i64::MAX,
-        };
-        let mut stmt = c.prepare(&format!("SELECT {REQUEST_COLS} FROM requests WHERE mode = ?1 AND created <= ?2 AND (?3 IS NULL OR id != ?3) ORDER BY created DESC, id DESC LIMIT ?4"))?;
-        let rows = stmt.query_map(params![auth.mode.as_str(), after, q.starting_after, limit + 1], row_to_request)?.collect::<Result<Vec<_>, _>>()?;
-        rows
-    };
-    let mut data: Vec<Value> = rows.iter().map(|r| request_json(&st, r)).collect();
-    if let Some(s) = &q.status {
-        data.retain(|r| r["status"] == s.as_str());
-    }
-    let has_more = data.len() > limit as usize;
-    data.truncate(limit as usize);
-    Ok(Json(json!({ "object": "list", "data": data, "has_more": has_more })))
-}
-
-async fn get_request(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -> Result<Json<Value>, ApiError> {
-    let row = load_request(&st, auth.mode, &id)?;
-    Ok(Json(request_json(&st, &row)))
-}
-
-#[derive(Deserialize)]
-struct SubmitReceipt {
-    receipt: Option<String>,
-}
-
-async fn submit_receipt(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Path(id): Path<String>, Body(req, raw): Body<SubmitReceipt>) -> Response {
-    let st2 = st.clone();
-    let mode = auth.mode;
-    let route = format!("POST /v1/requests/{id}/receipts");
-    idempotent(&st, &auth, &headers, &route, &raw, || async move {
-        let text = req.receipt.ok_or_else(|| ApiError::missing("receipt"))?;
-        let row = load_request(&st2, mode, &id)?;
-        let obj = request_json(&st2, &row);
-        match obj["status"].as_str() {
-            Some("fulfilled") => return Err(ApiError::conflict("request_already_fulfilled", format!("{id} was already fulfilled"))),
-            Some("expired") => return Err(ApiError::conflict("request_expired", format!("{id} expired"))),
-            _ => {}
-        }
-        let (challenge, payee, amount) = (&row.2, &row.3, row.4);
-        let net = mode.net(&st2.config);
-        let result = async {
-            let v = if sandbox::is_fixture(&text) {
-                if mode != Mode::Test {
-                    return Err(ApiError::invalid("receipt_network_mismatch", "sandbox fixtures only work with rcpt_test_ keys").param("receipt"));
-                }
-                sandbox::resolve(&text, Some(payee), amount.map(|a| a as u64), Some(challenge))?
-            } else {
-                verify::verify_receipt(net, mode.server(&st2.config).as_deref(), &text).await?
-            };
-            if v.challenge.as_deref() != Some(challenge.as_str()) {
-                return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this request's challenge; create it with `--request <receipt_link>`"));
-            }
-            let paid = verify::paid_to(&v, payee)?;
-            if paid == 0 {
-                return Err(ApiError::verification("wrong_payee", "no disclosed output paid the request's payee"));
-            }
-            if amount.is_some_and(|a| paid < a as u64) {
-                return Err(ApiError::verification("insufficient_amount", format!("paid {paid} zatoshis, the request asks for {}", amount.unwrap())));
-            }
-            Ok((v, paid))
-        }
-        .await;
-        let (v, paid) = match result {
-            Ok(x) => x,
-            Err(e) => {
-                if e.kind == "verification_error" {
-                    let _ = emit(&st2, mode, "receipt.rejected", json!({ "object": "receipt_rejection", "request": id, "error": e.body()["error"] }));
-                }
-                return Err(e);
-            }
-        };
-        let row = {
-            let c = st2.db.0.lock().unwrap();
-            let n = c.execute(
-                "UPDATE requests SET status = 'fulfilled', fulfilled_at = ?1, txid = ?2, paid_zatoshis = ?3, receipt = ?4, verification = ?5 WHERE id = ?6 AND status = 'open'",
-                params![now(), v.txid, paid as i64, text, serde_json::to_string(&v).unwrap(), id],
-            )?;
-            if n == 0 {
-                return Err(ApiError::conflict("request_already_fulfilled", format!("{id} was already fulfilled")));
-            }
-            c.query_row(&format!("SELECT {REQUEST_COLS} FROM requests WHERE id = ?1"), [&id], row_to_request)?
-        };
-        let obj = request_json(&st2, &row);
-        emit(&st2, mode, "request.fulfilled", obj.clone())?;
-        Ok((StatusCode::OK, obj))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
 struct CreateEndpoint {
     url: Option<String>,
     events: Option<Vec<String>>,
 }
 
-const EVENT_TYPES: &[&str] = &["request.created", "request.fulfilled", "receipt.rejected"];
+const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.expired", "receipt.rejected"];
 
 async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateEndpoint>) -> Result<(StatusCode, Json<Value>), ApiError> {
     let url = req.url.ok_or_else(|| ApiError::missing("url"))?;
@@ -588,6 +392,13 @@ async fn delete_endpoint(State(st): State<Shared>, auth: Auth, Path(id): Path<St
         return Err(ApiError::not_found("webhook_endpoint_not_found", format!("no webhook endpoint {id}")));
     }
     Ok(Json(json!({ "id": id, "object": "webhook_endpoint", "deleted": true })))
+}
+
+#[derive(Deserialize)]
+pub struct ListQuery {
+    pub(crate) status: Option<String>,
+    pub(crate) limit: Option<u32>,
+    pub(crate) starting_after: Option<String>,
 }
 
 async fn list_events(State(st): State<Shared>, auth: Auth, Query(q): Query<ListQuery>) -> Result<Json<Value>, ApiError> {
@@ -653,15 +464,6 @@ async fn list_deliveries(State(st): State<Shared>, auth: Auth, Query(q): Query<D
         })?
         .collect::<Result<_, _>>()?;
     Ok(Json(json!({ "object": "list", "data": data, "has_more": false })))
-}
-
-/// The request's ZIP-321 payment URI as an SVG QR code.
-async fn request_qr(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -> Result<Response, ApiError> {
-    let row = load_request(&st, auth.mode, &id)?;
-    let uri = request_json(&st, &row)["payment_uri"].as_str().unwrap_or_default().to_string();
-    let code = qrcode::QrCode::with_error_correction_level(uri.as_bytes(), qrcode::EcLevel::M).map_err(|e| ApiError::internal(e.to_string()))?;
-    let svg = code.render::<qrcode::render::svg::Color>().min_dimensions(240, 240).quiet_zone(true).build();
-    Ok(([("content-type", "image/svg+xml")], svg).into_response())
 }
 
 async fn errors_handler() -> Json<Value> {
@@ -736,6 +538,12 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/requests/{id}/receipts", post(submit_receipt))
         .route("/v1/requests/{id}/qr.svg", get(request_qr))
         .route("/v1/deliveries", get(list_deliveries))
+        .route("/v1/public/requests/{id}", get(requests::public_get))
+        .route("/v1/public/requests/{id}/qr.svg", get(requests::public_qr))
+        .route("/v1/public/requests/{id}/receipts", post(requests::public_submit))
+        .route("/v1/public/campaigns/{id}", get(requests::campaign_json))
+        .route("/pay/{id}", get(requests::pay_page))
+        .route("/c/{id}", get(requests::campaign_page))
         .route("/v1/webhook_endpoints", post(create_endpoint).get(list_endpoints))
         .route("/v1/webhook_endpoints/{id}", delete(delete_endpoint))
         .route("/v1/events", get(list_events))
@@ -767,6 +575,7 @@ pub async fn build(db_path: &str, config: Config) -> anyhow::Result<(Router, Vec
         rate: Default::default(),
     });
     tokio::spawn(webhooks::worker(state.clone()));
+    tokio::spawn(requests::expiry_sweeper(state.clone()));
     tokio::spawn(verify::warm_up());
     Ok((router(state), keys))
 }

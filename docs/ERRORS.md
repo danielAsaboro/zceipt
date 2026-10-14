@@ -27,10 +27,13 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="batch_invalid"></a>`batch_invalid` | 422 | A batch is incomplete, reordered or mixes batches. |
 | <a id="request_not_found"></a>`request_not_found` | 404 | No proof request with that id for this key's mode. |
 | <a id="request_already_fulfilled"></a>`request_already_fulfilled` | 409 | The proof request was already fulfilled. |
+| <a id="payment_already_used"></a>`payment_already_used` | 409 | This payment (transaction output) already counted towards a request. One payment can settle only one request. |
 | <a id="request_expired"></a>`request_expired` | 409 | The proof request expired before a valid receipt arrived. |
 | <a id="webhook_endpoint_not_found"></a>`webhook_endpoint_not_found` | 404 | No webhook endpoint with that id. |
 | <a id="event_not_found"></a>`event_not_found` | 404 | No event with that id. |
 | <a id="idempotency_key_reused"></a>`idempotency_key_reused` | 409 | The Idempotency-Key was used with a different request body. |
+| <a id="api_version_unsupported"></a>`api_version_unsupported` | 400 | The Receipts-Version header names a version this server doesn't speak. |
+| <a id="rate_limited"></a>`rate_limited` | 429 | Too many requests for this key this minute. Wait `Retry-After` seconds; SDKs do this automatically. |
 | <a id="chain_unavailable"></a>`chain_unavailable` | 502 | lightwalletd could not be reached. Safe to retry. |
 | <a id="internal_error"></a>`internal_error` | 500 | Unexpected server error. Safe to retry. |
 

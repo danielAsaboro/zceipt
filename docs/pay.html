@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer"><title>Pay · Receipts</title>
+<style>
+:root{color-scheme:light;--paper:#fbfaf6;--ink:#1d1c1a;--dim:#6b665c;--line:#e5dfd2;--good:#1d6b45;--bad:#a3271f}
+*{box-sizing:border-box}body{margin:0;background:#efeae0;color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}
+main{max-width:520px;margin:0 auto;padding:28px 16px 60px}.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.06)}
+.brand{font:800 12px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:var(--dim)}h1{font-size:22px;margin:6px 0 2px}.amt{font:800 34px ui-monospace,Menlo,monospace;margin:10px 0 0}
+.qr{width:240px;margin:16px auto;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px}.qr svg{width:100%;height:auto;display:block}
+.step{margin:16px 0 0}.step b{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;text-align:center;font-size:12px;line-height:22px;margin-right:6px}
+code{font:12px ui-monospace,Menlo,monospace;word-break:break-all;background:#f1ece2;border-radius:6px;padding:2px 5px}textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:10px;padding:10px;font:12px ui-monospace,Menlo,monospace;margin-top:8px}
+button{width:100%;margin-top:10px;background:var(--ink);color:#fff;border:0;border-radius:10px;padding:12px;font:600 15px system-ui;cursor:pointer}button.copy{width:auto;margin:6px 0 0;padding:5px 10px;font-size:12px;background:#fff;color:var(--ink);border:1px solid var(--line)}
+.ok{color:var(--good);font-weight:700}.err{color:var(--bad);font-size:13px;margin-top:8px}.muted{color:var(--dim);font-size:13px}.done{text-align:center;padding:26px 0}.done .big{font:900 28px ui-monospace,Menlo,monospace;color:var(--good);letter-spacing:.2em;border:3px solid var(--good);display:inline-block;padding:4px 14px;border-radius:8px;transform:rotate(-3deg)}
+</style></head>
+<body><main><div class="card" id="card"><div class="brand">RECEIPTS · PAY PRIVATELY</div><p class="muted">Loading…</p></div>
+<p class="muted" style="text-align:center;margin-top:14px">You prove this one payment. Your wallet, balance and other payments stay private.</p></main>
+<script>
+const id = location.pathname.split("/").pop();
+const secret = new URLSearchParams(location.search).get("secret") || "";
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
+const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+let last;
+async function load() {
+  const r = await fetch(`/v1/public/requests/${id}?secret=${encodeURIComponent(secret)}`);
+  const j = await r.json();
+  if (!r.ok) { document.getElementById("card").innerHTML = `<div class="brand">RECEIPTS</div><p class="err">${esc(j.error?.message || "Not found")}</p>`; return; }
+  if (last && last.status === j.status && last.received_zatoshis === j.received_zatoshis) return;
+  last = j;
+  const card = document.getElementById("card");
+  const net = j.livemode ? "Zcash" : "Zcash testnet";
+  if (j.status === "fulfilled") {
+    card.innerHTML = `<div class="brand">RECEIPTS · ${net.toUpperCase()}</div><div class="done"><div class="big">PAID</div><p>${esc(j.label || "Payment")} · ${zec(j.received_zatoshis)} ZEC verified</p><p class="muted">You can close this page.</p></div>`;
+    return;
+  }
+  if (j.status === "expired") { card.innerHTML = `<div class="brand">RECEIPTS</div><p class="err">This payment request expired.</p>`; return; }
+  const qr = await (await fetch(`/v1/public/requests/${id}/qr.svg?secret=${encodeURIComponent(secret)}`)).text();
+  const remaining = j.remaining_zatoshis ?? j.amount_zatoshis;
+  card.innerHTML = `
+    <div class="brand">RECEIPTS · ${net.toUpperCase()}</div>
+    <h1>${esc(j.label || "Payment request")}</h1>
+    ${remaining ? `<div class="amt">${zec(remaining)} ZEC</div>` : ""}
+    ${j.kind === "partial" && j.received_zatoshis ? `<p class="muted">${zec(j.received_zatoshis)} of ${zec(j.amount_zatoshis)} ZEC received so far</p>` : ""}
+    <div class="qr">${qr}</div>
+    <div class="step"><b>1</b>Pay from any shielded Zcash wallet: scan the code, or use <code>${esc(j.payment_uri)}</code> <button class="copy" data-copy="${esc(j.payment_uri)}">Copy</button></div>
+    <div class="step"><b>2</b>Make a receipt for that payment:<br><code>${esc(j.cli_command)}</code> <button class="copy" data-copy="${esc(j.cli_command)}">Copy command</button></div>
+    <div class="step"><b>3</b>Paste the receipt link it prints:
+      <textarea id="receipt" placeholder="https://…#zrcpt1…"></textarea>
+      <button id="submit">Confirm payment</button><div id="msg"></div></div>`;
+  document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = "Copied"; });
+  document.getElementById("submit").onclick = submit;
+}
+async function submit() {
+  const btn = document.getElementById("submit"), msg = document.getElementById("msg");
+  btn.disabled = true; btn.textContent = "Checking the proof…"; msg.textContent = "";
+  const r = await fetch(`/v1/public/requests/${id}/receipts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_secret: secret, receipt: document.getElementById("receipt").value.trim() }) });
+  const j = await r.json();
+  if (!r.ok) { msg.className = "err"; msg.textContent = `${j.error?.code}: ${j.error?.message}`; btn.disabled = false; btn.textContent = "Confirm payment"; return; }
+  last = undefined; load();
+}
+load(); setInterval(load, 4000);
+</script></body></html>

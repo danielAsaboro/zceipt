@@ -14,6 +14,8 @@ like Stripe's test card numbers. They work in `POST /v1/verify` and
 | `zrcpt_test_not_mined` | 422 `transaction_not_mined` (retry later) |
 | `zrcpt_test_not_found` | 422 `transaction_not_found` |
 | `zrcpt_test_chain_unavailable` | 502 `chain_unavailable` (retryable) |
+| `zrcpt_test_partial` | valid; pays half of what's still owed (for `partial` requests and campaigns) |
+| `zrcpt_test_same_payment` | valid, but always the same transaction: submit it to two requests to see `payment_already_used` |
 
 `GET /v1/sandbox/fixtures` lists them.
 

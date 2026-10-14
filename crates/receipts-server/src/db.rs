@@ -30,6 +30,25 @@ CREATE TABLE IF NOT EXISTS requests (
     receipt TEXT,
     verification TEXT
 );
+CREATE TABLE IF NOT EXISTS payments_used (
+    mode TEXT NOT NULL,
+    txid TEXT NOT NULL,
+    action INTEGER NOT NULL,
+    request_id TEXT NOT NULL,
+    zatoshis INTEGER NOT NULL,
+    created INTEGER NOT NULL,
+    PRIMARY KEY (mode, txid, action)
+);
+CREATE TABLE IF NOT EXISTS request_payments (
+    id INTEGER PRIMARY KEY,
+    request_id TEXT NOT NULL REFERENCES requests(id),
+    txid TEXT NOT NULL,
+    zatoshis INTEGER NOT NULL,
+    mined_height INTEGER,
+    memo TEXT,
+    sender_addresses TEXT NOT NULL DEFAULT '[]',
+    created INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS webhook_endpoints (
     id TEXT PRIMARY KEY,
     mode TEXT NOT NULL,
@@ -85,6 +104,15 @@ impl Db {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
+        // Columns added after the first release; ignore "duplicate column" on existing files.
+        for col in [
+            "kind TEXT NOT NULL DEFAULT 'single'",
+            "received_zatoshis INTEGER NOT NULL DEFAULT 0",
+            "client_secret TEXT",
+            "expired_notified INTEGER NOT NULL DEFAULT 0",
+        ] {
+            let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
+        }
         Ok(Db(Mutex::new(conn)))
     }
 

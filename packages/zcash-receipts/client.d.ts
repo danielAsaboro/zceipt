@@ -11,13 +11,16 @@ export interface BatchVerification {
 }
 export interface ProofRequest {
   id: string; object: "proof_request"; livemode: boolean; status: "open" | "fulfilled" | "expired";
+  kind: "single" | "partial" | "campaign"; received_zatoshis: number; remaining_zatoshis: number | null;
+  payments: { txid: string; zatoshis: number; mined_height: number | null; memo: string | null }[];
+  client_secret: string; hosted_url: string; public_url: string | null;
   challenge: string; payee: string; amount_zatoshis: number | null; label: string | null;
   metadata: Record<string, unknown>; created: number; expires_at: number | null;
   payment_uri: string; receipt_link: string; cli_command: string;
   fulfillment: null | { fulfilled_at: number; txid: string; paid_zatoshis: number; verification: Verification };
 }
 export interface WebhookEndpoint { id: string; object: "webhook_endpoint"; url: string; events: string[]; secret?: string }
-export interface ReceiptsEvent<T = any> { id: string; object: "event"; type: "request.created" | "request.fulfilled" | "receipt.rejected"; created: number; livemode: boolean; data: { object: T } }
+export interface ReceiptsEvent<T = any> { id: string; object: "event"; type: "request.created" | "request.payment_received" | "request.fulfilled" | "request.expired" | "receipt.rejected"; created: number; livemode: boolean; data: { object: T } }
 export interface List<T> { object: "list"; data: T[]; has_more: boolean }
 export interface RequestOptions { idempotencyKey?: string }
 
@@ -34,7 +37,7 @@ export class Receipts {
   readonly livemode: boolean;
   verify(params: string | { receipt: string; expect_address?: string; min_zatoshis?: number; challenge?: string }, opts?: RequestOptions): Promise<Verification | BatchVerification>;
   requests: {
-    create(params: { payee: string; amount_zatoshis?: number; label?: string; metadata?: Record<string, unknown>; expires_in?: number }, opts?: RequestOptions): Promise<ProofRequest>;
+    create(params: { payee: string; amount_zatoshis?: number; label?: string; metadata?: Record<string, unknown>; expires_in?: number; kind?: "single" | "partial" | "campaign" }, opts?: RequestOptions): Promise<ProofRequest>;
     retrieve(id: string): Promise<ProofRequest>;
     list(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number; starting_after?: string }): Promise<List<ProofRequest>>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<ProofRequest>;

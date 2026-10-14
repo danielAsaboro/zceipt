@@ -80,6 +80,11 @@ paths:
                 label: { type: string, maxLength: 200 }
                 metadata: { type: object, additionalProperties: true, description: "Your own key/values, e.g. order_id." }
                 expires_in: { type: integer, minimum: 1, description: "Seconds until the request expires." }
+                kind:
+                  type: string
+                  enum: [single, partial, campaign]
+                  default: single
+                  description: "single: one receipt must cover the amount. partial: receipts add up until the amount is reached. campaign: open-ended; every valid receipt counts and a public page shows the verified total (never the donors)."
             example: { payee: "utest1…", amount_zatoshis: 1000000, label: "Order #42", metadata: { order_id: "42" }, expires_in: 86400 }
       responses:
         "201":
@@ -137,6 +142,31 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /v1/public/requests/{id}:
+    get:
+      tags: [Proof requests]
+      operationId: publicGetRequest
+      summary: Payer view of a request (no API key; needs the client secret)
+      security: []
+      parameters: [{ $ref: "#/components/parameters/Id" }, { name: secret, in: query, required: true, schema: { type: string } }]
+      responses: { "200": { description: "Status, amounts, payment URI. Never metadata." }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/public/requests/{id}/receipts:
+    post:
+      tags: [Proof requests]
+      operationId: publicSubmitReceipt
+      summary: Payer submits a receipt from the hosted page (client secret; none needed for campaigns)
+      security: []
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { content: { application/json: { schema: { type: object, required: [receipt], properties: { receipt: { type: string }, client_secret: { type: string } } } } } }
+      responses: { "200": { description: Accepted }, "409": { $ref: "#/components/responses/Error" }, "422": { $ref: "#/components/responses/Error" } }
+  /v1/public/campaigns/{id}:
+    get:
+      tags: [Proof requests]
+      operationId: publicCampaign
+      summary: Public campaign tally (verified total and payments, never donors)
+      security: []
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: OK } }
   /v1/webhook_endpoints:
     post:
       tags: [Webhooks]
@@ -151,7 +181,7 @@ paths:
               required: [url]
               properties:
                 url: { type: string, format: uri }
-                events: { type: array, items: { type: string, enum: ["*", request.created, request.fulfilled, receipt.rejected] }, default: ["*"] }
+                events: { type: array, items: { type: string, enum: ["*", request.created, request.payment_received, request.fulfilled, request.expired, receipt.rejected] }, default: ["*"] }
       responses:
         "201":
           description: Created. `secret` is only returned here.
@@ -281,7 +311,14 @@ components:
         metadata: { type: object }
         created: { type: integer }
         expires_at: { type: [integer, "null"] }
-        payment_uri: { type: string, description: "ZIP-321 URI: zcash:<payee>?amount=…&memo=…" }
+        kind: { type: string, enum: [single, partial, campaign] }
+        received_zatoshis: { type: integer }
+        remaining_zatoshis: { type: [integer, "null"] }
+        payments: { type: array, items: { type: object, properties: { txid: { type: string }, zatoshis: { type: integer }, mined_height: { type: integer }, memo: { type: [string, "null"] } } } }
+        client_secret: { type: string, description: "Lets a payer open the hosted page and submit a receipt without your API key" }
+        hosted_url: { type: string, description: "Hosted pay page: /pay/{id}?secret=…" }
+        public_url: { type: [string, "null"], description: "Campaigns only: public tally page /c/{id}" }
+        payment_uri: { type: string, description: "ZIP-321 URI: zcash:<payee>?amount=…&memo=… (asks for the remaining amount)" }
         receipt_link: { type: string, description: "Verifier page link; pass it to `receipts create --request`" }
         cli_command: { type: string }
         fulfillment:

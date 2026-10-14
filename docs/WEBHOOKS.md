@@ -12,7 +12,9 @@ curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $RECEIPTS_
 |---|---|
 | `request.created` | a proof request was created |
 | `request.fulfilled` | a valid receipt answered a request; `data.object` is the fulfilled request |
-| `receipt.rejected` | a submitted receipt failed verification; `data.object.error.code` says why |
+| `request.payment_received` | a receipt was accepted on a `partial` request or a `campaign` (may not be fulfilled yet) |
+| `request.expired` | an open request passed `expires_at` |
+| `receipt.rejected` | a submitted receipt failed verification, or its payment was already used; `data.object.error.code` says why |
 
 **Signature.** Each delivery carries
 `Receipts-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`. Verify it on the

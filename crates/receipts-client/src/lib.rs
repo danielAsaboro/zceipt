@@ -56,6 +56,9 @@ pub struct CreateRequest {
     pub metadata: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_in: Option<i64>,
+    /// "single" (default), "partial" or "campaign".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 #[derive(Serialize, Default, Clone)]

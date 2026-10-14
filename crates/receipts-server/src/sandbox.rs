@@ -11,6 +11,8 @@
 //! | `zrcpt_test_not_mined`           | `transaction_not_mined`                   |
 //! | `zrcpt_test_not_found`           | `transaction_not_found`                   |
 //! | `zrcpt_test_chain_unavailable`   | `chain_unavailable` (502, retryable)      |
+//! | `zrcpt_test_partial`             | valid; pays half of what is still owed    |
+//! | `zrcpt_test_same_payment`        | valid; always the same transaction, to see `payment_already_used` |
 
 use crate::{error::ApiError, verify::{Output, Verification}};
 
@@ -32,6 +34,8 @@ pub const FIXTURES: &[&str] = &[
     "zrcpt_test_not_mined",
     "zrcpt_test_not_found",
     "zrcpt_test_chain_unavailable",
+    "zrcpt_test_partial",
+    "zrcpt_test_same_payment",
 ];
 
 /// Resolves a fixture. `payee`, `amount` and `challenge` are what the caller expects, so the
@@ -47,7 +51,12 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         livemode: false,
         network: "testnet",
         pool: "ironwood",
-        txid: "0000000000000000000000000000000000000000000000000000000000sandbx".chars().take(64).collect(),
+        // A fresh fake txid per call, so sandbox payments never collide with each other.
+        txid: {
+            let mut b = [0u8; 28];
+            getrandom::fill(&mut b).expect("OS RNG");
+            format!("5a4db0c5{}", hex::encode(b))
+        },
         mined_height: 4_500_000,
         message: challenge.map(|c| format!("challenge:{c}")).unwrap_or_default(),
         challenge: challenge.map(str::to_string),
@@ -57,6 +66,14 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
     };
     match name {
         "zrcpt_test_valid" => Ok(v),
+        "zrcpt_test_partial" => {
+            v.outputs[0].zatoshis = amount.div_ceil(2).max(1);
+            Ok(v)
+        }
+        "zrcpt_test_same_payment" => {
+            v.txid = "5a4db0c5000000000000000000000000000000000000000000000000000000aa".into();
+            Ok(v)
+        }
         "zrcpt_test_wrong_payee" => {
             v.outputs[0].recipient = DEFAULT_RECIPIENT.into();
             v.outputs[0].recipient_raw = [1u8; 43];

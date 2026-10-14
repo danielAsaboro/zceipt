@@ -223,3 +223,83 @@ async fn real_receipt_replay_is_refused() {
     let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": answered })), None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
 }
+
+#[tokio::test]
+async fn one_payment_settles_one_request() {
+    let (app, test, _) = app().await;
+    let (_, a, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
+    let (_, b, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
+    let (s, _, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", a["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_same_payment" })), None).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", b["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_same_payment" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("payment_already_used")));
+}
+
+#[tokio::test]
+async fn partial_payments_add_up() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "kind": "partial" })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_partial" })), None).await;
+    assert_eq!((v["status"].as_str(), v["received_zatoshis"].as_i64(), v["remaining_zatoshis"].as_i64()), (Some("open"), Some(500), Some(500)));
+    assert!(v["payment_uri"].as_str().unwrap().contains("amount=0.000005"), "the payment URI asks only for what is still owed");
+    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_partial" })), None).await;
+    assert_eq!(v["received_zatoshis"], 750);
+    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!(v["status"], "fulfilled");
+    assert_eq!(v["payments"].as_array().unwrap().len(), 3);
+    let (_, ev, _) = call(&app, "GET", "/v1/events?limit=50", Some(&test), None, None).await;
+    let n = ev["data"].as_array().unwrap().iter().filter(|e| e["type"] == "request.payment_received").count();
+    assert_eq!(n, 3);
+}
+
+#[tokio::test]
+async fn hosted_pay_page_needs_the_client_secret() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "metadata": { "order_id": "42" } })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let secret = r["client_secret"].as_str().unwrap();
+    assert!(r["hosted_url"].as_str().unwrap().contains(&format!("/pay/{id}?secret={secret}")));
+    let (s, _, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret=wrong"), None, None, None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, v, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret={secret}"), None, None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v.get("metadata").is_none() && v.get("client_secret").is_none(), "payers never see merchant metadata");
+    let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": "nope", "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, v, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!((s, v["status"].as_str()), (StatusCode::OK, Some("fulfilled")));
+}
+
+#[tokio::test]
+async fn campaigns_tally_without_revealing_donors() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 5000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })), None).await;
+    let id = r["id"].as_str().unwrap();
+    for _ in 0..3 {
+        let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zrcpt_test_partial" })), None).await;
+        assert_eq!(s, StatusCode::OK);
+    }
+    let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
+    assert_eq!(c["count"], 3);
+    assert_eq!(c["received_zatoshis"], 2500 + 1250 + 625);
+    assert!(c.get("metadata").is_none());
+    let (_, r, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!(r["status"], "open", "campaigns never close by themselves");
+}
+
+#[tokio::test]
+async fn expiry_emits_an_event() {
+    let (app, test, _) = app().await;
+    call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "expires_in": 1 })), None).await;
+    let mut seen = false;
+    for _ in 0..40 {
+        let (_, ev, _) = call(&app, "GET", "/v1/events", Some(&test), None, None).await;
+        if ev["data"].as_array().unwrap().iter().any(|e| e["type"] == "request.expired") {
+            seen = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(seen, "request.expired was emitted");
+}

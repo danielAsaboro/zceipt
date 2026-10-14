@@ -109,6 +109,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("batch_invalid", 422, "A batch is incomplete, reordered or mixes batches."),
     ("request_not_found", 404, "No proof request with that id for this key's mode."),
     ("request_already_fulfilled", 409, "The proof request was already fulfilled."),
+    ("payment_already_used", 409, "This payment (transaction output) already counted towards a request. One payment can settle only one request."),
     ("request_expired", 409, "The proof request expired before a valid receipt arrived."),
     ("webhook_endpoint_not_found", 404, "No webhook endpoint with that id."),
     ("event_not_found", 404, "No event with that id."),

@@ -61,6 +61,19 @@ A failure throws `VerificationError` with a stable `code`, e.g. `challenge_misma
 (the receipt wasn't made for this request), `wrong_payee`, `insufficient_amount` or
 `transaction_not_mined`.
 
+## More request kinds
+
+- `kind: "partial"`: the customer can pay in several transactions. Receipts add up until
+  `amount_zatoshis` is reached, and `payment_uri` always asks for what's still owed.
+- `kind: "campaign"`: fundraising. Every valid receipt counts and the request never closes.
+  `public_url` (`/c/{id}`) shows the verified total and each payment's amount and memo, but
+  never who paid.
+- **Hosted pay page.** Send the payer `hosted_url` (`/pay/{id}?secret=…`). It shows the QR
+  code and the command, and accepts the receipt with no API key and no frontend work on your
+  side.
+- **Double-spend protection.** A payment (transaction output) can settle only one request,
+  ever. A second receipt for the same payment gets `payment_already_used`.
+
 ## 6. Get told when it happens
 
 ```bash

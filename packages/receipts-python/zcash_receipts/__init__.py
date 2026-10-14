@@ -97,9 +97,10 @@ class _Resource:
 class _Requests(_Resource):
     def create(self, *, payee: str, amount_zatoshis: Optional[int] = None, label: Optional[str] = None,
                metadata: Optional[Dict[str, Any]] = None, expires_in: Optional[int] = None,
-               idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+               kind: Optional[str] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+        """kind: "single" (default), "partial" (receipts add up) or "campaign" (public tally)."""
         body = {k: v for k, v in dict(payee=payee, amount_zatoshis=amount_zatoshis, label=label,
-                                      metadata=metadata, expires_in=expires_in).items() if v is not None}
+                                      metadata=metadata, expires_in=expires_in, kind=kind).items() if v is not None}
         return self._c._request("POST", "/v1/requests", body, idempotency_key)
 
     def retrieve(self, id: str) -> Dict[str, Any]:

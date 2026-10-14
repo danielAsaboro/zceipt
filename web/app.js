@@ -30,7 +30,13 @@ const call = (op, args = {}) =>
 
 // Start building the verifying key in the worker as soon as the page opens (about 8s, once).
 // Quick calls (decoding, address checks) run on this thread so they never wait behind it.
-call("warm").catch(() => {});
+const warmStart = performance.now();
+const warmed = call("warm")
+  .then(() => {
+    const el = document.querySelector("#warm");
+    if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s, one time)`; }
+  })
+  .catch(() => {});
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
@@ -270,7 +276,7 @@ async function run(receiptText) {
     return showError(`Could not fetch the transaction: ${e.message}`);
   }
   try {
-    setStep("verify", "busy", "checking the Halo 2 proof and signature (the first check also prepares the verifier, about 10s)");
+    setStep("verify", "busy", document.querySelector("#warm")?.dataset.state === "ready" ? "checking the Halo 2 proof and signature" : "preparing the verifier (one time), then checking the proof and signature");
     const t0 = performance.now();
     const v = await call("verify", { receipt: receiptText, rawTx: tx.raw, height: tx.height, regtest: regtest() });
     setStep("verify", "done", `proof and signature valid (${((performance.now() - t0) / 1000).toFixed(1)}s)`);

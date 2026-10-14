@@ -102,6 +102,8 @@
     .request summary { cursor: pointer; color: var(--text); font-weight: 600; }
     .request .grid { display: grid; gap: 8px; margin-top: 10px; }
     .request code { font-family: var(--mono); color: var(--text); }
+    .warm { margin-top: 10px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+    .warm[data-state="ready"] { color: #3f9b6c; }
     footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 40px; color: var(--text-2); font-size: 12.5px; }
   </style>
 </head>
@@ -118,6 +120,7 @@
         <button id="verifyBtn">Verify receipt</button>
         <span class="hint">The receipt stays in the page. Only the public transaction is fetched.</span>
       </div>
+      <div id="warm" class="warm" data-state="busy">Preparing the verifier in the background (one time, a few seconds)…</div>
 
       <div id="progress" hidden>
         <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>

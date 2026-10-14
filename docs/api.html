@@ -1,6 +1,25 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Receipts API</title>
-<style>body{margin:0;font:15px/1.6 ui-sans-serif,system-ui,sans-serif;background:#fbfaf7;color:#1d1c1a}main{max-width:780px;margin:0 auto;padding:40px 20px}code,pre{font-family:ui-monospace,Menlo,monospace}pre{background:#161513;color:#ebe7dd;padding:12px 14px;border-radius:8px;overflow-x:auto;font-size:13px}</style></head>
-<body><main><h1>Receipts API</h1><p>The full reference is the OpenAPI document at <a href="/openapi.yaml">/openapi.yaml</a>. Error codes are at <a href="/v1/errors">/v1/errors</a>.</p>
-<pre>curl -s localhost:8723/v1/verify -H "Authorization: Bearer $RECEIPTS_KEY" \
-  -H 'content-type: application/json' -d '{"receipt":"zrcpt1…"}'</pre></main></body></html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Receipts API docs</title>
+<style>
+body{margin:0;font:15px/1.6 ui-sans-serif,system-ui,-apple-system,sans-serif;background:#fbfaf7;color:#1d1c1a}
+main{max-width:880px;margin:0 auto;padding:40px 20px 80px}nav a{margin-right:14px}
+pre{background:#161513;color:#ebe7dd;padding:14px 16px;border-radius:8px;overflow-x:auto;font:13px/1.5 ui-monospace,Menlo,monospace}
+code{font:13px ui-monospace,Menlo,monospace}table{border-collapse:collapse}td,th{border-bottom:1px solid #e3ded2;padding:4px 10px 4px 0;text-align:left;vertical-align:top}
+#doc h1{font-size:28px}#doc h2{margin-top:28px}
+</style></head>
+<body><main>
+<nav><a href="#QUICKSTART.md">Quickstart</a><a href="#WEBHOOKS.md">Webhooks</a><a href="#ERRORS.md">Errors</a><a href="#SANDBOX.md">Sandbox</a><a href="#SDKS.md">SDKs</a><a href="#SPEC.md">Spec</a><a href="#guides/merchant-checkout.md">Checkout</a><a href="#guides/exchange-deposit.md">Exchange</a><a href="#guides/grant-payouts.md">Payouts</a><a href="/openapi.yaml">OpenAPI</a><a href="/llms.txt">llms.txt</a></nav>
+<article id="doc">Loading…</article>
+</main>
+<script>
+// Tiny Markdown renderer (headings, code, tables, lists, links, inline code, bold).
+function esc(s){return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"})[c])}
+function inline(s){return esc(s).replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\[([^\]]+)\]\(([^)]+)\)/g,(m,t,u)=>`<a href="${u.endsWith('.md')&&!u.startsWith('http')?'#'+u.replace(/^\/docs\//,'').replace(/^\.\.\//,''):u}">${t}</a>`).replace(/&lt;a id="([a-z_]+)"&gt;&lt;\/a&gt;/g,'<a id="$1"></a>')}
+function md(src){const L=src.split("\n");let o="",i=0;while(i<L.length){let l=L[i];if(l.startsWith("```")){let b=[];i++;while(i<L.length&&!L[i].startsWith("```"))b.push(L[i++]);i++;o+=`<pre>${esc(b.join("\n"))}</pre>`;continue}
+const h=l.match(/^(#{1,3}) (.*)/);if(h){o+=`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;i++;continue}
+if(l.startsWith("|")){let r=[];while(i<L.length&&L[i].startsWith("|"))r.push(L[i++]);r=r.filter(x=>!/^\|[-| ]+\|$/.test(x));o+="<table>"+r.map((x,j)=>"<tr>"+x.slice(1,-1).split("|").map(c=>`<${j?"td":"th"}>${inline(c.trim())}</${j?"td":"th"}>`).join("")+"</tr>").join("")+"</table>";continue}
+if(/^(- |\d+\. )/.test(l)){let r=[];while(i<L.length&&/^(- |\d+\. |   )/.test(L[i]))r.push(L[i++]);o+="<ul>"+r.map(x=>`<li>${inline(x.replace(/^(- |\d+\. |   )/,""))}</li>`).join("")+"</ul>";continue}
+if(l.trim()){let r=[];while(i<L.length&&L[i].trim()&&!/^(#|```|\||- |\d+\. )/.test(L[i]))r.push(L[i++]);o+=`<p>${inline(r.join(" "))}</p>`;continue}i++}return o}
+async function show(){const name=(location.hash.slice(1)||"QUICKSTART.md");const r=await fetch("/docs/"+name);document.getElementById("doc").innerHTML=r.ok?md(await r.text()):"Not found"}
+addEventListener("hashchange",show);show();
+</script></body></html>

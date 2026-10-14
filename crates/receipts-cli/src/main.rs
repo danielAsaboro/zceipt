@@ -1,5 +1,6 @@
 //! `receipts`: create and verify Zcash payment receipts (ZIP 311) for Orchard and Ironwood.
 
+mod mcp;
 mod wallet;
 
 use receipts_chain::{chain, net};
@@ -101,6 +102,14 @@ enum Cmd {
         /// Only these event types (default: all).
         #[arg(long = "event")]
         events: Vec<String>,
+    },
+    /// Model Context Protocol server (stdio) so AI agents can verify receipts and manage
+    /// proof requests through the Receipts API.
+    Mcp {
+        #[arg(long, env = "RECEIPTS_KEY")]
+        api_key: String,
+        #[arg(long, env = "RECEIPTS_URL", default_value = "http://127.0.0.1:8723")]
+        base_url: String,
     },
     /// Fire a real event in test mode, using a sandbox fixture.
     Trigger {
@@ -404,6 +413,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
             axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
         }
+        Cmd::Mcp { api_key, base_url } => mcp::run(api_key, base_url).await?,
         Cmd::Listen { forward_to, api_key, base_url, events } => listen(forward_to, api_key, base_url, events).await?,
         Cmd::Trigger { event, api_key, base_url, payee } => trigger(event, api_key, base_url, payee).await?,
         Cmd::Inspect { receipt } => {

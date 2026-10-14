@@ -43,11 +43,34 @@ people use today.
 
 The full construction is in [docs/SPEC.md](docs/SPEC.md).
 
+## For developers
+
+Receipts is a full developer platform, not just a library. Start with [docs/QUICKSTART.md](docs/QUICKSTART.md).
+
+| Piece | What you get |
+|---|---|
+| **REST API** (`receipts serve`) | proof requests (each with a ZIP-321 payment URI and a payer link), verification of receipts and batches, `rcpt_test_` / `rcpt_live_` keys, idempotency keys, cursor pagination, a stable error `code` on every failure, and an [OpenAPI spec](docs/openapi.yaml) |
+| **Webhooks** | HMAC-signed `request.fulfilled`, `request.created` and `receipt.rejected` events, retried with backoff for up to 8 attempts, plus resend |
+| **SDKs** | [TypeScript](packages/zcash-receipts) (with types), [Python](packages/receipts-python) (standard library only) and [Rust](crates/receipts-client), all with typed errors, automatic retries and idempotency, and webhook verification |
+| **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component |
+| **Sandbox** | `zrcpt_test_*` fixtures with a fixed outcome for every error path, so you can integrate with no wallet and no faucet |
+| **Local dev tools** | `receipts listen --forward-to …` and `receipts trigger request.fulfilled`, like the Stripe CLI |
+| **For AI agents** | `/llms.txt`, `/llms-full.txt`, every doc as Markdown, and `receipts mcp`, an MCP server with `verify_receipt`, `create_proof_request`, `get_proof_request` and `submit_receipt` |
+| **Docs** | [quickstart](docs/QUICKSTART.md), [webhooks](docs/WEBHOOKS.md), [errors](docs/ERRORS.md), [sandbox](docs/SANDBOX.md), [SDKs](docs/SDKS.md), and recipes for [checkout](docs/guides/merchant-checkout.md), [exchange deposits](docs/guides/exchange-deposit.md) and [payouts](docs/guides/grant-payouts.md) |
+
+Why it matters: today, Zcash payment processors need the merchant's viewing key to see that
+an order was paid, and that key exposes every incoming payment. Receipts turns it around. The
+payer proves their one payment, and nobody hands over a viewing key.
+
 ## Repository
 
 | Path | What |
 |---|---|
 | `crates/receipts-core` | Create and verify receipts, the `zrcpt1…` encoding, and tests |
+| `crates/receipts-chain` | lightwalletd access, on-chain verification, rebuilding Merkle paths |
+| `crates/receipts-server` | the REST API, webhooks, sandbox and docs (`receipts serve`) |
+| `crates/receipts-client` | Rust API client |
+| `packages/receipts-python` | Python API client |
 | `crates/receipts-cli` | `receipts` CLI: create from a zcash-devtool wallet, verify against lightwalletd |
 | `crates/receipts-wasm` | Browser verifier |
 | `packages/zcash-receipts` | npm package: `verifyReceipt()` for any JS app, plus the `<zcash-receipt>` web component |

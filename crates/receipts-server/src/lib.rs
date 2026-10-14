@@ -588,6 +588,38 @@ async fn docs_page() -> Html<&'static str> {
     Html(include_str!("../../../docs/api.html"))
 }
 
+/// Docs served as Markdown, so people and AI agents read the same text (`/docs/<name>.md`).
+const DOCS: &[(&str, &str)] = &[
+    ("QUICKSTART.md", include_str!("../../../docs/QUICKSTART.md")),
+    ("ERRORS.md", include_str!("../../../docs/ERRORS.md")),
+    ("WEBHOOKS.md", include_str!("../../../docs/WEBHOOKS.md")),
+    ("SANDBOX.md", include_str!("../../../docs/SANDBOX.md")),
+    ("SDKS.md", include_str!("../../../docs/SDKS.md")),
+    ("SPEC.md", include_str!("../../../docs/SPEC.md")),
+    ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
+    ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
+    ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),
+];
+
+async fn doc_md(Path(name): Path<String>) -> Response {
+    match DOCS.iter().find(|(n, _)| *n == name) {
+        Some((_, body)) => ([("content-type", "text/markdown; charset=utf-8")], *body).into_response(),
+        None => ApiError::not_found("doc_not_found", format!("no doc {name}")).into_response(),
+    }
+}
+
+async fn llms_txt() -> impl IntoResponse {
+    ([("content-type", "text/plain; charset=utf-8")], include_str!("../../../docs/llms.txt"))
+}
+
+async fn llms_full() -> impl IntoResponse {
+    let mut s = String::from(include_str!("../../../docs/llms.txt"));
+    for (name, body) in DOCS {
+        s.push_str(&format!("\n\n---\n<!-- /docs/{name} -->\n\n{body}"));
+    }
+    ([("content-type", "text/plain; charset=utf-8")], s)
+}
+
 pub fn router(state: Shared) -> Router {
     Router::new()
         .route("/v1/health", get(health))
@@ -603,6 +635,9 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/events/{id}/resend", post(resend_event))
         .route("/openapi.yaml", get(openapi))
         .route("/docs", get(docs_page))
+        .route("/docs/{*name}", get(doc_md))
+        .route("/llms.txt", get(llms_txt))
+        .route("/llms-full.txt", get(llms_full))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state)
 }

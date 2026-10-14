@@ -2,7 +2,7 @@
 //!
 //! ```json
 //! { "error": { "type": "verification_error", "code": "challenge_mismatch",
-//!              "message": "…", "param": "receipt", "doc_url": "/docs/errors#challenge_mismatch" } }
+//!              "message": "…", "param": "receipt", "doc_url": "/docs/ERRORS.md#challenge_mismatch" } }
 //! ```
 
 use axum::{
@@ -68,7 +68,7 @@ impl ApiError {
                 "code": self.code,
                 "message": self.message,
                 "param": self.param,
-                "doc_url": format!("/docs/errors#{}", self.code),
+                "doc_url": format!("/docs/ERRORS.md#{}", self.code),
             }
         })
     }

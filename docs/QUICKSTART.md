@@ -6,7 +6,7 @@ the one *asking* for proof (a shop, an exchange, a grant program) or the one *gi
 
 ## 1. Start the API (testnet)
 
-Needs Rust 1.89+ (the repo pins a toolchain in `rust-toolchain.toml`).
+Needs Rust 1.89 or newer; `rust-toolchain.toml` pins 1.95, which rustup installs automatically.
 
 ```bash
 cargo install --locked --path crates/receipts-cli   # installs `receipts`
@@ -32,7 +32,7 @@ The SDKs aren't on npm or PyPI yet. Install them from the repo:
 
 ```bash
 npm install ./packages/zcash-receipts          # JS / TS / React
-pip install ./packages/receipts-python         # Python
+python3 -m venv .venv && .venv/bin/pip install ./packages/receipts-python   # Python (in a venv; Homebrew Python refuses global installs)
 # Rust: receipts-client = { path = "crates/receipts-client" }
 ```
 
@@ -110,7 +110,7 @@ app.post("/webhooks/receipts", express.raw({ type: "*/*" }), async (req, res) =>
     "env": { "RECEIPTS_KEY": "rcpt_test_…", "RECEIPTS_URL": "http://127.0.0.1:8723" } } } }
 ```
 
-Tools: `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`.
+Tools: `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`, `refund_payment` and `check_payment_link`.
 
 ## 8. Run the SDK tests against your server
 

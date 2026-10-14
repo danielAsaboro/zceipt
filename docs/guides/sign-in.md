@@ -19,7 +19,7 @@ single-use). Nothing else about the wallet is revealed: not its balance, its not
 
 ```bash
 curl -s -X POST localhost:8723/v1/sign_in/challenges \
-  -H "authorization: Bearer $RECEIPTS_API_KEY" -d '{"domain":"kemis-coffee.test"}'
+  -H "authorization: Bearer $RECEIPTS_KEY" -d '{"domain":"kemis-coffee.test"}'
 ```
 
 The response carries `nonce` and a ready-made `wallet_command`. The user runs:

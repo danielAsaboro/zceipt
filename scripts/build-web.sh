@@ -6,7 +6,9 @@ for tool in wasm-bindgen wasm-tools; do
   command -v "$tool" >/dev/null || { echo "error: $tool is required (cargo install wasm-bindgen-cli --version 0.2.104; cargo install wasm-tools)" >&2; exit 1; }
 done
 rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown || { echo "error: run: rustup target add wasm32-unknown-unknown" >&2; exit 1; }
-cargo build -p receipts-wasm --release --target wasm32-unknown-unknown
+# Strip local paths (home directory, registry) from panic messages in the wasm.
+RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=~ --remap-path-prefix=$PWD=." \
+  cargo build -p receipts-wasm --release --target wasm32-unknown-unknown
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 PKG=packages/zcash-receipts/pkg
 rm -rf "$PKG"

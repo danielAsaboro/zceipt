@@ -61,6 +61,31 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
+  /v1/sandbox/fixtures:
+    get:
+      tags: [Meta]
+      operationId: listSandboxFixtures
+      summary: List the sandbox receipts (zrcpt_test_*) and their outcomes
+      security: []
+      responses:
+        "200": { description: List of fixture names }
+  /v1/deliveries:
+    get:
+      tags: [Webhooks]
+      operationId: listDeliveries
+      summary: Webhook delivery attempts (status, attempts, last HTTP status, last error)
+      responses:
+        "200": { description: List of deliveries }
+  /v1/requests/{id}/qr.svg:
+    get:
+      tags: [Proof requests]
+      operationId: requestQr
+      summary: The request's ZIP-321 payment URI as an SVG QR code
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: SVG image, content: { image/svg+xml: {} } }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/payment_links/check:
     post:
       tags: [Proof requests]

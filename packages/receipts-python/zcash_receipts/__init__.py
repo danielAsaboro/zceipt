@@ -235,6 +235,7 @@ class Receipts:
                     return json.loads(text) if text else {}
             except urllib.error.HTTPError as e:
                 text = e.read().decode()
+                e.close()
                 try:
                     payload = json.loads(text) if text else {}
                 except ValueError:

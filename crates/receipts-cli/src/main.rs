@@ -101,29 +101,43 @@ enum Cmd {
         #[arg(long)]
         regtest: Option<PathBuf>,
         /// Verify offline against this raw transaction (hex file) instead of fetching it.
+        /// Needs --height.
         #[arg(long, requires = "height")]
         raw_tx: Option<PathBuf>,
         /// Block height of --raw-tx.
         #[arg(long)]
         height: Option<u32>,
+        /// Offline exchange deposits: the second ZIP 320 step's raw transaction (hex file).
+        #[arg(long, requires = "raw_tx")]
+        second_raw_tx: Option<PathBuf>,
+        /// Block height of --second-raw-tx. Default: --height.
+        #[arg(long)]
+        second_height: Option<u32>,
     },
     /// Decode a receipt without touching the network.
-    Inspect { receipt: String },
+    Inspect {
+        /// The receipt (`zrcpt1…`), a link containing it, or `@file`.
+        receipt: String,
+    },
     /// Lint a ZIP-321 payment link (`zcash:…`) before printing it or making a QR code: network,
     /// address type, whether a receipt can prove it, amount, memo, unknown params, QR density.
     CheckLink {
+        /// The payment link, e.g. `zcash:u1…?amount=0.01&memo=…` (quote it in the shell).
         uri: String,
         /// mainnet, testnet or regtest: a different network is an error.
         #[arg(long)]
         network: Option<String>,
+        /// Print the full result as JSON.
         #[arg(long)]
         json: bool,
     },
     /// Sign in with Zcash: prove to a site that you control a shielded address, for its
     /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
     SignIn {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// The site asking (`domain` from its sign-in challenge).
@@ -135,13 +149,19 @@ enum Cmd {
         /// Address to prove. Default: the account's first Orchard address.
         #[arg(long)]
         address: Option<String>,
-        /// Send it to a Receipts API and print the result (needs RECEIPTS_API_KEY).
+        /// Send it to this Receipts API (e.g. http://127.0.0.1:8723) and print the result.
         #[arg(long)]
         submit: Option<String>,
+        /// API key for --submit.
+        #[arg(long, env = "RECEIPTS_KEY")]
+        api_key: Option<String>,
     },
     /// Scan files or directories (logs, configs, code) for leaked viewing keys, spending keys
     /// and seed phrases. Prints file:line and the kind, never the secret. Exits 1 if any are found.
-    PrivacyLint { paths: Vec<PathBuf> },
+    PrivacyLint {
+        /// Files or directories to scan. Default: the current directory.
+        paths: Vec<PathBuf>,
+    },
     /// Receive webhooks locally: registers a temporary endpoint, prints each event and
     /// forwards it (with its signature) to your app.
     Listen {
@@ -201,12 +221,15 @@ enum Cmd {
     },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
     Tx {
+        /// Transaction id as block explorers show it.
         txid: String,
-        #[arg(long, default_value = "main")]
+        /// mainnet, testnet or regtest (also main/test).
+        #[arg(long, default_value = "mainnet")]
         network: String,
         /// Activation heights file, for `--network regtest`.
         #[arg(long)]
         heights: Option<PathBuf>,
+        /// lightwalletd server, host:port. Default: zec.rocks for the network.
         #[arg(short, long)]
         server: Option<String>,
         /// Also print the raw transaction hex (for the web page's offline mode).
@@ -429,9 +452,23 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("`h=` lets verifiers fetch the whole block, so the server never learns which transaction):");
             println!("{}#{}&h={}", link_base, text, mined_height);
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height) } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height } => {
             let receipt = read_receipt_arg(&receipt)?;
-            let report = chain::verify_offline(&receipt, &std::fs::read_to_string(&raw)?, height, regtest.as_deref())?;
+            let raw1 = std::fs::read_to_string(&raw)?;
+            let report = chain::verify_offline(&receipt, &raw1, height, regtest.as_deref())?;
+            if receipts_chain::deposit::deposit_claim(&report.message).is_some() {
+                let second = second_raw_tx.ok_or_else(|| anyhow!("this is an exchange-deposit receipt: pass the second step with --second-raw-tx (and --second-height if it is in another block)"))?;
+                let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
+                let read = |hex_text: &str, h: u32| -> anyhow::Result<zcash_primitives::transaction::Transaction> {
+                    let bytes = hex::decode(hex_text.trim())?;
+                    Ok(zcash_primitives::transaction::Transaction::read(&bytes[..], zcash_protocol::consensus::BranchId::for_height(&net, zcash_protocol::consensus::BlockHeight::from_u32(h)))?)
+                };
+                let tx1 = read(&raw1, height)?;
+                let tx2 = read(&std::fs::read_to_string(&second)?, second_height.unwrap_or(height))?;
+                let d = receipts_chain::deposit::check(&receipt, &report.message, receipts_chain::deposit::network_type(net), &tx1, &tx2).map_err(|e| anyhow!(e))?;
+                print_deposit(&report, &d, json)?;
+                return Ok(());
+            }
             if let Some(addr) = &expect_address {
                 let want = chain::orchard_receiver_of(addr)?;
                 if !report.outputs.iter().any(|o| o.recipient_raw == want) {
@@ -449,15 +486,7 @@ async fn main() -> anyhow::Result<()> {
             let receipt = read_receipt_arg(&receipt)?;
             if receipts_chain::deposit::deposit_claim(&String::from_utf8_lossy(&receipt.unsigned.msg)).is_some() {
                 let (report, d) = receipts_chain::deposit::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "receipt": report, "deposit": d.to_json() }))?);
-                } else {
-                    report.print();
-                    println!("EXCHANGE DEPOSIT (ZIP 320)");
-                    println!("  paid      {} ZEC to {}", chain::zec(d.deposit_zatoshis), d.tex_address);
-                    println!("  via       {} -> {}", d.first_tx, d.second_tx);
-                    println!("  the sender proved they made this deposit. {}", d.warning);
-                }
+                print_deposit(&report, &d, json)?;
                 return Ok(());
             }
             let report = chain::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
@@ -475,10 +504,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Tx { txid, network, heights, server, hex } => {
             let net = match network.as_str() {
-                "main" => net::Net::Main,
-                "test" => net::Net::Test,
+                "main" | "mainnet" => net::Net::Main,
+                "test" | "testnet" => net::Net::Test,
                 "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
-                n => bail!("unknown network {n}"),
+                n => bail!("unknown network {n}; use mainnet, testnet or regtest"),
             };
             let (tx, height) = chain::fetch_mined_tx(net, server.as_deref(), parse_txid(&txid)?).await?;
             println!("mined at height {height}, version {:?}", tx.version());
@@ -571,7 +600,7 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
-        Cmd::SignIn { wallet, identity, domain, nonce, address, submit } => {
+        Cmd::SignIn { wallet, identity, domain, nonce, address, submit, api_key } => {
             eprintln!("Proving control of an address for {domain}…");
             let (s, addr) = tokio::task::spawn_blocking(move || wallet::sign_in(&wallet, &identity, &domain, &nonce, address.as_deref())).await??;
             eprintln!("address: {addr}");
@@ -579,7 +608,7 @@ async fn main() -> anyhow::Result<()> {
             match submit {
                 None => println!("{text}"),
                 Some(base) => {
-                    let key = std::env::var("RECEIPTS_API_KEY").map_err(|_| anyhow::anyhow!("set RECEIPTS_API_KEY to submit"))?;
+                    let key = api_key.ok_or_else(|| anyhow::anyhow!("set RECEIPTS_KEY (or --api-key) to submit"))?;
                     let res = reqwest::Client::new()
                         .post(format!("{}/v1/sign_in/verify", base.trim_end_matches('/')))
                         .bearer_auth(key)
@@ -659,6 +688,20 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
         .send()
         .await;
     eprintln!("Removed temporary endpoint {ep_id}.");
+    Ok(())
+}
+
+fn print_deposit(report: &chain::Report, d: &receipts_chain::deposit::Deposit, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "receipt": report, "deposit": d.to_json() }))?);
+    } else {
+        report.print();
+        println!("EXCHANGE DEPOSIT (ZIP 320)");
+        println!("  paid      {} ZEC to {}", chain::zec(d.deposit_zatoshis), d.tex_address);
+        println!("  via       {} -> {}", d.first_tx, d.second_tx);
+        println!("  the sender proved they made this deposit.");
+        println!("  warning   {}", d.warning);
+    }
     Ok(())
 }
 

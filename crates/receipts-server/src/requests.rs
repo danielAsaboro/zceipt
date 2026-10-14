@@ -246,7 +246,7 @@ pub async fn list_requests(State(st): State<Shared>, auth: Auth, Query(q): Query
             Some(id) => c.query_row("SELECT created FROM requests WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.unwrap_or(i64::MAX),
             None => i64::MAX,
         };
-        let mut stmt = c.prepare(&format!("SELECT {COLS} FROM requests WHERE mode = ?1 AND created <= ?2 AND (?3 IS NULL OR id != ?3) ORDER BY created DESC, id DESC LIMIT ?4"))?;
+        let mut stmt = c.prepare(&format!("SELECT {COLS} FROM requests WHERE mode = ?1 AND (?3 IS NULL OR created < ?2 OR (created = ?2 AND id < ?3)) ORDER BY created DESC, id DESC LIMIT ?4"))?;
         let rows = stmt.query_map(params![auth.mode.as_str(), after, q.starting_after, 500], from_row)?.collect::<Result<Vec<_>, _>>()?;
         rows
     };
@@ -379,6 +379,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
 #[derive(Deserialize)]
 pub struct SubmitReceipt {
     receipt: Option<String>,
+    #[serde(alias = "secret")]
     client_secret: Option<String>,
 }
 

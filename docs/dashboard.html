@@ -392,7 +392,7 @@ $("#tc-new").onclick = async () => {
 $("#si-new").onclick = async () => {
   try {
     const c = await api("POST", "/v1/sign_in/challenges", { domain: $("#si-domain").value.trim() || undefined });
-    $("#si-ch").innerHTML = `<div class="kv"><span class="k">Domain</span><span>${esc(c.domain)}</span><span class="k">Expires</span><span>${when(c.expires_at)}</span></div><label>The user runs</label><div class="mono">${esc(c.wallet_command)} -w &lt;wallet&gt; -i &lt;key.age&gt;</div>`;
+    $("#si-ch").innerHTML = `<div class="kv"><span class="k">Domain</span><span>${esc(c.domain)}</span><span class="k">Expires</span><span>${when(c.expires_at)}</span></div><label>The user runs</label><div class="mono">${esc(c.wallet_command)}</div>`;
   } catch (e) { $("#si-ch").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
 };
 $("#si-verify").onclick = async () => {

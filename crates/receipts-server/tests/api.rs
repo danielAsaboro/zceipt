@@ -544,3 +544,27 @@ async fn attestations_subtract_refunds() {
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 2000000 })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
 }
+
+#[tokio::test]
+async fn pagination_never_repeats_requests_created_in_the_same_second() {
+    let (app, test, _) = app().await;
+    for i in 0..13 {
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "label": format!("r{i}") })), None).await;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut after: Option<String> = None;
+    for _ in 0..10 {
+        let path = match &after { Some(a) => format!("/v1/requests?limit=5&starting_after={a}"), None => "/v1/requests?limit=5".into() };
+        let (_, page, _) = call(&app, "GET", &path, Some(&test), None, None).await;
+        for r in page["data"].as_array().unwrap() {
+            assert!(seen.insert(r["id"].as_str().unwrap().to_string()), "repeated {}", r["id"]);
+        }
+        if page["has_more"] != true {
+            break;
+        }
+        after = page["data"].as_array().unwrap().last().map(|r| r["id"].as_str().unwrap().to_string());
+    }
+    assert_eq!(seen.len(), 13);
+    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": "zrcpt_test_valid", "min_zatoshis": 5 })), None).await;
+    assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("expect_address")));
+}

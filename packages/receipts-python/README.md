@@ -3,7 +3,7 @@
 Client for the Receipts API. Standard library only, Python 3.9+.
 
 ```bash
-pip install ./packages/receipts-python
+python3 -m venv .venv && .venv/bin/pip install ./packages/receipts-python
 ```
 
 ```python

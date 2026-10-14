@@ -9,3 +9,7 @@ web/dist
 web/_fixture.txt
 web/zcash-receipts/
 .DS_Store
+receipts.db*
+packages/receipts-python/build/
+*.egg-info/
+.venv/

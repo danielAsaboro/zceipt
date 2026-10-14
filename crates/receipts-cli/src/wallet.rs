@@ -36,7 +36,8 @@ struct KeysToml {
 }
 
 fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy::SecretVec<u8>)> {
-    let keys: KeysToml = toml::from_str(&std::fs::read_to_string(wallet.join("keys.toml"))?)?;
+    let keys_path = wallet.join("keys.toml");
+    let keys: KeysToml = toml::from_str(&std::fs::read_to_string(&keys_path).with_context(|| format!("reading {} (is -w a zcash-devtool wallet directory?)", keys_path.display()))?)?;
     let net = match keys.network.as_deref().unwrap_or("test") {
         "main" => Net::Main,
         "test" => Net::Test,

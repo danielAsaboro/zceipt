@@ -91,7 +91,7 @@ impl Report {
         println!("  tx        {} (mined at height {})", self.txid, self.mined_height);
         println!("  pool      {}", self.pool);
         if !self.message.is_empty() {
-            println!("  message   {}", self.message);
+            println!("  message   {}", self.message.replace('\n', "\n            "));
         }
         println!("  sender    proved spend authority for action(s) {:?}", self.proven_spend_actions);
         for a in &self.sender_addresses {
@@ -103,7 +103,9 @@ impl Report {
                 println!("            memo: {m}");
             }
         }
-        if self.sender_addresses.is_empty() {
+        if crate::deposit::deposit_claim(&self.message).is_some() {
+            // The deposit block that follows says what this does reveal.
+        } else if self.sender_addresses.is_empty() {
             println!("  nothing else about the sender's wallet is revealed");
         } else {
             println!("  nothing else about the sender's wallet (balance, other transactions) is revealed");

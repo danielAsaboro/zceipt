@@ -213,8 +213,8 @@ pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<
 }
 
 /// Total paid to `payee` (compared by Orchard receiver) in a verification.
-pub fn paid_to(v: &Verification, payee: &str) -> Result<u64, ApiError> {
-    let want = chain::orchard_receiver_of(payee).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param("payee"))?;
+pub fn paid_to(v: &Verification, payee: &str, param: &'static str) -> Result<u64, ApiError> {
+    let want = chain::orchard_receiver_of(payee).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param(param))?;
     Ok(v.outputs.iter().filter(|o| o.recipient_raw == want).map(|o| o.zatoshis).sum())
 }
 

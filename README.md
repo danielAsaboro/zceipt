@@ -50,7 +50,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | Piece | What you get |
 |---|---|
 | **REST API** (`receipts serve`) | proof requests (each with a ZIP-321 payment URI and a payer link), verification of receipts and batches, `rcpt_test_` / `rcpt_live_` keys, idempotency keys, cursor pagination, a stable error `code` on every failure, and an [OpenAPI spec](docs/openapi.yaml) |
-| **Webhooks** | HMAC-signed `request.fulfilled`, `request.created` and `receipt.rejected` events, retried with backoff for up to 8 attempts, plus resend |
+| **Webhooks** | HMAC-signed events (`request.created`, `request.payment_received`, `request.fulfilled`, `request.final`, `request.expired`, `receipt.rejected`, `refund.created`, `refund.succeeded`), retried with backoff for up to 8 attempts, plus resend |
 | **SDKs** | [TypeScript](packages/zcash-receipts) (with types), [Python](packages/receipts-python) (standard library only) and [Rust](crates/receipts-client), all with typed errors, automatic retries and idempotency, and webhook verification |
 | **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component. Links carry an `h=` block hint, so the page downloads the whole block and lightwalletd never learns which transaction was checked; every result says what the server could see |
 | **Payment-link checker** | `receipts check-link`, `POST /v1/payment_links/check`, `checkPaymentLink()` and a panel on the page lint a `zcash:` link before it goes on an invoice: wrong network, transparent/TEX/Sapling-only recipients a receipt can't prove, missing amount or memo, unknown required params, QR density |
@@ -85,7 +85,7 @@ payer proves their one payment, and nobody hands over a viewing key.
 
 ## Try it
 
-Requirements: Rust 1.89+ (pinned in `rust-toolchain.toml`). For the web page you also need `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.104` and `cargo install wasm-tools`.
+Requirements: Rust 1.89 or newer (`rust-toolchain.toml` pins 1.95; rustup installs it). For the web page you also need `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.104` and `cargo install wasm-tools`.
 
 ```bash
 cargo test --release -p receipts-core -p receipts-cli   # in-memory bundles + the committed regtest receipt

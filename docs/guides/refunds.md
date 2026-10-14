@@ -22,7 +22,7 @@ Either can show it to the other, a support agent or an arbiter, without a viewin
 
 ```bash
 curl -s -X POST localhost:8723/v1/requests/$ID/refunds \
-  -H "authorization: Bearer $RECEIPTS_API_KEY" -d '{"amount_zatoshis":100000,"reason":"one coffee was cold"}'
+  -H "authorization: Bearer $RECEIPTS_KEY" -d '{"amount_zatoshis":100000,"reason":"one coffee was cold"}'
 ```
 
 SDKs: `receipts.refunds.create(id, {…})` and `receipts.refunds.submitReceipt(rf, { receipt })` (JS),

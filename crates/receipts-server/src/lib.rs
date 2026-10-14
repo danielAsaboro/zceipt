@@ -325,6 +325,9 @@ struct VerifyReq {
 
 async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body<VerifyReq>) -> Result<Json<Value>, ApiError> {
     let text = req.receipt.ok_or_else(|| ApiError::missing("receipt"))?;
+    if req.min_zatoshis.is_some() && req.expect_address.is_none() {
+        return Err(ApiError::invalid("parameter_missing", "min_zatoshis needs expect_address: the minimum is checked against what that address received").param("expect_address"));
+    }
     let net = auth.mode.net(&st.config);
     let server = auth.mode.server(&st.config);
     let v = if sandbox::is_fixture(&text) {
@@ -347,7 +350,7 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
         body["checks"]["challenge"] = "matched".into();
     }
     if let Some(addr) = &req.expect_address {
-        let paid = verify::paid_to(&v, addr)?;
+        let paid = verify::paid_to(&v, addr, "expect_address")?;
         if paid == 0 {
             return Err(ApiError::verification("wrong_payee", "no disclosed output paid expect_address"));
         }
@@ -548,6 +551,7 @@ const DOCS: &[(&str, &str)] = &[
     ("SANDBOX.md", include_str!("../../../docs/SANDBOX.md")),
     ("SDKS.md", include_str!("../../../docs/SDKS.md")),
     ("SPEC.md", include_str!("../../../docs/SPEC.md")),
+    ("REGTEST.md", include_str!("../../../docs/REGTEST.md")),
     ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),

@@ -62,7 +62,8 @@ export class Receipts {
   constructor(apiKey, options = {}) {
     if (!apiKey) throw new AuthenticationError(401, { error: { code: "missing_api_key", message: "pass your rcpt_test_… or rcpt_live_… key" } });
     this.apiKey = apiKey;
-    this.baseUrl = (options.baseUrl ?? "http://127.0.0.1:8723").replace(/\/$/, "");
+    const envUrl = typeof process !== "undefined" ? process.env?.RECEIPTS_URL : undefined;
+    this.baseUrl = (options.baseUrl ?? envUrl ?? "http://127.0.0.1:8723").replace(/\/$/, "");
     this.maxRetries = options.maxRetries ?? 2;
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this._fetch = options.fetch ?? globalThis.fetch.bind(globalThis);

@@ -43,7 +43,7 @@ fn challenge_json(id: &str, mode: &str, domain: &str, nonce: &str, created: i64,
         "created": created,
         "expires_at": expires_at,
         "status": if used_at.is_some() { "used" } else if now() >= expires_at { "expired" } else { "pending" },
-        "wallet_command": format!("receipts sign-in --domain {domain} --nonce {nonce}"),
+        "wallet_command": format!("receipts sign-in -w <wallet> -i <key.age> --domain {domain} --nonce {nonce}"),
     })
 }
 

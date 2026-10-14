@@ -14,7 +14,7 @@ like Stripe's test card numbers. They work in `POST /v1/verify` and
 | `zrcpt_test_not_mined` | 422 `transaction_not_mined` (retry later) |
 | `zrcpt_test_not_found` | 422 `transaction_not_found` |
 | `zrcpt_test_chain_unavailable` | 502 `chain_unavailable` (retryable) |
-| `zrcpt_test_partial` | valid; pays half of what's still owed (for `partial` requests and campaigns) |
+| `zrcpt_test_partial` | valid; pays half of what's still owed (for `partial` requests and campaigns), so it never finishes a request alone: send `zrcpt_test_valid` to pay the rest |
 | `zrcpt_test_public_note` | valid; the contributor opted in to a public campaign note |
 | `zrcpt_test_refund_to` | valid; the payer signed a refund address, so `POST /v1/requests/{id}/refunds` works |
 | `zrcpt_test_same_payment` | valid, but always the same transaction: submit it to two requests to see `payment_already_used` |
@@ -41,11 +41,14 @@ confirmations. A test clock is a frozen time and block height you move by hand, 
 that becomes due fires immediately.
 
 ```bash
-curl -s -X POST localhost:8723/v1/test_clocks -H "authorization: Bearer $KEY" -d '{"height":100}'
+curl -s -X POST localhost:8723/v1/test_clocks -H "authorization: Bearer $RECEIPTS_KEY" -d '{"height":100}'
 # create requests with "test_clock": "clock_…"; sandbox payments on them are mined at the clock's height
-curl -s -X POST localhost:8723/v1/test_clocks/clock_…/advance -H "authorization: Bearer $KEY" -d '{"blocks":9}'
+curl -s -X POST localhost:8723/v1/test_clocks/clock_…/advance -H "authorization: Bearer $RECEIPTS_KEY" -d '{"blocks":9}'
 ```
 
 `advance` takes `seconds` and/or `blocks` (each block also moves time 75 s unless `seconds` is
 given) and returns the clock with `fired`: the `request.expired` and `request.final` events it
 sent. Test clocks exist only for `rcpt_test_` keys.
+
+Note: on `POST /v1/verify`, `min_zatoshis` is checked against what `expect_address` received, so
+it needs `expect_address` (a request without it gets `parameter_missing`).

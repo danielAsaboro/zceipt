@@ -290,6 +290,8 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         if v.challenge.as_deref() != Some(r.challenge.as_str()) {
             return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this request's challenge; create it with `--request <receipt_link>`"));
         }
+        let mut v = v;
+        v.checks["challenge"] = "matched".into();
         let want = receipts_chain::chain::orchard_receiver_of(&r.payee).map_err(|e| ApiError::internal(e.to_string()))?;
         let outs: Vec<&verify::Output> = v.outputs.iter().filter(|o| o.recipient_raw == want).collect();
         let paid: u64 = outs.iter().map(|o| o.zatoshis).sum();

@@ -122,10 +122,16 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
     let (Some(paid_at), Some(paid)) = (r.fulfilled_at, r.paid) else {
         return Err(ApiError::conflict("request_not_fulfilled", "only a fulfilled request can be attested"));
     };
-    let paid = paid as u64;
+    // State what the payee kept: refunds already paid back are subtracted.
+    let refunded: i64 = st.db.0.lock().unwrap().query_row(
+        "SELECT COALESCE(SUM(amount_zatoshis), 0) FROM refunds WHERE request_id = ?1 AND status = 'succeeded'",
+        [&r.id],
+        |x| x.get(0),
+    )?;
+    let paid = (paid - refunded).max(0) as u64;
     let floor = req.at_least_zatoshis.unwrap_or_else(|| r.amount.map(|a| a as u64).unwrap_or(paid / 100_000 * 100_000).min(paid));
     if floor > paid {
-        return Err(ApiError::invalid("attestation_overclaims", format!("at_least_zatoshis is more than the {paid} zatoshis paid")).param("at_least_zatoshis"));
+        return Err(ApiError::invalid("attestation_overclaims", format!("at_least_zatoshis is more than the {paid} zatoshis paid (net of refunds)")).param("at_least_zatoshis"));
     }
     let (paid_day, paid_day_start) = utc_date(paid_at);
     let before = match &req.before {
@@ -145,7 +151,7 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
 
     let hidden: Vec<(&str, Value)> = vec![
         ("txid", json!(r.txid)),
-        ("amount_zatoshis", json!(paid)),
+        ("amount_zatoshis", json!(paid + refunded as u64)),
         ("paid_at", json!(paid_at)),
         ("request", json!(r.id)),
         ("label", json!(r.label)),
@@ -172,6 +178,7 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         "paid_at_least_zatoshis": floor,
         "paid_on_or_before": before,
         "final": r.final_at.is_some(),
+        "net_of_refunds": true,
         "_sd": digests,
         "_sd_alg": "sha-256",
     });

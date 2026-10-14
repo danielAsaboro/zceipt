@@ -132,7 +132,14 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
 
 /// Marks a fulfilled request final and emits `request.final` (once).
 pub fn mark_final(st: &AppState, mode: Mode, request_id: &str) -> Result<Option<Value>, ApiError> {
-    let n = st.db.0.lock().unwrap().execute("UPDATE requests SET final_at = ?1 WHERE id = ?2 AND final_at IS NULL", params![now(), request_id])?;
+    // The stored verification was provisional; record that the payment is now final.
+    let n = st.db.0.lock().unwrap().execute(
+        "UPDATE requests SET final_at = ?1,
+           verification = CASE WHEN verification IS NULL THEN NULL
+             ELSE json_set(verification, '$.verdict', 'valid', '$.checks.finality', 'final') END
+         WHERE id = ?2 AND final_at IS NULL",
+        params![now(), request_id],
+    )?;
     if n == 0 {
         return Ok(None);
     }

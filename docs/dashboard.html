@@ -37,6 +37,12 @@
   .pill.open, .pill.pending { color:var(--warn); border-color:var(--warn); }
   .pill.fulfilled, .pill.delivered { color:var(--good); border-color:var(--good); }
   .pill.expired, .pill.failed { color:var(--bad); border-color:var(--bad); }
+  .pill.final, .pill.succeeded { color:var(--good); border-color:var(--good); }
+  .kv { display:grid; grid-template-columns: max-content 1fr; gap:4px 12px; font-size:13px; margin-top:8px; }
+  .kv .k { color:var(--dim); }
+  details.act { margin-top:12px; border-top:1px solid var(--line); padding-top:10px; }
+  details.act summary { cursor:pointer; font-weight:600; }
+  .find-error { color:var(--bad); } .find-warning { color:var(--warn); }
   pre { background:#0e0d0c; border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto; font:12px/1.5 var(--mono); max-height:420px; margin:8px 0 0; }
   .qr { background:#fff; border-radius:8px; padding:6px; width:200px; }
   .qr svg { width:100%; height:auto; display:block; }
@@ -62,6 +68,8 @@
   <button data-tab="events">Events</button>
   <button data-tab="webhooks">Webhooks</button>
   <button data-tab="sandbox">Sandbox</button>
+  <button data-tab="signin">Sign in with Zcash</button>
+  <button data-tab="tools">Link checker</button>
 </nav>
 <main>
   <section id="requests">
@@ -71,6 +79,10 @@
         <label for="rq-payee">Payee (your unified address)</label><input id="rq-payee" placeholder="utest1…">
         <label for="rq-amount">Amount (ZEC, optional)</label><input id="rq-amount" placeholder="0.01" inputmode="decimal">
         <label for="rq-label">Label</label><input id="rq-label" placeholder="Order #42">
+        <label for="rq-kind">Kind</label>
+        <select id="rq-kind"><option value="single">Single payment</option><option value="partial">Partial payments add up</option><option value="campaign">Campaign (public aggregate page)</option></select>
+        <label for="rq-exp">Expires in (minutes, optional)</label><input id="rq-exp" inputmode="numeric" placeholder="60">
+        <label for="rq-clock">Test clock (sandbox, optional)</label><select id="rq-clock"><option value="">None: real time</option></select>
         <button class="primary" id="rq-create">Create request</button>
         <div id="rq-out"></div>
       </div>
@@ -111,7 +123,7 @@
         <h2>Add endpoint</h2>
         <label for="we-url">URL</label><input id="we-url" placeholder="https://example.com/webhooks/receipts">
         <label for="we-events">Events</label>
-        <select id="we-events"><option value="*">All events</option><option>request.fulfilled</option><option>request.created</option><option>receipt.rejected</option></select>
+        <select id="we-events"><option value="*">All events</option><option>request.created</option><option>request.payment_received</option><option>request.fulfilled</option><option>request.final</option><option>request.expired</option><option>receipt.rejected</option><option>refund.created</option><option>refund.succeeded</option></select>
         <button class="primary" id="we-create">Add endpoint</button>
         <div id="we-out"></div>
         <p class="muted">For local development: <span class="mono">receipts listen --forward-to http://localhost:3000/…</span></p>
@@ -125,6 +137,37 @@
       <h2>Sandbox fixtures</h2>
       <p class="muted">With a test key, these receipts always give the same outcome with no wallet, faucet or chain. Click one to try it in the Playground.</p>
       <table><thead><tr><th>Receipt</th><th>Outcome</th></tr></thead><tbody id="sb-list"></tbody></table>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between"><h2>Test clocks</h2><button class="small" id="tc-new">New clock</button></div>
+      <p class="muted">A frozen time and block height. Create requests on a clock, pay them with a fixture, then move the clock: expiry and the 10-confirmation <span class="mono">request.final</span> event fire at once.</p>
+      <div id="tc-list" class="muted">No clocks yet.</div>
+    </div>
+  </section>
+
+  <section id="signin" hidden>
+    <div class="grid">
+      <div class="card">
+        <h2>Sign in with Zcash</h2>
+        <p class="muted">Prove control of a shielded address with no transaction. Issue a one-time challenge, the user runs the command in their wallet, then paste the <span class="mono">zsig1…</span> it prints.</p>
+        <label for="si-domain">Domain</label><input id="si-domain" placeholder="shop.example">
+        <button class="primary" id="si-new">Issue challenge</button>
+        <div id="si-ch"></div>
+        <label for="si-sig">Sign-in from the wallet</label><textarea id="si-sig" placeholder="zsig1…"></textarea>
+        <button class="primary" id="si-verify">Verify sign-in</button>
+        <div id="si-out"></div>
+      </div>
+      <div class="card"><h2>How it works</h2><p class="muted">The wallet makes a Halo 2 proof that it can spend a fresh note to the address, and signs the domain and nonce with the proof's randomized key. A sign-in made for another site, or replayed, is refused. Nothing else about the wallet is revealed.</p></div>
+    </div>
+  </section>
+
+  <section id="tools" hidden>
+    <div class="card">
+      <h2>Check a payment link</h2>
+      <p class="muted">Lint a <span class="mono">zcash:</span> link before it goes on an invoice or a QR code.</p>
+      <label for="lc-uri">Payment link</label><input id="lc-uri" placeholder="zcash:utest1…?amount=0.01&amp;memo=…">
+      <button class="primary" id="lc-run">Check</button>
+      <div id="lc-out"></div>
     </div>
   </section>
 </main>
@@ -161,7 +204,7 @@ async function loadRequests() {
     const page = await api("GET", "/v1/requests?limit=50");
     $("#rq-list").innerHTML = page.data.map((r) => `<tr data-id="${r.id}" style="cursor:pointer">
       <td><div class="mono">${esc(r.id)}</div><div class="muted">${esc(r.label || "")}</div></td>
-      <td><span class="pill ${r.status}">${r.status}</span></td><td>${zec(r.amount_zatoshis)}</td><td class="muted">${when(r.created)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No requests yet.</td></tr>`;
+      <td><span class="pill ${r.status}">${r.status}</span>${r.final ? ` <span class="pill final">final</span>` : ""}${r.kind !== "single" ? ` <span class="muted">${esc(r.kind)}</span>` : ""}</td><td>${zec(r.amount_zatoshis)}</td><td class="muted">${when(r.created)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No requests yet.</td></tr>`;
     document.querySelectorAll("#rq-list tr[data-id]").forEach((tr) => tr.onclick = () => showRequest(tr.dataset.id));
   } catch (e) { $("#rq-list").innerHTML = `<tr><td colspan="4" class="err">${esc(errText(e))}</td></tr>`; }
 }
@@ -170,27 +213,73 @@ async function qrFor(id) {
 }
 async function showRequest(id, into = "#rq-detail") {
   const r = await api("GET", `/v1/requests/${id}`);
+  // The same request can be open in two panes: look elements up inside this one only.
+  const q = (eid) => $(into).querySelector(`[id="${eid}"]`);
   const f = r.fulfillment;
+  const v = f?.verification;
+  const pays = (r.payments || []).map((p) => `<tr><td class="mono">${esc(short(p.txid, 8))}</td><td>${zec(p.zatoshis)}</td><td class="muted">${p.mined_height ?? "–"}</td><td class="mono">${p.refund_address ? esc(short(p.refund_address, 8)) : "–"}</td></tr>`).join("");
+  const refunds = (r.refunds || []).map((x) => `<tr><td class="mono">${esc(x.id)}</td><td>${zec(x.amount_zatoshis)}</td><td><span class="pill ${x.status}">${x.status}</span></td><td class="muted">${esc(x.reason || "")}</td></tr>`).join("");
   $(into).innerHTML = `<div style="margin-top:14px">
-    <div class="row"><span class="pill ${r.status}">${r.status}</span><span class="mono">${esc(r.id)}</span></div>
+    <div class="row"><span class="pill ${r.status}">${r.status}</span>${r.final ? `<span class="pill final">final</span>` : ""}<span class="mono">${esc(r.id)}</span><span class="muted">${esc(r.kind)}${r.test_clock ? ` · on ${esc(r.test_clock)}` : ""}</span></div>
+    <div class="kv"><span class="k">Asked</span><span>${zec(r.amount_zatoshis)}</span><span class="k">Received</span><span>${zec(r.received_zatoshis)}</span>${r.expires_at ? `<span class="k">Expires</span><span>${when(r.expires_at)}</span>` : ""}${r.public_url ? `<span class="k">Public page</span><a href="${esc(r.public_url)}" target="_blank" rel="noopener">${esc(r.public_url)}</a>` : ""}</div>
     ${r.status === "open" ? `<div class="row" style="margin-top:10px;align-items:flex-start"><div class="qr">${await qrFor(r.id)}</div>
       <div style="flex:1;min-width:200px"><label>Payment URI (ZIP-321)</label><div class="mono">${esc(r.payment_uri)}</div>
+      <label>Hosted pay page</label><div class="mono"><a href="${esc(r.hosted_url)}" target="_blank" rel="noopener">${esc(short(r.hosted_url, 30))}</a></div>
       <label>Payer runs</label><div class="mono">${esc(r.cli_command)}</div></div></div>
       <label>Paste the payer's receipt</label><textarea id="sub-${r.id}" placeholder="zrcpt1… or zrcpt_test_valid"></textarea>
       <button class="primary" id="subbtn-${r.id}">Submit receipt</button><div id="suberr-${r.id}"></div>` : ""}
-    ${f ? `<label>Paid</label><div>${zec(f.paid_zatoshis)} · tx <span class="mono">${esc(short(f.txid, 10))}</span> · ${when(f.fulfilled_at)}</div>
-      <pre>${esc(JSON.stringify(f.verification, null, 2))}</pre>` : ""}</div>`;
-  const btn = document.getElementById(`subbtn-${r.id}`);
+    ${pays ? `<label>Payments</label><table><thead><tr><th>Tx</th><th>Amount</th><th>Block</th><th>Refund address</th></tr></thead><tbody>${pays}</tbody></table>` : ""}
+    ${v ? `<div class="kv"><span class="k">Verdict</span><span class="${v.verdict === "valid" ? "ok" : ""}">${esc(v.verdict || "valid")}</span>${v.checks ? Object.entries(v.checks).map(([k, x]) => `<span class="k">${esc(k.replace(/_/g, " "))}</span><span>${esc(typeof x === "object" && x ? x.level ?? JSON.stringify(x) : x)}</span>`).join("") : ""}</div>
+      <details class="act"><summary>Full verification</summary><pre>${esc(JSON.stringify(v, null, 2))}</pre></details>` : ""}
+    ${refunds ? `<label>Refunds</label><table><thead><tr><th>Refund</th><th>Amount</th><th>Status</th><th>Reason</th></tr></thead><tbody>${refunds}</tbody></table>` : ""}
+    ${r.payments?.length ? `<details class="act"><summary>Refund</summary>
+      <p class="muted">Goes to the refund address the payer signed into their receipt. Leave the amount empty to refund what's left.</p>
+      <label>Amount (ZEC)</label><input id="rf-amt-${r.id}" inputmode="decimal"><label>Reason</label><input id="rf-why-${r.id}">
+      <button class="primary" id="rf-btn-${r.id}">Create refund</button><div id="rf-out-${r.id}"></div></details>` : ""}
+    ${r.status === "fulfilled" ? `<details class="act"><summary>Attestation for an accountant or auditor</summary>
+      <p class="muted">A signed statement of a minimum amount and a date, without the transaction. Hidden details can be revealed later, one by one.</p>
+      <label>At least (ZEC, optional)</label><input id="at-min-${r.id}" inputmode="decimal"><label>On or before (YYYY-MM-DD, optional)</label><input id="at-day-${r.id}" placeholder="2026-12-31">
+      <div class="row muted" style="margin-top:6px">${["txid", "amount_zatoshis", "paid_at", "request", "label"].map((d) => `<label class="row" style="margin:0"><input type="checkbox" data-disc="${d}" style="width:auto"> reveal ${d.replace("_zatoshis", "")}</label>`).join("")}</div>
+      <button class="primary" id="at-btn-${r.id}">Issue attestation</button><div id="at-out-${r.id}"></div></details>` : ""}
+  </div>`;
+  const btn = q(`subbtn-${r.id}`);
   if (btn) btn.onclick = async () => {
     btn.disabled = true; btn.textContent = "Verifying…";
-    try { await api("POST", `/v1/requests/${r.id}/receipts`, { receipt: document.getElementById(`sub-${r.id}`).value.trim() }); await loadRequests(); await showRequest(r.id, into); }
-    catch (e) { document.getElementById(`suberr-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; btn.disabled = false; btn.textContent = "Submit receipt"; }
+    try { await api("POST", `/v1/requests/${r.id}/receipts`, { receipt: q(`sub-${r.id}`).value.trim() }); await loadRequests(); await showRequest(r.id, into); }
+    catch (e) { q(`suberr-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; btn.disabled = false; btn.textContent = "Submit receipt"; }
+  };
+  const rf = q(`rf-btn-${r.id}`);
+  if (rf) rf.onclick = async () => {
+    const amt = q(`rf-amt-${r.id}`).value.trim();
+    try {
+      const x = await api("POST", `/v1/requests/${r.id}/refunds`, { amount_zatoshis: amt ? Math.round(Number(amt) * 1e8) : undefined, reason: q(`rf-why-${r.id}`).value.trim() || undefined });
+      q(`rf-out-${r.id}`).innerHTML = `<label>Pay this to refund</label><div class="mono">${esc(x.payment_uri)}</div>
+        <label>Then paste the receipt for the refund payment (it signs <span class="mono">challenge:${esc(x.challenge)}</span>)</label><textarea id="rfr-${x.id}" placeholder="zrcpt1… or zrcpt_test_valid"></textarea>
+        <button class="primary" id="rfr-btn-${x.id}">Settle refund</button><div id="rfr-out-${x.id}"></div>`;
+      q(`rfr-btn-${x.id}`).onclick = async () => {
+        try { await api("POST", `/v1/refunds/${x.id}/receipts`, { receipt: q(`rfr-${x.id}`).value.trim() }); await showRequest(r.id, into); }
+        catch (e) { q(`rfr-out-${x.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+      };
+    } catch (e) { q(`rf-out-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+  };
+  const at = q(`at-btn-${r.id}`);
+  if (at) at.onclick = async () => {
+    const min = q(`at-min-${r.id}`).value.trim();
+    const day = q(`at-day-${r.id}`).value.trim();
+    const disclose = [...document.querySelectorAll(`${into} [data-disc]:checked`)].map((c) => c.dataset.disc);
+    try {
+      const x = await api("POST", `/v1/requests/${r.id}/attestations`, { at_least_zatoshis: min ? Math.round(Number(min) * 1e8) : undefined, before: day || undefined, disclose });
+      q(`at-out-${r.id}`).innerHTML = `<div class="kv"><span class="k">States</span><span>paid at least ${zec(x.claims.paid_at_least_zatoshis)} on or before ${esc(x.claims.paid_on_or_before)}${x.claims.final ? ", final" : ""}</span></div>
+        <label>Attestation (hand this over)</label><pre style="white-space:pre-wrap;word-break:break-all">${esc(x.presentation)}</pre><div class="muted">Anyone can check it offline with <span class="mono">verifyAttestation()</span> and the keys at ${esc(x.jwks_url)}.</div>`;
+    } catch (e) { q(`at-out-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
   };
 }
 $("#rq-create").onclick = async () => {
   const amount = $("#rq-amount").value.trim();
   try {
-    const r = await api("POST", "/v1/requests", { payee: $("#rq-payee").value.trim(), label: $("#rq-label").value.trim() || undefined, amount_zatoshis: amount ? Math.round(Number(amount) * 1e8) : undefined });
+    const exp = $("#rq-exp").value.trim();
+    const r = await api("POST", "/v1/requests", { payee: $("#rq-payee").value.trim(), label: $("#rq-label").value.trim() || undefined, amount_zatoshis: amount ? Math.round(Number(amount) * 1e8) : undefined,
+      kind: $("#rq-kind").value, expires_in: exp ? Math.round(Number(exp) * 60) : undefined, test_clock: $("#rq-clock").value || undefined });
     await loadRequests(); await showRequest(r.id, "#rq-out");
   } catch (e) { $("#rq-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
 };
@@ -269,12 +358,59 @@ $("#we-create").onclick = async () => {
 };
 
 // ---------- sandbox ----------
-const OUTCOMES = { zrcpt_test_valid: "valid", zrcpt_test_wrong_payee: "422 wrong_payee", zrcpt_test_insufficient_amount: "422 insufficient_amount", zrcpt_test_challenge_mismatch: "422 challenge_mismatch", zrcpt_test_invalid: "422 receipt_invalid", zrcpt_test_not_mined: "422 transaction_not_mined", zrcpt_test_not_found: "422 transaction_not_found", zrcpt_test_chain_unavailable: "502 chain_unavailable" };
+const OUTCOMES = { zrcpt_test_valid: "valid", zrcpt_test_wrong_payee: "422 wrong_payee", zrcpt_test_insufficient_amount: "422 insufficient_amount", zrcpt_test_challenge_mismatch: "422 challenge_mismatch", zrcpt_test_invalid: "422 receipt_invalid", zrcpt_test_not_mined: "422 transaction_not_mined", zrcpt_test_not_found: "422 transaction_not_found", zrcpt_test_chain_unavailable: "502 chain_unavailable", zrcpt_test_partial: "valid; pays half of what is owed", zrcpt_test_same_payment: "valid once; then 409 payment_already_used", zrcpt_test_public_note: "valid; with a public campaign note", zrcpt_test_refund_to: "valid; the payer signed a refund address" };
 async function loadSandbox() {
   const l = await (await fetch("/v1/sandbox/fixtures")).json();
   $("#sb-list").innerHTML = l.data.map((f) => `<tr style="cursor:pointer" data-fx="${f}"><td class="mono">${f}</td><td>${OUTCOMES[f] || ""}</td></tr>`).join("");
   document.querySelectorAll("[data-fx]").forEach((tr) => tr.onclick = () => { $("#pg-receipt").value = tr.dataset.fx; renderCode(); document.querySelector('nav button[data-tab="playground"]').click(); });
 }
+
+// ---------- test clocks ----------
+let clocks = [];
+try { clocks = JSON.parse(sessionStorage.getItem("receipts.clocks") || "[]"); } catch {}
+const saveClocks = () => { try { sessionStorage.setItem("receipts.clocks", JSON.stringify(clocks)); } catch {} };
+async function loadClocks() {
+  const list = [];
+  for (const id of clocks) { try { list.push(await api("GET", `/v1/test_clocks/${id}`)); } catch {} }
+  $("#rq-clock").innerHTML = `<option value="">None: real time</option>` + list.map((c) => `<option value="${esc(c.id)}">${esc(c.id)} (block ${c.height})</option>`).join("");
+  $("#tc-list").innerHTML = list.length ? list.map((c) => `<div class="row" style="margin:8px 0"><span class="mono">${esc(c.id)}</span><span>${when(c.frozen_time)} · block ${c.height} · ${c.requests.length} request(s)</span>
+    <button class="small" data-adv="${c.id}" data-blocks="1">+1 block</button><button class="small" data-adv="${c.id}" data-blocks="10">+10 blocks</button><button class="small" data-adv="${c.id}" data-secs="3600">+1 hour</button><button class="small" data-adv="${c.id}" data-secs="86400">+1 day</button></div><div id="tc-fired-${c.id}" class="muted"></div>`).join("") : "No clocks yet.";
+  document.querySelectorAll("[data-adv]").forEach((b) => b.onclick = async () => {
+    const body = b.dataset.blocks ? { blocks: Number(b.dataset.blocks) } : { seconds: Number(b.dataset.secs) };
+    try {
+      const c = await api("POST", `/v1/test_clocks/${b.dataset.adv}/advance`, body);
+      await loadClocks();
+      document.getElementById(`tc-fired-${c.id}`).textContent = c.fired.length ? "Fired: " + c.fired.map((x) => `${x.type} on ${x.request}`).join(", ") : "Nothing became due.";
+    } catch (e) { alert(errText(e)); }
+  });
+}
+$("#tc-new").onclick = async () => {
+  try { const c = await api("POST", "/v1/test_clocks", {}); clocks.unshift(c.id); saveClocks(); loadClocks(); } catch (e) { $("#tc-list").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+};
+
+// ---------- sign in with Zcash ----------
+$("#si-new").onclick = async () => {
+  try {
+    const c = await api("POST", "/v1/sign_in/challenges", { domain: $("#si-domain").value.trim() || undefined });
+    $("#si-ch").innerHTML = `<div class="kv"><span class="k">Domain</span><span>${esc(c.domain)}</span><span class="k">Expires</span><span>${when(c.expires_at)}</span></div><label>The user runs</label><div class="mono">${esc(c.wallet_command)} -w &lt;wallet&gt; -i &lt;key.age&gt;</div>`;
+  } catch (e) { $("#si-ch").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+};
+$("#si-verify").onclick = async () => {
+  try {
+    const r = await api("POST", "/v1/sign_in/verify", { sign_in: $("#si-sig").value.trim() });
+    $("#si-out").innerHTML = `<div class="ok" style="margin-top:8px">Signed in as <span class="mono">${esc(short(r.address, 14))}</span> for ${esc(r.domain)}</div>`;
+  } catch (e) { $("#si-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+};
+
+// ---------- link checker ----------
+$("#lc-run").onclick = async () => {
+  try {
+    const v = await api("POST", "/v1/payment_links/check", { uri: $("#lc-uri").value.trim() });
+    $("#lc-out").innerHTML = `<div class="${v.ok ? "ok" : "err"}" style="margin-top:8px">${v.ok ? "OK to print" : "Fix before printing"}</div>
+      <ul>${v.payments.map((p) => `<li>${esc(p.network)} ${esc(p.address_kind)} · ${p.amount_zatoshis != null ? zec(p.amount_zatoshis) : "no amount"}${p.memo ? ` · memo “${esc(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : "not provable with a receipt"}</li>`).join("")}
+      ${v.qr ? `<li>QR version ${v.qr.version}</li>` : ""}${v.findings.map((f) => `<li class="find-${f.level}">${esc(f.message)}</li>`).join("")}</ul>`;
+  } catch (e) { $("#lc-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+};
 
 async function boot() {
   const h = await (await fetch("/v1/health")).json().catch(() => ({}));
@@ -283,6 +419,7 @@ async function boot() {
   $("#mode").className = "mode" + (key.startsWith("rcpt_live_") ? " live" : "");
   renderCode();
   loadRequests();
+  if (key.startsWith("rcpt_test_")) loadClocks();
 }
 boot();
 </script>

@@ -530,3 +530,17 @@ async fn attestations_state_minimal_facts_and_disclose_selectively() {
     let (_, jwks, _) = call(&app, "GET", "/.well-known/jwks.json", None, None, None).await;
     assert_eq!(jwks["keys"][0]["crv"], "Ed25519");
 }
+
+#[tokio::test]
+async fn attestations_subtract_refunds() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 2000000 })), None).await;
+    let id = r["id"].as_str().unwrap();
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_refund_to" })), None).await;
+    let (_, rf, _) = call(&app, "POST", &format!("/v1/requests/{id}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 500000 })), None).await;
+    call(&app, "POST", &format!("/v1/refunds/{}/receipts", rf["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
+    assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1500000, "{a}");
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 2000000 })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
+}

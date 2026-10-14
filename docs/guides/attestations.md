@@ -17,6 +17,7 @@ JWT format), signed with Ed25519 by your Receipts server, stating only:
 | `paid_at_least_zatoshis` | a floor you choose, never more than was paid (`attestation_overclaims` otherwise) |
 | `paid_on_or_before` | a day you choose, never earlier than the payment's day |
 | `network`, `final` | testnet or mainnet, and whether the payment has 10 confirmations |
+| `net_of_refunds` | always true: refunds already paid back are subtracted before the floor is checked |
 
 The transaction id, the exact amount, the exact time, the request id and the label are in the
 token only as salted hashes. The response's `disclosures` holds one string per hidden claim; append

@@ -64,8 +64,8 @@ cargo build -p receipts-cli --release
 ```
 
 Create a receipt for a payment you sent from a [zcash-devtool](https://github.com/zcash/zcash-devtool)
-wallet. Do it within about 100 blocks of sending, while the wallet still has a checkpoint at
-the transaction's anchor:
+wallet, at any time after sending. If the wallet has pruned the checkpoint at the
+transaction's anchor, the CLI rebuilds the Merkle path from public chain data:
 
 ```bash
 ./target/release/receipts create -w <wallet_dir> -i <identity.age> --txid <txid> -m "Invoice 42"
@@ -100,6 +100,7 @@ the transaction's anchor:
 | A receipt created from the sending wallet in 2.4 s | [examples/testnet/receipt.txt](examples/testnet/receipt.txt) |
 | Verified by the CLI against testnet lightwalletd, with `--expect-address` | `receipts verify … → VALID` |
 | Verified in the browser from the public testnet grpc-web server | VERIFIED in 9.3 s (zcash-testnet.chainsafe.dev) |
+| A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,984 to 4,500,997, VALID; regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
 
 End to end on a private chain as well (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):
 

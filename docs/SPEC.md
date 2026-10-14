@@ -104,9 +104,12 @@ for a URL fragment, which browsers never send to a server.
   paid", not "address X paid".
 - **Transparent inputs** (BIP 322) are out of scope, as they are still `TODO` in ZIP 311.
 - **Witness availability.** The sender needs the spent note's Merkle path at the
-  transaction's anchor. Light wallets keep checkpoints only for a pruning window (100 blocks
-  in `zcash_client_sqlite`). Make the receipt within that window, cache the witness at send
-  time, or rebuild the path by rescanning. The receipt itself does not depend on any of this.
+  transaction's anchor. `receipts create` first uses the wallet's checkpoints. If they have
+  been pruned, it rebuilds the path from public chain data: the pool's tree frontier just
+  before the note's block (`GetTreeState`), then every note commitment from that block
+  onwards (`GetBlockRange`, compact blocks), until the root equals the transaction's anchor.
+  Nothing needs to be cached at send time, which is ZIP 311's requirement. `--from-chain`
+  forces this path.
 - **Circuit choice.** The disclosure proof always uses the post-NU6.3 circuit, including for
   pre-NU6.3 Orchard transactions. It is a new statement about an old note and is never
   verified by consensus, so it should use the secure circuit.

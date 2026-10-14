@@ -27,7 +27,7 @@ secrecy = "0.8"
 rusqlite = "0.37"
 rand = { version = "0.10", features = ["std", "sys_rng"] }
 orchard.workspace = true
-incrementalmerkletree = "0.9"
+incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
 shardtree = "0.8"
 zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic-tls-webpki-roots", "orchard"] }
 zcash_client_sqlite = { workspace = true, features = ["orchard"] }

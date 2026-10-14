@@ -156,3 +156,81 @@ pub async fn verify_against_chain(
             .collect(),
     })
 }
+
+/// Rebuilds the Merkle path of the note at `cmx`, mined at `note_height`, to `anchor`, using
+/// only public chain data: the pool's tree frontier just before `note_height`, then every note
+/// commitment from `note_height` until the tree root equals `anchor` (at most `max_height`).
+///
+/// This lets a sender make a receipt long after paying, without having cached anything (one
+/// of ZIP 311's requirements). It downloads compact blocks covering the note's whole
+/// lifetime up to the spend, so it is fast for recent notes and slower for old ones.
+pub async fn rebuild_witness(
+    net: Net,
+    server: Option<&str>,
+    pool: Pool,
+    cmx: orchard::note::ExtractedNoteCommitment,
+    note_height: u32,
+    anchor: orchard::Anchor,
+    max_height: u32,
+) -> anyhow::Result<orchard::tree::MerklePath> {
+    use incrementalmerkletree::witness::IncrementalWitness;
+    use orchard::tree::MerkleHashOrchard;
+    use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
+
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    let ts = client
+        .get_tree_state(BlockId { height: u64::from(note_height - 1), hash: vec![] })
+        .await
+        .map_err(|e| anyhow!("tree state at {}: {}", note_height - 1, e.message()))?
+        .into_inner();
+    let mut tree = match pool {
+        Pool::Ironwood => ts.ironwood_tree()?,
+        Pool::Orchard => ts.orchard_tree()?,
+    };
+    let target = MerkleHashOrchard::from_cmx(&cmx);
+    let want_root = MerkleHashOrchard::from_bytes(&anchor.to_bytes()).into_option().ok_or_else(|| anyhow!("bad anchor"))?;
+    let pool_type = match pool {
+        Pool::Ironwood => PoolType::Ironwood,
+        Pool::Orchard => PoolType::Orchard,
+    };
+    let mut stream = client
+        .get_block_range(BlockRange {
+            start: Some(BlockId { height: u64::from(note_height), hash: vec![] }),
+            end: Some(BlockId { height: u64::from(max_height), hash: vec![] }),
+            pool_types: vec![pool_type as i32],
+        })
+        .await
+        .map_err(|e| anyhow!("block range: {}", e.message()))?
+        .into_inner();
+    let mut witness: Option<IncrementalWitness<MerkleHashOrchard, 32>> = None;
+    while let Some(block) = stream.message().await? {
+        for tx in &block.vtx {
+            let actions = match pool {
+                Pool::Ironwood => &tx.ironwood_actions,
+                Pool::Orchard => &tx.actions,
+            };
+            for a in actions {
+                let leaf = MerkleHashOrchard::from_cmx(&a.cmx().map_err(|e| anyhow!("bad compact action: {e:?}"))?);
+                match witness.as_mut() {
+                    Some(w) => w.append(leaf).map_err(|_| anyhow!("tree full"))?,
+                    None => {
+                        tree.append(leaf).map_err(|_| anyhow!("tree full"))?;
+                        if leaf == target && block.height == u64::from(note_height) {
+                            witness = Some(IncrementalWitness::from_tree(tree.clone()).ok_or_else(|| anyhow!("empty tree"))?);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(w) = &witness {
+            if w.root() == want_root {
+                let path = w.path().ok_or_else(|| anyhow!("no path"))?;
+                return Ok(orchard::tree::MerklePath::from(path));
+            }
+        }
+    }
+    bail!(
+        "{}",
+        if witness.is_none() { "the note was not found at its recorded height" } else { "no block's tree root matched the transaction's anchor" }
+    )
+}

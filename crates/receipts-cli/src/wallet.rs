@@ -66,6 +66,8 @@ fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy:
 struct StoredNote {
     note: Note,
     position: u64,
+    /// Height at which the note was received, if known.
+    mined_height: Option<u32>,
 }
 
 /// Looks up a note this wallet received, by nullifier, in the pool's received-notes table.
@@ -80,8 +82,10 @@ fn find_spent_note(
         Pool::Orchard => "orchard_received_notes",
     };
     let sql = format!(
-        "SELECT diversifier, value, rho, rseed, commitment_tree_position, recipient_key_scope, note_version
-         FROM {table} WHERE nf = ?1"
+        "SELECT rn.diversifier, rn.value, rn.rho, rn.rseed, rn.commitment_tree_position,
+                rn.recipient_key_scope, rn.note_version, t.mined_height
+         FROM {table} rn JOIN transactions t ON t.id_tx = rn.transaction_id
+         WHERE rn.nf = ?1"
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query([nf.as_slice()])?;
@@ -93,6 +97,7 @@ fn find_spent_note(
     let position: Option<i64> = row.get(4)?;
     let scope: Option<i64> = row.get(5)?;
     let version: i64 = row.get(6)?;
+    let mined_height: Option<u32> = row.get(7)?;
 
     let d = Diversifier::from_bytes(d.try_into().map_err(|_| anyhow!("bad diversifier"))?);
     let scope = match scope {
@@ -120,7 +125,7 @@ fn find_spent_note(
     ))
     .ok_or_else(|| anyhow!("stored note does not reconstruct"))?;
     let position = position.ok_or_else(|| anyhow!("note has no tree position yet; sync the wallet"))?;
-    Ok(Some(StoredNote { note, position: position as u64 }))
+    Ok(Some(StoredNote { note, position: position as u64, mined_height }))
 }
 
 fn search_checkpoints<S>(
@@ -173,13 +178,25 @@ fn witness_at_anchor(
     })
 }
 
-pub fn create_receipt(
+/// How to obtain each spent note's Merkle path at the transaction's anchor.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WitnessSource {
+    /// The wallet's own checkpoints, falling back to the chain if they were pruned.
+    Auto,
+    /// Always rebuild from public chain data.
+    Chain,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_receipt(
     wallet: &Path,
     identity: &Path,
     txid: [u8; 32],
     msg: &[u8],
     outputs: &[u32],
     pool: Option<Pool>,
+    witness_source: WitnessSource,
+    server: Option<&str>,
 ) -> anyhow::Result<Receipt> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let coin_type = net.coin_type();
@@ -212,7 +229,21 @@ pub fn create_receipt(
     let mut spends = Vec::new();
     for (i, action) in bundle.actions().iter().enumerate() {
         if let Some(stored) = find_spent_note(&conn, pool, &fvk, &action.nullifier().to_bytes())? {
-            let path = witness_at_anchor(&mut db, pool, stored.position, *bundle.anchor(), BlockHeight::from_u32(mined))?;
+            let local = if witness_source == WitnessSource::Auto {
+                witness_at_anchor(&mut db, pool, stored.position, *bundle.anchor(), BlockHeight::from_u32(mined)).ok()
+            } else {
+                None
+            };
+            let path = match local {
+                Some(p) => p,
+                None => {
+                    let h = stored
+                        .mined_height
+                        .ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
+                    eprintln!("Rebuilding the note's Merkle path from chain data (blocks {h}..{mined})…");
+                    crate::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
+                }
+            };
             spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path });
         }
     }

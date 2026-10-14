@@ -52,6 +52,13 @@ enum Cmd {
         /// Write the receipt text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Rebuild Merkle paths from public chain data instead of the wallet's checkpoints.
+        /// This happens automatically when the wallet has pruned them.
+        #[arg(long)]
+        from_chain: bool,
+        /// lightwalletd server (host:port) used when rebuilding from chain data.
+        #[arg(short, long)]
+        server: Option<String>,
     },
     /// Verify a receipt against the chain.
     Verify {
@@ -123,14 +130,15 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txid, msg, outputs, pool, link_base, out } => {
+        Cmd::Create { wallet, identity, txid, msg, outputs, pool, link_base, out, from_chain, server } => {
             let pool = match pool.as_deref() {
                 None => None,
                 Some("ironwood") => Some(Pool::Ironwood),
                 Some("orchard") => Some(Pool::Orchard),
                 Some(other) => bail!("unknown pool {other}"),
             };
-            let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool)?;
+            let source = if from_chain { wallet::WitnessSource::Chain } else { wallet::WitnessSource::Auto };
+            let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref()).await?;
             let text = receipt.to_text();
             if let Some(out) = out {
                 std::fs::write(&out, &text)?;

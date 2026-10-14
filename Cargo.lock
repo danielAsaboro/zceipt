@@ -3065,6 +3065,7 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
+ "url",
  "zcash_address",
  "zcash_protocol",
 ]

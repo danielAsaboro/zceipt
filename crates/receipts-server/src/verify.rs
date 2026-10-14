@@ -11,6 +11,11 @@ fn vk() -> &'static orchard::circuit::VerifyingKey {
     VK.get_or_init(receipts_core::verifying_key)
 }
 
+fn verify_slots() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| tokio::sync::Semaphore::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)))
+}
+
 /// Builds the verifying key on a blocking thread, so the first request is fast.
 pub async fn warm_up() {
     let _ = tokio::task::spawn_blocking(|| {
@@ -134,8 +139,10 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
         let coin = u.coin_type;
         let pool = u.pool;
         let txid = u.txid;
-        // Proof verification is CPU-bound; keep it off the async workers.
+        // Proof verification is CPU-bound; keep it off the async workers, and bound how many
+        // run at once so a burst of submissions queues instead of starving the server.
         let bundle = bundle.clone();
+        let _permit = verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
         tokio::task::spawn_blocking(move || receipts_core::verify(vk(), &receipt_owned, coin, pool, txid, &bundle))
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?

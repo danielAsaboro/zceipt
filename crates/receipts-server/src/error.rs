@@ -128,6 +128,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("sign_in_challenge_used", 409, "The sign-in challenge was already used. Each nonce signs in once."),
     ("sign_in_challenge_expired", 409, "The sign-in challenge expired (they last 5 minutes)."),
     ("sign_in_invalid", 422, "The sign-in proof or signature does not check out for this domain and nonce."),
+    ("webhook_url_not_allowed", 400, "Live webhooks must use https and a public host (no localhost or private addresses)."),
     ("webhook_endpoint_not_found", 404, "No webhook endpoint with that id."),
     ("event_not_found", 404, "No event with that id."),
     ("idempotency_key_reused", 409, "The Idempotency-Key was used with a different request body."),

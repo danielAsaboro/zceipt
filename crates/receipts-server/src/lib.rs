@@ -89,6 +89,8 @@ pub struct AppState {
 pub const API_VERSION: &str = "2026-10-14";
 /// Requests allowed per key per minute.
 pub const RATE_LIMIT: u32 = 300;
+/// Unauthenticated receipt submissions allowed per request (hosted pay and campaign pages) per minute.
+pub const PUBLIC_SUBMIT_LIMIT: u32 = 20;
 
 async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, next: axum::middleware::Next) -> Response {
     if let Some(v) = req.headers().get("receipts-version").and_then(|v| v.to_str().ok()) {
@@ -102,8 +104,14 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or_else(|| req.headers().get("x-api-key").and_then(|v| v.to_str().ok()).map(str::to_string));
+    // Hosted pages submit receipts without a key; each one costs a proof verification, so
+    // limit them per request id.
+    let key = key.or_else(|| {
+        (req.method() == axum::http::Method::POST && req.uri().path().starts_with("/v1/public/")).then(|| format!("public:{}", req.uri().path()))
+    });
     let mut remaining = None;
     if let Some(k) = key {
+        let limit = if k.starts_with("public:") { PUBLIC_SUBMIT_LIMIT } else { RATE_LIMIT };
         let t = now();
         let window = t - t % 60;
         let mut m = st.rate.lock().unwrap();
@@ -112,19 +120,25 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
             *e = (window, 0);
         }
         e.1 += 1;
-        if e.1 > RATE_LIMIT {
+        if e.1 > limit {
             let mut res = ApiError::new_rate_limited().into_response();
             res.headers_mut().insert("retry-after", (window + 60 - t).to_string().parse().unwrap());
             return res;
         }
-        remaining = Some(RATE_LIMIT - e.1);
+        remaining = Some((limit, limit - e.1));
     }
     let mut res = next.run(req).await;
     let h = res.headers_mut();
     h.insert("receipts-version", API_VERSION.parse().unwrap());
-    if let Some(r) = remaining {
-        h.insert("ratelimit-limit", RATE_LIMIT.to_string().parse().unwrap());
+    if let Some((limit, r)) = remaining {
+        h.insert("ratelimit-limit", limit.to_string().parse().unwrap());
         h.insert("ratelimit-remaining", r.to_string().parse().unwrap());
+    }
+    // Hosted pages carry a client secret in their URL: never leak it in a Referer.
+    h.insert("referrer-policy", "no-referrer".parse().unwrap());
+    h.insert("x-content-type-options", "nosniff".parse().unwrap());
+    if h.get("content-type").and_then(|v| v.to_str().ok()).is_some_and(|c| c.starts_with("text/html")) {
+        h.insert("content-security-policy", "frame-ancestors 'self'".parse().unwrap());
     }
     res
 }
@@ -386,10 +400,49 @@ struct CreateEndpoint {
 
 const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.expired", "receipt.rejected", "refund.created", "refund.succeeded"];
 
+/// Live webhooks must go to a public HTTPS host: no localhost, private or link-local
+/// addresses (so a leaked live key can't make the server probe its own network).
+fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
+    let bad = |m: &str| Err(ApiError::invalid("webhook_url_not_allowed", m.to_string()).param("url"));
+    let Ok(u) = reqwest::Url::parse(url) else { return bad("not a valid URL") };
+    if u.scheme() != "https" {
+        return bad("live webhooks must use https");
+    }
+    match u.host() {
+        None => bad("the URL has no host"),
+        Some(url::Host::Domain(d)) => {
+            let d = d.to_ascii_lowercase();
+            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal") {
+                bad("live webhooks must go to a public host")
+            } else {
+                Ok(())
+            }
+        }
+        Some(url::Host::Ipv4(ip)) => {
+            if ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast() || ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64 {
+                bad("live webhooks must go to a public address")
+            } else {
+                Ok(())
+            }
+        }
+        Some(url::Host::Ipv6(ip)) => {
+            let s = ip.segments();
+            if ip.is_loopback() || ip.is_unspecified() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 || ip.to_ipv4_mapped().is_some() {
+                bad("live webhooks must go to a public address")
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
 async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateEndpoint>) -> Result<(StatusCode, Json<Value>), ApiError> {
     let url = req.url.ok_or_else(|| ApiError::missing("url"))?;
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(ApiError::invalid("parameter_invalid", "url must be http(s)").param("url"));
+    }
+    if auth.mode == Mode::Live {
+        check_live_webhook_url(&url)?;
     }
     let events = req.events.unwrap_or_else(|| vec!["*".into()]);
     if let Some(bad) = events.iter().find(|e| *e != "*" && !EVENT_TYPES.contains(&e.as_str())) {

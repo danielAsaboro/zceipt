@@ -568,3 +568,31 @@ async fn pagination_never_repeats_requests_created_in_the_same_second() {
     let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": "zrcpt_test_valid", "min_zatoshis": 5 })), None).await;
     assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("expect_address")));
 }
+
+#[tokio::test]
+async fn hardening_public_limits_headers_and_live_webhook_hosts() {
+    let (app, test, live) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let secret = r["client_secret"].as_str().unwrap();
+    let mut last = StatusCode::OK;
+    for _ in 0..(receipts_server::PUBLIC_SUBMIT_LIMIT + 1) {
+        let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zrcpt1AAAA" })), None).await;
+        last = s;
+    }
+    assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+    // Hosted pages never leak their secret-bearing URL as a referrer.
+    let (_, _, h) = call(&app, "GET", &format!("/pay/{id}?secret={secret}"), None, None, None).await;
+    assert_eq!(h.get("referrer-policy").unwrap(), "no-referrer");
+    assert_eq!(h.get("x-content-type-options").unwrap(), "nosniff");
+    assert!(h.get("content-security-policy").unwrap().to_str().unwrap().contains("frame-ancestors"));
+    // Live webhooks: https and public hosts only. Test mode may use localhost.
+    for bad in ["http://example.com/h", "https://localhost/h", "https://127.0.0.1/h", "https://10.0.0.5/h", "https://169.254.169.254/latest", "https://[::1]/h", "https://db.internal/h"] {
+        let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&live), Some(json!({ "url": bad })), None).await;
+        assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
+    }
+    let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&live), Some(json!({ "url": "https://shop.example.com/hooks" })), None).await;
+    assert_eq!(s, StatusCode::CREATED);
+    let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://127.0.0.1:3000/hooks" })), None).await;
+    assert_eq!(s, StatusCode::CREATED);
+}

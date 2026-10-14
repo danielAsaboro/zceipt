@@ -46,6 +46,7 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="sign_in_challenge_used"></a>`sign_in_challenge_used` | 409 | The sign-in challenge was already used. Each nonce signs in once. |
 | <a id="sign_in_challenge_expired"></a>`sign_in_challenge_expired` | 409 | The sign-in challenge expired (they last 5 minutes). |
 | <a id="sign_in_invalid"></a>`sign_in_invalid` | 422 | The sign-in proof or signature does not check out for this domain and nonce. |
+| <a id="webhook_url_not_allowed"></a>`webhook_url_not_allowed` | 400 | Live webhooks must use https and a public host (no localhost or private addresses). |
 | <a id="webhook_endpoint_not_found"></a>`webhook_endpoint_not_found` | 404 | No webhook endpoint with that id. |
 | <a id="event_not_found"></a>`event_not_found` | 404 | No event with that id. |
 | <a id="idempotency_key_reused"></a>`idempotency_key_reused` | 409 | The Idempotency-Key was used with a different request body. |

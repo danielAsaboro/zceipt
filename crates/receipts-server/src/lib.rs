@@ -522,6 +522,20 @@ async fn dashboard_page() -> Html<&'static str> {
     Html(include_str!("../../../docs/dashboard.html"))
 }
 
+/// `GET /`: where to go from here, for someone who just started the server.
+async fn root_page(State(st): State<Shared>) -> Html<String> {
+    Html(format!(
+        r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Receipts API</title><style>body{{font:16px/1.6 system-ui,sans-serif;max-width:640px;margin:48px auto;padding:0 16px;background:#141311;color:#ece7dc}}a{{color:#e3b75f}}code{{font-family:ui-monospace,Menlo,monospace}}</style></head>
+<body><h1>Receipts API</h1><p>ZIP 311 payment receipts for Zcash: proof requests, verification, webhooks, refunds, attestations and Sign in with Zcash. Test mode serves <strong>{net}</strong>.</p>
+<ul><li><a href="/dashboard">Dashboard</a>: paste the <code>rcpt_test_…</code> key printed at startup</li><li><a href="/docs">API reference</a> and <a href="/openapi.yaml">OpenAPI spec</a></li>
+<li><a href="/docs/QUICKSTART.md">Quickstart</a>, <a href="/llms.txt">llms.txt</a> for AI agents</li><li><a href="/v1/health">Health</a></li></ul>
+<p>The browser verifier (the page payers and payees open) is separate: <a href="{verifier}">{verifier}</a>.</p></body></html>"#,
+        net = st.config.test_net.name(),
+        verifier = st.config.verifier_url,
+    ))
+}
+
 async fn docs_page() -> Html<&'static str> {
     Html(include_str!("../../../docs/api.html"))
 }
@@ -595,6 +609,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/events", get(list_events))
         .route("/v1/events/{id}/resend", post(resend_event))
         .route("/openapi.yaml", get(openapi))
+        .route("/", get(root_page))
         .route("/docs", get(docs_page))
         .route("/docs/{*name}", get(doc_md))
         .route("/llms.txt", get(llms_txt))

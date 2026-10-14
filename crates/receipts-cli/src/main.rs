@@ -556,7 +556,7 @@ async fn main() -> anyhow::Result<()> {
                         p["network"].as_str().unwrap_or("unknown-network"),
                         p["address_kind"].as_str().unwrap_or_default(),
                         p["amount_zatoshis"].as_u64().map(|z| format!("{} ZEC", receipts_chain::chain::zec(z))).unwrap_or_else(|| "no amount".into()),
-                        if p["receipt_provable"] == true { ", provable with a receipt" } else { ", NOT provable with a receipt" },
+                        if p["receipt_provable"] == true { ", provable with a receipt" } else if p["address_kind"] == "tex" { ", provable with a deposit receipt (--tex-deposit)" } else { ", NOT provable with a receipt" },
                     );
                 }
                 if let Some(q) = v["qr"].as_object() {

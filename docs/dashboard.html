@@ -407,7 +407,7 @@ $("#lc-run").onclick = async () => {
   try {
     const v = await api("POST", "/v1/payment_links/check", { uri: $("#lc-uri").value.trim() });
     $("#lc-out").innerHTML = `<div class="${v.ok ? "ok" : "err"}" style="margin-top:8px">${v.ok ? "OK to print" : "Fix before printing"}</div>
-      <ul>${v.payments.map((p) => `<li>${esc(p.network)} ${esc(p.address_kind)} · ${p.amount_zatoshis != null ? zec(p.amount_zatoshis) : "no amount"}${p.memo ? ` · memo “${esc(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : "not provable with a receipt"}</li>`).join("")}
+      <ul>${v.payments.map((p) => `<li>${esc(p.network)} ${esc(p.address_kind)} · ${p.amount_zatoshis != null ? zec(p.amount_zatoshis) : "no amount"}${p.memo ? ` · memo “${esc(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : p.address_kind === "tex" ? "provable with a deposit receipt" : "not provable with a receipt"}</li>`).join("")}
       ${v.qr ? `<li>QR version ${v.qr.version}</li>` : ""}${v.findings.map((f) => `<li class="find-${f.level}">${esc(f.message)}</li>`).join("")}</ul>`;
   } catch (e) { $("#lc-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
 };

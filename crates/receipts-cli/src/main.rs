@@ -86,6 +86,12 @@ enum Cmd {
         /// Verify against a local regtest chain with these activation heights (devtool format).
         #[arg(long)]
         regtest: Option<PathBuf>,
+        /// Verify offline against this raw transaction (hex file) instead of fetching it.
+        #[arg(long, requires = "height")]
+        raw_tx: Option<PathBuf>,
+        /// Block height of --raw-tx.
+        #[arg(long)]
+        height: Option<u32>,
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
@@ -357,7 +363,19 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server):");
             println!("{}#{}", link_base, text);
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height) } => {
+            let receipt = read_receipt_arg(&receipt)?;
+            let report = chain::verify_offline(&receipt, &std::fs::read_to_string(&raw)?, height, regtest.as_deref())?;
+            if let Some(addr) = &expect_address {
+                let want = chain::orchard_receiver_of(addr)?;
+                if !report.outputs.iter().any(|o| o.recipient_raw == want) {
+                    bail!("no disclosed output pays {addr}");
+                }
+            }
+            let _ = server;
+            if json { println!("{}", serde_json::to_string_pretty(&report)?); } else { report.print(); }
+        }
+        Cmd::Verify { receipt, server, expect_address, json, regtest, .. } => {
             let text = read_arg_text(&receipt)?;
             if text.contains(receipts_core::BATCH_TEXT_PREFIX) {
                 return verify_batch(&text, server.as_deref(), regtest.as_deref(), json).await;
@@ -473,8 +491,8 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
             }
         }),
     );
-    axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
-    // Remove the temporary endpoint on exit.
+    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+    // Remove the temporary endpoint on exit (Ctrl-C or SIGTERM).
     let _ = reqwest::Client::new()
         .delete(format!("{}/v1/webhook_endpoints/{ep_id}", base_url.trim_end_matches('/')))
         .bearer_auth(&api_key)
@@ -493,9 +511,16 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
     if !api_key.starts_with("rcpt_test_") {
         bail!("trigger only works with rcpt_test_ keys");
     }
+    const EVENTS: &[&str] = &["request.created", "request.fulfilled", "receipt.rejected", "request.expired", "request.payment_received"];
+    if !EVENTS.contains(&event.as_str()) {
+        bail!("unknown event {event}; use one of {}", EVENTS.join(", "));
+    }
     let client = receipts_client::Client::new(api_key).base_url(base_url);
+    let kind = if event == "request.payment_received" { Some("partial".to_string()) } else { None };
     let req = client
         .create_request(&receipts_client::CreateRequest {
+            kind,
+            expires_in: (event == "request.expired").then_some(1),
             payee: payee.unwrap_or_else(|| SANDBOX_PAYEE.into()),
             amount_zatoshis: Some(1_000_000),
             label: Some(format!("receipts trigger {event}")),
@@ -511,8 +536,26 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
         "receipt.rejected" => {
             let _ = client.submit_receipt(&id, "zrcpt_test_wrong_payee").await;
         }
-        other => bail!("unknown event {other}; use request.created, request.fulfilled or receipt.rejected"),
+        "request.payment_received" => {
+            client.submit_receipt(&id, "zrcpt_test_partial").await?;
+        }
+        "request.expired" => eprintln!("The request expires in 1 s; request.expired follows shortly."),
+        _ => unreachable!(),
     }
     eprintln!("Triggered {event} on {id}");
     Ok(())
+}
+
+/// Resolves on Ctrl-C or SIGTERM, so `kill` cleans up as well as Ctrl-C does.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }

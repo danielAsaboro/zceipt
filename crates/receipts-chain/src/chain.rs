@@ -128,14 +128,38 @@ pub fn zec(z: u64) -> String {
     format!("{}.{:08}", z / 100_000_000, z % 100_000_000)
 }
 
+/// Verifies a receipt against a raw transaction (hex) at a known height: no network at all.
+pub fn verify_offline(receipt: &Receipt, raw_hex: &str, height: u32, regtest: Option<&std::path::Path>) -> anyhow::Result<Report> {
+    let u = &receipt.unsigned;
+    let net = net::for_receipt(u.coin_type, regtest)?;
+    let raw = hex_decode(raw_hex.trim())?;
+    let branch = BranchId::for_height(&net, BlockHeight::from_u32(height));
+    let tx = Transaction::read(&raw[..], branch)?;
+    if tx.txid().as_ref() != &u.txid {
+        bail!("that transaction is not the one this receipt is for");
+    }
+    report_for(receipt, net, &tx, height)
+}
+
+fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        bail!("odd-length hex");
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow!("bad hex: {e}"))).collect()
+}
+
 pub async fn verify_against_chain(
     receipt: &Receipt,
     server: Option<&str>,
     regtest: Option<&std::path::Path>,
 ) -> anyhow::Result<Report> {
+    let net = net::for_receipt(receipt.unsigned.coin_type, regtest)?;
+    let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
+    report_for(receipt, net, &tx, height)
+}
+
+fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
-    let net = net::for_receipt(u.coin_type, regtest)?;
-    let (tx, height) = fetch_mined_tx(net, server, u.txid).await?;
     let bundle = match u.pool {
         Pool::Ironwood => tx.ironwood_bundle(),
         Pool::Orchard => tx.orchard_bundle(),

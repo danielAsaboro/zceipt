@@ -79,11 +79,11 @@ payer proves their one payment, and nobody hands over a viewing key.
 
 ## Try it
 
-Requirements: Rust 1.85+ and, for the web page, `wasm-bindgen-cli 0.2.104`.
+Requirements: Rust 1.89+ (pinned in `rust-toolchain.toml`). For the web page you also need `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.104` and `cargo install wasm-tools`.
 
 ```bash
 cargo test --release -p receipts-core -p receipts-cli   # in-memory bundles + the committed regtest receipt
-cargo build -p receipts-cli --release
+cargo install --locked --path crates/receipts-cli    # puts `receipts` on your PATH
 ./scripts/build-web.sh && python3 -m http.server -d web 5321
 ```
 
@@ -92,8 +92,8 @@ wallet, at any time after sending. If the wallet has pruned the checkpoint at th
 transaction's anchor, the CLI rebuilds the Merkle path from public chain data:
 
 ```bash
-./target/release/receipts create -w <wallet_dir> -i <identity.age> --txid <txid> -m "Invoice 42"
-./target/release/receipts verify '<link or zrcpt1…>' --expect-address <recipient u1…>
+receipts create -w <wallet_dir> -i <identity.age> --txid <txid> -m "Invoice 42"
+receipts verify '<link or zrcpt1…>' --expect-address <recipient u1…>
 ```
 
 ## One link for many payments

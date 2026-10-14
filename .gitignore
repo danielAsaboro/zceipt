@@ -8,3 +8,4 @@ web/dist
 .claude/
 web/_fixture.txt
 web/zcash-receipts/
+.DS_Store

@@ -1,5 +1,7 @@
 # zcash-receipts
 
+`npm install ./packages/zcash-receipts` (not on npm yet).
+
 Verify Zcash payment receipts (ZIP 311 for Orchard and Ironwood) in the browser or in Node.
 A receipt proves that one shielded payment happened (recipient, amount and memo) and that the
 sender authorized it. It reveals nothing else about the sender's wallet.
@@ -54,3 +56,7 @@ import { Receipts, webhooks, VerificationError } from "zcash-receipts/client";
 ```
 
 See [docs/QUICKSTART.md](../../docs/QUICKSTART.md).
+
+## Tests
+
+`RECEIPTS_URL=http://127.0.0.1:8723 RECEIPTS_KEY=rcpt_test_… ` then run the test command. Without them, the API tests are skipped and only the offline tests run.

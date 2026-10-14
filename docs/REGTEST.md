@@ -10,7 +10,7 @@ cd scripts/regtest
 # 1. Zebra on regtest, JSON-RPC on :18232
 docker run -d --name zebra-regtest -p 18232:18232 \
   -v $PWD/zebrad.toml:/etc/zebrad.toml:ro -v $PWD/zebra-state:/var/cache/zebra \
-  --entrypoint zebrad zfnd/zebra:latest -c /etc/zebrad.toml start
+  --entrypoint zebrad zfnd/zebra:6.4.2 -c /etc/zebrad.toml start
 
 # 2. Mine one block so lightwalletd has something to serve, then start lightwalletd on :9067
 rpc() { curl -s -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":$2}" http://127.0.0.1:18232; }

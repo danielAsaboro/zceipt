@@ -2,6 +2,10 @@
 # Builds the browser verifier: Rust -> wasm32 -> wasm-bindgen -> web/pkg.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+for tool in wasm-bindgen wasm-tools; do
+  command -v "$tool" >/dev/null || { echo "error: $tool is required (cargo install wasm-bindgen-cli --version 0.2.104; cargo install wasm-tools)" >&2; exit 1; }
+done
+rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown || { echo "error: run: rustup target add wasm32-unknown-unknown" >&2; exit 1; }
 cargo build -p receipts-wasm --release --target wasm32-unknown-unknown
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 PKG=packages/zcash-receipts/pkg
@@ -12,7 +16,7 @@ wasm-bindgen --target web --out-dir "$PKG" "$TARGET_DIR"/wasm32-unknown-unknown/
 # transparent signing, and the C library is not compiled for wasm32-unknown-unknown, so the
 # module imports three context functions from "env". Satisfy them with stubs that fail
 # loudly if they are ever called.
-syms=$(wasm-tools print "$PKG"/receipts_wasm_bg.wasm | grep -o '(import "env" "[A-Za-z0-9_]*"' | sed 's/.*"env" "//; s/"$//' | sort -u || true)
+syms=$(wasm-tools print "$PKG"/receipts_wasm_bg.wasm | grep -o '(import "env" "[A-Za-z0-9_]*"' | sed 's/.*"env" "//; s/"$//' | sort -u)
 if [ -n "$syms" ]; then
   stub="const __wbg_star0 = {"
   for s in $syms; do stub="$stub $s: () => { throw new Error('secp256k1 is not available in the receipts verifier'); },"; done
@@ -29,4 +33,5 @@ fi
 rm -rf web/zcash-receipts web/pkg
 mkdir -p web/zcash-receipts
 cp -R packages/zcash-receipts/{index.js,grpc.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
-ls -la web/zcash-receipts web/zcash-receipts/pkg
+grep -q "from 'env'" "$PKG"/receipts_wasm.js && { echo "error: env imports were not stubbed" >&2; exit 1; }
+echo "web build OK: $(du -h "$PKG"/receipts_wasm_bg.wasm | cut -f1) wasm"

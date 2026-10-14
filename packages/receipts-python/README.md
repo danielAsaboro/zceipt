@@ -2,6 +2,10 @@
 
 Client for the Receipts API. Standard library only, Python 3.9+.
 
+```bash
+pip install ./packages/receipts-python
+```
+
 ```python
 from zcash_receipts import Receipts, VerificationError, construct_event
 
@@ -22,3 +26,7 @@ if event["type"] == "request.fulfilled":
 Errors are typed (`AuthenticationError`, `InvalidRequestError`, `VerificationError`, `ApiError`,
 `ConnectionError`) and carry `.code`, `.param` and `.status`. Retries and idempotency keys are
 automatic.
+
+## Tests
+
+`RECEIPTS_URL=http://127.0.0.1:8723 RECEIPTS_KEY=rcpt_test_… ` then run the test command. Without them, the API tests are skipped and only the offline tests run.

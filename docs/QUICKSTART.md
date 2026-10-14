@@ -6,9 +6,11 @@ the one *asking* for proof (a shop, an exchange, a grant program) or the one *gi
 
 ## 1. Start the API (testnet)
 
+Needs Rust 1.89+ (the repo pins a toolchain in `rust-toolchain.toml`).
+
 ```bash
-cargo install --path crates/receipts-cli      # installs `receipts`
-receipts serve                                 # http://127.0.0.1:8723
+cargo install --locked --path crates/receipts-cli   # installs `receipts`
+receipts serve                                       # http://127.0.0.1:8723, data in ./receipts.db
 #   test key  rcpt_test_…    (testnet)
 #   live key  rcpt_live_…    (mainnet)
 export RECEIPTS_KEY=rcpt_test_…
@@ -25,6 +27,14 @@ Every error path has a fixture (`zrcpt_test_wrong_payee`, `zrcpt_test_not_mined`
 See [SANDBOX.md](SANDBOX.md).
 
 ## 3. Ask for proof of a payment
+
+The SDKs aren't on npm or PyPI yet. Install them from the repo:
+
+```bash
+npm install ./packages/zcash-receipts          # JS / TS / React
+pip install ./packages/receipts-python         # Python
+# Rust: receipts-client = { path = "crates/receipts-client" }
+```
 
 ```js
 import { Receipts } from "zcash-receipts/client";
@@ -90,4 +100,23 @@ app.post("/webhooks/receipts", express.raw({ type: "*/*" }), async (req, res) =>
 });
 ```
 
-Next: [WEBHOOKS.md](WEBHOOKS.md) · [ERRORS.md](ERRORS.md) · [SDKs](SDKS.md) · [guides](guides/) · [OpenAPI](openapi.yaml) · [how it works](SPEC.md)
+## 7. Let AI agents use it (MCP)
+
+```json
+{ "mcpServers": { "receipts": { "command": "receipts", "args": ["mcp"],
+    "env": { "RECEIPTS_KEY": "rcpt_test_…", "RECEIPTS_URL": "http://127.0.0.1:8723" } } } }
+```
+
+Tools: `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`.
+
+## 8. Run the SDK tests against your server
+
+```bash
+export RECEIPTS_URL=http://127.0.0.1:8723 RECEIPTS_KEY=rcpt_test_…
+(cd packages/zcash-receipts && node --test test/*.test.js)
+(cd packages/receipts-python && python3 -m unittest discover tests)
+```
+
+Without these variables, the tests that need the API are skipped.
+
+Next: [WEBHOOKS.md](WEBHOOKS.md) · [ERRORS.md](ERRORS.md) · [SDKs](SDKS.md) · [checkout recipe](guides/merchant-checkout.md) · [OpenAPI](openapi.yaml) · [how it works](SPEC.md)

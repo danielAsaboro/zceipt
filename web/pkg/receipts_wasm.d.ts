@@ -6,9 +6,10 @@
 export function warm_up(): void;
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
+ * `regtest` marks a local test chain (receipts there carry the testnet coin type).
  * Returns JSON describing what the receipt proves, or throws why it is invalid.
  */
-export function verify(receipt: string, raw_tx: Uint8Array, height: number): string;
+export function verify(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
 /**
  * Decodes a receipt without verifying it. Returns JSON.
  */
@@ -24,7 +25,7 @@ export interface InitOutput {
   readonly memory: WebAssembly.Memory;
   readonly inspect: (a: number, b: number) => [number, number, number, number];
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
-  readonly verify: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+  readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_10_0_default_error_callback_fn: (a: number, b: number) => void;
   readonly rustsecp256k1_v0_10_0_default_illegal_callback_fn: (a: number, b: number) => void;

@@ -6,9 +6,11 @@
   <title>Receipts · prove one Zcash payment</title>
   <meta name="description" content="Prove one shielded Zcash payment to one person, and reveal nothing else. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
   <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='3' width='20' height='26' rx='2' fill='%23f3efe4'/><path d='M10 10h12M10 15h12M10 20h7' stroke='%23161513' stroke-width='2'/></svg>">
   <style>
     :root {
+      color-scheme: dark;
       --desk: #121110;
       --desk-2: #1b1a18;
       --paper: #f3efe4;
@@ -57,11 +59,12 @@
     .cli { margin-top: 18px; background: var(--desk-2); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); overflow-x: auto; white-space: pre; }
 
     /* the paper receipt */
-    .ticket { position: relative; background: var(--paper); color: var(--ink); padding: 28px 26px 30px; font-family: var(--mono); font-size: 14px;
-      box-shadow: 0 30px 60px rgba(0,0,0,.45);
-      -webkit-mask: radial-gradient(circle 7px at 50% 0, transparent 98%, #000) 0 0 / 18px 51% repeat-x, radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) 0 100% / 18px 51% repeat-x;
-              mask: radial-gradient(circle 7px at 50% 0, transparent 98%, #000) 0 0 / 18px 51% repeat-x, radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) 0 100% / 18px 51% repeat-x;
-      animation: print 0.7s cubic-bezier(.2,.7,.2,1); }
+    .ticket { position: relative; background: var(--paper); color: var(--ink); padding: 34px 26px 36px; font-family: var(--mono); font-size: 14px;
+      box-shadow: 0 30px 60px rgba(0,0,0,.45); animation: print 0.7s cubic-bezier(.2,.7,.2,1); }
+    .ticket::before, .ticket::after { content: ""; position: absolute; left: 0; right: 0; height: 10px;
+      background: radial-gradient(circle at 9px 0, var(--desk) 6px, transparent 6.5px) 0 0 / 18px 10px repeat-x; }
+    .ticket::before { top: 0; }
+    .ticket::after { bottom: 0; transform: rotate(180deg); }
     @keyframes print { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
     .ticket .head { text-align: center; }
     .ticket .brand { font-weight: 800; letter-spacing: 0.32em; font-size: 18px; }
@@ -117,6 +120,7 @@
         <div class="grid">
           <label class="hint" for="endpoint">grpc-web lightwalletd (default for mainnet: zcash-mainnet.chainsafe.dev)</label>
           <input id="endpoint" placeholder="https://zcash-mainnet.chainsafe.dev" spellcheck="false">
+          <label class="hint"><input type="checkbox" id="regtest" style="width:auto;margin-right:6px">Local regtest chain (served by scripts/dev-server.mjs)</label>
           <label class="hint" for="rawTx">Or paste the raw transaction hex and its block height, and nothing is fetched at all</label>
           <textarea id="rawTx" placeholder="raw transaction hex" spellcheck="false"></textarea>
           <input id="rawHeight" placeholder="block height" inputmode="numeric">

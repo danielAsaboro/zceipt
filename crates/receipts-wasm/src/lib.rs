@@ -105,13 +105,21 @@ pub fn warm_up() {
 }
 
 /// Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
+/// `regtest` marks a local test chain (receipts there carry the testnet coin type).
 /// Returns JSON describing what the receipt proves, or throws why it is invalid.
 #[wasm_bindgen]
-pub fn verify(receipt: &str, raw_tx: &[u8], height: u32) -> Result<String, JsError> {
+pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
     let r = parse(receipt)?;
     let u = &r.unsigned;
-    let (net, nt, name) = net_of(u.coin_type)?;
+    let (net, mut nt, mut name) = net_of(u.coin_type)?;
+    if regtest {
+        if u.coin_type != COIN_TYPE_TESTNET {
+            return Err(JsError::new("a regtest receipt must carry the testnet coin type"));
+        }
+        nt = NetworkType::Regtest;
+        name = "regtest";
+    }
     if height == 0 {
         return Err(JsError::new("the transaction is not mined"));
     }

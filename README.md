@@ -58,7 +58,7 @@ The full construction is in [docs/SPEC.md](docs/SPEC.md).
 Requirements: Rust 1.85+ and, for the web page, `wasm-bindgen-cli 0.2.104`.
 
 ```bash
-cargo test -p receipts-core --release          # 4 tests: Ironwood, Orchard, tampering, wrong key
+cargo test --release -p receipts-core -p receipts-cli   # in-memory bundles + the committed regtest receipt
 cargo build -p receipts-cli --release
 ./scripts/build-web.sh && python3 -m http.server -d web 5321
 ```
@@ -92,13 +92,19 @@ the transaction's anchor:
   proof pointed at another action, the wrong txid and the wrong network;
 - refuses to create a receipt with a key that does not own the spent note.
 
-Mainnet evidence (to be filled in by the demo run):
+End to end on a real chain (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):
 
 | Claim | Evidence |
 |---|---|
-| A real Ironwood payment | txid: pending |
-| A receipt created from the wallet that sent it | receipt link: pending |
-| Verified in the browser and the CLI | screenshot and CLI output: pending |
+| A real Ironwood (v6) payment: 0.42 ZEC, memo "Invoice 42: two coffees" | tx `dcd2700def717468e6fe07c29a7a7f0fd7ec4e4157d03737f3a9f64e0fd4b732`, block 222, raw bytes in [examples/regtest](examples/regtest) |
+| A receipt created from the wallet that sent it (1.8 s) | [examples/regtest/receipt.txt](examples/regtest/receipt.txt) |
+| Verified by the CLI against lightwalletd, including `--expect-address` | `receipts verify … → VALID` |
+| Verified in the browser over grpc-web | the receipt page shows VERIFIED; "was it paid to you?" says yes for the merchant |
+| An edited receipt is rejected | changing one letter of the note gives `the signature for action 1 is invalid` |
+| Anyone can re-check it offline | `cargo test -p receipts-cli --release --test regtest_fixture` |
+
+Reproduce the chain yourself with [docs/REGTEST.md](docs/REGTEST.md). Testnet comes next, once
+a TAZ faucet is available. The code is network-agnostic; only the server address changes.
 
 ## License
 

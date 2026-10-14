@@ -115,13 +115,15 @@ function takeFromExternrefTable0(idx) {
 }
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
+ * `regtest` marks a local test chain (receipts there carry the testnet coin type).
  * Returns JSON describing what the receipt proves, or throws why it is invalid.
  * @param {string} receipt
  * @param {Uint8Array} raw_tx
  * @param {number} height
+ * @param {boolean} regtest
  * @returns {string}
  */
-export function verify(receipt, raw_tx, height) {
+export function verify(receipt, raw_tx, height, regtest) {
     let deferred4_0;
     let deferred4_1;
     try {
@@ -129,7 +131,7 @@ export function verify(receipt, raw_tx, height) {
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.verify(ptr0, len0, ptr1, len1, height);
+        const ret = wasm.verify(ptr0, len0, ptr1, len1, height, regtest);
         var ptr3 = ret[0];
         var len3 = ret[1];
         if (ret[3]) {

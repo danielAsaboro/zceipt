@@ -105,6 +105,10 @@ async function fetchRawTx(endpoint, displayTxid) {
   return { raw: data, height: Number(height) };
 }
 
+// A local regtest chain (see scripts/dev-server.mjs): set in Settings or with ?regtest.
+const regtest = () => $("#regtest").checked;
+if (new URLSearchParams(location.search).has("regtest")) $("#regtest").checked = true;
+
 // ---------- UI ----------
 const steps = ["decode", "fetch", "verify"];
 function setStep(name, state, text) {
@@ -153,7 +157,7 @@ function render(v, net) {
       </div>
       <div class="dash"></div>
       ${rows}
-      <div class="line"><span class="k">TX</span><a class="v mono" target="_blank" rel="noreferrer noopener" href="${EXPLORER[net](v.txid)}">${short(v.txid, 8)}</a></div>
+      <div class="line"><span class="k">TX</span>${EXPLORER[v.network] ? `<a class="v mono" target="_blank" rel="noreferrer noopener" href="${EXPLORER[v.network](v.txid)}">${short(v.txid, 8)}</a>` : `<span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span>`}</div>
       <div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>
       ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message)}</span></div>` : ""}
       <div class="dash"></div>
@@ -192,7 +196,7 @@ async function run(receiptText) {
   try {
     setStep("decode", "busy");
     summary = await quick("inspect", { receipt: receiptText });
-    setStep("decode", "done", `${summary.network}, ${summary.pool} pool, ${(summary.bytes / 1024).toFixed(1)} KB`);
+    setStep("decode", "done", `${regtest() ? "regtest" : summary.network}, ${summary.pool} pool, ${(summary.bytes / 1024).toFixed(1)} KB`);
   } catch (e) {
     setStep("decode", "fail", e.message);
     return showError(`This is not a readable receipt: ${e.message}`);
@@ -205,7 +209,7 @@ async function run(receiptText) {
       tx = { raw: hexToBytes(manual), height: Number($("#rawHeight").value) };
       setStep("fetch", "done", "using the transaction you pasted");
     } else {
-      const endpoint = $("#endpoint").value.trim() || ENDPOINTS[summary.network];
+      const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[summary.network]);
       if (!endpoint) throw new Error(`no ${summary.network} server set; open Settings`);
       tx = await fetchRawTx(endpoint, summary.txid);
       setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
@@ -217,7 +221,7 @@ async function run(receiptText) {
   try {
     setStep("verify", "busy", "checking the Halo 2 proof and signature (the first check also prepares the verifier, about 10s)");
     const t0 = performance.now();
-    const v = await call("verify", { receipt: receiptText, rawTx: tx.raw, height: tx.height });
+    const v = await call("verify", { receipt: receiptText, rawTx: tx.raw, height: tx.height, regtest: regtest() });
     setStep("verify", "done", `proof and signature valid (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
     render(v, summary.network);
   } catch (e) {

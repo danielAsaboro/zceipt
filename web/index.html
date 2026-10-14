@@ -92,6 +92,16 @@
     .check button { background: var(--ink); color: var(--paper); padding: 10px 14px; }
     .placeholder { border: 2px dashed #2c2a26; border-radius: 14px; padding: 40px 26px; color: var(--text-2); text-align: center; font-size: 14px; line-height: 1.6; }
     .placeholder .big { font-family: var(--mono); color: var(--text); font-size: 13px; letter-spacing: 0.24em; margin-bottom: 8px; }
+    .reqbox { margin-top: 16px; border: 2px solid var(--good); border-radius: 8px; padding: 10px 12px; font-family: var(--sans); font-size: 13px; }
+    .reqbox[data-ok="false"] { border-color: var(--bad); }
+    .reqbox .reqhead { font-family: var(--mono); font-weight: 800; letter-spacing: .14em; font-size: 12px; color: var(--good); }
+    .reqbox[data-ok="false"] .reqhead { color: var(--bad); }
+    .reqbox ul { margin: 6px 0 0; padding-left: 0; list-style: none; line-height: 1.55; }
+    .reqbox li[data-ok="false"] { color: var(--bad); }
+    .request { margin-top: 22px; color: var(--text-2); font-size: 14px; }
+    .request summary { cursor: pointer; color: var(--text); font-weight: 600; }
+    .request .grid { display: grid; gap: 8px; margin-top: 10px; }
+    .request code { font-family: var(--mono); color: var(--text); }
     footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 40px; color: var(--text-2); font-size: 12.5px; }
   </style>
 </head>
@@ -124,6 +134,20 @@
           <label class="hint" for="rawTx">Or paste the raw transaction hex and its block height, and nothing is fetched at all</label>
           <textarea id="rawTx" placeholder="raw transaction hex" spellcheck="false"></textarea>
           <input id="rawHeight" placeholder="block height" inputmode="numeric">
+        </div>
+      </details>
+
+      <details class="request" id="requestPanel">
+        <summary>Ask someone to prove they paid you</summary>
+        <div class="grid">
+          <label class="hint" for="reqTo">Your address (the payee)</label>
+          <input id="reqTo" placeholder="u1… / utest1…" spellcheck="false" autocomplete="off">
+          <label class="hint" for="reqAmount">Amount you expect (ZEC, optional)</label>
+          <input id="reqAmount" placeholder="0.01" inputmode="decimal">
+          <label class="hint" for="reqLabel">Label (optional, stays in your browser and the link)</label>
+          <input id="reqLabel" placeholder="Order #42">
+          <div class="actions"><button id="reqBtn">Create request</button></div>
+          <div id="reqOut"></div>
         </div>
       </details>
 

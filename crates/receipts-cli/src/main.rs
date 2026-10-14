@@ -59,6 +59,10 @@ enum Cmd {
         /// lightwalletd server (host:port) used when rebuilding from chain data.
         #[arg(short, long)]
         server: Option<String>,
+        /// A proof request link from the verifier page (`…?request=<code>&to=<ua>&min=<zats>`).
+        /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
+        #[arg(long)]
+        request: Option<String>,
     },
     /// Verify a receipt against the chain.
     Verify {
@@ -110,6 +114,56 @@ fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
     Ok(Receipt::from_text(&body)?)
 }
 
+struct Request {
+    code: String,
+    to: Option<String>,
+    min: u64,
+}
+
+fn parse_request(link: &str) -> anyhow::Result<Request> {
+    let query = link.split('#').next().unwrap_or(link).split_once('?').map(|(_, q)| q).unwrap_or("");
+    let mut code = None;
+    let mut to = None;
+    let mut min = 0;
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let v = percent_decode(v);
+        match k {
+            "request" => code = Some(v),
+            "to" => to = Some(v),
+            "min" => min = v.parse().map_err(|_| anyhow!("bad min amount in request"))?,
+            _ => {}
+        }
+    }
+    let code = code.ok_or_else(|| anyhow!("that link has no request code"))?;
+    if !(6..=64).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("malformed request code");
+    }
+    Ok(Request { code, to, min })
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < b.len() => {
+                if let Ok(x) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                    out.push(x);
+                    i += 2;
+                } else {
+                    out.push(b'%');
+                }
+            }
+            c => out.push(c),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn parse_txid(s: &str) -> anyhow::Result<[u8; 32]> {
     let mut b: [u8; 32] = hex::decode(s.trim())?
         .try_into()
@@ -130,16 +184,44 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txid, msg, outputs, pool, link_base, out, from_chain, server } => {
+        Cmd::Create { wallet, identity, txid, msg, outputs, pool, link_base, out, from_chain, server, request } => {
             let pool = match pool.as_deref() {
                 None => None,
                 Some("ironwood") => Some(Pool::Ironwood),
                 Some("orchard") => Some(Pool::Orchard),
                 Some(other) => bail!("unknown pool {other}"),
             };
+            let req = request.as_deref().map(parse_request).transpose()?;
+            let msg = match &req {
+                Some(r) if msg.is_empty() => format!("challenge:{}", r.code),
+                Some(r) => format!("challenge:{}\n{}", r.code, msg),
+                None => msg,
+            };
+            let link_base = match &request {
+                Some(link) => link.split('#').next().unwrap_or(link).to_string(),
+                None => link_base,
+            };
             let source = if from_chain { wallet::WitnessSource::Chain } else { wallet::WitnessSource::Auto };
             let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref()).await?;
             let text = receipt.to_text();
+            if let Some(r) = &req {
+                // Check the receipt answers the request before handing it over.
+                let report = chain::verify_against_chain(&receipt, server.as_deref(), None).await?;
+                let paid: u64 = match &r.to {
+                    Some(to) => {
+                        let want = chain::orchard_receiver_of(to)?;
+                        report.outputs.iter().filter(|o| o.recipient_raw == want).map(|o| o.zatoshis).sum()
+                    }
+                    None => report.outputs.iter().map(|o| o.zatoshis).sum(),
+                };
+                if r.to.is_some() && paid == 0 {
+                    bail!("this transaction paid nothing to the requested address");
+                }
+                if paid < r.min {
+                    bail!("this transaction paid {} ZEC, less than the requested {}", chain::zec(paid), chain::zec(r.min));
+                }
+                eprintln!("Answers request {}: paid {} ZEC to the requested address.", r.code, chain::zec(paid));
+            }
             if let Some(out) = out {
                 std::fs::write(&out, &text)?;
                 eprintln!("wrote {}", out.display());

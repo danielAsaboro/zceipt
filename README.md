@@ -72,6 +72,23 @@ transaction's anchor, the CLI rebuilds the Merkle path from public chain data:
 ./target/release/receipts verify '<link or zrcpt1…>' --expect-address <recipient u1…>
 ```
 
+## Proof requests: "prove it's you"
+
+A receipt alone shows that *someone with the spend authority* paid. To know the person in
+front of you is that someone, and isn't forwarding an old receipt, ask for a fresh one:
+
+1. On the verifier page, open **Ask someone to prove they paid you**, enter your address
+   and the amount you expect, and send the link it makes. It carries a random challenge.
+2. The payer runs `receipts create … --request '<link>'`. The receipt signs
+   `challenge:<code>`, and the CLI refuses if the transaction didn't pay the requested
+   address at least the requested amount.
+3. Opening the returned link checks three things against what *you* asked for, which is
+   stored only in your browser, not against the link: the challenge was signed, the payee
+   matches, and the amount is at least what you asked.
+
+A valid receipt that doesn't sign your challenge shows **REQUEST NOT SATISFIED**. This is
+ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
+
 ## Privacy notes
 
 - **The verifier page** fetches only the public transaction, from a lightwalletd grpc-web
@@ -100,6 +117,7 @@ transaction's anchor, the CLI rebuilds the Merkle path from public chain data:
 | A receipt created from the sending wallet in 2.4 s | [examples/testnet/receipt.txt](examples/testnet/receipt.txt) |
 | Verified by the CLI against testnet lightwalletd, with `--expect-address` | `receipts verify … → VALID` |
 | Verified in the browser from the public testnet grpc-web server | VERIFIED in 9.3 s (zcash-testnet.chainsafe.dev) |
+| A proof request answered on testnet, and a replayed receipt rejected | [examples/testnet/request-answer-link.txt](examples/testnet/request-answer-link.txt) → REQUEST SATISFIED; the earlier receipt, which signs no challenge, → REQUEST NOT SATISFIED |
 | A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,984 to 4,500,997, VALID; regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
 
 End to end on a private chain as well (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):

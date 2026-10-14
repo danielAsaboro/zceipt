@@ -109,6 +109,26 @@ async function fetchRawTx(endpoint, displayTxid) {
 const regtest = () => $("#regtest").checked;
 if (new URLSearchParams(location.search).has("regtest")) $("#regtest").checked = true;
 
+// ---------- proof requests ("prove it's you") ----------
+// A verifier creates a request: a random challenge plus the payee and minimum amount they
+// expect. The payer's receipt must sign `challenge:<code>`, so a receipt someone else made
+// (or an old one) can't be replayed. Requests are remembered only in this browser, so the
+// checks compare against what *you* asked for, not against whatever the returned link says.
+const REQ_KEY = "receipts.requests.v1";
+const loadRequests = () => { try { return JSON.parse(localStorage.getItem(REQ_KEY) || "{}"); } catch { return {}; } };
+const saveRequest = (code, r) => { try { const all = loadRequests(); all[code] = r; localStorage.setItem(REQ_KEY, JSON.stringify(all)); } catch {} };
+const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
+function requestFromUrl() {
+  const q = new URLSearchParams(location.search);
+  const code = q.get("request");
+  if (!code) return null;
+  return { code, to: q.get("to") || "", min: Number(q.get("min") || 0), label: q.get("label") || "" };
+}
+function challengeIn(message) {
+  const m = /(?:^|\n)challenge:([0-9a-f]{6,64})(?:\n|$)/.exec(message || "");
+  return m ? m[1] : null;
+}
+
 // ---------- UI ----------
 const steps = ["decode", "fetch", "verify"];
 function setStep(name, state, text) {
@@ -167,12 +187,14 @@ function render(v, net) {
         <li>The amount, recipient and memo above were opened from the transaction on chain.</li>
         <li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>
       </ul>
+      <div id="reqChecks"></div>
       <div class="check">
         <label for="mine">Was it paid to you? Paste your address</label>
         <div class="row"><input id="mine" placeholder="u1…" autocomplete="off" spellcheck="false"><button id="mineBtn">Check</button></div>
         <div id="mineOut" class="fine"></div>
       </div>
     </div>`;
+  renderRequestChecks(v);
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
     if (!ua) return;
@@ -186,6 +208,33 @@ function render(v, net) {
       $("#mineOut").textContent = e.message;
     }
   };
+}
+
+async function renderRequestChecks(v) {
+  const fromUrl = requestFromUrl();
+  const signed = challengeIn(v.message);
+  if (!fromUrl && !signed) return;
+  const code = fromUrl ? fromUrl.code : signed;
+  const mine = loadRequests()[code];
+  const req = mine || fromUrl;
+  const rows = [];
+  const row = (ok, text) => rows.push(`<li data-ok="${ok}">${ok ? "✓" : "✗"} ${escapeHtml(text)}</li>`);
+  row(!!mine, mine ? `You created request ${code} in this browser${mine.label ? ` (“${mine.label}”)` : ""}` : `Request ${code} was not created in this browser; checking against the link instead`);
+  row(signed === code, signed === code ? "The sender signed your challenge, so this receipt was made for this request" : "The receipt does not sign this request's challenge");
+  if (req && req.to) {
+    try {
+      const want = await quick("receiver", { ua: req.to });
+      const paid = [];
+      for (const o of v.outputs) if ((await quick("receiver", { ua: o.recipient })) === want) paid.push(o.zatoshis);
+      const total = paid.reduce((s, z) => s + z, 0);
+      row(paid.length > 0, paid.length ? `Paid ${zec(total)} ZEC to the requested address` : "Nothing was paid to the requested address");
+      if (req.min) row(total >= req.min, `${total >= req.min ? "At least" : "Less than"} the requested ${zec(req.min)} ZEC`);
+    } catch (e) {
+      row(false, `Could not check the payee: ${e.message}`);
+    }
+  }
+  const ok = !rows.some((r) => r.includes('data-ok="false"'));
+  $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok}"><div class="reqhead">${ok ? "REQUEST SATISFIED" : "REQUEST NOT SATISFIED"}</div><ul>${rows.join("")}</ul></div>`;
 }
 
 async function run(receiptText) {
@@ -254,3 +303,25 @@ if (initial) {
   $("#paste").value = initial;
   run(initial);
 }
+
+// ---------- create a request ----------
+$("#reqBtn").onclick = () => {
+  const to = $("#reqTo").value.trim();
+  const amount = Number($("#reqAmount").value || 0);
+  const label = $("#reqLabel").value.trim();
+  if (!/^u(test|regtest)?1/.test(to)) { $("#reqOut").textContent = "Enter your unified address (u1…, or utest1… on testnet)."; return; }
+  const code = newCode();
+  const min = Math.round(amount * 1e8);
+  saveRequest(code, { to, min, label, created: new Date().toISOString() });
+  const q = new URLSearchParams({ request: code, to });
+  if (min) q.set("min", String(min));
+  if (label) q.set("label", label);
+  if (regtest()) q.set("regtest", "");
+  const link = `${location.origin}${location.pathname}?${q}`;
+  $("#reqOut").innerHTML = `
+    <p class="hint">Send this to the person who paid you. Their receipt must answer challenge <code>${code}</code>.</p>
+    <textarea readonly id="reqLink">${escapeHtml(link)}</textarea>
+    <p class="hint">They run:</p>
+    <div class="cli">receipts create -w &lt;wallet&gt; -i &lt;key.age&gt; --txid &lt;txid&gt; --request '${escapeHtml(link)}'</div>
+    <p class="hint">and send back the link it prints. Opening it here checks the challenge, the payee and the amount.</p>`;
+};

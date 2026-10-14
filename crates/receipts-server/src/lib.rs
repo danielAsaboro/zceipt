@@ -14,6 +14,7 @@
 
 pub mod db;
 pub mod error;
+pub mod sandbox;
 pub mod verify;
 pub mod webhooks;
 
@@ -303,10 +304,16 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
     let text = req.receipt.ok_or_else(|| ApiError::missing("receipt"))?;
     let net = auth.mode.net(&st.config);
     let server = auth.mode.server(&st.config);
-    if text.contains("zrcptb1") {
+    let v = if sandbox::is_fixture(&text) {
+        if auth.mode != Mode::Test {
+            return Err(ApiError::invalid("receipt_network_mismatch", "sandbox fixtures only work with rcpt_test_ keys").param("receipt"));
+        }
+        sandbox::resolve(&text, req.expect_address.as_deref(), req.min_zatoshis, req.challenge.as_deref())?
+    } else if text.contains("zrcptb1") {
         return Ok(Json(verify::verify_batch(net, server.as_deref(), &text).await?));
-    }
-    let v = verify::verify_receipt(net, server.as_deref(), &text).await?;
+    } else {
+        verify::verify_receipt(net, server.as_deref(), &text).await?
+    };
     if let Some(c) = &req.challenge {
         if v.challenge.as_deref() != Some(c.as_str()) {
             return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this challenge"));
@@ -421,7 +428,14 @@ async fn submit_receipt(State(st): State<Shared>, auth: Auth, headers: HeaderMap
         let (challenge, payee, amount) = (&row.2, &row.3, row.4);
         let net = mode.net(&st2.config);
         let result = async {
-            let v = verify::verify_receipt(net, mode.server(&st2.config).as_deref(), &text).await?;
+            let v = if sandbox::is_fixture(&text) {
+                if mode != Mode::Test {
+                    return Err(ApiError::invalid("receipt_network_mismatch", "sandbox fixtures only work with rcpt_test_ keys").param("receipt"));
+                }
+                sandbox::resolve(&text, Some(payee), amount.map(|a| a as u64), Some(challenge))?
+            } else {
+                verify::verify_receipt(net, mode.server(&st2.config).as_deref(), &text).await?
+            };
             if v.challenge.as_deref() != Some(challenge.as_str()) {
                 return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this request's challenge; create it with `--request <receipt_link>`"));
             }
@@ -556,6 +570,10 @@ async fn errors_handler() -> Json<Value> {
     }))
 }
 
+async fn fixtures_handler() -> Json<Value> {
+    Json(json!({ "object": "list", "data": sandbox::FIXTURES }))
+}
+
 async fn health(State(st): State<Shared>) -> Json<Value> {
     Json(json!({ "ok": true, "version": env!("CARGO_PKG_VERSION"), "test_network": st.config.test_net.name(), "live_network": "mainnet" }))
 }
@@ -574,6 +592,7 @@ pub fn router(state: Shared) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/errors", get(errors_handler))
+        .route("/v1/sandbox/fixtures", get(fixtures_handler))
         .route("/v1/verify", post(verify_handler))
         .route("/v1/requests", post(create_request).get(list_requests))
         .route("/v1/requests/{id}", get(get_request))

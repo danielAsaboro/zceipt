@@ -1,0 +1,26 @@
+[workspace]
+members = ["crates/receipts-core"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/danielAsaboro/zecathon-receipts"
+
+[workspace.dependencies]
+orchard = { version = "0.16", default-features = false, features = ["circuit", "std"] }
+zcash_note_encryption = "0.5.1"
+pasta_curves = "0.6"
+ff = "0.14"
+group = "0.14"
+rand = { version = "0.10", default-features = false }
+rand_core = { version = "0.10", default-features = false }
+blake2b_simd = "1"
+thiserror = "2"
+base64 = "0.22"
+
+[profile.release]
+lto = "thin"
+
+[profile.test]
+opt-level = 3

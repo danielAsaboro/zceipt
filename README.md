@@ -92,7 +92,16 @@ the transaction's anchor:
   proof pointed at another action, the wrong txid and the wrong network;
 - refuses to create a receipt with a key that does not own the spent note.
 
-End to end on a real chain (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):
+**On the Zcash public testnet (NU7):**
+
+| Claim | Evidence |
+|---|---|
+| A real Ironwood payment: 0.01 TAZ, memo "Invoice 42: two coffees" | [`571de6e4…9e0e73`](https://testnet.zcashexplorer.app/transactions/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73), block 4,500,997 |
+| A receipt created from the sending wallet in 2.4 s | [examples/testnet/receipt.txt](examples/testnet/receipt.txt) |
+| Verified by the CLI against testnet lightwalletd, with `--expect-address` | `receipts verify … → VALID` |
+| Verified in the browser from the public testnet grpc-web server | VERIFIED in 9.3 s (zcash-testnet.chainsafe.dev) |
+
+End to end on a private chain as well (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):
 
 | Claim | Evidence |
 |---|---|
@@ -103,8 +112,7 @@ End to end on a real chain (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zca
 | An edited receipt is rejected | changing one letter of the note gives `the signature for action 1 is invalid` |
 | Anyone can re-check it offline | `cargo test -p receipts-cli --release --test regtest_fixture` |
 
-Reproduce the chain yourself with [docs/REGTEST.md](docs/REGTEST.md). Testnet comes next, once
-a TAZ faucet is available. The code is network-agnostic; only the server address changes.
+Reproduce the private chain yourself with [docs/REGTEST.md](docs/REGTEST.md).
 
 ## License
 

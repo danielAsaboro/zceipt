@@ -14,3 +14,16 @@ the transaction from `zcash-testnet.chainsafe.dev` over grpc-web.
 
 `tx.hex` holds the raw transaction bytes, so the page's offline mode can verify it with no
 network access.
+
+## An exchange deposit across the ZIP 320 TEX two-step
+
+`deposit-receipt.txt` proves a real testnet deposit of 0.002 TAZ to the TEX address in
+`merchant.tex`. The contributor wallet paid it in two transactions mined in block 4,502,928:
+`cfb97544…` (shielded Ironwood spend to a one-time transparent address) and `ee624215…` (that
+address to the TEX). The receipt is for the first one and signs `tex-deposit:` and `second-tx:`
+lines; verifiers check the spend proof and that the second transaction spends the first and pays
+the TEX.
+
+    receipts verify @examples/testnet/deposit-receipt.txt
+
+It links the sender's shielded funds to the exchange deposit, so share it only with the exchange.

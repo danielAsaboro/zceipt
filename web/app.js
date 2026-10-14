@@ -38,7 +38,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
@@ -169,7 +169,8 @@ function localBadge() {
     f.mode === "offline" ? "No server was contacted: you supplied the transaction."
     : f.mode === "block" ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and its ${f.set} shielded transactions, not which one you checked.`
     : `${escapeHtml(f.host || "The server")} saw which transaction you checked. Links with an <code>h=</code> block hint avoid this.`;
-  return `<div class="local" data-mode="${f.mode || "txid"}"><strong>Verified on this device.</strong> The receipt never left your browser; the proof was checked here in WebAssembly. ${sees}</div>`;
+  const second = f.second ? " The deposit's second step (a public transparent transaction) was fetched by its id." : "";
+  return `<div class="local" data-mode="${f.mode || "txid"}"><strong>Verified on this device.</strong> The receipt never left your browser; the proof was checked here in WebAssembly. ${sees}${second}</div>`;
 }
 
 function render(v, net) {
@@ -197,12 +198,17 @@ function render(v, net) {
       <div class="line"><span class="k">TX</span>${EXPLORER[v.network] ? `<a class="v mono" target="_blank" rel="noreferrer noopener" href="${EXPLORER[v.network](v.txid)}">${short(v.txid, 8)}</a>` : `<span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span>`}</div>
       <div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>
       ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(proven)</small></span></div>`).join("")}
-      ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message)}</span></div>` : ""}
+      ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message.split("\n").filter((l) => !/^(tex-deposit|second-tx):/.test(l)).join("\n"))}</span></div>` : ""}
+      ${v.deposit ? `<div class="dash"></div>
+      <div class="line paid"><span class="k">DEPOSIT</span><span class="v amount">${zec(v.deposit.deposit_zatoshis)} <small>ZEC</small></span></div>
+      <div class="line"><span class="k">EXCHANGE</span><span class="v mono addr" title="${v.deposit.tex_address}">${short(v.deposit.tex_address, 14)}</span></div>
+      <div class="line"><span class="k">VIA</span><span class="v mono">${short(v.deposit.first_tx, 6)} → ${short(v.deposit.second_tx, 6)}</span></div>
+      <div class="local" data-mode="txid"><strong>Exchange deposit (ZIP 320).</strong> The sender proved they made this two-step deposit to the exchange's TEX address. ${escapeHtml(v.deposit.warning)}</div>` : ""}
       <div class="dash"></div>
       <div class="stamp good">VERIFIED</div>
       <ul class="facts">
         <li>The sender proved they authorized this payment (zero-knowledge proof + signature over this receipt).</li>
-        <li>The amount, recipient and memo above were opened from the transaction on chain.</li>
+        ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from the transaction on chain.</li>` : ""}
         ${(v.sender_addresses || []).length ? `<li>The sender also proved they control the FROM address above.</li><li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
       </ul>
       ${localBadge()}
@@ -301,6 +307,15 @@ async function run(receiptText) {
     const t0 = performance.now();
     const v = await call("verify", { receipt: receiptText, rawTx: tx.raw, height: tx.height, regtest: regtest() });
     setStep("verify", "done", `proof and signature valid (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
+    // Exchange deposit (ZIP 320): check the second step too.
+    const second = /(?:^|\n)second-tx:([0-9a-f]{64})(?:\n|$)/.exec(v.message || "");
+    if (second && /(?:^|\n)tex-deposit:/.test(v.message)) {
+      const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[summary.network]);
+      const tx2 = await fetchRawTx(endpoint, second[1]);
+      if (fetchMode) fetchMode.second = true;
+      await local;
+      v.deposit = JSON.parse(check_tex_deposit(receiptText, tx.raw, tx.height, tx2.raw, tx2.height, regtest()));
+    }
     render(v, summary.network);
   } catch (e) {
     setStep("verify", "fail", e.message);

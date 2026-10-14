@@ -102,7 +102,7 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
         }
         let provable = p.recipient_address().can_receive_as(PoolType::Shielded(ShieldedPool::Orchard));
         match kind.as_str() {
-            "tex" => f.add("warning", "tex_address", Some(i), "a TEX (exchange) address: it must be paid from transparent funds, shows the payment on chain, and no receipt can prove it. Ask the payer to use the exchange's own flow".into()),
+            "tex" => f.add("warning", "tex_address", Some(i), "a TEX (exchange) address: shielded wallets pay it in two public steps (ZIP 320), and the payment is visible on chain. A deposit receipt (`receipts create --tex-deposit`) can prove who made it, but links the payer's shielded funds to the deposit".into()),
             "transparent" => f.add("warning", "transparent_recipient", Some(i), "a transparent address: amount and recipient are public on chain, and there is no memo".into()),
             "sapling" => f.add("warning", "sapling_only", Some(i), "a Sapling-only address: payable, but Receipts can only prove payments to Orchard/Ironwood receivers. Use a unified address".into()),
             "unified" if !provable => f.add("warning", "no_orchard_receiver", Some(i), "this unified address has no Orchard receiver, so a receipt cannot prove payments to it".into()),

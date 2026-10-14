@@ -2947,6 +2947,7 @@ name = "receipts-chain"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
  "incrementalmerkletree",
  "orchard",
  "receipts-core",
@@ -2957,6 +2958,7 @@ dependencies = [
  "zcash_client_backend",
  "zcash_primitives",
  "zcash_protocol",
+ "zcash_transparent",
 ]
 
 [[package]]
@@ -3031,7 +3033,9 @@ dependencies = [
  "thiserror 2.0.21",
  "zcash_address",
  "zcash_note_encryption",
+ "zcash_primitives",
  "zcash_protocol",
+ "zcash_transparent",
  "zip321",
 ]
 

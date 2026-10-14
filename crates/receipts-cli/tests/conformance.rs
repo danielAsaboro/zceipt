@@ -98,3 +98,26 @@ fn decoders_never_panic() {
         let _ = SignIn::from_text(&format!("zsig1{text}"));
     }
 }
+
+/// The real testnet ZIP 320 deposit, checked offline, plus the ways it must fail.
+#[test]
+fn tex_deposit_offline() {
+    use zcash_primitives::transaction::Transaction;
+    use zcash_protocol::consensus::{BranchId, NetworkType};
+    let ex = |p: &str| std::fs::read_to_string(format!("{ROOT}/examples/testnet/{p}")).unwrap();
+    let r = Receipt::from_text(ex("deposit-receipt.txt").trim()).unwrap();
+    let tx = |p: &str| Transaction::read(&hex::decode(ex(p).trim()).unwrap()[..], BranchId::Nu6_3).unwrap();
+    let (tx1, tx2) = (tx("deposit-tx1.hex"), tx("deposit-tx2.hex"));
+    let msg = String::from_utf8_lossy(&r.unsigned.msg).into_owned();
+    let d = receipts_core::deposit::check(&r, &msg, NetworkType::Test, &tx1, &tx2).unwrap();
+    assert_eq!(d.deposit_zatoshis, 200_000);
+    assert_eq!(d.tex_address, ex("merchant.tex").trim());
+    // The spend proof for tx1 itself.
+    let report = receipts_chain::chain::verify_offline(&r, &ex("deposit-tx1.hex"), 4_502_928, None).unwrap();
+    assert!(report.valid && report.outputs.is_empty());
+    // Swapped transactions, another network, or a claim naming another TEX: refused.
+    assert!(receipts_core::deposit::check(&r, &msg, NetworkType::Test, &tx2, &tx1).is_err());
+    assert!(receipts_core::deposit::check(&r, &msg, NetworkType::Main, &tx1, &tx2).is_err());
+    let other = msg.replace(d.tex_address.as_str(), "textest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq");
+    assert!(receipts_core::deposit::check(&r, &other, NetworkType::Test, &tx1, &tx2).is_err());
+}

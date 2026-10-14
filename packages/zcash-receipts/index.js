@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -101,6 +101,17 @@ export async function verifyReceipt(input, options = {}) {
   const v = JSON.parse(verify(receipt, raw, Number(height), !!options.regtest));
   v.local = true;
   v.fetch = fetchInfo;
+  // Exchange deposit (ZIP 320 TEX two-step): also check the second transaction.
+  const second = /(?:^|\n)second-tx:([0-9a-f]{64})(?:\n|$)/.exec(v.message || "");
+  if (second && /(?:^|\n)tex-deposit:/.test(v.message)) {
+    let tx2 = options.secondRawTx != null ? { raw: typeof options.secondRawTx === "string" ? hexToBytes(options.secondRawTx.trim()) : options.secondRawTx, height: options.secondHeight ?? height } : null;
+    if (!tx2) {
+      const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
+      // Usually mined in the same block as the first step: fetch that block, else by txid.
+      tx2 = await fetchTransactionPrivately(endpoint, second[1], Number(height)).catch(() => fetchTransaction(endpoint, second[1]));
+    }
+    v.deposit = JSON.parse(check_tex_deposit(receipt, raw, Number(height), tx2.raw, Number(tx2.height), !!options.regtest));
+  }
   if (options.challenge != null) {
     const m = /(?:^|\n)challenge:([0-9a-f]{6,64})(?:\n|$)/.exec(v.message || "");
     if (!m || m[1] !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");

@@ -19,6 +19,8 @@ thiserror.workspace = true
 base64.workspace = true
 incrementalmerkletree = "0.9"
 zip321.workspace = true
+zcash_primitives.workspace = true
+zcash_transparent.workspace = true
 zcash_address.workspace = true
 zcash_protocol.workspace = true
 qrcode = { version = "0.14", default-features = false }

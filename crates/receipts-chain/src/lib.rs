@@ -3,6 +3,7 @@
 //! Merkle paths from public data. Shared by the CLI and the API server.
 
 pub mod chain;
+pub mod deposit;
 pub mod net;
 
 pub use chain::*;

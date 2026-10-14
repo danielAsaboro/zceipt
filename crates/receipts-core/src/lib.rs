@@ -37,6 +37,7 @@ use rand_core::{CryptoRng, Rng};
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 mod encoding;
+pub mod deposit;
 pub mod preflight;
 pub mod signin;
 pub mod tripwire;

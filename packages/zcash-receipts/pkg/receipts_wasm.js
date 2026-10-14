@@ -95,92 +95,48 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_export_3.get(idx);
     wasm.__externref_table_dealloc(idx);
     return value;
 }
 /**
- * Decodes a receipt without verifying it. Returns JSON.
+ * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
+ * `regtest` marks a local test chain (receipts there carry the testnet coin type).
+ * Returns JSON describing what the receipt proves, or throws why it is invalid.
  * @param {string} receipt
+ * @param {Uint8Array} raw_tx
+ * @param {number} height
+ * @param {boolean} regtest
  * @returns {string}
  */
-export function inspect(receipt) {
-    let deferred3_0;
-    let deferred3_1;
+export function verify(receipt, raw_tx, height, regtest) {
+    let deferred4_0;
+    let deferred4_1;
     try {
         const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.inspect(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-/**
- * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
- * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
- * @param {string} batch
- * @returns {string}
- */
-export function open_batch(batch) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(batch, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.open_batch(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-/**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
- */
-export function warm_up() {
-    wasm.warm_up();
-}
-
-/**
- * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
- * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
- * @param {string} uri
- * @param {string} network
- * @returns {string}
- */
-export function check_payment_uri(uri, network) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(uri, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(network, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.check_payment_uri(ptr0, len0, ptr1, len1);
-        deferred3_0 = ret[0];
-        deferred3_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
+        const ret = wasm.verify(ptr0, len0, ptr1, len1, height, regtest);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
     } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
 }
 
@@ -238,42 +194,99 @@ export function verify_sign_in(sign_in, domain, nonce) {
     }
 }
 
-function passArray8ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 1, 1) >>> 0;
-    getUint8ArrayMemory0().set(arg, ptr / 1);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
 /**
- * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
- * `regtest` marks a local test chain (receipts there carry the testnet coin type).
- * Returns JSON describing what the receipt proves, or throws why it is invalid.
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ */
+export function warm_up() {
+    wasm.warm_up();
+}
+
+/**
+ * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+ * @param {string} batch
+ * @returns {string}
+ */
+export function open_batch(batch) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(batch, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.open_batch(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
+ * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
+ * @param {string} uri
+ * @param {string} network
+ * @returns {string}
+ */
+export function check_payment_uri(uri, network) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(uri, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(network, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.check_payment_uri(ptr0, len0, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
+ * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
+ * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
+ * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
  * @param {string} receipt
- * @param {Uint8Array} raw_tx
- * @param {number} height
+ * @param {Uint8Array} tx1_raw
+ * @param {number} tx1_height
+ * @param {Uint8Array} tx2_raw
+ * @param {number} tx2_height
  * @param {boolean} regtest
  * @returns {string}
  */
-export function verify(receipt, raw_tx, height, regtest) {
-    let deferred4_0;
-    let deferred4_1;
+export function check_tex_deposit(receipt, tx1_raw, tx1_height, tx2_raw, tx2_height, regtest) {
+    let deferred5_0;
+    let deferred5_1;
     try {
         const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+        const ptr1 = passArray8ToWasm0(tx1_raw, wasm.__wbindgen_malloc);
         const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.verify(ptr0, len0, ptr1, len1, height, regtest);
-        var ptr3 = ret[0];
-        var len3 = ret[1];
+        const ptr2 = passArray8ToWasm0(tx2_raw, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.check_tex_deposit(ptr0, len0, ptr1, len1, tx1_height, ptr2, len2, tx2_height, regtest);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
         if (ret[3]) {
-            ptr3 = 0; len3 = 0;
+            ptr4 = 0; len4 = 0;
             throw takeFromExternrefTable0(ret[2]);
         }
-        deferred4_0 = ptr3;
-        deferred4_1 = len3;
-        return getStringFromWasm0(ptr3, len3);
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
     } finally {
-        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
     }
 }
 
@@ -289,6 +302,32 @@ export function orchard_receiver_hex(ua) {
         const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.orchard_receiver_hex(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Decodes a receipt without verifying it. Returns JSON.
+ * @param {string} receipt
+ * @returns {string}
+ */
+export function inspect(receipt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.inspect(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {

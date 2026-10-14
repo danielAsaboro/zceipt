@@ -227,3 +227,22 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
 pub fn check_payment_uri(uri: &str, network: &str) -> String {
     receipts_core::preflight::check_payment_uri(uri, (!network.is_empty()).then_some(network)).to_string()
 }
+
+/// For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
+/// second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
+/// pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
+/// Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
+#[wasm_bindgen]
+pub fn check_tex_deposit(receipt: &str, tx1_raw: &[u8], tx1_height: u32, tx2_raw: &[u8], tx2_height: u32, regtest: bool) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let r = parse(receipt)?;
+    let (net, mut nt, _) = net_of(r.unsigned.coin_type)?;
+    if regtest {
+        nt = NetworkType::Regtest;
+    }
+    let read = |raw: &[u8], h: u32| Transaction::read(raw, BranchId::for_height(&net, BlockHeight::from_u32(h))).map_err(|e| JsError::new(&format!("bad transaction: {e}")));
+    let (tx1, tx2) = (read(tx1_raw, tx1_height)?, read(tx2_raw, tx2_height)?);
+    let msg = String::from_utf8_lossy(&r.unsigned.msg).into_owned();
+    let d = receipts_core::deposit::check(&r, &msg, nt, &tx1, &tx2).map_err(|e| JsError::new(&e))?;
+    Ok(d.to_json().to_string())
+}

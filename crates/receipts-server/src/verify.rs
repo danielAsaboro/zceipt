@@ -49,6 +49,9 @@ pub struct Verification {
     pub verdict: &'static str,
     /// What was checked, one level per property (fills ZIP 311's "validity levels" TODO).
     pub checks: serde_json::Value,
+    /// For an exchange-deposit receipt (ZIP 320 TEX two-step): the checked deposit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deposit: Option<serde_json::Value>,
 }
 
 /// Builds the `checks` object and verdict for a verification.
@@ -126,14 +129,14 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
         Pool::Orchard => tx.orchard_bundle(),
     }
     .ok_or_else(|| ApiError::verification("receipt_invalid", "the transaction has no bundle in the receipt's pool"))?;
-    let receipt = receipt.clone();
+    let receipt_owned = receipt.clone();
     let v = {
         let coin = u.coin_type;
         let pool = u.pool;
         let txid = u.txid;
         // Proof verification is CPU-bound; keep it off the async workers.
         let bundle = bundle.clone();
-        tokio::task::spawn_blocking(move || receipts_core::verify(vk(), &receipt, coin, pool, txid, &bundle))
+        tokio::task::spawn_blocking(move || receipts_core::verify(vk(), &receipt_owned, coin, pool, txid, &bundle))
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?
             .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?
@@ -141,9 +144,22 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
     let message = String::from_utf8_lossy(&v.msg).into_owned();
     let tip = chain::chain_tip(net, server).await.ok();
     let (verdict, checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
+    let deposit = match receipts_chain::deposit::deposit_claim(&message) {
+        None => None,
+        Some((_, tx2_id)) => {
+            let mut id = [0u8; 32];
+            hex::decode_to_slice(&tx2_id, &mut id).map_err(|_| ApiError::verification("receipt_invalid", "bad second-tx id"))?;
+            id.reverse();
+            let (tx2, _) = chain::fetch_mined_tx(net, server, id).await.map_err(|e| ApiError::verification("transaction_not_found", format!("the deposit's second transaction: {e}")))?;
+            let d = receipts_chain::deposit::check(receipt, &message, receipts_chain::deposit::network_type(net), &tx, &tx2)
+                .map_err(|e| ApiError::verification("receipt_invalid", format!("exchange deposit: {e}")))?;
+            Some(d.to_json())
+        }
+    };
     Ok(Verification {
         verdict,
         checks,
+        deposit,
         object: "verification",
         valid: true,
         livemode: net == Net::Main,

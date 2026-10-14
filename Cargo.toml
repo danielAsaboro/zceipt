@@ -26,6 +26,7 @@ zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3
 zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
 zcash_keys = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
 zcash_client_backend = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
 zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
 zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
 

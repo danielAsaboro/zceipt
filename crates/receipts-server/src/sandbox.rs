@@ -72,6 +72,7 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         outputs: vec![Output { action: 0, recipient, recipient_raw: raw, zatoshis: amount, memo: Some("sandbox fixture".into()) }],
         verdict: "valid",
         checks: serde_json::Value::Null,
+        deposit: None,
     };
     let (verdict, checks) = crate::verify::levels(4_500_000, Some(4_500_019), 1, 1, challenge, None, 0);
     v.verdict = verdict;

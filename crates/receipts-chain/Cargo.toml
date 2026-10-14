@@ -18,3 +18,5 @@ zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic-tls-w
 zcash_primitives.workspace = true
 zcash_protocol = { workspace = true, features = ["local-consensus"] }
 zcash_address.workspace = true
+zcash_transparent.workspace = true
+hex = "0.4"

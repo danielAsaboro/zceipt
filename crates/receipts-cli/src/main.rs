@@ -72,6 +72,13 @@ enum Cmd {
         /// have chosen it. Use an address of yours (any receiver type the merchant can pay).
         #[arg(long)]
         refund_to: Option<String>,
+        /// Exchange deposit (ZIP 320): the TEX address this transaction (the first of the two
+        /// steps) paid. Needs --second-tx. The receipt then proves you made that deposit.
+        #[arg(long, requires = "second_tx")]
+        tex_deposit: Option<String>,
+        /// The second step of the TEX payment: the transaction that paid the TEX address.
+        #[arg(long, requires = "tex_deposit")]
+        second_tx: Option<String>,
         /// A proof request link from the verifier page (`…?request=<code>&to=<ua>&min=<zats>`).
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
@@ -330,10 +337,15 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, public_note, refund_to } => {
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, public_note, refund_to, tex_deposit, second_tx } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
+            }
+            if let (Some(tex), Some(t2)) = (&tex_deposit, &second_tx) {
+                eprintln!("Warning: {}", receipts_chain::deposit::WARNING);
+                lines.push(format!("tex-deposit:{tex}"));
+                lines.push(format!("second-tx:{}", t2.trim().to_lowercase()));
             }
             if let Some(a) = refund_to {
                 receipts_chain::chain::orchard_receiver_of(&a).map_err(|e| anyhow::anyhow!("--refund-to: {e}"))?;
@@ -435,6 +447,19 @@ async fn main() -> anyhow::Result<()> {
                 return verify_batch(&text, server.as_deref(), regtest.as_deref(), json).await;
             }
             let receipt = read_receipt_arg(&receipt)?;
+            if receipts_chain::deposit::deposit_claim(&String::from_utf8_lossy(&receipt.unsigned.msg)).is_some() {
+                let (report, d) = receipts_chain::deposit::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "receipt": report, "deposit": d.to_json() }))?);
+                } else {
+                    report.print();
+                    println!("EXCHANGE DEPOSIT (ZIP 320)");
+                    println!("  paid      {} ZEC to {}", chain::zec(d.deposit_zatoshis), d.tex_address);
+                    println!("  via       {} -> {}", d.first_tx, d.second_tx);
+                    println!("  the sender proved they made this deposit. {}", d.warning);
+                }
+                return Ok(());
+            }
             let report = chain::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
             if let Some(addr) = &expect_address {
                 let want = chain::orchard_receiver_of(addr)?;

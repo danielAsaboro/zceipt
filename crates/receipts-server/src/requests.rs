@@ -4,8 +4,10 @@
 //! - `single` (default): one receipt must pay at least `amount_zatoshis`.
 //! - `partial`: several receipts add up; the request is fulfilled once they reach the amount.
 //! - `campaign`: open-ended; every valid receipt is counted and the request never closes.
-//!   A public page at `/c/{id}` shows the verified total and each payment (amount, memo,
-//!   block), but never who paid.
+//!   The public page at `/c/{id}` is aggregate-only: a rounded total and a contributor count,
+//!   shown only after `public_min_contributions` (k, default 3) contributions, refreshed in
+//!   delayed batches, with no amounts, txids or on-chain memos. A contributor can opt in to a
+//!   public note by signing `public-note:<text>` into their receipt.
 //!
 //! A payment (transaction + output) can count towards only one request, ever. Otherwise one
 //! payment could be proven again for a second request with a fresh challenge.
@@ -167,6 +169,8 @@ pub struct CreateRequest {
     metadata: Option<serde_json::Map<String, Value>>,
     expires_in: Option<i64>,
     kind: Option<String>,
+    /// Campaigns: contributions needed before the public page shows anything (default 3).
+    public_min_contributions: Option<i64>,
 }
 
 pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateRequest>) -> Response {
@@ -185,6 +189,9 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
         if !["single", "partial", "campaign"].contains(&kind.as_str()) {
             return Err(ApiError::invalid("parameter_invalid", "kind must be single, partial or campaign").param("kind"));
         }
+        if req.public_min_contributions.is_some_and(|k| !(1..=1000).contains(&k)) {
+            return Err(ApiError::invalid("parameter_invalid", "public_min_contributions must be 1..=1000").param("public_min_contributions"));
+        }
         if kind == "partial" && req.amount_zatoshis.is_none() {
             return Err(ApiError::invalid("parameter_missing", "a partial request needs amount_zatoshis").param("amount_zatoshis"));
         }
@@ -197,8 +204,8 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
         {
             let c = st2.db.0.lock().unwrap();
             c.execute(
-                "INSERT INTO requests (id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, client_secret) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?11)",
-                params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret],
+                "INSERT INTO requests (id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, client_secret, public_k) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?11,?12)",
+                params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret, req.public_min_contributions.unwrap_or(3)],
             )?;
         }
         let obj = to_json(&st2, &load(&st2, Some(mode), &id)?);
@@ -295,9 +302,11 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             tx.execute("INSERT INTO payments_used (mode, txid, action, request_id, zatoshis, created) VALUES (?1,?2,?3,?4,?5,?6)", params![mode.as_str(), v.txid, action, r.id, *z as i64, now()])?;
         }
         let memo = v.outputs.iter().find(|o| o.recipient_raw == receipts_chain::chain::orchard_receiver_of(&r.payee).unwrap_or([0; 43])).and_then(|o| o.memo.clone());
+        // A public note only if the contributor signed one into the receipt.
+        let public_note = v.message.lines().find_map(|l| l.strip_prefix("public-note:")).map(|s| s.trim().chars().take(140).collect::<String>());
         tx.execute(
-            "INSERT INTO request_payments (request_id, txid, zatoshis, mined_height, memo, sender_addresses, created) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![r.id, v.txid, paid as i64, v.mined_height, memo, serde_json::to_string(&v.sender_addresses).unwrap(), now()],
+            "INSERT INTO request_payments (request_id, txid, zatoshis, mined_height, memo, sender_addresses, created, public_note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![r.id, v.txid, paid as i64, v.mined_height, memo, serde_json::to_string(&v.sender_addresses).unwrap(), now(), public_note],
         )?;
         let received = r.received + paid as i64;
         let fulfilled = match r.kind.as_str() {
@@ -410,18 +419,54 @@ pub async fn public_submit(State(st): State<Shared>, Path(id): Path<String>, Bod
     Ok(Json(public_view(&st, &r)))
 }
 
-/// Public campaign tally: verified total and each payment, never who paid.
+/// Public campaign tally: aggregate-only (see the module docs for why).
 pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> Result<Json<Value>, ApiError> {
     let r = load(&st, None, &id)?;
     if r.kind != "campaign" {
         return Err(ApiError::not_found("request_not_found", "not a campaign"));
     }
-    let pays = payments(&st, &r.id)?;
+    let (snapshot, snapshot_at, k): (Option<String>, Option<i64>, i64) = {
+        let c = st.db.0.lock().unwrap();
+        c.query_row("SELECT snapshot, snapshot_at, public_k FROM requests WHERE id = ?1", [&id], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)))?
+    };
+    let fresh = snapshot_at.is_some_and(|t| now() - t < st.config.campaign_snapshot_secs);
+    let snap: Value = match (fresh, snapshot.as_deref().and_then(|s| serde_json::from_str(s).ok())) {
+        (true, Some(s)) => s,
+        _ => {
+            let (count, total, mut notes): (i64, i64, Vec<String>) = {
+                let c = st.db.0.lock().unwrap();
+                let (count, total) = c.query_row("SELECT COUNT(*), COALESCE(SUM(zatoshis), 0) FROM request_payments WHERE request_id = ?1", [&id], |x| Ok((x.get(0)?, x.get(1)?)))?;
+                let mut stmt = c.prepare("SELECT public_note FROM request_payments WHERE request_id = ?1 AND public_note IS NOT NULL")?;
+                let notes = stmt.query_map([&id], |x| x.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+                (count, total, notes)
+            };
+            // Shuffle so the order of notes doesn't reveal the order of contributions.
+            for i in (1..notes.len()).rev() {
+                let mut b = [0u8; 8];
+                getrandom::fill(&mut b).expect("OS RNG");
+                notes.swap(i, (u64::from_le_bytes(b) % (i as u64 + 1)) as usize);
+            }
+            let visible = count >= k;
+            let s = json!({
+                "visible": visible,
+                "contributions": if visible { json!(count) } else { Value::Null },
+                // Rounded down to 0.001 ZEC so a total can't be diffed back to one exact amount.
+                "received_zatoshis_rounded": if visible { json!((total / 100_000) * 100_000) } else { Value::Null },
+                "public_notes": if visible { json!(notes) } else { json!([]) },
+                "as_of": now(),
+            });
+            let c = st.db.0.lock().unwrap();
+            c.execute("UPDATE requests SET snapshot = ?1, snapshot_at = ?2 WHERE id = ?3", params![s.to_string(), now(), id])?;
+            s
+        }
+    };
+    let full = to_json(&st, &r);
     Ok(Json(json!({
         "id": r.id, "object": "campaign", "label": r.label, "payee": r.payee, "goal_zatoshis": r.amount,
-        "received_zatoshis": r.received, "count": pays.len(),
-        "payments": pays.iter().map(|p| json!({ "zatoshis": p["zatoshis"], "memo": p["memo"], "mined_height": p["mined_height"], "txid": p["txid"], "sender_addresses": p["sender_addresses"] })).collect::<Vec<_>>(),
-        "payment_uri": to_json(&st, &r)["payment_uri"], "receipt_link": to_json(&st, &r)["receipt_link"], "livemode": r.mode == "live",
+        "min_contributions_to_publish": k,
+        "refresh_secs": st.config.campaign_snapshot_secs,
+        "tally": snap,
+        "payment_uri": full["payment_uri"], "receipt_link": full["receipt_link"], "livemode": r.mode == "live",
     })))
 }
 

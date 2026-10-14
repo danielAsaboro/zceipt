@@ -76,8 +76,11 @@ A failure throws `VerificationError` with a stable `code`, e.g. `challenge_misma
 - `kind: "partial"`: the customer can pay in several transactions. Receipts add up until
   `amount_zatoshis` is reached, and `payment_uri` always asks for what's still owed.
 - `kind: "campaign"`: fundraising. Every valid receipt counts and the request never closes.
-  `public_url` (`/c/{id}`) shows the verified total and each payment's amount and memo, but
-  never who paid.
+  `public_url` (`/c/{id}`) is aggregate-only: a total rounded to 0.001 ZEC and a contributor
+  count. It appears only after `public_min_contributions` gifts (default 3) and refreshes in
+  batches (every 10 min by default). It never shows individual amounts, txids, times or
+  on-chain memos, so a gift can't be matched to a transaction. A contributor can opt in to a
+  public note with `receipts create … --public-note "…"`, which is signed into their receipt.
 - **Hosted pay page.** Send the payer `hosted_url` (`/pay/{id}?secret=…`). It shows the QR
   code and the command, and accepts the receipt with no API key and no frontend work on your
   side.

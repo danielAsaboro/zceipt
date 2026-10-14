@@ -52,6 +52,9 @@ pub struct Config {
     pub webhook_max_attempts: i64,
     /// Public base URL of this API, for hosted pay pages and campaign pages.
     pub public_url: String,
+    /// Campaign pages refresh their public numbers at most this often (batched updates make
+    /// it harder to match a contribution to an on-chain transaction by timing).
+    pub campaign_snapshot_secs: i64,
 }
 
 impl Config {
@@ -65,6 +68,7 @@ impl Config {
             webhook_backoff_secs: 10,
             webhook_max_attempts: webhooks::MAX_ATTEMPTS,
             public_url: "http://127.0.0.1:8723".into(),
+            campaign_snapshot_secs: 600,
         }
     }
 }
@@ -331,6 +335,9 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
         }
     }
     let mut body = serde_json::to_value(&v).unwrap();
+    if req.challenge.is_some() {
+        body["checks"]["challenge"] = "matched".into();
+    }
     if let Some(addr) = &req.expect_address {
         let paid = verify::paid_to(&v, addr)?;
         if paid == 0 {

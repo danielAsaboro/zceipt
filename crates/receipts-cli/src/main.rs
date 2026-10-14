@@ -65,6 +65,9 @@ enum Cmd {
         /// so the verifier sees who paid. Without it, the sender stays anonymous.
         #[arg(long)]
         prove_address: Option<String>,
+        /// For campaigns: a note you choose to show publicly (signed into the receipt).
+        #[arg(long)]
+        public_note: Option<String>,
         /// A proof request link from the verifier page (`…?request=<code>&to=<ua>&min=<zats>`).
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
@@ -286,7 +289,12 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address } => {
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, public_note } => {
+            let msg = match public_note {
+                Some(n) if msg.is_empty() => format!("public-note:{n}"),
+                Some(n) => format!("{msg}\npublic-note:{n}"),
+                None => msg,
+            };
             let pool = match pool.as_deref() {
                 None => None,
                 Some("ironwood") => Some(Pool::Ironwood),

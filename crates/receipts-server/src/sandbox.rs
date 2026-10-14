@@ -12,6 +12,7 @@
 //! | `zrcpt_test_not_found`           | `transaction_not_found`                   |
 //! | `zrcpt_test_chain_unavailable`   | `chain_unavailable` (502, retryable)      |
 //! | `zrcpt_test_partial`             | valid; pays half of what is still owed    |
+//! | `zrcpt_test_public_note`         | valid; the contributor opted in to a public campaign note |
 //! | `zrcpt_test_same_payment`        | valid; always the same transaction, to see `payment_already_used` |
 
 use crate::{error::ApiError, verify::{Output, Verification}};
@@ -36,6 +37,7 @@ pub const FIXTURES: &[&str] = &[
     "zrcpt_test_chain_unavailable",
     "zrcpt_test_partial",
     "zrcpt_test_same_payment",
+    "zrcpt_test_public_note",
 ];
 
 /// Resolves a fixture. `payee`, `amount` and `challenge` are what the caller expects, so the
@@ -63,11 +65,20 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         batch: None,
         sender_addresses: vec![],
         outputs: vec![Output { action: 0, recipient, recipient_raw: raw, zatoshis: amount, memo: Some("sandbox fixture".into()) }],
+        verdict: "valid",
+        checks: serde_json::Value::Null,
     };
+    let (verdict, checks) = crate::verify::levels(4_500_000, Some(4_500_019), 1, 1, challenge, None, 0);
+    v.verdict = verdict;
+    v.checks = checks;
     match name {
         "zrcpt_test_valid" => Ok(v),
         "zrcpt_test_partial" => {
             v.outputs[0].zatoshis = amount.div_ceil(2).max(1);
+            Ok(v)
+        }
+        "zrcpt_test_public_note" => {
+            v.message.push_str("\npublic-note:Good luck with the library!");
             Ok(v)
         }
         "zrcpt_test_same_payment" => {

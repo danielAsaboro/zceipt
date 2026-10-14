@@ -80,6 +80,7 @@ paths:
                 label: { type: string, maxLength: 200 }
                 metadata: { type: object, additionalProperties: true, description: "Your own key/values, e.g. order_id." }
                 expires_in: { type: integer, minimum: 1, description: "Seconds until the request expires." }
+                public_min_contributions: { type: integer, minimum: 1, maximum: 1000, default: 3, description: "Campaigns: contributions needed before the public page shows a total" }
                 kind:
                   type: string
                   enum: [single, partial, campaign]
@@ -288,6 +289,17 @@ components:
         sender_addresses: { type: array, items: { type: string }, description: "Addresses the sender chose to prove; usually empty" }
         outputs: { type: array, items: { $ref: "#/components/schemas/Output" } }
         paid_to_expected: { type: integer }
+        verdict: { type: string, enum: [valid, valid_provisional], description: "valid_provisional until the transaction has 10 confirmations" }
+        checks:
+          type: object
+          description: "One level per property (ZIP 311 validity levels)"
+          properties:
+            spend_authority: { type: object, properties: { level: { const: proven }, actions: { type: integer } } }
+            outputs: { type: object, properties: { level: { const: opened }, count: { type: integer } } }
+            confirmations: { type: [integer, "null"] }
+            finality: { type: string, enum: [final, provisional, unknown] }
+            challenge: { type: string, enum: [matched, present, none] }
+            sender_address: { type: string, enum: [proven, not_disclosed] }
     BatchVerification:
       type: object
       properties:

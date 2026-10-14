@@ -110,9 +110,13 @@ impl Db {
             "received_zatoshis INTEGER NOT NULL DEFAULT 0",
             "client_secret TEXT",
             "expired_notified INTEGER NOT NULL DEFAULT 0",
+            "public_k INTEGER NOT NULL DEFAULT 3",
+            "snapshot TEXT",
+            "snapshot_at INTEGER",
         ] {
             let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
         }
+        let _ = conn.execute("ALTER TABLE request_payments ADD COLUMN public_note TEXT", []);
         Ok(Db(Mutex::new(conn)))
     }
 

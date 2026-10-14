@@ -272,20 +272,51 @@ async fn hosted_pay_page_needs_the_client_secret() {
 }
 
 #[tokio::test]
-async fn campaigns_tally_without_revealing_donors() {
-    let (app, test, _) = app().await;
-    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 5000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })), None).await;
+async fn campaigns_publish_aggregates_only() {
+    let mut cfg = receipts_server::Config::new(Net::Test, "http://verifier.test/");
+    cfg.campaign_snapshot_secs = 0; // refresh on every read in this test
+    let (app, test, _) = app_with(cfg).await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 5_000_000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })), None).await;
     let id = r["id"].as_str().unwrap();
-    for _ in 0..3 {
-        let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zrcpt_test_partial" })), None).await;
-        assert_eq!(s, StatusCode::OK);
-    }
+    let pay = |fixture: &'static str| {
+        let app = app.clone();
+        let id = id.to_string();
+        async move { call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": fixture })), None).await.0 }
+    };
+    assert_eq!(pay("zrcpt_test_partial").await, StatusCode::OK);
+    assert_eq!(pay("zrcpt_test_public_note").await, StatusCode::OK);
+    // Below k = 3: nothing is published.
     let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
-    assert_eq!(c["count"], 3);
-    assert_eq!(c["received_zatoshis"], 2500 + 1250 + 625);
-    assert!(c.get("metadata").is_none());
-    let (_, r, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
-    assert_eq!(r["status"], "open", "campaigns never close by themselves");
+    assert_eq!(c["tally"]["visible"], false);
+    assert!(c["tally"]["received_zatoshis_rounded"].is_null() && c["tally"]["contributions"].is_null());
+    assert_eq!(pay("zrcpt_test_partial").await, StatusCode::OK);
+    let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
+    let t = &c["tally"];
+    assert_eq!(t["visible"], true);
+    assert_eq!(t["contributions"], 3);
+    assert_eq!(t["received_zatoshis_rounded"].as_i64().unwrap() % 100_000, 0, "totals are rounded");
+    assert_eq!(t["public_notes"], json!(["Good luck with the library!"]), "only opted-in notes");
+    let text = c.to_string();
+    for leak in ["txid", "mined_height", "sandbox fixture", "metadata", "internal", "\"zatoshis\":"] {
+        assert!(!text.contains(leak), "public campaign JSON must not contain {leak}: {text}");
+    }
+    // The owner still sees everything through the API.
+    let (_, full, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!(full["payments"].as_array().unwrap().len(), 3);
+    assert_eq!(full["status"], "open", "campaigns never close by themselves");
+}
+
+#[tokio::test]
+async fn campaign_numbers_update_in_batches() {
+    let (app, test, _) = app().await; // default: refresh every 600 s
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign", "public_min_contributions": 1 })), None).await;
+    let id = r["id"].as_str().unwrap();
+    call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (_, a, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
+    call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (_, b, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
+    assert_eq!(a["tally"]["contributions"], 1);
+    assert_eq!(b["tally"]["contributions"], 1, "a new contribution doesn't show until the next batch");
 }
 
 #[tokio::test]

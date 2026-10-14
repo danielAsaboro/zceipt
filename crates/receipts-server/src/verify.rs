@@ -45,6 +45,40 @@ pub struct Verification {
     pub batch: Option<serde_json::Value>,
     pub sender_addresses: Vec<String>,
     pub outputs: Vec<Output>,
+    /// `valid` once the transaction has FINALITY_CONFIRMATIONS confirmations, `valid_provisional` before.
+    pub verdict: &'static str,
+    /// What was checked, one level per property (fills ZIP 311's "validity levels" TODO).
+    pub checks: serde_json::Value,
+}
+
+/// Builds the `checks` object and verdict for a verification.
+pub fn levels(mined_height: u32, tip: Option<u32>, outputs: usize, spends: usize, challenge: Option<&str>, expected_challenge: Option<&str>, sender_addresses: usize) -> (&'static str, serde_json::Value) {
+    let confirmations = tip.map(|t| t.saturating_sub(mined_height) + 1);
+    let fin = receipts_chain::chain::FINALITY_CONFIRMATIONS;
+    let finality = match confirmations {
+        Some(c) if c >= fin => "final",
+        Some(_) => "provisional",
+        None => "unknown",
+    };
+    let challenge_level = match (challenge, expected_challenge) {
+        (Some(c), Some(e)) if c == e => "matched",
+        (_, Some(_)) => "mismatch",
+        (Some(_), None) => "present",
+        (None, None) => "none",
+    };
+    let verdict = if finality == "provisional" { "valid_provisional" } else { "valid" };
+    (
+        verdict,
+        serde_json::json!({
+            "spend_authority": { "level": "proven", "actions": spends },
+            "outputs": { "level": "opened", "count": outputs },
+            "confirmations": confirmations,
+            "finality": finality,
+            "finality_threshold": fin,
+            "challenge": challenge_level,
+            "sender_address": if sender_addresses > 0 { "proven" } else { "not_disclosed" },
+        }),
+    )
 }
 
 /// The `challenge:<hex>` line a receipt signs, if any.
@@ -105,7 +139,11 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
             .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?
     };
     let message = String::from_utf8_lossy(&v.msg).into_owned();
+    let tip = chain::chain_tip(net, server).await.ok();
+    let (verdict, checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
     Ok(Verification {
+        verdict,
+        checks,
         object: "verification",
         valid: true,
         livemode: net == Net::Main,

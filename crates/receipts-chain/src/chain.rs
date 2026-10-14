@@ -21,6 +21,20 @@ pub async fn connect(server: &str) -> anyhow::Result<CompactTxStreamerClient<Cha
     Ok(CompactTxStreamerClient::new(ch.connect().await.context("connecting to lightwalletd")?))
 }
 
+/// Height of the chain tip, as lightwalletd sees it.
+pub async fn chain_tip(net: Net, server: Option<&str>) -> anyhow::Result<u32> {
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    let b = client
+        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
+        .await
+        .map_err(|e| anyhow!("latest block: {}", e.message()))?
+        .into_inner();
+    Ok(b.height as u32)
+}
+
+/// Confirmations after which a receipt is reported `final` (reorgs deeper than this are not expected).
+pub const FINALITY_CONFIRMATIONS: u32 = 10;
+
 /// Fetches a mined transaction. Returns the transaction and its block height.
 pub async fn fetch_mined_tx(
     net: Net,

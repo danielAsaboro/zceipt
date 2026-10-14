@@ -4,21 +4,22 @@
 <style>
 :root{color-scheme:light;--paper:#fbfaf6;--ink:#1d1c1a;--dim:#6b665c;--line:#e5dfd2;--good:#1d6b45;--bad:#a3271f}
 *{box-sizing:border-box}body{margin:0;background:#efeae0;color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}
-main{max-width:760px;margin:0 auto;padding:28px 16px 60px}.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}
+main{max-width:720px;margin:0 auto;padding:28px 16px 60px}.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}
 .brand{font:800 12px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:var(--dim)}h1{font-size:26px;margin:6px 0}
 .total{font:800 40px ui-monospace,Menlo,monospace}.bar{height:10px;background:#e8e2d5;border-radius:99px;overflow:hidden;margin:10px 0}.bar i{display:block;height:100%;background:var(--good)}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{text-align:left;padding:8px 6px;border-bottom:1px dashed var(--line)}th{color:var(--dim);font-size:12px}
 .mono{font:12px ui-monospace,Menlo,monospace;word-break:break-all}.qr{width:200px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:8px}.qr svg{width:100%;height:auto;display:block}
 .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}textarea{width:100%;min-height:80px;border:1px solid var(--line);border-radius:10px;padding:10px;font:12px ui-monospace,Menlo,monospace}
 button{margin-top:8px;background:var(--ink);color:#fff;border:0;border-radius:10px;padding:10px 16px;font:600 14px system-ui;cursor:pointer}.muted{color:var(--dim);font-size:13px}.err{color:var(--bad);font-size:13px}
+.note{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0;font-style:italic}
 </style></head>
 <body><main>
 <div class="card" id="head"><div class="brand">RECEIPTS · CAMPAIGN</div><p class="muted">Loading…</p></div>
-<div class="card"><h2 style="margin:0 0 6px;font-size:17px">Verified contributions</h2>
-<p class="muted">Each row is a shielded payment whose sender proved it with a zero-knowledge receipt. Amounts and memos are public; who paid is not.</p>
-<table><thead><tr><th>Amount</th><th>Memo</th><th>Block</th><th>Transaction</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="card"><h2 style="margin:0 0 6px;font-size:17px">How this stays private</h2>
+<p class="muted">Every contribution is a shielded Zcash payment whose sender proved it with a zero-knowledge receipt. This page shows only a rounded total and a count, after enough people have given, refreshed in batches. No amounts, transactions or times of individual gifts are shown, so nobody can match a gift to a person. Notes appear only if a contributor chose to sign one.</p>
+<div id="notes"></div></div>
 <div class="card"><h2 style="margin:0 0 6px;font-size:17px">Contribute</h2><div class="row"><div class="qr" id="qr"></div>
-<div style="flex:1;min-width:240px"><p>Pay from any shielded wallet, then run:</p><p class="mono" id="cmd"></p><p>and paste the receipt link it prints:</p>
+<div style="flex:1;min-width:240px"><p>Pay from any shielded wallet, then run:</p><p class="mono" id="cmd"></p>
+<p class="muted">Add <span class="mono">--public-note "your words"</span> if you want a note shown here.</p><p>Paste the receipt link it prints:</p>
 <textarea id="receipt" placeholder="https://…#zrcpt1…"></textarea><button id="submit">Add my verified contribution</button><div id="msg"></div></div></div></div>
 </main>
 <script>
@@ -28,13 +29,15 @@ const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 async function load() {
   const r = await fetch(`/v1/public/campaigns/${id}`); const c = await r.json();
   if (!r.ok) { document.getElementById("head").innerHTML = `<p class="err">${esc(c.error?.message)}</p>`; return; }
-  const pct = c.goal_zatoshis ? Math.min(100, (100 * c.received_zatoshis) / c.goal_zatoshis) : 0;
+  const t = c.tally;
+  const pct = c.goal_zatoshis && t.visible ? Math.min(100, (100 * t.received_zatoshis_rounded) / c.goal_zatoshis) : 0;
   document.getElementById("head").innerHTML = `<div class="brand">RECEIPTS · CAMPAIGN · ${c.livemode ? "ZCASH" : "ZCASH TESTNET"}</div>
-    <h1>${esc(c.label || "Campaign")}</h1><div class="total">${zec(c.received_zatoshis)} ZEC</div>
-    <div class="muted">from ${c.count} verified contribution${c.count === 1 ? "" : "s"}${c.goal_zatoshis ? ` · goal ${zec(c.goal_zatoshis)} ZEC` : ""}</div>
-    ${c.goal_zatoshis ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}`;
-  document.getElementById("rows").innerHTML = c.payments.map((p) => `<tr><td><b>${zec(p.zatoshis)} ZEC</b></td><td>${esc(p.memo || "")}${p.sender_addresses?.length ? `<div class="muted">from ${esc(p.sender_addresses[0].slice(0, 14))}… (proven)</div>` : ""}</td>
-    <td class="mono">${p.mined_height?.toLocaleString() ?? ""}</td><td class="mono">${esc(p.txid.slice(0, 12))}…</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No contributions yet.</td></tr>`;
+    <h1>${esc(c.label || "Campaign")}</h1>
+    ${t.visible ? `<div class="total">≈ ${zec(t.received_zatoshis_rounded)} ZEC</div>
+      <div class="muted">${t.contributions} verified contributions${c.goal_zatoshis ? ` · goal ${zec(c.goal_zatoshis)} ZEC` : ""} · updated ${new Date(t.as_of * 1000).toLocaleTimeString()}, refreshed every ${Math.round(c.refresh_secs / 60)} min</div>
+      ${c.goal_zatoshis ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}`
+    : `<div class="muted">The total appears once ${c.min_contributions_to_publish} people have contributed, so no single gift can be singled out.</div>`}`;
+  document.getElementById("notes").innerHTML = (t.public_notes || []).map((n) => `<div class="note">“${esc(n)}”</div>`).join("");
   document.getElementById("cmd").textContent = `receipts create -w <wallet> -i <key.age> --txid <txid> --request '${c.receipt_link}'`;
   if (!document.getElementById("qr").innerHTML) document.getElementById("qr").innerHTML = await (await fetch(`/v1/public/requests/${id}/qr.svg`)).text();
 }
@@ -42,8 +45,8 @@ document.getElementById("submit").onclick = async () => {
   const msg = document.getElementById("msg");
   const r = await fetch(`/v1/public/requests/${id}/receipts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ receipt: document.getElementById("receipt").value.trim() }) });
   const j = await r.json();
-  msg.className = r.ok ? "" : "err"; msg.textContent = r.ok ? "Thank you! Your contribution is verified." : `${j.error?.code}: ${j.error?.message}`;
-  if (r.ok) { document.getElementById("receipt").value = ""; load(); }
+  msg.className = r.ok ? "" : "err"; msg.textContent = r.ok ? "Thank you! Your contribution is verified and will appear in the next update." : `${j.error?.code}: ${j.error?.message}`;
+  if (r.ok) document.getElementById("receipt").value = "";
 };
-load(); setInterval(load, 5000);
+load(); setInterval(load, 30000);
 </script></body></html>

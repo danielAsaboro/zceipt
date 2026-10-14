@@ -163,3 +163,39 @@ export async function checkPaymentLink(uri, { network } = {}) {
   await load();
   return JSON.parse(check_payment_uri(String(uri), network ? String(network) : ""));
 }
+
+const b64urlDecode = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+const b64urlEncode = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+/**
+ * Verifies a payment-fact attestation (an SD-JWT from `POST /v1/requests/{id}/attestations`)
+ * locally with WebCrypto. `jwks` is the issuer's `/.well-known/jwks.json` (an object, or a URL to
+ * fetch; default: `<iss>/.well-known/jwks.json`). Resolves to the signed claims, with any
+ * revealed hidden claims under `revealed`. Throws if anything doesn't check out.
+ */
+export async function verifyAttestation(presentation, { jwks } = {}) {
+  const [jwt, ...disclosures] = String(presentation).trim().split("~");
+  const [h, p, s] = jwt.split(".");
+  if (!s) throw new Error("not a JWT");
+  const header = JSON.parse(new TextDecoder().decode(b64urlDecode(h)));
+  const claims = JSON.parse(new TextDecoder().decode(b64urlDecode(p)));
+  if (header.alg !== "EdDSA") throw new Error("unsupported alg");
+  let set = jwks;
+  if (!set || typeof set === "string") set = await (await fetch(set || `${String(claims.iss).replace(/\/$/, "")}/.well-known/jwks.json`)).json();
+  const jwk = (set.keys || []).find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error("unknown key id");
+  const key = await crypto.subtle.importKey("raw", b64urlDecode(jwk.x), { name: "Ed25519" }, false, ["verify"]);
+  const ok = await crypto.subtle.verify({ name: "Ed25519" }, key, b64urlDecode(s), new TextEncoder().encode(`${h}.${p}`));
+  if (!ok) throw new Error("signature does not verify");
+  const revealed = {};
+  for (const d of disclosures.filter(Boolean)) {
+    const digest = b64urlEncode(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(d)));
+    if (!(claims._sd || []).includes(digest)) throw new Error("a disclosure is not part of this attestation");
+    const [, name, value] = JSON.parse(new TextDecoder().decode(b64urlDecode(d)));
+    if (name in revealed) throw new Error("duplicate disclosure");
+    revealed[name] = value;
+  }
+  delete claims._sd;
+  delete claims._sd_alg;
+  return { ...claims, revealed };
+}

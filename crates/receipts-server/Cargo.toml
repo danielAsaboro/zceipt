@@ -18,6 +18,7 @@ serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 hmac = "0.12"
 sha2 = "0.10"
+ed25519-dalek = "2"
 hex = "0.4"
 base64 = "0.22"
 getrandom = "0.3"

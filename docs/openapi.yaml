@@ -83,6 +83,51 @@ paths:
       responses:
         "200": { description: The check; `ok` is false if any finding is an error }
         "400": { $ref: "#/components/responses/Error" }
+  /v1/requests/{id}/attestations:
+    post:
+      tags: [Proof requests]
+      operationId: createAttestation
+      summary: Sign a minimal business fact about a fulfilled request
+      description: |
+        Returns an Ed25519 SD-JWT stating `paid_at_least_zatoshis`, `paid_on_or_before` (a day), `network` and `final`.
+        The txid, exact amount, exact time, request id and label are selectively disclosable (`disclosures`).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                at_least_zatoshis: { type: integer, minimum: 0 }
+                before: { type: string, format: date }
+                disclose: { type: array, items: { type: string, enum: [txid, amount_zatoshis, paid_at, request, label] } }
+      responses:
+        "200": { description: Attestation }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/attestations/verify:
+    post:
+      tags: [Proof requests]
+      operationId: verifyAttestation
+      summary: Verify an attestation this server issued
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [attestation], properties: { attestation: { type: string } } }
+      responses:
+        "200": { description: Valid, with the stated and revealed claims }
+        "422": { $ref: "#/components/responses/Error" }
+  /.well-known/jwks.json:
+    get:
+      tags: [Meta]
+      operationId: jwks
+      summary: Public keys for attestations
+      security: []
+      responses:
+        "200": { description: JWK set (Ed25519) }
   /v1/requests/{id}/refunds:
     post:
       tags: [Proof requests]

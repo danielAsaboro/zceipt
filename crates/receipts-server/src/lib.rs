@@ -12,6 +12,7 @@
 //! `rcpt_live_…` serves mainnet. The two modes never see each other's objects. Every
 //! creating `POST` accepts an `Idempotency-Key` header.
 
+pub mod attestations;
 pub mod clocks;
 pub mod db;
 pub mod error;
@@ -537,6 +538,7 @@ const DOCS: &[(&str, &str)] = &[
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),
     ("guides/refunds.md", include_str!("../../../docs/guides/refunds.md")),
+    ("guides/attestations.md", include_str!("../../../docs/guides/attestations.md")),
     ("guides/sign-in.md", include_str!("../../../docs/guides/sign-in.md")),
 ];
 
@@ -573,6 +575,9 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/requests/{id}/receipts", post(submit_receipt))
         .route("/v1/requests/{id}/qr.svg", get(request_qr))
         .route("/v1/requests/{id}/refunds", post(refunds::create))
+        .route("/v1/requests/{id}/attestations", post(attestations::create))
+        .route("/v1/attestations/verify", post(attestations::verify))
+        .route("/.well-known/jwks.json", get(attestations::jwks))
         .route("/v1/refunds/{id}", get(refunds::get))
         .route("/v1/refunds/{id}/receipts", post(refunds::submit))
         .route("/v1/deliveries", get(list_deliveries))

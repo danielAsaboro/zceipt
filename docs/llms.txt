@@ -23,6 +23,7 @@ Key facts for agents:
 - [Clear a compliance hold on one deposit](/docs/guides/exchange-deposit.md)
 - [Prove a payout round with one link](/docs/guides/grant-payouts.md)
 - [Refunds to a signed address, with proof both ways](/docs/guides/refunds.md)
+- [Attestations: prove a business fact without the transaction](/docs/guides/attestations.md)
 - [Sign in with Zcash: prove an address, no transaction](/docs/guides/sign-in.md)
 
 ## Optional

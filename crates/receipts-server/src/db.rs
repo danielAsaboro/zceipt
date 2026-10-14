@@ -49,6 +49,11 @@ CREATE TABLE IF NOT EXISTS request_payments (
     sender_addresses TEXT NOT NULL DEFAULT '[]',
     created INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS signing_keys (
+    kid TEXT PRIMARY KEY,
+    secret TEXT NOT NULL,
+    created INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS test_clocks (
     id TEXT PRIMARY KEY,
     frozen_time INTEGER NOT NULL,

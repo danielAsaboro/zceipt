@@ -487,3 +487,46 @@ async fn payment_links_are_checked_and_our_own_pass() {
     let (s, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({})), None).await;
     assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("uri")));
 }
+
+#[tokio::test]
+async fn attestations_state_minimal_facts_and_disclose_selectively() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234567, "label": "Grant round 3" })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_not_fulfilled")));
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+
+    let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 1000000 })), None).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    let pres = a["presentation"].as_str().unwrap();
+    // The default presentation carries no txid, exact amount, exact time, request id or label.
+    let payload = String::from_utf8(base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, pres.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    for hidden in ["5a4db0c5", "1234567", id, "Grant round 3", "paid_at\""] {
+        assert!(!payload.contains(hidden) && !pres.contains(hidden), "{hidden} leaked: {payload}");
+    }
+    let (s, ok, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": pres })), None).await;
+    assert_eq!(s, StatusCode::OK, "{ok}");
+    assert_eq!(ok["claims"]["paid_at_least_zatoshis"], 1000000);
+    assert_eq!(ok["claims"]["revealed"], json!({}));
+
+    // Reveal the label later: the signature still checks.
+    let with_label = format!("{pres}{}~", a["disclosures"]["label"].as_str().unwrap());
+    let (_, ok, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": with_label })), None).await;
+    assert_eq!(ok["claims"]["revealed"]["label"], "Grant round 3", "{ok}");
+    // Changing a stated fact, or adding a foreign disclosure, breaks it.
+    let forged = pres.replacen('.', ".x", 1);
+    let (s, v, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": forged })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("attestation_invalid")));
+    let (_, other, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
+    let mixed = format!("{pres}{}~", other["disclosures"]["txid"].as_str().unwrap());
+    let (s, _, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": mixed })), None).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+    // No overclaiming.
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 9_999_999 })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "before": "2020-01-01" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
+    let (_, jwks, _) = call(&app, "GET", "/.well-known/jwks.json", None, None, None).await;
+    assert_eq!(jwks["keys"][0]["crv"], "Ed25519");
+}

@@ -86,6 +86,11 @@ export class Receipts {
       /** Settle a refund with the receipt for the refund payment. */
       submitReceipt: (id, params, opts) => r._request("POST", `/v1/refunds/${encodeURIComponent(id)}/receipts`, params, opts),
     };
+    this.attestations = {
+      /** A signed minimal statement about a fulfilled request: `{ at_least_zatoshis?, before?, disclose? }`. */
+      create: (requestId, params = {}) => r._request("POST", `/v1/requests/${encodeURIComponent(requestId)}/attestations`, params),
+      verify: (attestation) => r._request("POST", "/v1/attestations/verify", { attestation }),
+    };
     this.testClocks = {
       /** Sandbox: a frozen time and block height. `{ frozen_time?, height? }` */
       create: (params = {}) => r._request("POST", "/v1/test_clocks", params),

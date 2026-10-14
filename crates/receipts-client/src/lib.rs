@@ -199,6 +199,20 @@ impl Client {
     pub async fn submit_refund_receipt(&self, id: &str, receipt: &str) -> Result<Value, Error> {
         self.call(reqwest::Method::POST, &format!("/v1/refunds/{id}/receipts"), Some(json!({ "receipt": receipt })), None).await
     }
+    /// A signed, minimal statement about a fulfilled request (SD-JWT); see the attestations guide.
+    pub async fn create_attestation(&self, request_id: &str, at_least_zatoshis: Option<u64>, before: Option<&str>, disclose: &[&str]) -> Result<Value, Error> {
+        let mut b = json!({ "disclose": disclose });
+        if let Some(a) = at_least_zatoshis {
+            b["at_least_zatoshis"] = a.into();
+        }
+        if let Some(d) = before {
+            b["before"] = d.into();
+        }
+        self.call(reqwest::Method::POST, &format!("/v1/requests/{request_id}/attestations"), Some(b), None).await
+    }
+    pub async fn verify_attestation(&self, attestation: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::POST, "/v1/attestations/verify", Some(json!({ "attestation": attestation })), None).await
+    }
     /// Sandbox: a test clock (frozen time and block height) that requests can run on.
     pub async fn create_test_clock(&self, height: Option<u64>) -> Result<Value, Error> {
         let b = height.map(|h| json!({ "height": h })).unwrap_or(json!({}));

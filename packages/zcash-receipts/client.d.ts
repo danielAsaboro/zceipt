@@ -52,6 +52,10 @@ export class Receipts {
     retrieve(id: string): Promise<Refund>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<Refund>;
   };
+  attestations: {
+    create(requestId: string, params?: { at_least_zatoshis?: number; before?: string; disclose?: ("txid" | "amount_zatoshis" | "paid_at" | "request" | "label")[] }): Promise<{ object: "attestation"; request: string; claims: object; presentation: string; disclosures: Record<string, string>; jwks_url: string }>;
+    verify(attestation: string): Promise<{ object: "attestation_verification"; valid: true; claims: object }>;
+  };
   testClocks: {
     create(params?: { frozen_time?: number; height?: number }): Promise<TestClock>;
     retrieve(id: string): Promise<TestClock>;

@@ -141,6 +141,18 @@ class _Refunds(_Resource):
         return self._c._request("POST", f"/v1/refunds/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
 
 
+class _Attestations(_Resource):
+    def create(self, request_id: str, *, at_least_zatoshis: Optional[int] = None, before: Optional[str] = None,
+               disclose: Optional[list] = None) -> Dict[str, Any]:
+        """A signed, minimal statement about a fulfilled request (SD-JWT). Hidden by default: txid,
+        exact amount, exact time, request id, label; reveal them with `disclose` or later."""
+        body = {k: v for k, v in dict(at_least_zatoshis=at_least_zatoshis, before=before, disclose=disclose).items() if v is not None}
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(request_id)}/attestations", body)
+
+    def verify(self, attestation: str) -> Dict[str, Any]:
+        return self._c._request("POST", "/v1/attestations/verify", {"attestation": attestation})
+
+
 class _TestClocks(_Resource):
     def create(self, *, frozen_time: Optional[int] = None, height: Optional[int] = None) -> Dict[str, Any]:
         """Sandbox: a frozen time and block height that requests can run on."""
@@ -196,6 +208,7 @@ class Receipts:
         self.refunds = _Refunds(self)
         self.sign_in = _SignIn(self)
         self.test_clocks = _TestClocks(self)
+        self.attestations = _Attestations(self)
         self.webhook_endpoints = _WebhookEndpoints(self)
         self.events = _Events(self)
 

@@ -97,10 +97,12 @@ class _Resource:
 class _Requests(_Resource):
     def create(self, *, payee: str, amount_zatoshis: Optional[int] = None, label: Optional[str] = None,
                metadata: Optional[Dict[str, Any]] = None, expires_in: Optional[int] = None,
-               kind: Optional[str] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+               kind: Optional[str] = None, test_clock: Optional[str] = None,
+               idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         """kind: "single" (default), "partial" (receipts add up) or "campaign" (public tally)."""
         body = {k: v for k, v in dict(payee=payee, amount_zatoshis=amount_zatoshis, label=label,
-                                      metadata=metadata, expires_in=expires_in, kind=kind).items() if v is not None}
+                                      metadata=metadata, expires_in=expires_in, kind=kind,
+                                      test_clock=test_clock).items() if v is not None}
         return self._c._request("POST", "/v1/requests", body, idempotency_key)
 
     def retrieve(self, id: str) -> Dict[str, Any]:
@@ -137,6 +139,19 @@ class _Refunds(_Resource):
 
     def submit_receipt(self, id: str, *, receipt: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         return self._c._request("POST", f"/v1/refunds/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
+
+
+class _TestClocks(_Resource):
+    def create(self, *, frozen_time: Optional[int] = None, height: Optional[int] = None) -> Dict[str, Any]:
+        """Sandbox: a frozen time and block height that requests can run on."""
+        return self._c._request("POST", "/v1/test_clocks", {k: v for k, v in dict(frozen_time=frozen_time, height=height).items() if v is not None})
+
+    def retrieve(self, id: str) -> Dict[str, Any]:
+        return self._c._request("GET", f"/v1/test_clocks/{urllib.parse.quote(id)}")
+
+    def advance(self, id: str, *, seconds: Optional[int] = None, blocks: Optional[int] = None) -> Dict[str, Any]:
+        """Move the clock; returns it with `fired` (request.expired / request.final events)."""
+        return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id)}/advance", {k: v for k, v in dict(seconds=seconds, blocks=blocks).items() if v is not None})
 
 
 class _SignIn(_Resource):
@@ -180,6 +195,7 @@ class Receipts:
         self.requests = _Requests(self)
         self.refunds = _Refunds(self)
         self.sign_in = _SignIn(self)
+        self.test_clocks = _TestClocks(self)
         self.webhook_endpoints = _WebhookEndpoints(self)
         self.events = _Events(self)
 

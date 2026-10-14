@@ -59,6 +59,9 @@ pub struct CreateRequest {
     /// "single" (default), "partial" or "campaign".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// Sandbox: run the request on this test clock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_clock: Option<String>,
 }
 
 #[derive(Serialize, Default, Clone)]
@@ -195,6 +198,22 @@ impl Client {
     /// Settle a refund with the receipt for the refund payment (signing the refund's challenge).
     pub async fn submit_refund_receipt(&self, id: &str, receipt: &str) -> Result<Value, Error> {
         self.call(reqwest::Method::POST, &format!("/v1/refunds/{id}/receipts"), Some(json!({ "receipt": receipt })), None).await
+    }
+    /// Sandbox: a test clock (frozen time and block height) that requests can run on.
+    pub async fn create_test_clock(&self, height: Option<u64>) -> Result<Value, Error> {
+        let b = height.map(|h| json!({ "height": h })).unwrap_or(json!({}));
+        self.call(reqwest::Method::POST, "/v1/test_clocks", Some(b), None).await
+    }
+    /// Moves a test clock; the response lists the events that fired.
+    pub async fn advance_test_clock(&self, id: &str, seconds: Option<u64>, blocks: Option<u64>) -> Result<Value, Error> {
+        let mut b = json!({});
+        if let Some(s) = seconds {
+            b["seconds"] = s.into();
+        }
+        if let Some(n) = blocks {
+            b["blocks"] = n.into();
+        }
+        self.call(reqwest::Method::POST, &format!("/v1/test_clocks/{id}/advance"), Some(b), None).await
     }
     /// Sign in with Zcash: a single-use nonce for `domain` (default: the API's host).
     pub async fn create_sign_in_challenge(&self, domain: Option<&str>) -> Result<Value, Error> {

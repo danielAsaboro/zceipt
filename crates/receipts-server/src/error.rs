@@ -112,6 +112,8 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("request_already_fulfilled", 409, "The proof request was already fulfilled."),
     ("payment_already_used", 409, "This payment (transaction output) already counted towards a request. One payment can settle only one request."),
     ("request_expired", 409, "The proof request expired before a valid receipt arrived."),
+    ("test_clock_not_found", 404, "No test clock with that id."),
+    ("livemode_not_allowed", 400, "Test clocks exist only in test mode; use an rcpt_test_ key."),
     ("refund_not_found", 404, "No refund with that id for this key's mode."),
     ("payment_not_found", 404, "No payment with that txid on this request."),
     ("refund_not_possible", 409, "The request has no payments to refund."),

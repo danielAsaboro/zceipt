@@ -115,6 +115,46 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /v1/test_clocks:
+    post:
+      tags: [Meta]
+      operationId: createTestClock
+      summary: "Sandbox: create a test clock"
+      description: A frozen time and block height that test-mode requests can run on (`test_clock` on create). Test keys only.
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { frozen_time: { type: integer }, height: { type: integer, minimum: 1 } } }
+      responses:
+        "201": { description: Test clock }
+        "400": { $ref: "#/components/responses/Error" }
+  /v1/test_clocks/{id}:
+    get:
+      tags: [Meta]
+      operationId: getTestClock
+      summary: "Sandbox: retrieve a test clock"
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Test clock }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/test_clocks/{id}/advance:
+    post:
+      tags: [Meta]
+      operationId: advanceTestClock
+      summary: "Sandbox: move a test clock and fire what became due"
+      description: Moves time and height, then fires `request.expired` and `request.final` for requests on the clock. The response lists them in `fired`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { seconds: { type: integer, minimum: 0 }, blocks: { type: integer, minimum: 0 } } }
+      responses:
+        "200": { description: Test clock with fired events }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/sign_in/challenges:
     post:
       tags: [Sign in with Zcash]

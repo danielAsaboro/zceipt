@@ -12,6 +12,7 @@
 //! `rcpt_live_…` serves mainnet. The two modes never see each other's objects. Every
 //! creating `POST` accepts an `Idempotency-Key` header.
 
+pub mod clocks;
 pub mod db;
 pub mod error;
 pub mod refunds;
@@ -363,7 +364,7 @@ struct CreateEndpoint {
     events: Option<Vec<String>>,
 }
 
-const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.expired", "receipt.rejected"];
+const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.expired", "receipt.rejected", "refund.created", "refund.succeeded"];
 
 async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateEndpoint>) -> Result<(StatusCode, Json<Value>), ApiError> {
     let url = req.url.ok_or_else(|| ApiError::missing("url"))?;
@@ -558,6 +559,9 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/refunds/{id}", get(refunds::get))
         .route("/v1/refunds/{id}/receipts", post(refunds::submit))
         .route("/v1/deliveries", get(list_deliveries))
+        .route("/v1/test_clocks", post(clocks::create))
+        .route("/v1/test_clocks/{id}", get(clocks::get))
+        .route("/v1/test_clocks/{id}/advance", post(clocks::advance))
         .route("/v1/public/requests/{id}", get(requests::public_get))
         .route("/v1/public/requests/{id}/qr.svg", get(requests::public_qr))
         .route("/v1/public/requests/{id}/receipts", post(requests::public_submit))
@@ -596,6 +600,7 @@ pub async fn build(db_path: &str, config: Config) -> anyhow::Result<(Router, Vec
     });
     tokio::spawn(webhooks::worker(state.clone()));
     tokio::spawn(requests::expiry_sweeper(state.clone()));
+    tokio::spawn(clocks::finality_sweeper(state.clone()));
     tokio::spawn(verify::warm_up());
     Ok((router(state), keys))
 }

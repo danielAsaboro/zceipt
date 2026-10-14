@@ -149,7 +149,8 @@ enum Cmd {
     },
     /// Fire a real event in test mode, using a sandbox fixture.
     Trigger {
-        /// request.fulfilled, request.created or receipt.rejected
+        /// Any event type: request.created, request.payment_received, request.fulfilled,
+        /// request.final, request.expired, receipt.rejected, refund.created, refund.succeeded
         event: String,
         #[arg(long, env = "RECEIPTS_KEY")]
         api_key: String,
@@ -608,7 +609,7 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
     if !api_key.starts_with("rcpt_test_") {
         bail!("trigger only works with rcpt_test_ keys");
     }
-    const EVENTS: &[&str] = &["request.created", "request.fulfilled", "receipt.rejected", "request.expired", "request.payment_received"];
+    const EVENTS: &[&str] = &["request.created", "request.fulfilled", "request.final", "receipt.rejected", "request.expired", "request.payment_received", "refund.created", "refund.succeeded"];
     if !EVENTS.contains(&event.as_str()) {
         bail!("unknown event {event}; use one of {}", EVENTS.join(", "));
     }
@@ -627,8 +628,16 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
     let id = req["id"].as_str().unwrap_or_default().to_string();
     match event.as_str() {
         "request.created" => {}
-        "request.fulfilled" => {
+        // Sandbox payments are final at once, so this fires request.fulfilled then request.final.
+        "request.fulfilled" | "request.final" => {
             client.submit_receipt(&id, "zrcpt_test_valid").await?;
+        }
+        "refund.created" | "refund.succeeded" => {
+            client.submit_receipt(&id, "zrcpt_test_refund_to").await?;
+            let rf = client.create_refund(&id, None, Some("receipts trigger")).await?;
+            if event == "refund.succeeded" {
+                client.submit_refund_receipt(rf["id"].as_str().unwrap_or_default(), "zrcpt_test_valid").await?;
+            }
         }
         "receipt.rejected" => {
             let _ = client.submit_receipt(&id, "zrcpt_test_wrong_payee").await;

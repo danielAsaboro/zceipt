@@ -20,6 +20,7 @@ export interface ProofRequest {
   fulfillment: null | { fulfilled_at: number; txid: string; paid_zatoshis: number; verification: Verification };
 }
 export interface Refund { id: string; object: "refund"; livemode: boolean; request: string; payment_txid: string; address: string; amount_zatoshis: number; reason: string | null; challenge: string; status: "pending" | "succeeded"; created: number; payment_uri: string; cli_command: string; refunded_at: number | null; txid: string | null }
+export interface TestClock { id: string; object: "test_clock"; livemode: false; frozen_time: number; height: number; created: number; requests: string[] }
 export interface SignInChallenge { id: string; object: "sign_in_challenge"; livemode: boolean; coin_type: number; domain: string; nonce: string; created: number; expires_at: number; status: "pending" | "used" | "expired"; wallet_command: string }
 export interface SignInResult { object: "sign_in"; verified: true; livemode: boolean; challenge: string; domain: string; issued_at: number; address: string }
 export interface WebhookEndpoint { id: string; object: "webhook_endpoint"; url: string; events: string[]; secret?: string }
@@ -40,7 +41,7 @@ export class Receipts {
   readonly livemode: boolean;
   verify(params: string | { receipt: string; expect_address?: string; min_zatoshis?: number; challenge?: string }, opts?: RequestOptions): Promise<Verification | BatchVerification>;
   requests: {
-    create(params: { payee: string; amount_zatoshis?: number; label?: string; metadata?: Record<string, unknown>; expires_in?: number; kind?: "single" | "partial" | "campaign" }, opts?: RequestOptions): Promise<ProofRequest>;
+    create(params: { payee: string; amount_zatoshis?: number; label?: string; metadata?: Record<string, unknown>; expires_in?: number; kind?: "single" | "partial" | "campaign"; test_clock?: string }, opts?: RequestOptions): Promise<ProofRequest>;
     retrieve(id: string): Promise<ProofRequest>;
     list(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number; starting_after?: string }): Promise<List<ProofRequest>>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<ProofRequest>;
@@ -50,6 +51,11 @@ export class Receipts {
     create(requestId: string, params?: { amount_zatoshis?: number; reason?: string; payment_txid?: string }, opts?: RequestOptions): Promise<Refund>;
     retrieve(id: string): Promise<Refund>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<Refund>;
+  };
+  testClocks: {
+    create(params?: { frozen_time?: number; height?: number }): Promise<TestClock>;
+    retrieve(id: string): Promise<TestClock>;
+    advance(id: string, params: { seconds?: number; blocks?: number }): Promise<TestClock & { fired: { type: string; request: string; event: string }[] }>;
   };
   signIn: {
     createChallenge(params?: { domain?: string }): Promise<SignInChallenge>;

@@ -33,3 +33,19 @@ the request supplies the payee, amount and challenge. `GET /v1/sandbox/fixtures`
 For end-to-end tests against real proofs, use the committed receipts in `examples/`:
 - `examples/regtest`: verifies fully offline from the raw transaction, e.g. `receipts verify @examples/regtest/receipt.txt --raw-tx examples/regtest/tx.hex --height 222 --regtest examples/regtest/heights.toml`.
 - `examples/testnet`: verifies against the public testnet.
+
+## Test clocks
+
+Expiry and finality take real time: an hour for `expires_in: 3600`, about 12 minutes for 10
+confirmations. A test clock is a frozen time and block height you move by hand, and every event
+that becomes due fires immediately.
+
+```bash
+curl -s -X POST localhost:8723/v1/test_clocks -H "authorization: Bearer $KEY" -d '{"height":100}'
+# create requests with "test_clock": "clock_…"; sandbox payments on them are mined at the clock's height
+curl -s -X POST localhost:8723/v1/test_clocks/clock_…/advance -H "authorization: Bearer $KEY" -d '{"blocks":9}'
+```
+
+`advance` takes `seconds` and/or `blocks` (each block also moves time 75 s unless `seconds` is
+given) and returns the clock with `fired`: the `request.expired` and `request.final` events it
+sent. Test clocks exist only for `rcpt_test_` keys.

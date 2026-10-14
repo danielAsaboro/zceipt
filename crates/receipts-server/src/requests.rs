@@ -43,9 +43,14 @@ pub struct RequestRec {
     pub verification: Option<String>,
     pub received: i64,
     pub client_secret: Option<String>,
+    /// Sandbox: the test clock this request runs on, and that clock's time.
+    pub test_clock: Option<String>,
+    pub clock_time: Option<i64>,
+    /// When the payment reached FINALITY_CONFIRMATIONS.
+    pub final_at: Option<i64>,
 }
 
-const COLS: &str = "id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification, received_zatoshis, client_secret";
+const COLS: &str = "id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification, received_zatoshis, client_secret, test_clock, (SELECT frozen_time FROM test_clocks WHERE test_clocks.id = requests.test_clock), final_at";
 
 fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RequestRec> {
     Ok(RequestRec {
@@ -66,12 +71,15 @@ fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RequestRec> {
         verification: r.get(14)?,
         received: r.get(15)?,
         client_secret: r.get(16)?,
+        test_clock: r.get(17)?,
+        clock_time: r.get(18)?,
+        final_at: r.get(19)?,
     })
 }
 
 impl RequestRec {
     pub fn effective_status(&self) -> &str {
-        if self.status == "open" && self.expires_at.is_some_and(|e| e <= now()) {
+        if self.status == "open" && self.expires_at.is_some_and(|e| e <= self.clock_time.unwrap_or_else(now)) {
             "expired"
         } else {
             &self.status
@@ -151,6 +159,9 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "client_secret": r.client_secret,
         "hosted_url": hosted(st, &format!("/pay/{}?secret={secret}", r.id)),
         "public_url": (r.kind == "campaign").then(|| hosted(st, &format!("/c/{}", r.id))),
+        "final": r.final_at.is_some(),
+        "final_at": r.final_at,
+        "test_clock": r.test_clock,
         "payments": payments(st, &r.id).unwrap_or_default(),
         "refunds": crate::refunds::refunds_of(st, &r.id),
         "fulfillment": r.fulfilled_at.map(|t| json!({
@@ -172,6 +183,8 @@ pub struct CreateRequest {
     kind: Option<String>,
     /// Campaigns: contributions needed before the public page shows anything (default 3).
     public_min_contributions: Option<i64>,
+    /// Sandbox only: run this request on a test clock (`POST /v1/test_clocks`).
+    test_clock: Option<String>,
 }
 
 pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateRequest>) -> Response {
@@ -196,17 +209,26 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
         if kind == "partial" && req.amount_zatoshis.is_none() {
             return Err(ApiError::invalid("parameter_missing", "a partial request needs amount_zatoshis").param("amount_zatoshis"));
         }
+        let clock_time = match &req.test_clock {
+            None => None,
+            Some(cid) => {
+                if mode != Mode::Test {
+                    return Err(ApiError::invalid("parameter_invalid", "test clocks only work with rcpt_test_ keys").param("test_clock"));
+                }
+                Some(crate::clocks::load(&st2, cid)?.frozen_time)
+            }
+        };
         let id = new_id("preq_");
         let mut ch = [0u8; 8];
         getrandom::fill(&mut ch).expect("OS RNG");
         let challenge = hex::encode(ch);
         let client_secret = new_id(&format!("{id}_secret_"));
-        let created = now();
+        let created = clock_time.unwrap_or_else(now);
         {
             let c = st2.db.0.lock().unwrap();
             c.execute(
-                "INSERT INTO requests (id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, client_secret, public_k) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?11,?12)",
-                params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret, req.public_min_contributions.unwrap_or(3)],
+                "INSERT INTO requests (id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, client_secret, public_k, test_clock) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?11,?12,?13)",
+                params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret, req.public_min_contributions.unwrap_or(3), req.test_clock],
             )?;
         }
         let obj = to_json(&st2, &load(&st2, Some(mode), &id)?);
@@ -252,7 +274,16 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
                 return Err(ApiError::invalid("receipt_network_mismatch", "sandbox fixtures only work with rcpt_test_ keys").param("receipt"));
             }
             let want = if r.kind == "single" { r.amount.map(|a| a as u64) } else { r.amount.map(|a| (a - r.received).max(1) as u64) };
-            sandbox::resolve(text, Some(&r.payee), want, Some(&r.challenge))?
+            let mut v = sandbox::resolve(text, Some(&r.payee), want, Some(&r.challenge))?;
+            if let Some(cid) = &r.test_clock {
+                // On a test clock the payment is mined "now", with no confirmations yet.
+                let clock = crate::clocks::load(st, cid)?;
+                v.mined_height = clock.height as u32;
+                let (verdict, checks) = verify::levels(v.mined_height, Some(v.mined_height), v.outputs.len(), 1, v.challenge.as_deref(), None, 0);
+                v.verdict = verdict;
+                v.checks = checks;
+            }
+            v
         } else {
             verify::verify_receipt(net, mode.server(&st.config).as_deref(), text).await?
         };
@@ -334,6 +365,11 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
     }
     if fulfilled {
         emit(st, mode, "request.fulfilled", obj.clone())?;
+        // Sandbox payments off a test clock are final at once; real ones wait for the sweeper.
+        if sandbox::is_fixture(text) && r.test_clock.is_none() {
+            crate::clocks::mark_final(st, mode, &r.id)?;
+            return Ok(to_json(st, &load(st, Some(mode), &r.id)?));
+        }
     }
     Ok(obj)
 }
@@ -486,7 +522,7 @@ pub async fn expiry_sweeper(st: Shared) {
     loop {
         let due: Vec<(String, String)> = {
             let c = st.db.0.lock().unwrap();
-            let mut stmt = match c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0") {
+            let mut stmt = match c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0 AND test_clock IS NULL") {
                 Ok(s) => s,
                 Err(_) => continue,
             };

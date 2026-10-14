@@ -86,6 +86,13 @@ export class Receipts {
       /** Settle a refund with the receipt for the refund payment. */
       submitReceipt: (id, params, opts) => r._request("POST", `/v1/refunds/${encodeURIComponent(id)}/receipts`, params, opts),
     };
+    this.testClocks = {
+      /** Sandbox: a frozen time and block height. `{ frozen_time?, height? }` */
+      create: (params = {}) => r._request("POST", "/v1/test_clocks", params),
+      retrieve: (id) => r._request("GET", `/v1/test_clocks/${encodeURIComponent(id)}`),
+      /** Move the clock by `{ seconds?, blocks? }`; resolves with `fired` events. */
+      advance: (id, params) => r._request("POST", `/v1/test_clocks/${encodeURIComponent(id)}/advance`, params),
+    };
     this.signIn = {
       /** Sign in with Zcash: a single-use nonce bound to `{ domain }`, valid 5 minutes. */
       createChallenge: (params = {}) => r._request("POST", "/v1/sign_in/challenges", params),

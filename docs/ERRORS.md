@@ -30,6 +30,8 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="request_already_fulfilled"></a>`request_already_fulfilled` | 409 | The proof request was already fulfilled. |
 | <a id="payment_already_used"></a>`payment_already_used` | 409 | This payment (transaction output) already counted towards a request. One payment can settle only one request. |
 | <a id="request_expired"></a>`request_expired` | 409 | The proof request expired before a valid receipt arrived. |
+| <a id="test_clock_not_found"></a>`test_clock_not_found` | 404 | No test clock with that id. |
+| <a id="livemode_not_allowed"></a>`livemode_not_allowed` | 400 | Test clocks exist only in test mode; use an rcpt_test_ key. |
 | <a id="refund_not_found"></a>`refund_not_found` | 404 | No refund with that id for this key's mode. |
 | <a id="payment_not_found"></a>`payment_not_found` | 404 | No payment with that txid on this request. |
 | <a id="refund_not_possible"></a>`refund_not_possible` | 409 | The request has no payments to refund. |

@@ -435,3 +435,39 @@ async fn refunds_go_to_the_signed_address_and_need_proof() {
     let types: Vec<&str> = ev["data"].as_array().unwrap().iter().filter_map(|e| e["type"].as_str()).collect();
     assert!(types.contains(&"refund.created") && types.contains(&"refund.succeeded"), "{types:?}");
 }
+
+#[tokio::test]
+async fn test_clocks_drive_expiry_and_finality() {
+    let (app, test, live) = app().await;
+    let (s, v, _) = call(&app, "POST", "/v1/test_clocks", Some(&live), Some(json!({})), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("livemode_not_allowed")));
+    let (s, clock, _) = call(&app, "POST", "/v1/test_clocks", Some(&test), Some(json!({ "frozen_time": 1_800_000_000, "height": 100 })), None).await;
+    assert_eq!(s, StatusCode::CREATED, "{clock}");
+    let cid = clock["id"].as_str().unwrap();
+
+    // One request will expire; the other gets paid and then waits for finality.
+    let (_, a, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "expires_in": 3600, "test_clock": cid })), None).await;
+    let (_, b, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "test_clock": cid })), None).await;
+    assert_eq!(a["created"], 1_800_000_000);
+    let (a_id, b_id) = (a["id"].as_str().unwrap(), b["id"].as_str().unwrap());
+    let (_, paid, _) = call(&app, "POST", &format!("/v1/requests/{b_id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!((paid["status"].as_str(), paid["final"].as_bool()), (Some("fulfilled"), Some(false)), "{paid}");
+    assert_eq!(paid["payments"][0]["mined_height"], 100);
+
+    // 5 blocks: nothing due yet.
+    let (_, adv, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 5 })), None).await;
+    assert_eq!(adv["fired"].as_array().unwrap().len(), 0, "{adv}");
+    // 5 more blocks (10 confirmations) and past the hour: final + expired.
+    let (_, adv, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 4, "seconds": 3600 })), None).await;
+    let fired: Vec<(String, String)> = adv["fired"].as_array().unwrap().iter().map(|f| (f["type"].as_str().unwrap().into(), f["request"].as_str().unwrap().into())).collect();
+    assert!(fired.contains(&("request.expired".into(), a_id.into())), "{fired:?}");
+    assert!(fired.contains(&("request.final".into(), b_id.into())), "{fired:?}");
+    assert_eq!(adv["height"], 109);
+    let (_, b2, _) = call(&app, "GET", &format!("/v1/requests/{b_id}"), Some(&test), None, None).await;
+    assert_eq!(b2["final"].as_bool(), Some(true));
+    // Advancing again fires nothing twice.
+    let (_, adv, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 1 })), None).await;
+    assert_eq!(adv["fired"].as_array().unwrap().len(), 0);
+    let (s, v, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "test_clock": "clock_nope" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::NOT_FOUND, Some("test_clock_not_found")));
+}

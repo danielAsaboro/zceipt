@@ -163,6 +163,9 @@ fn roundtrip(version: BundleVersion, pool: Pool) {
     assert_eq!(v.outputs[0].recipient, merchant.to_raw_address_bytes());
     assert_eq!(v.msg, b"challenge: order 42");
     println!("{pool:?} receipt: {} bytes, {} chars as text", receipt.to_bytes().len(), text.len());
+    if let Ok(dir) = std::env::var("RECEIPT_FIXTURE_DIR") {
+        std::fs::write(format!("{dir}/{pool:?}.receipt"), &text).unwrap();
+    }
 }
 
 #[test]

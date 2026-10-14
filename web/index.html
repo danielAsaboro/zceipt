@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Receipts · prove one Zcash payment</title>
+  <meta name="description" content="Prove one shielded Zcash payment to one person, and reveal nothing else. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='3' width='20' height='26' rx='2' fill='%23f3efe4'/><path d='M10 10h12M10 15h12M10 20h7' stroke='%23161513' stroke-width='2'/></svg>">
+  <style>
+    :root {
+      --desk: #121110;
+      --desk-2: #1b1a18;
+      --paper: #f3efe4;
+      --ink: #161513;
+      --ink-2: #5c574d;
+      --rule: #c9c2b2;
+      --good: #1d6b45;
+      --bad: #a3271f;
+      --text: #ebe7dd;
+      --text-2: #a39d90;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+      --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--desk); color: var(--text); font-family: var(--sans); }
+    body { min-height: 100vh; }
+    a { color: inherit; }
+    main { max-width: 1080px; margin: 0 auto; padding: 48px 20px 80px; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: start; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; gap: 32px; padding-top: 28px; } }
+    h1 { font-size: clamp(32px, 4.4vw, 52px); line-height: 1.04; letter-spacing: -0.02em; margin: 0 0 18px; font-weight: 650; }
+    h1 em { font-style: normal; color: var(--paper); background: linear-gradient(transparent 62%, #3a352c 62%); }
+    .lede { color: var(--text-2); font-size: 17px; line-height: 1.55; margin: 0 0 28px; max-width: 34em; }
+    .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-2); margin-bottom: 18px; }
+    textarea, input { width: 100%; background: var(--desk-2); color: var(--text); border: 1px solid #2c2a26; border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 13px; }
+    textarea { min-height: 96px; resize: vertical; }
+    textarea:focus, input:focus { outline: 2px solid #5c574d; outline-offset: 1px; }
+    button { font: 600 15px var(--sans); border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer; background: var(--paper); color: var(--ink); }
+    button:hover { filter: brightness(0.95); }
+    .actions { display: flex; gap: 12px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+    .hint { color: var(--text-2); font-size: 13px; }
+    #progress { margin-top: 28px; }
+    .step { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid #24221f; font-size: 14px; }
+    .step .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; border: 2px solid #3a372f; }
+    .step[data-state="busy"] .dot { border-color: var(--paper); border-right-color: transparent; animation: spin 0.8s linear infinite; }
+    .step[data-state="done"] .dot { background: #3f9b6c; border-color: #3f9b6c; }
+    .step[data-state="fail"] .dot { background: #d2483d; border-color: #d2483d; }
+    .step .detail { display: block; color: var(--text-2); font-family: var(--mono); font-size: 12px; margin-top: 2px; word-break: break-word; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    details { margin-top: 22px; color: var(--text-2); font-size: 14px; }
+    details summary { cursor: pointer; }
+    details .grid { display: grid; gap: 8px; margin-top: 10px; }
+    .how { margin-top: 36px; border-top: 1px solid #24221f; padding-top: 22px; }
+    .how h2 { font-size: 15px; margin: 0 0 10px; }
+    .how ol { margin: 0; padding-left: 20px; color: var(--text-2); line-height: 1.65; font-size: 14px; }
+    .how code, .cli code { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+    .cli { margin-top: 18px; background: var(--desk-2); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); overflow-x: auto; white-space: pre; }
+
+    /* the paper receipt */
+    .ticket { position: relative; background: var(--paper); color: var(--ink); padding: 28px 26px 30px; font-family: var(--mono); font-size: 14px;
+      box-shadow: 0 30px 60px rgba(0,0,0,.45);
+      -webkit-mask: radial-gradient(circle 7px at 50% 0, transparent 98%, #000) 0 0 / 18px 51% repeat-x, radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) 0 100% / 18px 51% repeat-x;
+              mask: radial-gradient(circle 7px at 50% 0, transparent 98%, #000) 0 0 / 18px 51% repeat-x, radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) 0 100% / 18px 51% repeat-x;
+      animation: print 0.7s cubic-bezier(.2,.7,.2,1); }
+    @keyframes print { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+    .ticket .head { text-align: center; }
+    .ticket .brand { font-weight: 800; letter-spacing: 0.32em; font-size: 18px; }
+    .ticket .sub { color: var(--ink-2); font-size: 12px; margin-top: 4px; }
+    .dash { border-top: 2px dashed var(--rule); margin: 16px 0; }
+    .line { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 4px 0; align-items: baseline; }
+    .line .k { color: var(--ink-2); font-size: 12px; letter-spacing: 0.1em; }
+    .line .v { word-break: break-all; }
+    .line .amount { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+    .line .amount small { font-size: 13px; font-weight: 600; }
+    .line .memo { font-family: var(--sans); font-style: italic; }
+    .stamp { display: inline-block; border: 3px solid currentColor; border-radius: 6px; padding: 4px 12px; font-weight: 900; letter-spacing: 0.24em; transform: rotate(-4deg); font-size: 18px; }
+    .stamp.good { color: var(--good); }
+    .stamp.bad { color: var(--bad); }
+    .facts { margin: 16px 0 0; padding-left: 18px; font-family: var(--sans); font-size: 13px; line-height: 1.5; color: #2f2c27; }
+    .facts li { margin: 4px 0; }
+    .why { font-family: var(--sans); margin: 16px 0 6px; font-size: 15px; }
+    .fine { font-family: var(--sans); color: var(--ink-2); font-size: 12.5px; margin: 8px 0 0; }
+    .fine[data-ok="true"] { color: var(--good); font-weight: 600; }
+    .fine[data-ok="false"] { color: var(--bad); font-weight: 600; }
+    .check { margin-top: 18px; font-family: var(--sans); }
+    .check label { font-size: 12.5px; color: var(--ink-2); }
+    .check .row { display: flex; gap: 8px; margin-top: 6px; }
+    .check input { background: #fff; color: var(--ink); border-color: var(--rule); }
+    .check button { background: var(--ink); color: var(--paper); padding: 10px 14px; }
+    .placeholder { border: 2px dashed #2c2a26; border-radius: 14px; padding: 40px 26px; color: var(--text-2); text-align: center; font-size: 14px; line-height: 1.6; }
+    .placeholder .big { font-family: var(--mono); color: var(--text); font-size: 13px; letter-spacing: 0.24em; margin-bottom: 8px; }
+    footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 40px; color: var(--text-2); font-size: 12.5px; }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <div class="eyebrow">Receipts · ZIP 311 for Orchard &amp; Ironwood</div>
+      <h1>Prove one Zcash payment. <em>Reveal nothing else.</em></h1>
+      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. Verification runs entirely in this browser.</p>
+
+      <label class="hint" for="paste">Receipt or link</label>
+      <textarea id="paste" placeholder="zrcpt1…" spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="verifyBtn">Verify receipt</button>
+        <span class="hint">The receipt stays in the page. Only the public transaction is fetched.</span>
+      </div>
+
+      <div id="progress" hidden>
+        <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>
+        <div class="step" data-step="fetch"><span class="dot"></span><span>Fetch the transaction from the chain<span class="detail"></span></span></div>
+        <div class="step" data-step="verify"><span class="dot"></span><span>Check the sender's proof and open the payment<span class="detail"></span></span></div>
+      </div>
+
+      <details>
+        <summary>Settings: lightwalletd server, or verify fully offline</summary>
+        <div class="grid">
+          <label class="hint" for="endpoint">grpc-web lightwalletd (default for mainnet: zcash-mainnet.chainsafe.dev)</label>
+          <input id="endpoint" placeholder="https://zcash-mainnet.chainsafe.dev" spellcheck="false">
+          <label class="hint" for="rawTx">Or paste the raw transaction hex and its block height, and nothing is fetched at all</label>
+          <textarea id="rawTx" placeholder="raw transaction hex" spellcheck="false"></textarea>
+          <input id="rawHeight" placeholder="block height" inputmode="numeric">
+        </div>
+      </details>
+
+      <div class="how">
+        <h2>How it works</h2>
+        <ol>
+          <li>For each disclosed output, the sender reveals that output's <code>ock</code>, the one key that opens it. Your browser decrypts the on-chain ciphertext and checks it against the note commitment.</li>
+          <li>For the spend, the sender makes a fresh Halo 2 proof that they own the note this transaction spent (same anchor, same nullifier), under a new randomized key, and signs the whole receipt with it.</li>
+          <li>An optional note binds a challenge such as an invoice number, so a receipt can't be reused for something else.</li>
+        </ol>
+        <div class="cli">receipts create -w wallet -i key.age --txid &lt;txid&gt; -m "Invoice 42"
+receipts verify 'https://…#zrcpt1…'</div>
+      </div>
+    </section>
+
+    <section id="right">
+      <div id="result" hidden></div>
+      <div class="placeholder" id="empty">
+        <div class="big">RECEIPT</div>
+        Open a receipt link, or paste one on the left.<br>The verified payment prints here.
+      </div>
+    </section>
+  </main>
+  <footer>Open source · ZIP 311 (Draft) with a proposed Orchard/Ironwood instantiation · Built for ZECATHON 2026</footer>
+  <script type="module">
+    const r = document.getElementById("result");
+    new MutationObserver(() => { document.getElementById("empty").hidden = !r.hidden; }).observe(r, { attributes: true, attributeFilter: ["hidden"] });
+  </script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

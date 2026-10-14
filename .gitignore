@@ -5,3 +5,5 @@
 wallets/
 *.log
 web/dist
+.claude/
+web/_fixture.txt

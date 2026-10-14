@@ -1,8 +1,8 @@
 //! `receipts`: create and verify Zcash payment receipts (ZIP 311) for Orchard and Ironwood.
 
-mod chain;
-mod net;
 mod wallet;
+
+use receipts_chain::{chain, net};
 
 /// `rand` 0.10 replaced the infallible `OsRng` with the fallible `SysRng`.
 #[allow(non_upper_case_globals)]

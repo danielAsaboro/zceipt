@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 receipts-core = { path = "../receipts-core" }
+receipts-chain = { path = "../receipts-chain" }
 anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1.21", features = ["macros", "rt-multi-thread"] }

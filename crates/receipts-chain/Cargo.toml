@@ -1,0 +1,20 @@
+[package]
+name = "receipts-chain"
+version = "0.1.0"
+description = "Chain access and on-chain verification for Zcash payment receipts"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+receipts-core = { path = "../receipts-core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tonic = { version = "0.14", features = ["tls-webpki-roots"] }
+orchard.workspace = true
+incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
+zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic-tls-webpki-roots", "orchard"] }
+zcash_primitives.workspace = true
+zcash_protocol = { workspace = true, features = ["local-consensus"] }
+zcash_address.workspace = true

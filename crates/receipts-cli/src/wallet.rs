@@ -14,7 +14,7 @@ use orchard::{
     Note,
 };
 use crate::OsRng;
-use crate::net::{Heights, Net};
+use receipts_chain::net::{Heights, Net};
 use receipts_core::{Pool, Receipt, SpendWitness};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
@@ -208,7 +208,7 @@ pub async fn create_receipt(
     let prove_address = match prove_address {
         None => None,
         Some(ua) => {
-            let raw = crate::chain::orchard_receiver_of(ua)?;
+            let raw = receipts_chain::chain::orchard_receiver_of(ua)?;
             let addr = Option::<orchard::Address>::from(orchard::Address::from_raw_address_bytes(&raw))
                 .ok_or_else(|| anyhow!("invalid Orchard receiver in {ua}"))?;
             if fvk.scope_for_address(&addr).is_none() {
@@ -254,7 +254,7 @@ pub async fn create_receipt(
                         .mined_height
                         .ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
                     eprintln!("Rebuilding the note's Merkle path from chain data (blocks {h}..{mined})…");
-                    crate::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
+                    receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
                 }
             };
             spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path, prove_address });

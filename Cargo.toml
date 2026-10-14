@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/receipts-core", "crates/receipts-cli", "crates/receipts-wasm"]
+members = ["crates/receipts-core", "crates/receipts-chain", "crates/receipts-cli", "crates/receipts-wasm"]
 resolver = "2"
 
 [workspace.package]

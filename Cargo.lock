@@ -2663,6 +2663,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "receipts-chain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "incrementalmerkletree",
+ "orchard",
+ "receipts-core",
+ "serde",
+ "toml 0.8.23",
+ "tonic",
+ "zcash_address",
+ "zcash_client_backend",
+ "zcash_primitives",
+ "zcash_protocol",
+]
+
+[[package]]
 name = "receipts-cli"
 version = "0.1.0"
 dependencies = [
@@ -2674,6 +2691,7 @@ dependencies = [
  "incrementalmerkletree",
  "orchard",
  "rand 0.10.3",
+ "receipts-chain",
  "receipts-core",
  "rusqlite",
  "rustls",

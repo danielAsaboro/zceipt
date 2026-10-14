@@ -6,23 +6,7 @@
 // Attributes: receipt (or link), expect-address, min-zatoshis, challenge, endpoint, regtest.
 // Fires `receipt-verified` (detail: result) or `receipt-invalid` (detail: { error }).
 
-let worker, seq = 0;
-const pending = new Map();
-function verifyInWorker(input, options) {
-  if (!worker) {
-    worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
-    worker.onmessage = (e) => {
-      const p = pending.get(e.data.id);
-      pending.delete(e.data.id);
-      e.data.ok ? p.resolve(e.data.result) : p.reject(new Error(e.data.error));
-    };
-  }
-  return new Promise((resolve, reject) => {
-    const id = ++seq;
-    pending.set(id, { resolve, reject });
-    worker.postMessage({ id, input, options });
-  });
-}
+import { verifyInBackground as verifyInWorker } from "./background.js";
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");

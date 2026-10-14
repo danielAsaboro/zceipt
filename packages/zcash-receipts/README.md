@@ -33,3 +33,24 @@ It fires `receipt-verified` (with the result in `detail`) or `receipt-invalid`.
 
 Tests (`npm test`): an offline regtest receipt, a tampered receipt that must fail, and a live
 testnet receipt with a challenge.
+
+## React
+
+```jsx
+import { useVerifyReceipt } from "zcash-receipts/react";
+
+function OrderStatus({ link }) {
+  const { status, result, error } = useVerifyReceipt(link, { expectAddress: SHOP_UA, minZatoshis: 1_000_000 });
+  if (status === "verifying") return <Spinner />;
+  if (status === "invalid") return <p>Not paid: {error.message}</p>;
+  return <p>Paid {result.outputs[0].zatoshis / 1e8} ZEC</p>;
+}
+```
+
+## API client
+
+```js
+import { Receipts, webhooks, VerificationError } from "zcash-receipts/client";
+```
+
+See [docs/QUICKSTART.md](../../docs/QUICKSTART.md).

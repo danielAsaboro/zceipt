@@ -120,7 +120,11 @@ export class Receipts {
       try { json = text ? JSON.parse(text) : {}; } catch { json = { error: { message: text } }; }
       if (res.ok) return json;
       const retryable = res.status === 429 || res.status >= 500;
-      if (retryable && attempt < this.maxRetries) { await sleep(500 * 2 ** attempt); continue; }
+      if (retryable && attempt < this.maxRetries) {
+        const after = Number(res.headers.get("retry-after"));
+        await sleep(after > 0 ? Math.min(after, 60) * 1000 : 500 * 2 ** attempt);
+        continue;
+      }
       throw errorFor(res.status, json);
     }
   }

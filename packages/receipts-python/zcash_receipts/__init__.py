@@ -184,7 +184,8 @@ class Receipts:
                 except ValueError:
                     payload = {"error": {"message": text}}
                 if (e.code == 429 or e.code >= 500) and attempt < self.max_retries:
-                    time.sleep(0.5 * 2 ** attempt)
+                    after = e.headers.get("Retry-After") if e.headers else None
+                    time.sleep(min(float(after), 60.0) if after and after.isdigit() else 0.5 * 2 ** attempt)
                     attempt += 1
                     continue
                 raise _error_for(e.code, payload) from None

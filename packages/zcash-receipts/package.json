@@ -13,7 +13,11 @@
       "types": "./client.d.ts",
       "default": "./client.js"
     },
-    "./widget": "./widget.js"
+    "./widget": "./widget.js",
+    "./react": {
+      "types": "./react.d.ts",
+      "default": "./react.js"
+    }
   },
   "files": [
     "index.js",
@@ -24,7 +28,10 @@
     "widget.js",
     "worker.js",
     "pkg/",
-    "README.md"
+    "README.md",
+    "react.js",
+    "react.d.ts",
+    "background.js"
   ],
   "scripts": {
     "test": "node --test test/*.test.js"
@@ -39,5 +46,13 @@
     "ironwood",
     "receipt"
   ],
-  "types": "./index.d.ts"
+  "types": "./index.d.ts",
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
 }

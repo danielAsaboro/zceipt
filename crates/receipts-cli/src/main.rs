@@ -64,6 +64,14 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
+    /// Show a mined transaction's shielded bundles (useful before creating a receipt).
+    Tx {
+        txid: String,
+        #[arg(long, default_value = "main")]
+        network: String,
+        #[arg(short, long)]
+        server: Option<String>,
+    },
 }
 
 fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
@@ -98,6 +106,7 @@ fn pool_name(p: Pool) -> &'static str {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Create { wallet, identity, txid, msg, outputs, pool, link_base, out } => {
@@ -137,6 +146,21 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 report.print();
+            }
+        }
+        Cmd::Tx { txid, network, server } => {
+            let net = match network.as_str() {
+                "main" => zcash_protocol::consensus::Network::MainNetwork,
+                "test" => zcash_protocol::consensus::Network::TestNetwork,
+                n => bail!("unknown network {n}"),
+            };
+            let (tx, height) = chain::fetch_mined_tx(net, server.as_deref(), parse_txid(&txid)?).await?;
+            println!("mined at height {height}, version {:?}", tx.version());
+            if let Some(b) = tx.orchard_bundle() {
+                println!("Orchard bundle: {} actions", b.actions().len());
+            }
+            if let Some(b) = tx.ironwood_bundle() {
+                println!("Ironwood bundle: {} actions", b.actions().len());
             }
         }
         Cmd::Inspect { receipt } => {

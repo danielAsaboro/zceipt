@@ -88,6 +88,28 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
+    /// Run the Receipts REST API (proof requests, verification, signed webhooks).
+    Serve {
+        #[arg(long, default_value = "127.0.0.1:8723")]
+        listen: String,
+        /// SQLite database file (created if missing).
+        #[arg(long, default_value = "receipts.db")]
+        db: String,
+        /// Network for rcpt_test_ keys: "test", or "regtest" with --heights.
+        #[arg(long, default_value = "test")]
+        test_network: String,
+        #[arg(long)]
+        heights: Option<PathBuf>,
+        /// lightwalletd for test mode (default: testnet.zec.rocks:443, or 127.0.0.1:9067 on regtest).
+        #[arg(long)]
+        test_lightwalletd: Option<String>,
+        /// lightwalletd for live mode (default: zec.rocks:443).
+        #[arg(long)]
+        live_lightwalletd: Option<String>,
+        /// Verifier page used in proof-request links.
+        #[arg(long, default_value = DEFAULT_LINK_BASE)]
+        verifier_url: String,
+    },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
     Tx {
         txid: String,
@@ -339,6 +361,22 @@ async fn main() -> anyhow::Result<()> {
                 tx.write(&mut raw)?;
                 println!("{}", ::hex::encode(raw));
             }
+        }
+        Cmd::Serve { listen, db, test_network, heights, test_lightwalletd, live_lightwalletd, verifier_url } => {
+            let test_net = match test_network.as_str() {
+                "test" => net::Net::Test,
+                "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
+                n => bail!("--test-network must be test or regtest, not {n}"),
+            };
+            let config = receipts_server::Config { test_net, test_lightwalletd, live_lightwalletd, verifier_url };
+            let (app, keys) = receipts_server::build(&db, config).await?;
+            let listener = tokio::net::TcpListener::bind(&listen).await?;
+            eprintln!("Receipts API on http://{listen}  (test mode: {}, live mode: mainnet)", test_net.name());
+            for (k, mode) in &keys {
+                eprintln!("  {mode:<4} key  {k}");
+            }
+            eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
+            axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
         }
         Cmd::Inspect { receipt } => {
             let r = read_receipt_arg(&receipt)?;

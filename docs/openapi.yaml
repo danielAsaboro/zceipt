@@ -1,0 +1,310 @@
+openapi: 3.1.0
+info:
+  title: Receipts API
+  version: "2026-10-14"
+  summary: Prove one shielded Zcash payment, reveal nothing else.
+  description: |
+    Self-hostable REST API for Zcash payment receipts (ZIP 311 for Orchard and Ironwood).
+
+    - **Verify** any receipt, a batch of receipts, or a receipt against a payee, an amount and a challenge.
+    - **Proof requests** ask a payer to prove a payment. Each one comes with a ZIP-321 payment URI, a verifier link and the CLI command that answers it.
+    - **Webhooks** are signed `request.fulfilled` / `request.created` / `receipt.rejected` events, retried with backoff.
+
+    Authentication works like Stripe's. `rcpt_test_…` keys serve testnet (or a local regtest chain) and `rcpt_live_…` keys serve mainnet. Objects never cross modes.
+    Send `Authorization: Bearer <key>`. Creating `POST`s accept an `Idempotency-Key` header. A replay returns the original response with `Idempotent-Replayed: true`.
+    Every error has the same shape and a stable `code`. `GET /v1/errors` lists them all.
+servers:
+  - url: http://localhost:8723
+    description: receipts serve (local)
+security:
+  - bearer: []
+tags:
+  - name: Verification
+  - name: Proof requests
+  - name: Webhooks
+  - name: Meta
+paths:
+  /v1/verify:
+    post:
+      tags: [Verification]
+      operationId: verify
+      summary: Verify a receipt or a batch
+      description: |
+        Verifies the receipt's zero-knowledge proof and signature against the mined transaction, and opens the disclosed outputs.
+        If `receipt` is a `zrcptb1…` batch, returns a `batch_verification`. Optional checks: `expect_address` and `min_zatoshis`, and `challenge`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receipt]
+              properties:
+                receipt: { type: string, description: "A zrcpt1… receipt, a zrcptb1… batch, or a link containing one." }
+                expect_address: { type: string, description: "Fail with wrong_payee unless a disclosed output paid this unified address." }
+                min_zatoshis: { type: integer, minimum: 0, description: "With expect_address: fail with insufficient_amount unless at least this much was paid." }
+                challenge: { type: string, description: "Fail with challenge_mismatch unless the receipt signs challenge:<this>." }
+            example: { receipt: "zrcpt1WlJDVAEB…", expect_address: "utest1…", min_zatoshis: 1000000 }
+      responses:
+        "200":
+          description: Valid
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Verification"
+                  - $ref: "#/components/schemas/BatchVerification"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+  /v1/requests:
+    post:
+      tags: [Proof requests]
+      operationId: createRequest
+      summary: Create a proof request
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payee]
+              properties:
+                payee: { type: string, description: "Your unified address. The payment must reach it." }
+                amount_zatoshis: { type: integer, minimum: 0, description: "Minimum amount the receipt must show paid to payee." }
+                label: { type: string, maxLength: 200 }
+                metadata: { type: object, additionalProperties: true, description: "Your own key/values, e.g. order_id." }
+                expires_in: { type: integer, minimum: 1, description: "Seconds until the request expires." }
+            example: { payee: "utest1…", amount_zatoshis: 1000000, label: "Order #42", metadata: { order_id: "42" }, expires_in: 86400 }
+      responses:
+        "201":
+          description: Created
+          content: { application/json: { schema: { $ref: "#/components/schemas/ProofRequest" } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    get:
+      tags: [Proof requests]
+      operationId: listRequests
+      summary: List proof requests, newest first
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, fulfilled, expired] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: starting_after, in: query, schema: { type: string }, description: "Cursor: the last id of the previous page." }
+      responses:
+        "200":
+          description: A page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object: { const: list }
+                  data: { type: array, items: { $ref: "#/components/schemas/ProofRequest" } }
+                  has_more: { type: boolean }
+  /v1/requests/{id}:
+    get:
+      tags: [Proof requests]
+      operationId: getRequest
+      summary: Retrieve a proof request
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/ProofRequest" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/requests/{id}/receipts:
+    post:
+      tags: [Proof requests]
+      operationId: submitReceipt
+      summary: Submit the receipt that answers a request
+      description: |
+        Verifies the receipt, checks that it signs the request's challenge, paid the payee, and paid at least `amount_zatoshis`.
+        On success the request becomes `fulfilled` and `request.fulfilled` is sent. On a verification failure `receipt.rejected` is sent and the request stays open.
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [receipt], properties: { receipt: { type: string } } }
+      responses:
+        "200": { description: Fulfilled, content: { application/json: { schema: { $ref: "#/components/schemas/ProofRequest" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /v1/webhook_endpoints:
+    post:
+      tags: [Webhooks]
+      operationId: createWebhookEndpoint
+      summary: Register a webhook endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, format: uri }
+                events: { type: array, items: { type: string, enum: ["*", request.created, request.fulfilled, receipt.rejected] }, default: ["*"] }
+      responses:
+        "201":
+          description: Created. `secret` is only returned here.
+          content: { application/json: { schema: { $ref: "#/components/schemas/WebhookEndpoint" } } }
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookEndpoints
+      summary: List webhook endpoints
+      responses: { "200": { description: OK } }
+  /v1/webhook_endpoints/{id}:
+    delete:
+      tags: [Webhooks]
+      operationId: deleteWebhookEndpoint
+      summary: Delete a webhook endpoint
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: Deleted }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/events:
+    get:
+      tags: [Webhooks]
+      operationId: listEvents
+      summary: List events, newest first
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses: { "200": { description: OK } }
+  /v1/events/{id}/resend:
+    post:
+      tags: [Webhooks]
+      operationId: resendEvent
+      summary: Re-deliver an event to every subscribed endpoint
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: Queued }, "404": { $ref: "#/components/responses/Error" } }
+  /v1/errors:
+    get:
+      tags: [Meta]
+      operationId: listErrors
+      summary: Every error code, its HTTP status and meaning
+      security: []
+      responses: { "200": { description: OK } }
+  /v1/health:
+    get:
+      tags: [Meta]
+      operationId: health
+      summary: Liveness and configured networks
+      security: []
+      responses: { "200": { description: OK } }
+webhooks:
+  request.fulfilled:
+    post:
+      summary: A valid receipt fulfilled a proof request
+      description: |
+        Header `Receipts-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`.
+        Verify it, reject stale timestamps, and deduplicate on the event `id`, because deliveries can repeat.
+      requestBody:
+        content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } }
+      responses: { "200": { description: Return any 2xx to acknowledge } }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, description: "rcpt_test_… or rcpt_live_…" }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string } }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, maxLength: 255 }
+      description: Retrying with the same key returns the first response instead of acting twice.
+  responses:
+    Error:
+      description: Error
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [type, code, message]
+          properties:
+            type: { type: string, enum: [invalid_request_error, authentication_error, verification_error, api_error] }
+            code: { type: string, examples: [challenge_mismatch, transaction_not_mined, wrong_payee] }
+            message: { type: string }
+            param: { type: [string, "null"] }
+            doc_url: { type: string }
+    Output:
+      type: object
+      properties:
+        action: { type: integer }
+        recipient: { type: string, description: "Orchard-only unified address of the recipient" }
+        zatoshis: { type: integer }
+        memo: { type: [string, "null"] }
+    Verification:
+      type: object
+      properties:
+        object: { const: verification }
+        valid: { const: true }
+        livemode: { type: boolean }
+        network: { type: string, enum: [mainnet, testnet, regtest] }
+        pool: { type: string, enum: [orchard, ironwood] }
+        txid: { type: string }
+        mined_height: { type: integer }
+        message: { type: string }
+        challenge: { type: [string, "null"] }
+        batch: { type: [object, "null"] }
+        sender_addresses: { type: array, items: { type: string }, description: "Addresses the sender chose to prove; usually empty" }
+        outputs: { type: array, items: { $ref: "#/components/schemas/Output" } }
+        paid_to_expected: { type: integer }
+    BatchVerification:
+      type: object
+      properties:
+        object: { const: batch_verification }
+        valid: { const: true }
+        id: { type: string }
+        total_zatoshis: { type: integer }
+        totals_by_recipient: { type: object, additionalProperties: { type: integer } }
+        receipts: { type: array, items: { $ref: "#/components/schemas/Verification" } }
+    ProofRequest:
+      type: object
+      properties:
+        id: { type: string, examples: [preq_3f9a…] }
+        object: { const: proof_request }
+        livemode: { type: boolean }
+        status: { type: string, enum: [open, fulfilled, expired] }
+        challenge: { type: string }
+        payee: { type: string }
+        amount_zatoshis: { type: [integer, "null"] }
+        label: { type: [string, "null"] }
+        metadata: { type: object }
+        created: { type: integer }
+        expires_at: { type: [integer, "null"] }
+        payment_uri: { type: string, description: "ZIP-321 URI: zcash:<payee>?amount=…&memo=…" }
+        receipt_link: { type: string, description: "Verifier page link; pass it to `receipts create --request`" }
+        cli_command: { type: string }
+        fulfillment:
+          type: [object, "null"]
+          properties:
+            fulfilled_at: { type: integer }
+            txid: { type: string }
+            paid_zatoshis: { type: integer }
+            verification: { $ref: "#/components/schemas/Verification" }
+    WebhookEndpoint:
+      type: object
+      properties:
+        id: { type: string }
+        object: { const: webhook_endpoint }
+        url: { type: string }
+        events: { type: array, items: { type: string } }
+        secret: { type: string, description: "whsec_…, only on creation" }
+    Event:
+      type: object
+      properties:
+        id: { type: string }
+        object: { const: event }
+        type: { type: string }
+        created: { type: integer }
+        livemode: { type: boolean }
+        data: { type: object, properties: { object: { type: object } } }

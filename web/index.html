@@ -106,6 +106,10 @@
     .request summary { cursor: pointer; color: var(--text); font-weight: 600; }
     .request .grid { display: grid; gap: 8px; margin-top: 10px; }
     .request code { font-family: var(--mono); color: var(--text); }
+    #linkOut ul { margin: 6px 0 0; padding-left: 18px; }
+    #linkOut li[data-level="error"] { color: #e0796f; }
+    #linkOut li[data-level="warning"] { color: #e3b75f; }
+    #linkOut .verdict { font-weight: 600; color: var(--text); }
     .warm { margin-top: 10px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
     .warm[data-state="ready"] { color: #3f9b6c; }
     footer { max-width: 1080px; margin: 0 auto; padding: 0 20px 40px; color: var(--text-2); font-size: 12.5px; }
@@ -155,6 +159,16 @@
           <input id="reqLabel" placeholder="Order #42">
           <div class="actions"><button id="reqBtn">Create request</button></div>
           <div id="reqOut"></div>
+        </div>
+      </details>
+
+      <details class="request" id="linkPanel">
+        <summary>Check a payment link before you print it</summary>
+        <div class="grid">
+          <label class="hint" for="linkIn">A <code>zcash:</code> link, as you'd put in an invoice or QR code</label>
+          <input id="linkIn" placeholder="zcash:u1…?amount=0.01&amp;memo=…" spellcheck="false" autocomplete="off">
+          <div class="actions"><button id="linkBtn">Check link</button></div>
+          <div id="linkOut"></div>
         </div>
       </details>
 

@@ -33,3 +33,14 @@ export function detectSecret(text: string): Promise<string | null>;
 export function extractSignIn(input: string): string | null;
 /** Sign in with Zcash, verified locally. Throws if the proof is not for this domain and nonce. */
 export function verifySignIn(input: string, options: { domain: string; nonce: string }): Promise<{ address: string; network: string; issued_at: number }>;
+export interface PaymentLinkFinding { level: "error" | "warning" | "info"; code: string; payment: number | null; message: string }
+export interface PaymentLinkCheck {
+  ok: boolean;
+  uri_length: number;
+  payments: { index: number; address: string; address_kind: "unified" | "sapling" | "transparent" | "tex" | "unknown"; network: string | null; receivers: string[]; amount_zatoshis: number | null; memo: string | null; label: string | null; message: string | null; receipt_provable: boolean }[];
+  total_zatoshis?: number | null;
+  qr?: { version: number; modules: number; error_correction: "M" } | null;
+  findings: PaymentLinkFinding[];
+}
+/** Lints a ZIP-321 payment link: network, address type, provability, amount, memo, params, QR density. */
+export function checkPaymentLink(uri: string, options?: { network?: "mainnet" | "testnet" | "regtest" }): Promise<PaymentLinkCheck>;

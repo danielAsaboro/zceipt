@@ -359,6 +359,22 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
 }
 
 #[derive(Deserialize)]
+struct CheckLink {
+    uri: Option<String>,
+    /// Default: the network of the key's mode.
+    network: Option<String>,
+}
+
+/// Lints a ZIP-321 payment URI before it is printed or turned into a QR code.
+async fn check_link_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CheckLink>) -> Result<Json<Value>, ApiError> {
+    let uri = req.uri.ok_or_else(|| ApiError::missing("uri"))?;
+    let net = req.network.unwrap_or_else(|| auth.mode.net(&st.config).name().to_string());
+    let mut v = receipts_core::preflight::check_payment_uri(&uri, Some(&net));
+    v["object"] = "payment_link_check".into();
+    Ok(Json(v))
+}
+
+#[derive(Deserialize)]
 struct CreateEndpoint {
     url: Option<String>,
     events: Option<Vec<String>>,
@@ -549,6 +565,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/errors", get(errors_handler))
         .route("/v1/sandbox/fixtures", get(fixtures_handler))
         .route("/v1/verify", post(verify_handler))
+        .route("/v1/payment_links/check", post(check_link_handler))
         .route("/v1/sign_in/challenges", post(signin::create_challenge))
         .route("/v1/sign_in/verify", post(signin::verify))
         .route("/v1/requests", post(create_request).get(list_requests))

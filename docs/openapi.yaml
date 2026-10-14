@@ -61,6 +61,28 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
+  /v1/payment_links/check:
+    post:
+      tags: [Proof requests]
+      operationId: checkPaymentLink
+      summary: Lint a ZIP-321 payment link before printing it
+      description: |
+        Parses a `zcash:` URI and reports, per payment, the network, address kind and receivers, amount, memo and whether a
+        receipt can prove a payment to it, plus the QR version it needs. `findings` lists errors (wrong network, unknown
+        required params, invalid URI), warnings (transparent, TEX or Sapling-only recipients, missing amount, dense QR) and tips.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [uri]
+              properties:
+                uri: { type: string }
+                network: { type: string, enum: [mainnet, testnet, regtest], description: "Default: the key's network." }
+      responses:
+        "200": { description: The check; `ok` is false if any finding is an error }
+        "400": { $ref: "#/components/responses/Error" }
   /v1/requests/{id}/refunds:
     post:
       tags: [Proof requests]

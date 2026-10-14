@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -152,4 +152,14 @@ export async function verifySignIn(input, { domain, nonce }) {
   if (!s) throw new Error("no zsig1 sign-in found");
   await load();
   return JSON.parse(verify_sign_in(s, String(domain), String(nonce)));
+}
+
+/**
+ * Lints a ZIP-321 payment link before you print it or turn it into a QR code. Resolves to
+ * `{ ok, payments, total_zatoshis, qr: { version, modules }, findings: [{ level, code, message }] }`.
+ * Pass `{ network: "mainnet" }` to make a wrong-network address an error.
+ */
+export async function checkPaymentLink(uri, { network } = {}) {
+  await load();
+  return JSON.parse(check_payment_uri(String(uri), network ? String(network) : ""));
 }

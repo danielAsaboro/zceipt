@@ -94,25 +94,6 @@ function getDataViewMemory0() {
     }
     return cachedDataViewMemory0;
 }
-/**
- * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
- * @param {string} text
- * @returns {string}
- */
-export function secret_kind(text) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.secret_kind(ptr0, len0);
-        deferred2_0 = ret[0];
-        deferred2_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-    }
-}
 
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_export_3.get(idx);
@@ -120,17 +101,17 @@ function takeFromExternrefTable0(idx) {
     return value;
 }
 /**
- * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
- * @param {string} ua
+ * Decodes a receipt without verifying it. Returns JSON.
+ * @param {string} receipt
  * @returns {string}
  */
-export function orchard_receiver_hex(ua) {
+export function inspect(receipt) {
     let deferred3_0;
     let deferred3_1;
     try {
-        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.orchard_receiver_hex(ptr0, len0);
+        const ret = wasm.inspect(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {
@@ -173,6 +154,57 @@ export function open_batch(batch) {
 }
 
 /**
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ */
+export function warm_up() {
+    wasm.warm_up();
+}
+
+/**
+ * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
+ * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
+ * @param {string} uri
+ * @param {string} network
+ * @returns {string}
+ */
+export function check_payment_uri(uri, network) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(uri, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(network, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.check_payment_uri(ptr0, len0, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+ * @param {string} text
+ * @returns {string}
+ */
+export function secret_kind(text) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.secret_kind(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
  * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
  * The caller must still make sure the nonce was its own, unexpired and is used only once.
@@ -203,32 +235,6 @@ export function verify_sign_in(sign_in, domain, nonce) {
         return getStringFromWasm0(ptr4, len4);
     } finally {
         wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
-    }
-}
-
-/**
- * Decodes a receipt without verifying it. Returns JSON.
- * @param {string} receipt
- * @returns {string}
- */
-export function inspect(receipt) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.inspect(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
 }
 
@@ -272,10 +278,29 @@ export function verify(receipt, raw_tx, height, regtest) {
 }
 
 /**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ * @param {string} ua
+ * @returns {string}
  */
-export function warm_up() {
-    wasm.warm_up();
+export function orchard_receiver_hex(ua) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.orchard_receiver_hex(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
 }
 
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);

@@ -220,3 +220,10 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
         .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(serde_json::json!({ "address": ua, "network": name, "issued_at": s.issued_at }).to_string())
 }
+
+/// Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
+/// Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
+#[wasm_bindgen]
+pub fn check_payment_uri(uri: &str, network: &str) -> String {
+    receipts_core::preflight::check_payment_uri(uri, (!network.is_empty()).then_some(network)).to_string()
+}

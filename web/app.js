@@ -38,7 +38,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
@@ -416,6 +416,19 @@ if (initial) {
   $("#paste").value = initial;
   run(initial);
 }
+
+// ---------- check a payment link ----------
+$("#linkBtn").onclick = async () => {
+  await local;
+  const uri = $("#linkIn").value.trim();
+  if (!uri) return;
+  const v = JSON.parse(check_payment_uri(uri, regtest() ? "regtest" : ""));
+  const pays = v.payments.map((p) =>
+    `<li>${escapeHtml(p.network || "unknown network")} ${escapeHtml(p.address_kind)} address · ${p.amount_zatoshis != null ? zec(p.amount_zatoshis) + " ZEC" : "no amount"}${p.memo ? ` · memo “${escapeHtml(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : "<strong>not provable with a receipt</strong>"}</li>`).join("");
+  const finds = v.findings.map((f) => `<li data-level="${f.level}">${escapeHtml(f.message)}</li>`).join("");
+  $("#linkOut").innerHTML = `<div class="verdict">${v.ok ? (v.findings.some((f) => f.level === "warning") ? "Works, with warnings" : "Looks good") : "Fix before printing"}</div>
+    <ul>${pays}${v.qr ? `<li>QR version ${v.qr.version} (${v.qr.modules}×${v.qr.modules})</li>` : ""}${finds}</ul>`;
+};
 
 // ---------- create a request ----------
 $("#reqBtn").onclick = () => {

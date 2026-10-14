@@ -471,3 +471,19 @@ async fn test_clocks_drive_expiry_and_finality() {
     let (s, v, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "test_clock": "clock_nope" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::NOT_FOUND, Some("test_clock_not_found")));
 }
+
+#[tokio::test]
+async fn payment_links_are_checked_and_our_own_pass() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234500, "label": "Kemi's Coffee" })), None).await;
+    let (s, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({ "uri": r["payment_uri"] })), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(v["findings"].as_array().unwrap().is_empty(), "our own links must be clean: {v}");
+    assert_eq!(v["payments"][0]["amount_zatoshis"], 1234500);
+    // Checking against the wrong network is an error.
+    let (_, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({ "uri": format!("zcash:{PAYEE}?amount=1"), "network": "mainnet" })), None).await;
+    assert_eq!(v["ok"], false);
+    let (s, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({})), None).await;
+    assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("uri")));
+}

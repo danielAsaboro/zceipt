@@ -42,6 +42,21 @@ fn tools() -> Value {
             "name": "submit_receipt",
             "description": "Submit the payer's receipt for a proof request. Fulfills it if the receipt signs the request's challenge and paid the payee at least the amount.",
             "inputSchema": { "type": "object", "required": ["id", "receipt"], "properties": { "id": { "type": "string" }, "receipt": { "type": "string" } } }
+        },
+        {
+            "name": "check_payment_link",
+            "description": "Lint a ZIP-321 zcash: payment link before printing it or making a QR code: network, address type, whether a receipt can prove a payment to it, amount, memo, unknown parameters and QR density. Runs locally.",
+            "inputSchema": { "type": "object", "required": ["uri"], "properties": {
+                "uri": { "type": "string" },
+                "network": { "type": "string", "enum": ["mainnet", "testnet", "regtest"] } } }
+        },
+        {
+            "name": "refund_payment",
+            "description": "Refund a proof request's payment to the refund address the payer signed into their receipt. Returns a ZIP-321 payment_uri to pay and the challenge the refund receipt must sign.",
+            "inputSchema": { "type": "object", "required": ["id"], "properties": {
+                "id": { "type": "string", "description": "Proof request id" },
+                "amount_zatoshis": { "type": "integer", "description": "Default: what is left of the payment" },
+                "reason": { "type": "string" } } }
         }
     ])
 }
@@ -71,6 +86,10 @@ async fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String
         }
         "get_proof_request" => client.get_request(&s("id").ok_or("id is required")?).await,
         "submit_receipt" => client.submit_receipt(&s("id").ok_or("id is required")?, &s("receipt").ok_or("receipt is required")?).await,
+        "check_payment_link" => {
+            return Ok(receipts_core::preflight::check_payment_uri(&s("uri").ok_or("uri is required")?, s("network").as_deref()));
+        }
+        "refund_payment" => client.create_refund(&s("id").ok_or("id is required")?, args["amount_zatoshis"].as_u64(), s("reason").as_deref()).await,
         other => return Err(format!("unknown tool {other}")),
     };
     r.map_err(|e| match e.code() {

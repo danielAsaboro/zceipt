@@ -2988,11 +2988,16 @@ dependencies = [
  "incrementalmerkletree",
  "orchard",
  "pasta_curves",
+ "qrcode",
  "rand 0.10.3",
  "rand_core 0.10.1",
+ "serde_json",
  "shardtree",
  "thiserror 2.0.21",
+ "zcash_address",
  "zcash_note_encryption",
+ "zcash_protocol",
+ "zip321",
 ]
 
 [[package]]

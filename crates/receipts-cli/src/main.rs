@@ -102,6 +102,16 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
+    /// Lint a ZIP-321 payment link (`zcash:…`) before printing it or making a QR code: network,
+    /// address type, whether a receipt can prove it, amount, memo, unknown params, QR density.
+    CheckLink {
+        uri: String,
+        /// mainnet, testnet or regtest: a different network is an error.
+        #[arg(long)]
+        network: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Sign in with Zcash: prove to a site that you control a shielded address, for its
     /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
     SignIn {
@@ -508,6 +518,33 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
             eprintln!("No viewing keys, spending keys or seed phrases found.");
+        }
+        Cmd::CheckLink { uri, network, json } => {
+            let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());
+            if json {
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                for p in v["payments"].as_array().into_iter().flatten() {
+                    println!(
+                        "payment {}: {} {} address, {}{}",
+                        p["index"],
+                        p["network"].as_str().unwrap_or("unknown-network"),
+                        p["address_kind"].as_str().unwrap_or_default(),
+                        p["amount_zatoshis"].as_u64().map(|z| format!("{} ZEC", receipts_chain::chain::zec(z))).unwrap_or_else(|| "no amount".into()),
+                        if p["receipt_provable"] == true { ", provable with a receipt" } else { ", NOT provable with a receipt" },
+                    );
+                }
+                if let Some(q) = v["qr"].as_object() {
+                    println!("QR: version {} ({}×{} modules)", q["version"], q["modules"], q["modules"]);
+                }
+                for f in v["findings"].as_array().into_iter().flatten() {
+                    println!("{:7} {}: {}", f["level"].as_str().unwrap_or_default().to_uppercase(), f["code"].as_str().unwrap_or_default(), f["message"].as_str().unwrap_or_default());
+                }
+                println!("{}", if v["ok"] == true { "OK" } else { "PROBLEMS FOUND" });
+            }
+            if v["ok"] != true {
+                std::process::exit(1);
+            }
         }
         Cmd::SignIn { wallet, identity, domain, nonce, address, submit } => {
             eprintln!("Proving control of an address for {domain}…");

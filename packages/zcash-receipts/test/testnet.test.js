@@ -69,3 +69,14 @@ test("block-level fetch hides which transaction was checked", { skip: !!process.
   assert.ok(v.fetch.anonymity_set > 1, JSON.stringify(v.fetch));
   await assert.rejects(verifyReceipt(`${receipt}&h=4500996`), /not in block/);
 });
+
+test("payment links are linted", async () => {
+  const { checkPaymentLink } = await import("../index.js");
+  const ua = (await readFile(ex("testnet/merchant.ua"), "utf8")).trim();
+  const ok = await checkPaymentLink(`zcash:${ua}?amount=0.01&memo=SW52b2ljZSA0Mg`, { network: "testnet" });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.payments[0].memo, "Invoice 42");
+  const bad = await checkPaymentLink(`zcash:${ua}?amount=0.01`, { network: "mainnet" });
+  assert.equal(bad.ok, false);
+  assert.ok(bad.findings.some((f) => f.code === "network_mismatch"));
+});

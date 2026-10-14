@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction };
@@ -26,6 +26,12 @@ async function load() {
     })();
   }
   return ready;
+}
+
+/** The kind of secret (viewing key, spending key, seed phrase) in `text`, or null. Never echo it. */
+export async function detectSecret(text) {
+  await load();
+  return secret_kind(String(text)) || null;
 }
 
 /** Extracts a `zrcptb1…` batch from a link, a fragment or bare text, or returns null. */
@@ -71,6 +77,8 @@ export async function orchardReceiver(ua) {
  */
 export async function verifyReceipt(input, options = {}) {
   await load();
+  const leak = secret_kind(String(input));
+  if (leak) throw new Error(`refusing: input contains what looks like a ${leak}; never share it`);
   const receipt = extractReceipt(input);
   const summary = JSON.parse(inspect(receipt));
   let raw = options.rawTx, height = options.height;

@@ -98,6 +98,9 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
+    /// Scan files or directories (logs, configs, code) for leaked viewing keys, spending keys
+    /// and seed phrases. Prints file:line and the kind, never the secret. Exits 1 if any are found.
+    PrivacyLint { paths: Vec<PathBuf> },
     /// Receive webhooks locally: registers a temporary endpoint, prints each event and
     /// forwards it (with its signature) to your app.
     Listen {
@@ -205,6 +208,9 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
 }
 
 fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
+    if let Some(kind) = receipts_core::tripwire::secret_kind(&read_arg_text(arg)?) {
+        bail!("refusing: the input contains what looks like a {kind}. Never share it; a zrcpt1… receipt is all that's needed.");
+    }
     let text = if let Some(path) = arg.strip_prefix('@') {
         std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
     } else {
@@ -442,6 +448,37 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Mcp { api_key, base_url } => mcp::run(api_key, base_url).await?,
         Cmd::Listen { forward_to, api_key, base_url, events } => listen(forward_to, api_key, base_url, events).await?,
         Cmd::Trigger { event, api_key, base_url, payee } => trigger(event, api_key, base_url, payee).await?,
+        Cmd::PrivacyLint { paths } => {
+            let mut found = 0;
+            let mut stack: Vec<PathBuf> = if paths.is_empty() { vec![PathBuf::from(".")] } else { paths };
+            while let Some(p) = stack.pop() {
+                if p.is_dir() {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if [".git", "target", "node_modules"].contains(&name) {
+                        continue;
+                    }
+                    for e in std::fs::read_dir(&p)? {
+                        stack.push(e?.path());
+                    }
+                } else if let Ok(text) = std::fs::read_to_string(&p) {
+                    for (i, line) in text.lines().enumerate() {
+                        // Test fixtures can opt out with a `privacy-lint: allow` comment.
+                        if line.contains("privacy-lint: allow") {
+                            continue;
+                        }
+                        if let Some(kind) = receipts_core::tripwire::secret_kind(line) {
+                            println!("{}:{}: {kind} (redacted)", p.display(), i + 1);
+                            found += 1;
+                        }
+                    }
+                }
+            }
+            if found > 0 {
+                eprintln!("{found} possible secret(s) found. Rotate any real keys and remove them.");
+                std::process::exit(1);
+            }
+            eprintln!("No viewing keys, spending keys or seed phrases found.");
+        }
         Cmd::Inspect { receipt } => {
             let r = read_receipt_arg(&receipt)?;
             let u = &r.unsigned;

@@ -190,6 +190,10 @@ impl<T: serde::de::DeserializeOwned> axum::extract::FromRequest<Shared> for Body
             .await
             .map_err(|_| ApiError::invalid("invalid_json", "body too large or unreadable"))?;
         let raw = String::from_utf8_lossy(&bytes).into_owned();
+        // Refuse keys and seed phrases outright, and never store or echo them.
+        if let Some(kind) = receipts_core::tripwire::secret_kind(&raw) {
+            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zrcpt1… receipt.")));
+        }
         let v = serde_json::from_slice(if bytes.is_empty() { b"{}" } else { &bytes })
             .map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
         Ok(Body(v, raw))

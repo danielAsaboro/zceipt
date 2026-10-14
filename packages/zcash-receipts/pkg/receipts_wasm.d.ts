@@ -1,6 +1,10 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
+ * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+ */
+export function secret_kind(text: string): string;
+/**
  * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
  */
 export function orchard_receiver_hex(ua: string): string;
@@ -31,6 +35,7 @@ export interface InitOutput {
   readonly inspect: (a: number, b: number) => [number, number, number, number];
   readonly open_batch: (a: number, b: number) => [number, number, number, number];
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
+  readonly secret_kind: (a: number, b: number) => [number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

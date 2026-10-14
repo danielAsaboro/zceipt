@@ -195,3 +195,9 @@ pub fn open_batch(batch: &str) -> Result<String, JsError> {
     let receipts: Vec<String> = b.receipts.iter().map(|r| r.to_text()).collect();
     Ok(serde_json::json!({ "id": id, "receipts": receipts }).to_string())
 }
+
+/// If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+#[wasm_bindgen]
+pub fn secret_kind(text: &str) -> String {
+    receipts_core::tripwire::secret_kind(text).unwrap_or_default().to_string()
+}

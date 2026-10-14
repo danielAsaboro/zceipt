@@ -334,3 +334,17 @@ async fn expiry_emits_an_event() {
     }
     assert!(seen, "request.expired was emitted");
 }
+
+#[tokio::test]
+async fn pasted_viewing_keys_are_refused_and_never_echoed() {
+    let (app, test, _) = app().await;
+    let ufvk = format!("uviewtest1{}", "q8w".repeat(40));
+    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": ufvk })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("secret_detected")));
+    assert!(!v.to_string().contains("q8wq8w"), "the error must not echo the key");
+    let seed = "abandon ability able about above absent absorb abstract absurd abuse access accident"; // privacy-lint: allow (test fixture)
+    let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "label": seed })), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (_, ev, _) = call(&app, "GET", "/v1/events", Some(&test), None, None).await;
+    assert!(!ev.to_string().contains("abandon"), "nothing was stored");
+}

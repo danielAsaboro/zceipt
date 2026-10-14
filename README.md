@@ -107,6 +107,13 @@ can't be dropped, added or reordered without breaking a signature. The verifier 
 every payment and the total. A DAO, payroll or grant program can prove "we paid all of these
 people" without exposing its treasury address or balance.
 
+## Secret tripwire
+
+Every surface refuses viewing keys, spending keys and seed phrases pasted where a receipt
+belongs: the API (`secret_detected`, never stored or echoed), the CLI, the verifier page and the
+npm package. `receipts privacy-lint <paths>` scans your logs, configs and code for leaked keys,
+prints `file:line` and the kind (never the secret), and exits 1 in CI if it finds any.
+
 ## Optionally prove who paid
 
 By default the sender stays anonymous. For a donation drive or a treasury report, add

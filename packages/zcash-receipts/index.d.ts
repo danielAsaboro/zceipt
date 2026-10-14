@@ -18,3 +18,4 @@ export function orchardReceiver(ua: string): Promise<string>;
 export function verifyReceipt(input: string, options?: VerifyOptions): Promise<Omit<Verification, "object" | "livemode" | "challenge" | "batch"> & { paidToExpected?: number }>;
 export function verifyBatch(input: string, options?: VerifyOptions): Promise<{ id: string; results: Verification[]; totals: Record<string, number> }>;
 export function fetchTransaction(endpoint: string, displayTxid: string): Promise<{ raw: Uint8Array; height: number }>;
+export function detectSecret(text: string): Promise<string | null>;

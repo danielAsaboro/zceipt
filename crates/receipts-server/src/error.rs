@@ -98,6 +98,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("parameter_missing", 400, "A required parameter is missing; see `param`."),
     ("parameter_invalid", 400, "A parameter has the wrong format; see `param`."),
     ("address_network_mismatch", 400, "The address belongs to a different network than the key's mode."),
+    ("secret_detected", 400, "The request contained a viewing key, spending key or seed phrase. It was refused and not stored. Never share these; a receipt is all that's needed."),
     ("receipt_malformed", 400, "The receipt text could not be decoded."),
     ("receipt_network_mismatch", 400, "A test key was used with a mainnet receipt, or a live key with a testnet one."),
     ("transaction_not_found", 422, "lightwalletd does not know the receipt's transaction."),

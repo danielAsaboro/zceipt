@@ -37,7 +37,7 @@ const warmed = call("warm")
     if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s, one time)`; }
   })
   .catch(() => {});
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
@@ -354,8 +354,14 @@ function receiptFromHash() {
   return i >= 0 ? h.slice(i) : "";
 }
 
-$("#verifyBtn").onclick = () => {
+$("#verifyBtn").onclick = async () => {
   const t = $("#paste").value.trim();
+  await local;
+  const leak = secret_kind(t);
+  if (leak) {
+    $("#paste").value = "";
+    return showError(`That looks like a ${leak}. Never paste it anywhere: it reveals your whole wallet. It was cleared and not sent. Paste only the zrcpt1… receipt.`);
+  }
   const bi = t.indexOf("zrcptb1");
   if (bi >= 0) {
     const bt = t.slice(bi).replace(/[^A-Za-z0-9_-].*$/s, "");

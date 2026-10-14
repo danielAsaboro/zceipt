@@ -31,7 +31,7 @@ const call = (op, args = {}) =>
 // Start building the verifying key in the worker as soon as the page opens (about 8s, once).
 // Quick calls (decoding, address checks) run on this thread so they never wait behind it.
 call("warm").catch(() => {});
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex } from "./pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;

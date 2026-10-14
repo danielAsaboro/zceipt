@@ -50,7 +50,8 @@ The full construction is in [docs/SPEC.md](docs/SPEC.md).
 | `crates/receipts-core` | Create and verify receipts, the `zrcpt1…` encoding, and tests |
 | `crates/receipts-cli` | `receipts` CLI: create from a zcash-devtool wallet, verify against lightwalletd |
 | `crates/receipts-wasm` | Browser verifier |
-| `web/` | The verifier page (static; fetches the transaction over grpc-web) |
+| `packages/zcash-receipts` | npm package: `verifyReceipt()` for any JS app, plus the `<zcash-receipt>` web component |
+| `web/` | The verifier page and the embed demo (`embed.html`); static, fetches the transaction over grpc-web |
 | `docs/SPEC.md` | The Orchard/Ironwood instantiation of ZIP 311 |
 
 ## Try it
@@ -71,6 +72,17 @@ transaction's anchor, the CLI rebuilds the Merkle path from public chain data:
 ./target/release/receipts create -w <wallet_dir> -i <identity.age> --txid <txid> -m "Invoice 42"
 ./target/release/receipts verify '<link or zrcpt1…>' --expect-address <recipient u1…>
 ```
+
+## Embed it in any site
+
+```html
+<script type="module" src="/zcash-receipts/widget.js"></script>
+<zcash-receipt receipt="zrcpt1…" expect-address="u1…" min-zatoshis="1000000"></zcash-receipt>
+```
+
+A shop, an exchange's support desk or a grant program can confirm a customer's payment on
+its own page without running a node or seeing anyone's viewing key. See `web/embed.html`
+and [packages/zcash-receipts](packages/zcash-receipts).
 
 ## Proof requests: "prove it's you"
 

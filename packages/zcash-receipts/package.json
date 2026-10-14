@@ -1,0 +1,17 @@
+{
+  "name": "zcash-receipts",
+  "version": "0.1.0",
+  "description": "Verify Zcash payment receipts (ZIP 311 for Orchard and Ironwood) in the browser or Node. Prove one shielded payment, reveal nothing else.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./widget": "./widget.js"
+  },
+  "files": ["index.js", "grpc.js", "widget.js", "worker.js", "pkg/", "README.md"],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["zcash", "zip-311", "payment-disclosure", "privacy", "orchard", "ironwood", "receipt"]
+}

@@ -1,0 +1,37 @@
+// Verifies the committed testnet receipt against the live testnet (network test), and
+// the committed regtest receipt fully offline.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { verifyReceipt, inspectReceipt } from "../index.js";
+
+const ex = (p) => new URL(`../../../examples/${p}`, import.meta.url);
+
+test("regtest receipt verifies offline against the raw transaction", async () => {
+  const receipt = await readFile(ex("regtest/receipt.txt"), "utf8");
+  const rawTx = await readFile(ex("regtest/tx.hex"), "utf8");
+  const merchant = (await readFile(ex("regtest/merchant.ua"), "utf8")).trim();
+  const v = await verifyReceipt(receipt, { rawTx, height: 222, regtest: true, expectAddress: merchant, minZatoshis: 42_000_000 });
+  assert.equal(v.valid, true);
+  assert.equal(v.outputs[0].memo, "Invoice 42: two coffees");
+  assert.equal(v.paidToExpected, 42_000_000);
+});
+
+test("edited receipt is rejected", async () => {
+  const receipt = (await readFile(ex("regtest/receipt.txt"), "utf8")).trim();
+  const rawTx = await readFile(ex("regtest/tx.hex"), "utf8");
+  // Flip one character in the middle of the proof.
+  const i = 4000;
+  const bad = receipt.slice(0, i) + (receipt[i] === "A" ? "B" : "A") + receipt.slice(i + 1);
+  await assert.rejects(verifyReceipt(bad, { rawTx, height: 222, regtest: true }));
+});
+
+test("testnet request answer verifies against the live chain", { skip: !!process.env.OFFLINE }, async () => {
+  const link = await readFile(ex("testnet/request-answer-link.txt"), "utf8");
+  const s = await inspectReceipt(link);
+  assert.equal(s.network, "testnet");
+  const merchant = (await readFile(ex("testnet/merchant.ua"), "utf8")).trim();
+  const v = await verifyReceipt(link, { expectAddress: merchant, minZatoshis: 1_000_000, challenge: "e1e14a5d182a" });
+  assert.equal(v.mined_height, 4500997);
+  await assert.rejects(verifyReceipt(link, { challenge: "000000000000" }), /challenge/);
+});

@@ -14,7 +14,8 @@ use orchard::{
     Note,
 };
 use rand::rngs::OsRng;
-use receipts_core::{Pool, Receipt, SpendWitness, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
+use crate::net::{Heights, Net};
+use receipts_core::{Pool, Receipt, SpendWitness};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use shardtree::error::ShardTreeError;
@@ -24,20 +25,27 @@ use zcash_client_sqlite::{util::SystemClock, WalletDb};
 use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_note_encryption::try_note_decryption;
 use zcash_primitives::transaction::TxId;
-use zcash_protocol::consensus::{BlockHeight, Network};
+use zcash_protocol::consensus::BlockHeight;
 
 
 #[derive(Deserialize)]
 struct KeysToml {
     mnemonic: Option<String>,
     network: Option<String>,
+    activation_heights: Option<Heights>,
 }
 
-fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Network, secrecy::SecretVec<u8>)> {
+fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy::SecretVec<u8>)> {
     let keys: KeysToml = toml::from_str(&std::fs::read_to_string(wallet.join("keys.toml"))?)?;
     let net = match keys.network.as_deref().unwrap_or("test") {
-        "main" => Network::MainNetwork,
-        "test" => Network::TestNetwork,
+        "main" => Net::Main,
+        "test" => Net::Test,
+        "regtest" => Net::Regtest(
+            keys.activation_heights
+                .as_ref()
+                .ok_or_else(|| anyhow!("regtest wallet has no activation heights"))?
+                .to_local(),
+        ),
         other => bail!("unsupported network {other}"),
     };
     let ct = keys.mnemonic.ok_or_else(|| anyhow!("this wallet has no mnemonic (viewing-only)"))?;
@@ -144,7 +152,7 @@ where
 
 /// Finds the wallet checkpoint whose root is `anchor` and returns the note's witness there.
 fn witness_at_anchor(
-    db: &mut WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>,
+    db: &mut WalletDb<rusqlite::Connection, Net, SystemClock, OsRng>,
     pool: Pool,
     position: u64,
     anchor: orchard::Anchor,
@@ -174,7 +182,7 @@ pub fn create_receipt(
     pool: Option<Pool>,
 ) -> anyhow::Result<Receipt> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let coin_type = if net == Network::MainNetwork { COIN_TYPE_MAINNET } else { COIN_TYPE_TESTNET };
+    let coin_type = net.coin_type();
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = *usk.orchard();

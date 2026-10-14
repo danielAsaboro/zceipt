@@ -1,6 +1,7 @@
 //! `receipts`: create and verify Zcash payment receipts (ZIP 311) for Orchard and Ironwood.
 
 mod chain;
+mod net;
 mod wallet;
 
 use anyhow::{anyhow, bail, Context};
@@ -61,6 +62,9 @@ enum Cmd {
         /// Print the result as JSON.
         #[arg(long)]
         json: bool,
+        /// Verify against a local regtest chain with these activation heights (devtool format).
+        #[arg(long)]
+        regtest: Option<PathBuf>,
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
@@ -69,8 +73,14 @@ enum Cmd {
         txid: String,
         #[arg(long, default_value = "main")]
         network: String,
+        /// Activation heights file, for `--network regtest`.
+        #[arg(long)]
+        heights: Option<PathBuf>,
         #[arg(short, long)]
         server: Option<String>,
+        /// Also print the raw transaction hex (for the web page's offline mode).
+        #[arg(long)]
+        hex: bool,
     },
 }
 
@@ -133,9 +143,9 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server):");
             println!("{}#{}", link_base, text);
         }
-        Cmd::Verify { receipt, server, expect_address, json } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest } => {
             let receipt = read_receipt_arg(&receipt)?;
-            let report = chain::verify_against_chain(&receipt, server.as_deref()).await?;
+            let report = chain::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
             if let Some(addr) = &expect_address {
                 let want = chain::orchard_receiver_of(addr)?;
                 if !report.outputs.iter().any(|o| o.recipient_raw == want) {
@@ -148,10 +158,11 @@ async fn main() -> anyhow::Result<()> {
                 report.print();
             }
         }
-        Cmd::Tx { txid, network, server } => {
+        Cmd::Tx { txid, network, heights, server, hex } => {
             let net = match network.as_str() {
-                "main" => zcash_protocol::consensus::Network::MainNetwork,
-                "test" => zcash_protocol::consensus::Network::TestNetwork,
+                "main" => net::Net::Main,
+                "test" => net::Net::Test,
+                "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
                 n => bail!("unknown network {n}"),
             };
             let (tx, height) = chain::fetch_mined_tx(net, server.as_deref(), parse_txid(&txid)?).await?;
@@ -162,11 +173,16 @@ async fn main() -> anyhow::Result<()> {
             if let Some(b) = tx.ironwood_bundle() {
                 println!("Ironwood bundle: {} actions", b.actions().len());
             }
+            if hex {
+                let mut raw = Vec::new();
+                tx.write(&mut raw)?;
+                println!("{}", ::hex::encode(raw));
+            }
         }
         Cmd::Inspect { receipt } => {
             let r = read_receipt_arg(&receipt)?;
             let u = &r.unsigned;
-            println!("network:  {}", if u.coin_type == receipts_core::COIN_TYPE_MAINNET { "mainnet" } else { "testnet" });
+            println!("network:  {}", if u.coin_type == receipts_core::COIN_TYPE_MAINNET { "mainnet" } else { "testnet or regtest" });
             println!("pool:     {}", pool_name(u.pool));
             println!("txid:     {}", receipts_core::display_txid(&u.txid));
             println!("message:  {}", String::from_utf8_lossy(&u.msg));

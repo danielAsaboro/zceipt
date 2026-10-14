@@ -1,28 +1,14 @@
 //! Fetching transactions from lightwalletd and verifying receipts against them.
 
 use anyhow::{anyhow, bail, Context};
-use receipts_core::{display_txid, Pool, Receipt, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
+use crate::net::{self, Net};
+use receipts_core::{display_txid, Pool, Receipt};
 use serde::Serialize;
 use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_address::unified::{self, Container, Encoding};
 use zcash_client_backend::proto::service::{compact_tx_streamer_client::CompactTxStreamerClient, TxFilter};
 use zcash_primitives::transaction::Transaction;
-use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkType};
-
-pub fn network_for(coin_type: u32) -> anyhow::Result<Network> {
-    match coin_type {
-        COIN_TYPE_MAINNET => Ok(Network::MainNetwork),
-        COIN_TYPE_TESTNET => Ok(Network::TestNetwork),
-        other => bail!("unknown coin type {other}"),
-    }
-}
-
-fn default_server(net: Network) -> &'static str {
-    match net {
-        Network::MainNetwork => "zec.rocks:443",
-        Network::TestNetwork => "testnet.zec.rocks:443",
-    }
-}
+use zcash_protocol::consensus::{BlockHeight, BranchId, Parameters};
 
 pub async fn connect(server: &str) -> anyhow::Result<CompactTxStreamerClient<Channel>> {
     let host = server.split(':').next().unwrap_or(server).to_string();
@@ -37,11 +23,11 @@ pub async fn connect(server: &str) -> anyhow::Result<CompactTxStreamerClient<Cha
 
 /// Fetches a mined transaction. Returns the transaction and its block height.
 pub async fn fetch_mined_tx(
-    net: Network,
+    net: Net,
     server: Option<&str>,
     txid: [u8; 32],
 ) -> anyhow::Result<(Transaction, u32)> {
-    let mut client = connect(server.unwrap_or(default_server(net))).await?;
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
     let raw = client
         .get_transaction(TxFilter { block: None, index: 0, hash: txid.to_vec() })
         .await
@@ -102,13 +88,9 @@ impl Report {
     }
 }
 
-pub fn encode_orchard_receiver(net: Network, raw: [u8; 43]) -> String {
+pub fn encode_orchard_receiver(net: Net, raw: [u8; 43]) -> String {
     let ua = unified::Address::try_from_items(vec![unified::Receiver::Orchard(raw)]).expect("one receiver");
-    let nt = match net {
-        Network::MainNetwork => NetworkType::Main,
-        Network::TestNetwork => NetworkType::Test,
-    };
-    ua.encode(&nt)
+    ua.encode(&net.network_type())
 }
 
 pub fn orchard_receiver_of(ua: &str) -> anyhow::Result<[u8; 43]> {
@@ -137,9 +119,13 @@ pub fn zec(z: u64) -> String {
     format!("{}.{:08}", z / 100_000_000, z % 100_000_000)
 }
 
-pub async fn verify_against_chain(receipt: &Receipt, server: Option<&str>) -> anyhow::Result<Report> {
+pub async fn verify_against_chain(
+    receipt: &Receipt,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
-    let net = network_for(u.coin_type)?;
+    let net = net::for_receipt(u.coin_type, regtest)?;
     let (tx, height) = fetch_mined_tx(net, server, u.txid).await?;
     let bundle = match u.pool {
         Pool::Ironwood => tx.ironwood_bundle(),
@@ -150,7 +136,7 @@ pub async fn verify_against_chain(receipt: &Receipt, server: Option<&str>) -> an
     let v = receipts_core::verify(&vk, receipt, u.coin_type, u.pool, u.txid, bundle)?;
     Ok(Report {
         valid: true,
-        network: if net == Network::MainNetwork { "mainnet" } else { "testnet" },
+        network: net.name(),
         pool: if u.pool == Pool::Ironwood { "Ironwood" } else { "Orchard" },
         txid: display_txid(&u.txid),
         mined_height: height,

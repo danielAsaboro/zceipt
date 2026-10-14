@@ -88,6 +88,32 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
+    /// Receive webhooks locally: registers a temporary endpoint, prints each event and
+    /// forwards it (with its signature) to your app.
+    Listen {
+        /// Your app's webhook URL, e.g. http://localhost:3000/webhooks/receipts
+        #[arg(long)]
+        forward_to: Option<String>,
+        #[arg(long, env = "RECEIPTS_KEY")]
+        api_key: String,
+        #[arg(long, env = "RECEIPTS_URL", default_value = "http://127.0.0.1:8723")]
+        base_url: String,
+        /// Only these event types (default: all).
+        #[arg(long = "event")]
+        events: Vec<String>,
+    },
+    /// Fire a real event in test mode, using a sandbox fixture.
+    Trigger {
+        /// request.fulfilled, request.created or receipt.rejected
+        event: String,
+        #[arg(long, env = "RECEIPTS_KEY")]
+        api_key: String,
+        #[arg(long, env = "RECEIPTS_URL", default_value = "http://127.0.0.1:8723")]
+        base_url: String,
+        /// Payee for the proof request (default: a sandbox testnet address).
+        #[arg(long)]
+        payee: Option<String>,
+    },
     /// Run the Receipts REST API (proof requests, verification, signed webhooks).
     Serve {
         #[arg(long, default_value = "127.0.0.1:8723")]
@@ -378,6 +404,8 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
             axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
         }
+        Cmd::Listen { forward_to, api_key, base_url, events } => listen(forward_to, api_key, base_url, events).await?,
+        Cmd::Trigger { event, api_key, base_url, payee } => trigger(event, api_key, base_url, payee).await?,
         Cmd::Inspect { receipt } => {
             let r = read_receipt_arg(&receipt)?;
             let u = &r.unsigned;
@@ -390,5 +418,91 @@ async fn main() -> anyhow::Result<()> {
             println!("size:     {} bytes", r.to_bytes().len());
         }
     }
+    Ok(())
+}
+
+const SANDBOX_PAYEE: &str = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";
+
+async fn listen(forward_to: Option<String>, api_key: String, base_url: String, events: Vec<String>) -> anyhow::Result<()> {
+    use axum::{body::Bytes, http::HeaderMap, routing::post, Router};
+    let client = receipts_client::Client::new(api_key.clone()).base_url(base_url.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let ev: Vec<&str> = events.iter().map(String::as_str).collect();
+    let ep = client.create_webhook_endpoint(&format!("http://{addr}/"), if ev.is_empty() { None } else { Some(&ev) }).await?;
+    let ep_id = ep["id"].as_str().unwrap_or_default().to_string();
+    eprintln!("Ready. Your webhook signing secret is {} (temporary endpoint {ep_id})", ep["secret"].as_str().unwrap_or_default());
+    if let Some(f) = &forward_to {
+        eprintln!("Forwarding events to {f}");
+    }
+    eprintln!("Press Ctrl-C to stop.\n");
+    let http = reqwest::Client::new();
+    let fwd = forward_to.clone();
+    let app = Router::new().route(
+        "/",
+        post(move |headers: HeaderMap, body: Bytes| {
+            let http = http.clone();
+            let fwd = fwd.clone();
+            async move {
+                let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+                let obj = &v["data"]["object"];
+                let summary = obj["id"].as_str().or(obj["request"].as_str()).unwrap_or("");
+                let mut line = format!("{}  --> {}  [{}]  {summary}", chrono_like_now(), v["type"].as_str().unwrap_or("?"), v["id"].as_str().unwrap_or("?"));
+                if let Some(f) = fwd {
+                    let mut rb = http.post(&f).header("content-type", "application/json").body(body.to_vec());
+                    if let Some(sig) = headers.get("receipts-signature") {
+                        rb = rb.header("receipts-signature", sig.clone());
+                    }
+                    match rb.send().await {
+                        Ok(r) => line.push_str(&format!("  <-- [{}] POST {f}", r.status().as_u16())),
+                        Err(e) => line.push_str(&format!("  <-- forward failed: {e}")),
+                    }
+                }
+                println!("{line}");
+                "ok"
+            }
+        }),
+    );
+    axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
+    // Remove the temporary endpoint on exit.
+    let _ = reqwest::Client::new()
+        .delete(format!("{}/v1/webhook_endpoints/{ep_id}", base_url.trim_end_matches('/')))
+        .bearer_auth(&api_key)
+        .send()
+        .await;
+    eprintln!("Removed temporary endpoint {ep_id}.");
+    Ok(())
+}
+
+fn chrono_like_now() -> String {
+    let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    format!("{:02}:{:02}:{:02}", (s / 3600) % 24, (s / 60) % 60, s % 60)
+}
+
+async fn trigger(event: String, api_key: String, base_url: String, payee: Option<String>) -> anyhow::Result<()> {
+    if !api_key.starts_with("rcpt_test_") {
+        bail!("trigger only works with rcpt_test_ keys");
+    }
+    let client = receipts_client::Client::new(api_key).base_url(base_url);
+    let req = client
+        .create_request(&receipts_client::CreateRequest {
+            payee: payee.unwrap_or_else(|| SANDBOX_PAYEE.into()),
+            amount_zatoshis: Some(1_000_000),
+            label: Some(format!("receipts trigger {event}")),
+            ..Default::default()
+        })
+        .await?;
+    let id = req["id"].as_str().unwrap_or_default().to_string();
+    match event.as_str() {
+        "request.created" => {}
+        "request.fulfilled" => {
+            client.submit_receipt(&id, "zrcpt_test_valid").await?;
+        }
+        "receipt.rejected" => {
+            let _ = client.submit_receipt(&id, "zrcpt_test_wrong_payee").await;
+        }
+        other => bail!("unknown event {other}; use request.created, request.fulfilled or receipt.rejected"),
+    }
+    eprintln!("Triggered {event} on {id}");
     Ok(())
 }

@@ -33,7 +33,7 @@ use orchard::{
     Action, Address, Bundle, Proof,
 };
 use pasta_curves::pallas;
-use rand_core::{CryptoRng, Rng};
+use rand_core::{CryptoRng, RngCore};
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 mod encoding;
@@ -192,11 +192,11 @@ pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
     h.as_bytes().try_into().expect("32 bytes")
 }
 
-fn random_scalar(rng: &mut (impl Rng + CryptoRng)) -> pallas::Scalar {
+fn random_scalar(rng: &mut (impl RngCore + CryptoRng)) -> pallas::Scalar {
     pallas::Scalar::random(rng)
 }
 
-fn random_bytes(rng: &mut (impl Rng + CryptoRng)) -> [u8; 32] {
+fn random_bytes(rng: &mut (impl RngCore + CryptoRng)) -> [u8; 32] {
     let mut b = [0u8; 32];
     rng.fill_bytes(&mut b);
     b
@@ -257,7 +257,7 @@ pub fn create<A: Authorization, V>(
     msg: &[u8],
     outputs: &[(usize, OutgoingViewingKey)],
     spends: &[SpendWitness],
-    mut rng: impl Rng + CryptoRng,
+    mut rng: impl RngCore + CryptoRng,
 ) -> Result<Receipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);

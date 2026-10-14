@@ -12,7 +12,7 @@ use orchard::{
     value::NoteValue,
     Bundle, Note,
 };
-use rand::{rand_core::UnwrapErr, rngs::SysRng};
+use rand::rngs::OsRng;
 use receipts_core::{
     create, verify, Error, Pool, Receipt, SpendWitness, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET,
 };
@@ -20,8 +20,6 @@ use shardtree::{store::memory::MemoryShardStore, ShardTree};
 use std::sync::OnceLock;
 use zcash_note_encryption::try_note_decryption;
 
-#[allow(non_upper_case_globals)]
-const OsRng: UnwrapErr<SysRng> = UnwrapErr(SysRng);
 
 fn keys() -> &'static (ProvingKey, orchard::circuit::VerifyingKey) {
     static K: OnceLock<(ProvingKey, orchard::circuit::VerifyingKey)> = OnceLock::new();

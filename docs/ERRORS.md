@@ -16,6 +16,7 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="parameter_missing"></a>`parameter_missing` | 400 | A required parameter is missing; see `param`. |
 | <a id="parameter_invalid"></a>`parameter_invalid` | 400 | A parameter has the wrong format; see `param`. |
 | <a id="address_network_mismatch"></a>`address_network_mismatch` | 400 | The address belongs to a different network than the key's mode. |
+| <a id="secret_detected"></a>`secret_detected` | 400 | The request contained a viewing key, spending key or seed phrase. It was refused and not stored. Never share these; a receipt is all that's needed. |
 | <a id="receipt_malformed"></a>`receipt_malformed` | 400 | The receipt text could not be decoded. |
 | <a id="receipt_network_mismatch"></a>`receipt_network_mismatch` | 400 | A test key was used with a mainnet receipt, or a live key with a testnet one. |
 | <a id="transaction_not_found"></a>`transaction_not_found` | 422 | lightwalletd does not know the receipt's transaction. |
@@ -29,6 +30,11 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="request_already_fulfilled"></a>`request_already_fulfilled` | 409 | The proof request was already fulfilled. |
 | <a id="payment_already_used"></a>`payment_already_used` | 409 | This payment (transaction output) already counted towards a request. One payment can settle only one request. |
 | <a id="request_expired"></a>`request_expired` | 409 | The proof request expired before a valid receipt arrived. |
+| <a id="sign_in_malformed"></a>`sign_in_malformed` | 400 | The `sign_in` text could not be decoded as a zsig1… sign-in. |
+| <a id="sign_in_challenge_not_found"></a>`sign_in_challenge_not_found` | 404 | No sign-in challenge with that nonce for this key's mode. |
+| <a id="sign_in_challenge_used"></a>`sign_in_challenge_used` | 409 | The sign-in challenge was already used. Each nonce signs in once. |
+| <a id="sign_in_challenge_expired"></a>`sign_in_challenge_expired` | 409 | The sign-in challenge expired (they last 5 minutes). |
+| <a id="sign_in_invalid"></a>`sign_in_invalid` | 422 | The sign-in proof or signature does not check out for this domain and nonce. |
 | <a id="webhook_endpoint_not_found"></a>`webhook_endpoint_not_found` | 404 | No webhook endpoint with that id. |
 | <a id="event_not_found"></a>`event_not_found` | 404 | No event with that id. |
 | <a id="idempotency_key_reused"></a>`idempotency_key_reused` | 409 | The Idempotency-Key was used with a different request body. |

@@ -37,6 +37,7 @@ use rand_core::{CryptoRng, Rng};
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 mod encoding;
+pub mod signin;
 pub mod tripwire;
 pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX};
 
@@ -210,10 +211,15 @@ pub enum Error {
 
 /// The digest every spend-authorization signature covers:
 /// `BLAKE2b-256("ZIP311Signed" || coinType_LE32, unsignedReceipt)`.
-pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
+pub(crate) fn signing_personal(tag: &[u8; 12], coin_type: u32) -> [u8; 16] {
     let mut personal = [0u8; 16];
-    personal[..12].copy_from_slice(b"ZIP311Signed");
-    personal[12..].copy_from_slice(&unsigned.coin_type.to_le_bytes());
+    personal[..12].copy_from_slice(tag);
+    personal[12..].copy_from_slice(&coin_type.to_le_bytes());
+    personal
+}
+
+pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
+    let personal = signing_personal(b"ZIP311Signed", unsigned.coin_type);
     let h = Params::new()
         .hash_length(32)
         .personal(&personal)
@@ -221,7 +227,7 @@ pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
     h.as_bytes().try_into().expect("32 bytes")
 }
 
-fn random_scalar(rng: &mut (impl Rng + CryptoRng)) -> pallas::Scalar {
+pub(crate) fn random_scalar(rng: &mut (impl Rng + CryptoRng)) -> pallas::Scalar {
     pallas::Scalar::random(rng)
 }
 
@@ -277,7 +283,7 @@ fn recover_with_ock<A>(
 }
 
 /// The note version used for address proofs in `pool`.
-fn pool_note_version(pool: Pool) -> orchard::note::NoteVersion {
+pub(crate) fn pool_note_version(pool: Pool) -> orchard::note::NoteVersion {
     match pool {
         Pool::Orchard => orchard::note::NoteVersion::V2,
         Pool::Ironwood => orchard::note::NoteVersion::V3,
@@ -317,7 +323,7 @@ fn random_trapdoor(rng: &mut (impl Rng + CryptoRng)) -> ValueCommitTrapdoor {
     }
 }
 
-fn address_proof(
+pub(crate) fn address_proof(
     pk: &ProvingKey,
     pool: Pool,
     fvk: &FullViewingKey,
@@ -359,7 +365,7 @@ fn address_proof(
     })
 }
 
-fn verify_address_proof(
+pub(crate) fn verify_address_proof(
     vk: &VerifyingKey,
     pool: Pool,
     index: u32,

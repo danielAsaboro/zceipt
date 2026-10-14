@@ -308,3 +308,28 @@ impl<T: orchard::bundle::Authorization, V> RecoverExt for orchard::Bundle<T, V> 
         }
     }
 }
+
+/// Signs in to `domain` with `nonce`, proving control of `address` (default: the account's
+/// first Orchard address). No transaction is made and nothing is written to the wallet.
+pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, address: Option<&str>) -> anyhow::Result<(receipts_core::signin::SignIn, String)> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
+        .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let addr = match address {
+        None => fvk.address_at(0u32, Scope::External),
+        Some(ua) => {
+            let raw = receipts_chain::chain::orchard_receiver_of(ua)?;
+            let a = Option::<orchard::Address>::from(orchard::Address::from_raw_address_bytes(&raw))
+                .ok_or_else(|| anyhow!("invalid Orchard receiver in {ua}"))?;
+            if fvk.scope_for_address(&a).is_none() {
+                bail!("{ua} is not an address of this wallet's account");
+            }
+            a
+        }
+    };
+    let issued_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+    let s = receipts_core::signin::sign_in(&receipts_core::proving_key(), net.coin_type(), domain, nonce, issued_at, &sk, addr, OsRng)?;
+    Ok((s, receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes())))
+}

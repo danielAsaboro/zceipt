@@ -21,6 +21,7 @@ security:
 tags:
   - name: Verification
   - name: Proof requests
+  - name: Sign in with Zcash
   - name: Webhooks
   - name: Meta
 paths:
@@ -60,6 +61,58 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
+  /v1/sign_in/challenges:
+    post:
+      tags: [Sign in with Zcash]
+      operationId: createSignInChallenge
+      summary: Issue a single-use sign-in challenge
+      description: |
+        Returns a nonce bound to `domain` that expires after 5 minutes. The user's wallet answers with
+        `receipts sign-in --domain <domain> --nonce <nonce>`, which proves control of a shielded address
+        with a Halo 2 proof and a RedPallas signature. No transaction and no fee.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domain: { type: string, description: "Host name the sign-in is for. Default: this API's public host." }
+            example: { domain: "kemis-coffee.test" }
+      responses:
+        "200":
+          description: Challenge
+          content:
+            application/json:
+              example: { object: sign_in_challenge, id: sic_016fcd1628de976b20b5eaeb, livemode: false, coin_type: 1, domain: kemis-coffee.test, nonce: 3586f998c75075f243d65a88, expires_at: 1792014583, status: pending, wallet_command: "receipts sign-in --domain kemis-coffee.test --nonce 3586f998c75075f243d65a88" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/sign_in/verify:
+    post:
+      tags: [Sign in with Zcash]
+      operationId: verifySignIn
+      summary: Verify a zsig1… sign-in and spend its challenge
+      description: |
+        Checks the proof and signature against the challenge's domain and nonce, then marks the challenge used.
+        A sign-in made for another domain (phishing) or replayed is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sign_in]
+              properties:
+                sign_in: { type: string, description: "The zsig1… text from the wallet." }
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              example: { object: sign_in, verified: true, livemode: false, challenge: sic_016fcd1628de976b20b5eaeb, domain: kemis-coffee.test, issued_at: 1792014283, address: "utest1lrnzetdp2cuvg0hvnapcmy0emmhguv358a4flvzxv6j00yfar7qwyrwk22mrr285943d8k4k523pshzujke90w0g3zq9z4ehnsljs2x6" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /v1/requests:
     post:
       tags: [Proof requests]

@@ -98,6 +98,26 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect { receipt: String },
+    /// Sign in with Zcash: prove to a site that you control a shielded address, for its
+    /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
+    SignIn {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// The site asking (`domain` from its sign-in challenge).
+        #[arg(long)]
+        domain: String,
+        /// The challenge's single-use nonce.
+        #[arg(long)]
+        nonce: String,
+        /// Address to prove. Default: the account's first Orchard address.
+        #[arg(long)]
+        address: Option<String>,
+        /// Send it to a Receipts API and print the result (needs RECEIPTS_API_KEY).
+        #[arg(long)]
+        submit: Option<String>,
+    },
     /// Scan files or directories (logs, configs, code) for leaked viewing keys, spending keys
     /// and seed phrases. Prints file:line and the kind, never the secret. Exits 1 if any are found.
     PrivacyLint { paths: Vec<PathBuf> },
@@ -478,6 +498,29 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
             eprintln!("No viewing keys, spending keys or seed phrases found.");
+        }
+        Cmd::SignIn { wallet, identity, domain, nonce, address, submit } => {
+            eprintln!("Proving control of an address for {domain}…");
+            let (s, addr) = tokio::task::spawn_blocking(move || wallet::sign_in(&wallet, &identity, &domain, &nonce, address.as_deref())).await??;
+            eprintln!("address: {addr}");
+            let text = s.to_text();
+            match submit {
+                None => println!("{text}"),
+                Some(base) => {
+                    let key = std::env::var("RECEIPTS_API_KEY").map_err(|_| anyhow::anyhow!("set RECEIPTS_API_KEY to submit"))?;
+                    let res = reqwest::Client::new()
+                        .post(format!("{}/v1/sign_in/verify", base.trim_end_matches('/')))
+                        .bearer_auth(key)
+                        .json(&serde_json::json!({ "sign_in": text }))
+                        .send()
+                        .await?;
+                    let status = res.status();
+                    println!("{}", res.text().await?);
+                    if !status.is_success() {
+                        std::process::exit(1);
+                    }
+                }
+            }
         }
         Cmd::Inspect { receipt } => {
             let r = read_receipt_arg(&receipt)?;

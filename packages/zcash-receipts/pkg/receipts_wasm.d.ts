@@ -14,6 +14,12 @@ export function orchard_receiver_hex(ua: string): string;
  */
 export function open_batch(batch: string): string;
 /**
+ * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
+ * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
+ * The caller must still make sure the nonce was its own, unexpired and is used only once.
+ */
+export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
+/**
  * Decodes a receipt without verifying it. Returns JSON.
  */
 export function inspect(receipt: string): string;
@@ -37,6 +43,7 @@ export interface InitOutput {
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
   readonly secret_kind: (a: number, b: number) => [number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;
   readonly rustsecp256k1_v0_14_default_illegal_callback_fn: (a: number, b: number) => void;

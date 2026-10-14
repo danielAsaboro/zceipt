@@ -341,3 +341,32 @@ fn every_byte_matters() {
     }
     assert!(checked > 300, "checked {checked} positions");
 }
+
+#[test]
+fn sign_in_roundtrip_and_replay() {
+    use receipts_core::signin::{sign_in, verify_sign_in, SignIn};
+    let (pk, vk) = keys();
+    let sk = SpendingKey::from_bytes([7; 32]).unwrap();
+    let addr = FullViewingKey::from(&sk).address_at(0u32, Scope::External);
+    let s = sign_in(pk, 1, "shop.example", "n0nce-1", 1_760_000_000, &sk, addr, OsRng).unwrap();
+    let text = s.to_text();
+    assert!(text.starts_with("zsig1"));
+    let back = SignIn::from_text(&text).unwrap();
+    assert_eq!(back, s);
+    assert_eq!(verify_sign_in(vk, &back, 1, "shop.example", "n0nce-1").unwrap(), addr.to_raw_address_bytes());
+    // Another site, another nonce, another network: all refused.
+    assert!(verify_sign_in(vk, &back, 1, "evil.example", "n0nce-1").is_err());
+    assert!(verify_sign_in(vk, &back, 1, "shop.example", "n0nce-2").is_err());
+    assert!(verify_sign_in(vk, &back, 133, "shop.example", "n0nce-1").is_err());
+    // Rewriting the signed fields breaks the signature.
+    let mut forged = back.clone();
+    forged.domain = "evil.example".into();
+    assert!(verify_sign_in(vk, &forged, 1, "evil.example", "n0nce-1").is_err());
+    let mut forged = back.clone();
+    forged.address.address = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(0u32, Scope::External).to_raw_address_bytes();
+    assert!(verify_sign_in(vk, &forged, 1, "shop.example", "n0nce-1").is_err());
+    // Only the key holder can sign in as the address.
+    let thief = SpendingKey::from_bytes([3; 32]).unwrap();
+    assert!(sign_in(pk, 1, "shop.example", "n", 0, &thief, addr, OsRng).is_err());
+    assert!(SignIn::from_text(&text[..text.len() - 4]).is_none());
+}

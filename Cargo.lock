@@ -3007,6 +3007,7 @@ dependencies = [
  "http-body-util",
  "orchard",
  "qrcode",
+ "rand 0.10.3",
  "receipts-chain",
  "receipts-core",
  "reqwest",

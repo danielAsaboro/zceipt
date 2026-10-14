@@ -16,6 +16,7 @@ pub mod db;
 pub mod error;
 pub mod requests;
 pub mod sandbox;
+pub mod signin;
 pub mod verify;
 pub mod webhooks;
 
@@ -517,6 +518,7 @@ const DOCS: &[(&str, &str)] = &[
     ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),
+    ("guides/sign-in.md", include_str!("../../../docs/guides/sign-in.md")),
 ];
 
 async fn doc_md(Path(name): Path<String>) -> Response {
@@ -544,6 +546,8 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/errors", get(errors_handler))
         .route("/v1/sandbox/fixtures", get(fixtures_handler))
         .route("/v1/verify", post(verify_handler))
+        .route("/v1/sign_in/challenges", post(signin::create_challenge))
+        .route("/v1/sign_in/verify", post(signin::verify))
         .route("/v1/requests", post(create_request).get(list_requests))
         .route("/v1/requests/{id}", get(get_request))
         .route("/v1/requests/{id}/receipts", post(submit_receipt))

@@ -43,3 +43,13 @@ test("testnet batch of three payments verifies", { skip: !!process.env.OFFLINE }
   assert.equal(b.results.length, 3);
   assert.equal(Object.values(b.totals).reduce((s, z) => s + z, 0), 2_200_000);
 });
+
+test("Sign in with Zcash verifies locally, only for its domain and nonce", async () => {
+  const { verifySignIn } = await import("../index.js");
+  const s = await readFile(ex("testnet/sign-in.txt"), "utf8");
+  const r = await verifySignIn(s, { domain: "kemis-coffee.test", nonce: "example-nonce-0001" });
+  assert.equal(r.network, "testnet");
+  assert.match(r.address, /^utest1/);
+  await assert.rejects(verifySignIn(s, { domain: "evil.example", nonce: "example-nonce-0001" }));
+  await assert.rejects(verifySignIn(s, { domain: "kemis-coffee.test", nonce: "another" }));
+});

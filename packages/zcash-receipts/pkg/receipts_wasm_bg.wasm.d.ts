@@ -6,6 +6,7 @@ export const open_batch: (a: number, b: number) => [number, number, number, numb
 export const orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
 export const secret_kind: (a: number, b: number) => [number, number];
 export const verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const warm_up: () => void;
 export const rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;
 export const rustsecp256k1_v0_14_default_illegal_callback_fn: (a: number, b: number) => void;

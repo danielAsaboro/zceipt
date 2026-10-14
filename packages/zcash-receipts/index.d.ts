@@ -19,3 +19,6 @@ export function verifyReceipt(input: string, options?: VerifyOptions): Promise<O
 export function verifyBatch(input: string, options?: VerifyOptions): Promise<{ id: string; results: Verification[]; totals: Record<string, number> }>;
 export function fetchTransaction(endpoint: string, displayTxid: string): Promise<{ raw: Uint8Array; height: number }>;
 export function detectSecret(text: string): Promise<string | null>;
+export function extractSignIn(input: string): string | null;
+/** Sign in with Zcash, verified locally. Throws if the proof is not for this domain and nonce. */
+export function verifySignIn(input: string, options: { domain: string; nonce: string }): Promise<{ address: string; network: string; issued_at: number }>;

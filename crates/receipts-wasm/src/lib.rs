@@ -201,3 +201,22 @@ pub fn open_batch(batch: &str) -> Result<String, JsError> {
 pub fn secret_kind(text: &str) -> String {
     receipts_core::tripwire::secret_kind(text).unwrap_or_default().to_string()
 }
+
+/// Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
+/// and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
+/// The caller must still make sure the nonce was its own, unexpired and is used only once.
+#[wasm_bindgen]
+pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let s = receipts_core::signin::SignIn::from_text(sign_in).ok_or_else(|| JsError::new("not a zsig1… sign-in"))?;
+    let (_, nt, name) = net_of(s.coin_type)?;
+    let address = VK.with(|vk| {
+        let vk = vk.get_or_init(receipts_core::verifying_key);
+        receipts_core::signin::verify_sign_in(vk, &s, s.coin_type, domain, nonce)
+    })
+    .map_err(|e| JsError::new(&format!("sign-in does not check out for {domain}: {e}")))?;
+    let ua = unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(address))])
+        .map(|a| a.encode(&nt))
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(serde_json::json!({ "address": ua, "network": name, "issued_at": s.issued_at }).to_string())
+}

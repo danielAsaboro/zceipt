@@ -348,3 +348,43 @@ async fn pasted_viewing_keys_are_refused_and_never_echoed() {
     let (_, ev, _) = call(&app, "GET", "/v1/events", Some(&test), None, None).await;
     assert!(!ev.to_string().contains("abandon"), "nothing was stored");
 }
+
+#[tokio::test]
+async fn sign_in_with_zcash() {
+    use orchard::keys::{FullViewingKey, Scope, SpendingKey};
+    use rand::{rand_core::UnwrapErr, rngs::SysRng};
+    let (app, test, live) = app().await;
+    let (s, ch, _) = call(&app, "POST", "/v1/sign_in/challenges", Some(&test), Some(json!({ "domain": "shop.example" })), None).await;
+    assert_eq!(s, StatusCode::OK, "{ch}");
+    assert_eq!((ch["status"].as_str(), ch["coin_type"].as_u64()), (Some("pending"), Some(1)));
+    let nonce = ch["nonce"].as_str().unwrap().to_string();
+
+    let sk = SpendingKey::from_bytes([7; 32]).unwrap();
+    let addr = FullViewingKey::from(&sk).address_at(0u32, Scope::External);
+    let sign = |domain: &'static str, nonce: String| {
+        let sk = sk.clone();
+        tokio::task::spawn_blocking(move || {
+            receipts_core::signin::sign_in(&receipts_core::proving_key(), 1, domain, &nonce, 0, &sk, addr, UnwrapErr(SysRng)).unwrap().to_text()
+        })
+    };
+    // Signed for another site: refused, and the challenge stays usable.
+    let phished = sign("evil.example", nonce.clone()).await.unwrap();
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": phished })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("sign_in_invalid")), "{v}");
+
+    let good = sign("shop.example", nonce.clone()).await.unwrap();
+    // A live key can't use a test challenge.
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&live), Some(json!({ "sign_in": good }))
+        , None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::NOT_FOUND, Some("sign_in_challenge_not_found")));
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": good }))
+        , None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!((v["verified"].as_bool(), v["domain"].as_str()), (Some(true), Some("shop.example")));
+    assert!(v["address"].as_str().unwrap().starts_with("utest1"));
+    // Replay is refused.
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": good })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("sign_in_challenge_used")));
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": "zsig1AAAA" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("sign_in_malformed")));
+}

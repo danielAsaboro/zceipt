@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction };
@@ -121,4 +121,24 @@ export async function verifyBatch(input, options = {}) {
   const totals = {};
   for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
   return { id, results, totals };
+}
+
+/** Extracts a `zsig1…` sign-in from a link, a fragment or bare text, or returns null. */
+export function extractSignIn(input) {
+  const s = decodeURIComponent(String(input).trim());
+  const i = s.indexOf("zsig1");
+  return i < 0 ? null : s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
+}
+
+/**
+ * Sign in with Zcash, verified locally: checks that a `zsig1…` proves control of a shielded
+ * address for your `domain` and the one-time `nonce` you issued. Resolves to
+ * `{ address, network, issued_at }` or throws. Keep nonces single-use and short-lived.
+ */
+export async function verifySignIn(input, { domain, nonce }) {
+  if (!domain || !nonce) throw new Error("verifySignIn needs { domain, nonce }");
+  const s = extractSignIn(input);
+  if (!s) throw new Error("no zsig1 sign-in found");
+  await load();
+  return JSON.parse(verify_sign_in(s, String(domain), String(nonce)));
 }

@@ -49,6 +49,16 @@ CREATE TABLE IF NOT EXISTS request_payments (
     sender_addresses TEXT NOT NULL DEFAULT '[]',
     created INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sign_in_challenges (
+    id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL,
+    domain TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    UNIQUE (mode, nonce)
+);
 CREATE TABLE IF NOT EXISTS webhook_endpoints (
     id TEXT PRIMARY KEY,
     mode TEXT NOT NULL,

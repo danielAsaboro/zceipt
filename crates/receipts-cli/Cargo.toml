@@ -15,7 +15,7 @@ receipts-core = { path = "../receipts-core" }
 receipts-chain = { path = "../receipts-chain" }
 receipts-server = { path = "../receipts-server" }
 receipts-client = { path = "../receipts-client" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
 anyhow = "1"
 clap = { version = "4.5", features = ["derive", "env"] }

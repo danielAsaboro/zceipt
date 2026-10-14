@@ -22,6 +22,7 @@ Key facts for agents:
 - [Merchant checkout without a viewing key](/docs/guides/merchant-checkout.md)
 - [Clear a compliance hold on one deposit](/docs/guides/exchange-deposit.md)
 - [Prove a payout round with one link](/docs/guides/grant-payouts.md)
+- [Sign in with Zcash: prove an address, no transaction](/docs/guides/sign-in.md)
 
 ## Optional
 - [Full docs in one file](/llms-full.txt)

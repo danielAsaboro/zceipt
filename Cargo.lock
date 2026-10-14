@@ -2954,6 +2954,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "receipts-client"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "hex",
+ "hmac 0.12.1",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "receipts-core"
 version = "0.1.0"
 dependencies = [

@@ -5,13 +5,39 @@
   "type": "module",
   "main": "./index.js",
   "exports": {
-    ".": "./index.js",
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./client": {
+      "types": "./client.d.ts",
+      "default": "./client.js"
+    },
     "./widget": "./widget.js"
   },
-  "files": ["index.js", "grpc.js", "widget.js", "worker.js", "pkg/", "README.md"],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "client.js",
+    "client.d.ts",
+    "grpc.js",
+    "widget.js",
+    "worker.js",
+    "pkg/",
+    "README.md"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js"
   },
   "license": "MIT OR Apache-2.0",
-  "keywords": ["zcash", "zip-311", "payment-disclosure", "privacy", "orchard", "ironwood", "receipt"]
+  "keywords": [
+    "zcash",
+    "zip-311",
+    "payment-disclosure",
+    "privacy",
+    "orchard",
+    "ironwood",
+    "receipt"
+  ],
+  "types": "./index.d.ts"
 }

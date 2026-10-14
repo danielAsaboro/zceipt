@@ -315,3 +315,29 @@ fn address_proof_roundtrip_and_rejections() {
     bad.unsigned.spends[0].address.as_mut().unwrap().address = merchant.to_raw_address_bytes();
     assert!(verify(&keys().1, &bad, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).is_err());
 }
+
+/// Flipping any single byte of a receipt (header, txid, message, ock, cv_net, rk, cmx, proof
+/// or signature) must make it fail to decode or fail to verify. Never a different valid result.
+#[test]
+fn every_byte_matters() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = make_receipt(&s, Pool::Ironwood, b"order 42");
+    let bytes = good.to_bytes();
+    let vk = &keys().1;
+    // Every byte of the structured fields, plus a sample across the proof.
+    let proof_start = bytes.len() - 64 - good.unsigned.spends[0].proof.len();
+    let mut positions: Vec<usize> = (0..proof_start).collect();
+    positions.extend((proof_start..bytes.len() - 64).step_by(97));
+    positions.extend(bytes.len() - 64..bytes.len());
+    let mut checked = 0;
+    for &i in &positions {
+        let mut b = bytes.clone();
+        b[i] ^= 0x01;
+        if let Ok(r) = Receipt::from_bytes(&b) {
+            let res = verify(vk, &r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+            assert!(res.is_err(), "flipping byte {i} still verified");
+        }
+        checked += 1;
+    }
+    assert!(checked > 300, "checked {checked} positions");
+}

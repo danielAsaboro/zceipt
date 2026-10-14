@@ -403,7 +403,7 @@ async fn main() -> anyhow::Result<()> {
                 "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
                 n => bail!("--test-network must be test or regtest, not {n}"),
             };
-            let config = receipts_server::Config { test_net, test_lightwalletd, live_lightwalletd, verifier_url };
+            let config = receipts_server::Config { test_lightwalletd, live_lightwalletd, ..receipts_server::Config::new(test_net, verifier_url) };
             let (app, keys) = receipts_server::build(&db, config).await?;
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("Receipts API on http://{listen}  (test mode: {}, live mode: mainnet)", test_net.name());

@@ -10,8 +10,14 @@ use tower::ServiceExt;
 const PAYEE: &str = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";
 
 async fn app() -> (axum::Router, String, String) {
-    let db = std::env::temp_dir().join(format!("receipts-test-{}.db", std::process::id() as u64 * 1000 + rand_suffix()));
-    let config = receipts_server::Config { test_net: Net::Test, test_lightwalletd: None, live_lightwalletd: None, verifier_url: "http://verifier.test/".into() };
+    app_with(receipts_server::Config::new(Net::Test, "http://verifier.test/")).await
+}
+
+async fn app_with(config: receipts_server::Config) -> (axum::Router, String, String) {
+    // One fresh database per app, so parallel tests never share endpoints or events.
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let db = std::env::temp_dir().join(format!("receipts-test-{}-{}-{n}.db", std::process::id(), rand_suffix()));
     let (router, keys) = receipts_server::build(db.to_str().unwrap(), config).await.unwrap();
     let test = keys.iter().find(|(_, m)| m == "test").unwrap().0.clone();
     let live = keys.iter().find(|(_, m)| m == "live").unwrap().0.clone();
@@ -117,4 +123,103 @@ async fn unsupported_version_is_refused() {
     let req = Request::builder().uri("/v1/requests").header("authorization", format!("Bearer {test}")).header("receipts-version", "2001-01-01").body(Body::empty()).unwrap();
     let res = app.oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+/// A local webhook receiver: answers `status`, records (signature header, body).
+async fn receiver(status: u16) -> (String, std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>) {
+    use axum::{http::HeaderMap, routing::post};
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    let app = axum::Router::new().route(
+        "/",
+        post(move |h: HeaderMap, body: String| {
+            let s2 = s2.clone();
+            async move {
+                s2.lock().unwrap().push((h.get("receipts-signature").map(|v| v.to_str().unwrap().to_string()).unwrap_or_default(), body));
+                StatusCode::from_u16(status).unwrap()
+            }
+        }),
+    );
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/", l.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+    (url, seen)
+}
+
+async fn wait_for(mut f: impl FnMut() -> bool) {
+    for _ in 0..100 {
+        if f() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("condition not met in time");
+}
+
+#[tokio::test]
+async fn webhooks_are_signed_and_delivered() {
+    let (app, test, _) = app().await;
+    let (url, seen) = receiver(200).await;
+    let (_, ep, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": url, "events": ["request.fulfilled"] })), None).await;
+    let secret = ep["secret"].as_str().unwrap().to_string();
+    let (_, req, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    wait_for(|| !seen.lock().unwrap().is_empty()).await;
+    let (sig, body) = seen.lock().unwrap()[0].clone();
+    assert!(receipts_server::webhooks::verify_signature(&secret, &sig, &body, 300), "signature must verify with the endpoint secret");
+    let ev: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(ev["type"], "request.fulfilled", "only subscribed events are delivered");
+    assert_eq!(ev["data"]["object"]["status"], "fulfilled");
+}
+
+#[tokio::test]
+async fn failing_webhooks_retry_then_fail() {
+    let mut cfg = receipts_server::Config::new(Net::Test, "http://verifier.test/");
+    cfg.webhook_backoff_secs = 0;
+    cfg.webhook_max_attempts = 3;
+    let (app, test, _) = app_with(cfg).await;
+    let (url, seen) = receiver(500).await;
+    call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": url })), None).await;
+    call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
+    wait_for(|| seen.lock().unwrap().len() >= 3).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let (_, d, _) = call(&app, "GET", "/v1/deliveries", Some(&test), None, None).await;
+    assert_eq!(seen.lock().unwrap().len(), 3, "no attempts after the maximum");
+    let d = &d["data"][0];
+    assert_eq!(d["status"], "failed");
+    assert_eq!(d["attempts"], 3);
+    assert_eq!(d["last_http_status"], 500);
+}
+
+#[tokio::test]
+async fn expired_requests_refuse_receipts() {
+    let (app, test, _) = app().await;
+    let (_, req, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "expires_in": 1 })), None).await;
+    let id = req["id"].as_str().unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+    let (_, r, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!(r["status"], "expired");
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_expired")));
+    let (_, l, _) = call(&app, "GET", "/v1/requests?status=expired", Some(&test), None, None).await;
+    assert!(l["data"].as_array().unwrap().iter().any(|x| x["id"] == id));
+}
+
+/// Replaying a real receipt (made for no request, or another one) against a new request is
+/// refused. Needs the public testnet: RECEIPTS_NETWORK_TESTS=1.
+#[tokio::test]
+async fn real_receipt_replay_is_refused() {
+    if std::env::var("RECEIPTS_NETWORK_TESTS").is_err() {
+        return;
+    }
+    let (app, test, _) = app().await;
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet");
+    let payee = std::fs::read_to_string(format!("{dir}/merchant.ua")).unwrap();
+    let answered = std::fs::read_to_string(format!("{dir}/request-answer-link.txt")).unwrap();
+    let (_, req, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": payee.trim(), "amount_zatoshis": 1000000 })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": answered })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("challenge_mismatch")), "a receipt answering another request must not satisfy this one");
+    // The same receipt still verifies on its own.
+    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": answered })), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
 }

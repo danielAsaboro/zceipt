@@ -44,6 +44,24 @@ pub struct Config {
     pub live_lightwalletd: Option<String>,
     /// Base URL of the verifier page, for the links in proof requests.
     pub verifier_url: String,
+    /// Webhook retry schedule: first retry after this many seconds, doubling, capped at 1 h.
+    pub webhook_backoff_secs: i64,
+    /// Attempts before a delivery is marked `failed`.
+    pub webhook_max_attempts: i64,
+}
+
+impl Config {
+    /// Defaults: testnet for test keys, public lightwalletd servers, 10 s → 1 h backoff, 8 attempts.
+    pub fn new(test_net: Net, verifier_url: impl Into<String>) -> Self {
+        Config {
+            test_net,
+            test_lightwalletd: None,
+            live_lightwalletd: None,
+            verifier_url: verifier_url.into(),
+            webhook_backoff_secs: 10,
+            webhook_max_attempts: webhooks::MAX_ATTEMPTS,
+        }
+    }
 }
 
 pub struct AppState {

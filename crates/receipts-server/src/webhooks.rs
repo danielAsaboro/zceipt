@@ -39,9 +39,9 @@ pub fn verify_signature(secret: &str, header: &str, body: &str, tolerance_secs: 
     sigs.iter().any(|s| s.len() == expected.len() && s.bytes().zip(expected.bytes()).fold(0u8, |a, (x, y)| a | (x ^ y)) == 0)
 }
 
-fn backoff(attempts: i64) -> i64 {
-    // 10s, 20s, 40s … capped at one hour.
-    (10i64 << attempts.min(9)).min(3600)
+fn backoff(base: i64, attempts: i64) -> i64 {
+    // base, 2×base, 4×base … capped at one hour (10 s, 20 s, 40 s … by default).
+    (base << (attempts - 1).clamp(0, 9)).min(3600)
 }
 
 /// Delivers due webhooks forever, once a second.
@@ -84,10 +84,10 @@ async fn tick(st: &Shared) -> anyhow::Result<()> {
             c.execute("UPDATE deliveries SET status = 'delivered', attempts = attempts + 1, last_status = ?1, delivered_at = ?2 WHERE id = ?3", params![status, now(), id])?;
         } else {
             let attempts = attempts + 1;
-            let status_text = if attempts >= MAX_ATTEMPTS { "failed" } else { "pending" };
+            let status_text = if attempts >= st.config.webhook_max_attempts { "failed" } else { "pending" };
             c.execute(
                 "UPDATE deliveries SET status = ?1, attempts = ?2, last_status = ?3, last_error = ?4, next_attempt_at = ?5 WHERE id = ?6",
-                params![status_text, attempts, status, err, now() + backoff(attempts), id],
+                params![status_text, attempts, status, err, now() + backoff(st.config.webhook_backoff_secs, attempts), id],
             )?;
         }
     }

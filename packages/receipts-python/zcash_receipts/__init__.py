@@ -166,6 +166,11 @@ class _TestClocks(_Resource):
         return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id)}/advance", {k: v for k, v in dict(seconds=seconds, blocks=blocks).items() if v is not None})
 
 
+    def reorg(self, id: str, *, depth: int = 1) -> Dict[str, Any]:
+        """Roll the clock's chain back; unconfirmed payments fire request.payment_reorged."""
+        return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id)}/reorg", {"depth": depth})
+
+
 class _SignIn(_Resource):
     def create_challenge(self, *, domain: Optional[str] = None) -> Dict[str, Any]:
         """Sign in with Zcash: a single-use nonce bound to domain, valid 5 minutes."""

@@ -187,7 +187,8 @@ enum Cmd {
     /// Fire a real event in test mode, using a sandbox fixture.
     Trigger {
         /// Any event type: request.created, request.payment_received, request.fulfilled,
-        /// request.final, request.expired, receipt.rejected, refund.created, refund.succeeded
+        /// request.final, request.expired, receipt.rejected, refund.created, refund.succeeded,
+        /// request.payment_reorged
         event: String,
         #[arg(long, env = "RECEIPTS_KEY")]
         api_key: String,
@@ -714,7 +715,7 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
     if !api_key.starts_with("rcpt_test_") {
         bail!("trigger only works with rcpt_test_ keys");
     }
-    const EVENTS: &[&str] = &["request.created", "request.fulfilled", "request.final", "receipt.rejected", "request.expired", "request.payment_received", "refund.created", "refund.succeeded"];
+    const EVENTS: &[&str] = &["request.created", "request.fulfilled", "request.final", "receipt.rejected", "request.expired", "request.payment_received", "refund.created", "refund.succeeded", "request.payment_reorged"];
     if !EVENTS.contains(&event.as_str()) {
         bail!("unknown event {event}; use one of {}", EVENTS.join(", "));
     }
@@ -736,6 +737,25 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
         // Sandbox payments are final at once, so this fires request.fulfilled then request.final.
         "request.fulfilled" | "request.final" => {
             client.submit_receipt(&id, "zrcpt_test_valid").await?;
+        }
+        "request.payment_reorged" => {
+            let clock = client.create_test_clock(None).await?;
+            let cid = clock["id"].as_str().unwrap_or_default().to_string();
+            eprintln!("(on a new test clock {cid})");
+            let req = client
+                .create_request(&receipts_client::CreateRequest {
+                    payee: SANDBOX_PAYEE.into(),
+                    amount_zatoshis: Some(1_000_000),
+                    label: Some("receipts trigger request.payment_reorged".into()),
+                    test_clock: Some(cid.clone()),
+                    ..Default::default()
+                })
+                .await?;
+            let rid = req["id"].as_str().unwrap_or_default().to_string();
+            client.submit_receipt(&rid, "zrcpt_test_valid").await?;
+            client.reorg_test_clock(&cid, 1).await?;
+            eprintln!("Triggered {event} on {rid}");
+            return Ok(());
         }
         "refund.created" | "refund.succeeded" => {
             client.submit_receipt(&id, "zrcpt_test_refund_to").await?;

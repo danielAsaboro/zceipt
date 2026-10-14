@@ -229,6 +229,10 @@ impl Client {
         }
         self.call(reqwest::Method::POST, &format!("/v1/test_clocks/{id}/advance"), Some(b), None).await
     }
+    /// Rolls a test clock's chain back `depth` blocks; unconfirmed payments fire `request.payment_reorged`.
+    pub async fn reorg_test_clock(&self, id: &str, depth: u32) -> Result<Value, Error> {
+        self.call(reqwest::Method::POST, &format!("/v1/test_clocks/{id}/reorg"), Some(json!({ "depth": depth })), None).await
+    }
     /// Sign in with Zcash: a single-use nonce for `domain` (default: the API's host).
     pub async fn create_sign_in_challenge(&self, domain: Option<&str>) -> Result<Value, Error> {
         let b = domain.map(|d| json!({ "domain": d })).unwrap_or(json!({}));

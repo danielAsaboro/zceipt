@@ -228,3 +228,11 @@ pub fn paid_to(v: &Verification, payee: &str, param: &'static str) -> Result<u64
 pub fn txid_short(t: &[u8; 32]) -> String {
     display_txid(t)
 }
+
+/// Internal txid bytes from the display (block-explorer) hex.
+pub fn parse_display_txid(s: &str) -> Result<[u8; 32], ApiError> {
+    let mut b = [0u8; 32];
+    hex::decode_to_slice(s, &mut b).map_err(|_| ApiError::invalid("parameter_invalid", "bad txid"))?;
+    b.reverse();
+    Ok(b)
+}

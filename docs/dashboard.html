@@ -123,7 +123,7 @@
         <h2>Add endpoint</h2>
         <label for="we-url">URL</label><input id="we-url" placeholder="https://example.com/webhooks/receipts">
         <label for="we-events">Events</label>
-        <select id="we-events"><option value="*">All events</option><option>request.created</option><option>request.payment_received</option><option>request.fulfilled</option><option>request.final</option><option>request.expired</option><option>receipt.rejected</option><option>refund.created</option><option>refund.succeeded</option></select>
+        <select id="we-events"><option value="*">All events</option><option>request.created</option><option>request.payment_received</option><option>request.fulfilled</option><option>request.final</option><option>request.payment_reorged</option><option>request.expired</option><option>receipt.rejected</option><option>refund.created</option><option>refund.succeeded</option></select>
         <button class="primary" id="we-create">Add endpoint</button>
         <div id="we-out"></div>
         <p class="muted">For local development: <span class="mono">receipts listen --forward-to http://localhost:3000/…</span></p>
@@ -374,7 +374,7 @@ async function loadClocks() {
   for (const id of clocks) { try { list.push(await api("GET", `/v1/test_clocks/${id}`)); } catch {} }
   $("#rq-clock").innerHTML = `<option value="">None: real time</option>` + list.map((c) => `<option value="${esc(c.id)}">${esc(c.id)} (block ${c.height})</option>`).join("");
   $("#tc-list").innerHTML = list.length ? list.map((c) => `<div class="row" style="margin:8px 0"><span class="mono">${esc(c.id)}</span><span>${when(c.frozen_time)} · block ${c.height} · ${c.requests.length} request(s)</span>
-    <button class="small" data-adv="${c.id}" data-blocks="1">+1 block</button><button class="small" data-adv="${c.id}" data-blocks="10">+10 blocks</button><button class="small" data-adv="${c.id}" data-secs="3600">+1 hour</button><button class="small" data-adv="${c.id}" data-secs="86400">+1 day</button></div><div id="tc-fired-${c.id}" class="muted"></div>`).join("") : "No clocks yet.";
+    <button class="small" data-adv="${c.id}" data-blocks="1">+1 block</button><button class="small" data-adv="${c.id}" data-blocks="10">+10 blocks</button><button class="small" data-adv="${c.id}" data-secs="3600">+1 hour</button><button class="small" data-adv="${c.id}" data-secs="86400">+1 day</button><button class="small" data-reorg="${c.id}">Reorg 3 blocks</button></div><div id="tc-fired-${c.id}" class="muted"></div>`).join("") : "No clocks yet.";
   document.querySelectorAll("[data-adv]").forEach((b) => b.onclick = async () => {
     const body = b.dataset.blocks ? { blocks: Number(b.dataset.blocks) } : { seconds: Number(b.dataset.secs) };
     try {
@@ -384,6 +384,15 @@ async function loadClocks() {
     } catch (e) { alert(errText(e)); }
   });
 }
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-reorg]");
+  if (!b) return;
+  try {
+    const c = await api("POST", `/v1/test_clocks/${b.dataset.reorg}/reorg`, { depth: 3 });
+    await loadClocks();
+    document.getElementById(`tc-fired-${c.id}`).textContent = c.fired.length ? "Fired: " + c.fired.map((x) => `${x.type} on ${x.request}`).join(", ") : "No unconfirmed payments were in those blocks.";
+  } catch (err) { alert(errText(err)); }
+});
 $("#tc-new").onclick = async () => {
   try { const c = await api("POST", "/v1/test_clocks", {}); clocks.unshift(c.id); saveClocks(); loadClocks(); } catch (e) { $("#tc-list").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
 };

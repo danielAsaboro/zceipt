@@ -398,7 +398,7 @@ struct CreateEndpoint {
     events: Option<Vec<String>>,
 }
 
-const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.expired", "receipt.rejected", "refund.created", "refund.succeeded"];
+const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.payment_reorged", "request.expired", "receipt.rejected", "refund.created", "refund.succeeded"];
 
 /// Live webhooks must go to a public HTTPS host: no localhost, private or link-local
 /// addresses (so a leaked live key can't make the server probe its own network).
@@ -655,6 +655,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/test_clocks", post(clocks::create))
         .route("/v1/test_clocks/{id}", get(clocks::get))
         .route("/v1/test_clocks/{id}/advance", post(clocks::advance))
+        .route("/v1/test_clocks/{id}/reorg", post(clocks::reorg))
         .route("/v1/public/requests/{id}", get(requests::public_get))
         .route("/v1/public/requests/{id}/qr.svg", get(requests::public_qr))
         .route("/v1/public/requests/{id}/receipts", post(requests::public_submit))

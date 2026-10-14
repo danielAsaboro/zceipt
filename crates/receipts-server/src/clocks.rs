@@ -97,6 +97,13 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
     st.db.0.lock().unwrap().execute("UPDATE test_clocks SET frozen_time = ?1, height = ?2 WHERE id = ?3", params![t, h, id])?;
 
     let mut fired = Vec::new();
+    // Payments dropped by a simulated reorg are mined again in the next block.
+    if blocks > 0 {
+        st.db.0.lock().unwrap().execute(
+            "UPDATE request_payments SET mined_height = ?1 WHERE mined_height IS NULL AND request_id IN (SELECT id FROM requests WHERE test_clock = ?2)",
+            params![k.height + 1, id],
+        )?;
+    }
     // Expiry, by clock time.
     let expired: Vec<String> = {
         let c = st.db.0.lock().unwrap();
@@ -115,6 +122,7 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
         let c = st.db.0.lock().unwrap();
         let rows = c.prepare(
             "SELECT r.id FROM requests r WHERE r.test_clock = ?1 AND r.status = 'fulfilled' AND r.final_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM request_payments p WHERE p.request_id = r.id AND p.mined_height IS NULL)
              AND (SELECT MAX(mined_height) FROM request_payments p WHERE p.request_id = r.id) + ?2 - 1 <= ?3",
         )?
         .query_map(params![id, FINALITY_CONFIRMATIONS as i64, h], |r| r.get(0))?
@@ -124,6 +132,49 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
     for rid in due {
         let ev = mark_final(&st, Mode::Test, &rid)?;
         fired.push(json!({ "type": "request.final", "request": rid, "event": ev.map(|e| e["id"].clone()) }));
+    }
+    let mut body = clock_json(&st, &load(&st, &id)?);
+    body["fired"] = json!(fired);
+    Ok(Json(body))
+}
+
+#[derive(Deserialize)]
+pub struct Reorg {
+    /// How many blocks to roll back (1..=100). Payments mined in them become unconfirmed.
+    depth: Option<i64>,
+}
+
+/// POST /v1/test_clocks/{id}/reorg — rolls the clock's chain back `depth` blocks. Payments in
+/// those blocks fire `request.payment_reorged` and lose their confirmations; the next `advance`
+/// mines them again. A payment that was already final is never affected (that is what final means).
+pub async fn reorg(State(st): State<Shared>, auth: Auth, Path(id): Path<String>, Body(req, _): Body<Reorg>) -> Result<Json<Value>, ApiError> {
+    test_only(&auth)?;
+    let depth = req.depth.unwrap_or(1);
+    if !(1..=100).contains(&depth) {
+        return Err(ApiError::invalid("parameter_invalid", "depth must be 1..=100").param("depth"));
+    }
+    let k = load(&st, &id)?;
+    let new_tip = k.height - depth;
+    st.db.0.lock().unwrap().execute("UPDATE test_clocks SET height = ?1 WHERE id = ?2", params![new_tip, id])?;
+    let hit: Vec<String> = {
+        let c = st.db.0.lock().unwrap();
+        let rows = c
+            .prepare(
+                "SELECT DISTINCT r.id FROM requests r JOIN request_payments p ON p.request_id = r.id
+                 WHERE r.test_clock = ?1 AND r.final_at IS NULL AND p.mined_height > ?2",
+            )?
+            .query_map(params![id, new_tip], |r| r.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        rows
+    };
+    let mut fired = Vec::new();
+    for rid in hit {
+        st.db.0.lock().unwrap().execute(
+            "UPDATE request_payments SET mined_height = NULL WHERE request_id = ?1 AND mined_height > ?2",
+            params![rid, new_tip],
+        )?;
+        let ev = emit(&st, Mode::Test, "request.payment_reorged", to_json(&st, &load_request(&st, Some(Mode::Test), &rid)?))?;
+        fired.push(json!({ "type": "request.payment_reorged", "request": rid, "event": ev["id"] }));
     }
     let mut body = clock_json(&st, &load(&st, &id)?);
     body["fired"] = json!(fired);
@@ -165,9 +216,43 @@ pub async fn finality_sweeper(st: Shared) {
             if pending.is_empty() {
                 continue;
             }
-            let Ok(tip) = chain::chain_tip(mode.net(&st.config), mode.server(&st.config).as_deref()).await else { continue };
-            for (rid, h) in pending {
-                if h > 0 && (tip as i64) - h + 1 >= FINALITY_CONFIRMATIONS as i64 {
+            let (net, server) = (mode.net(&st.config), mode.server(&st.config));
+            let Ok(tip) = chain::chain_tip(net, server.as_deref()).await else { continue };
+            for (rid, _) in pending {
+                // Re-check every payment: a reorg can drop a transaction or move it to another block.
+                let txs: Vec<(i64, String, Option<i64>)> = {
+                    let c = st.db.0.lock().unwrap();
+                    c.prepare("SELECT id, txid, mined_height FROM request_payments WHERE request_id = ?1")
+                        .and_then(|mut s| s.query_map([&rid], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect())
+                        .unwrap_or_default()
+                };
+                let mut lowest_conf = i64::MAX;
+                let mut dropped = false;
+                for (pid, txid, was) in txs {
+                    if txid.starts_with("5a4db0c5") {
+                        continue; // sandbox payment
+                    }
+                    let Ok(id) = crate::verify::parse_display_txid(&txid) else { continue };
+                    match chain::fetch_mined_tx(net, server.as_deref(), id).await {
+                        Ok((_, h)) => {
+                            if was != Some(h as i64) {
+                                let _ = st.db.0.lock().unwrap().execute("UPDATE request_payments SET mined_height = ?1 WHERE id = ?2", params![h, pid]);
+                            }
+                            lowest_conf = lowest_conf.min(tip as i64 - h as i64 + 1);
+                        }
+                        Err(e) if e.to_string().contains("not mined") || e.to_string().to_lowercase().contains("not found") => {
+                            if was.is_some() {
+                                let _ = st.db.0.lock().unwrap().execute("UPDATE request_payments SET mined_height = NULL WHERE id = ?1", [pid]);
+                                if let Ok(r) = load_request(&st, Some(mode), &rid) {
+                                    let _ = emit(&st, mode, "request.payment_reorged", to_json(&st, &r));
+                                }
+                            }
+                            dropped = true;
+                        }
+                        Err(_) => dropped = true, // server trouble: decide next time
+                    }
+                }
+                if !dropped && lowest_conf != i64::MAX && lowest_conf >= FINALITY_CONFIRMATIONS as i64 {
                     let _ = mark_final(&st, mode, &rid);
                 }
             }

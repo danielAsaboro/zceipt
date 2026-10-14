@@ -98,6 +98,8 @@ export class Receipts {
       retrieve: (id) => r._request("GET", `/v1/test_clocks/${encodeURIComponent(id)}`),
       /** Move the clock by `{ seconds?, blocks? }`; resolves with `fired` events. */
       advance: (id, params) => r._request("POST", `/v1/test_clocks/${encodeURIComponent(id)}/advance`, params),
+      /** Roll the clock's chain back `{ depth }` blocks: unconfirmed payments fire request.payment_reorged. */
+      reorg: (id, params = {}) => r._request("POST", `/v1/test_clocks/${encodeURIComponent(id)}/reorg`, params),
     };
     this.signIn = {
       /** Sign in with Zcash: a single-use nonce bound to `{ domain }`, valid 5 minutes. */

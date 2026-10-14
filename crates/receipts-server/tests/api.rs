@@ -596,3 +596,32 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://127.0.0.1:3000/hooks" })), None).await;
     assert_eq!(s, StatusCode::CREATED);
 }
+
+#[tokio::test]
+async fn test_clock_reorg_unconfirms_then_remines() {
+    let (app, test, _) = app().await;
+    let (_, clock, _) = call(&app, "POST", "/v1/test_clocks", Some(&test), Some(json!({ "height": 500 })), None).await;
+    let cid = clock["id"].as_str().unwrap();
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "test_clock": cid })), None).await;
+    let id = r["id"].as_str().unwrap();
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 3 })), None).await;
+    // Roll back past the payment's block.
+    let (s, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/reorg"), Some(&test), Some(json!({ "depth": 4 })), None).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["fired"][0]["type"], "request.payment_reorged");
+    let (_, req, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert!(req["payments"][0]["mined_height"].is_null());
+    // Unconfirmed payments never become final, however far the clock moves without a block…
+    let (_, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "seconds": 99999 })), None).await;
+    assert!(v["fired"].as_array().unwrap().is_empty());
+    // …and once re-mined, they need 10 fresh confirmations.
+    call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 1 })), None).await;
+    let (_, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 8 })), None).await;
+    assert!(v["fired"].as_array().unwrap().is_empty(), "{v}");
+    let (_, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 1 })), None).await;
+    assert_eq!(v["fired"][0]["type"], "request.final", "{v}");
+    // A final payment is not affected by a reorg.
+    let (_, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/reorg"), Some(&test), Some(json!({ "depth": 20 })), None).await;
+    assert!(v["fired"].as_array().unwrap().is_empty());
+}

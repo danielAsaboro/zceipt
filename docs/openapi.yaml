@@ -247,6 +247,21 @@ paths:
         "200": { description: Test clock with fired events }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/test_clocks/{id}/reorg:
+    post:
+      tags: [Meta]
+      operationId: reorgTestClock
+      summary: "Sandbox: roll a test clock's chain back"
+      description: Payments mined in the dropped blocks (and not yet final) fire `request.payment_reorged` and lose their confirmations.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { depth: { type: integer, minimum: 1, maximum: 100 } } }
+      responses:
+        "200": { description: Test clock with fired events }
+        "404": { $ref: "#/components/responses/Error" }
   /v1/sign_in/challenges:
     post:
       tags: [Sign in with Zcash]

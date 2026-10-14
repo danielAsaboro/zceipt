@@ -14,6 +14,7 @@ curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $RECEIPTS_
 | `request.fulfilled` | a valid receipt answered a request; `data.object` is the fulfilled request |
 | `request.payment_received` | a receipt was accepted on a `partial` request or a `campaign` (may not be fulfilled yet) |
 | `request.final` | the payment of a fulfilled request reached 10 confirmations (sandbox payments: at once, or when a test clock gets there) |
+| `request.payment_reorged` | a payment on a fulfilled request left the chain in a reorg before it was final; it is re-checked every minute and `request.final` only follows once it has 10 confirmations again |
 | `request.expired` | an open request passed `expires_at` |
 | `refund.created` | you created a refund to the payer's signed refund address; `data.object.payment_uri` pays it |
 | `refund.succeeded` | a receipt proved the refund was paid in full |

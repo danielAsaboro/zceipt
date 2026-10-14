@@ -50,5 +50,10 @@ curl -s -X POST localhost:8723/v1/test_clocks/clock_…/advance -H "authorizatio
 given) and returns the clock with `fired`: the `request.expired` and `request.final` events it
 sent. Test clocks exist only for `rcpt_test_` keys.
 
+`POST /v1/test_clocks/{id}/reorg` with `{"depth": 3}` rolls the clock's chain back. Payments
+mined in the dropped blocks fire `request.payment_reorged` and lose their confirmations; the next
+`advance` with blocks mines them again, and they need 10 fresh confirmations before
+`request.final`. Payments that were already final are not affected.
+
 Note: on `POST /v1/verify`, `min_zatoshis` is checked against what `expect_address` received, so
 it needs `expect_address` (a request without it gets `parameter_missing`).

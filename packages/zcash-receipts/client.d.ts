@@ -60,6 +60,7 @@ export class Receipts {
     create(params?: { frozen_time?: number; height?: number }): Promise<TestClock>;
     retrieve(id: string): Promise<TestClock>;
     advance(id: string, params: { seconds?: number; blocks?: number }): Promise<TestClock & { fired: { type: string; request: string; event: string }[] }>;
+    reorg(id: string, params?: { depth?: number }): Promise<TestClock & { fired: { type: string; request: string; event: string }[] }>;
   };
   signIn: {
     createChallenge(params?: { domain?: string }): Promise<SignInChallenge>;

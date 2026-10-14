@@ -57,6 +57,9 @@ impl ApiError {
     pub fn chain(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_GATEWAY, "api_error", "chain_unavailable", message)
     }
+    pub fn new_rate_limited() -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, "rate_limit_error", "rate_limited", "too many requests for this key; wait for Retry-After seconds")
+    }
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "api_error", "internal_error", message)
     }
@@ -110,6 +113,8 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("webhook_endpoint_not_found", 404, "No webhook endpoint with that id."),
     ("event_not_found", 404, "No event with that id."),
     ("idempotency_key_reused", 409, "The Idempotency-Key was used with a different request body."),
+    ("api_version_unsupported", 400, "The Receipts-Version header names a version this server doesn't speak."),
+    ("rate_limited", 429, "Too many requests for this key this minute. Wait `Retry-After` seconds; SDKs do this automatically."),
     ("chain_unavailable", 502, "lightwalletd could not be reached. Safe to retry."),
     ("internal_error", 500, "Unexpected server error. Safe to retry."),
 ];

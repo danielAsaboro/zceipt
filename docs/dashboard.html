@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Receipts · Dashboard</title>
+<style>
+  :root { color-scheme: dark; --bg:#121110; --panel:#1b1a18; --line:#2c2a26; --text:#ebe7dd; --dim:#a39d90; --paper:#f3efe4; --ink:#161513; --good:#3f9b6c; --bad:#d2483d; --warn:#c9a227;
+          --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace; --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 var(--sans); }
+  header { display:flex; align-items:center; gap:18px; padding:14px 22px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header .brand { font-family:var(--mono); font-weight:800; letter-spacing:.28em; }
+  header .mode { font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:99px; border:1px solid var(--warn); color:var(--warn); }
+  header .mode.live { border-color:var(--good); color:var(--good); }
+  header input { flex:1; min-width:240px; max-width:520px; }
+  nav { display:flex; gap:4px; padding:10px 22px; border-bottom:1px solid var(--line); overflow-x:auto; }
+  nav button { background:none; color:var(--dim); border:0; padding:8px 12px; border-radius:8px; cursor:pointer; font:600 14px var(--sans); white-space:nowrap; }
+  nav button[aria-selected=true] { background:var(--panel); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:22px; }
+  section[hidden] { display:none; }
+  .grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
+  @media (max-width:820px){ .grid { grid-template-columns:minmax(0,1fr); } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  label { display:block; color:var(--dim); font-size:12px; margin:10px 0 4px; }
+  input, textarea, select { width:100%; background:#141311; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:9px 11px; font:13px var(--mono); }
+  textarea { min-height:90px; resize:vertical; }
+  button.primary { margin-top:12px; background:var(--paper); color:var(--ink); border:0; border-radius:8px; padding:9px 14px; font:600 14px var(--sans); cursor:pointer; }
+  button.small { background:none; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:3px 8px; font:12px var(--sans); cursor:pointer; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:12px; }
+  td.mono, .mono { font-family:var(--mono); font-size:12px; word-break:break-all; }
+  .pill { font-family:var(--mono); font-size:11px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); }
+  .pill.open, .pill.pending { color:var(--warn); border-color:var(--warn); }
+  .pill.fulfilled, .pill.delivered { color:var(--good); border-color:var(--good); }
+  .pill.expired, .pill.failed { color:var(--bad); border-color:var(--bad); }
+  pre { background:#0e0d0c; border:1px solid var(--line); border-radius:8px; padding:12px; overflow:auto; font:12px/1.5 var(--mono); max-height:420px; margin:8px 0 0; }
+  .qr { background:#fff; border-radius:8px; padding:6px; width:200px; }
+  .qr svg { width:100%; height:auto; display:block; }
+  .tabs { display:flex; gap:6px; margin-top:12px; }
+  .tabs button { background:none; border:1px solid var(--line); color:var(--dim); border-radius:6px; padding:3px 10px; cursor:pointer; font:12px var(--sans); }
+  .tabs button[aria-selected=true] { color:var(--text); border-color:var(--dim); }
+  .err { color:var(--bad); font-family:var(--mono); font-size:12px; margin-top:8px; white-space:pre-wrap; }
+  .ok { color:var(--good); }
+  .muted { color:var(--dim); }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">RECEIPTS</span>
+  <span class="mode" id="mode">no key</span>
+  <input id="key" type="password" placeholder="rcpt_test_… (kept in this tab only)" autocomplete="off" spellcheck="false">
+  <span class="muted" id="health"></span>
+</header>
+<nav role="tablist">
+  <button data-tab="requests" aria-selected="true">Proof requests</button>
+  <button data-tab="playground">Playground</button>
+  <button data-tab="events">Events</button>
+  <button data-tab="webhooks">Webhooks</button>
+  <button data-tab="sandbox">Sandbox</button>
+</nav>
+<main>
+  <section id="requests">
+    <div class="grid">
+      <div class="card">
+        <h2>New proof request</h2>
+        <label for="rq-payee">Payee (your unified address)</label><input id="rq-payee" placeholder="utest1…">
+        <label for="rq-amount">Amount (ZEC, optional)</label><input id="rq-amount" placeholder="0.01" inputmode="decimal">
+        <label for="rq-label">Label</label><input id="rq-label" placeholder="Order #42">
+        <button class="primary" id="rq-create">Create request</button>
+        <div id="rq-out"></div>
+      </div>
+      <div class="card">
+        <div class="row" style="justify-content:space-between"><h2>Requests</h2><button class="small" id="rq-refresh">Refresh</button></div>
+        <table><thead><tr><th>Request</th><th>Status</th><th>Amount</th><th>Created</th></tr></thead><tbody id="rq-list"></tbody></table>
+        <div id="rq-detail"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="playground" hidden>
+    <div class="grid">
+      <div class="card">
+        <h2>Verify a receipt</h2>
+        <label for="pg-receipt">Receipt, batch or link</label><textarea id="pg-receipt" placeholder="zrcpt1…  or try zrcpt_test_valid"></textarea>
+        <label for="pg-addr">Expect payment to (optional)</label><input id="pg-addr" placeholder="utest1…">
+        <label for="pg-min">At least (zatoshis, optional)</label><input id="pg-min" inputmode="numeric">
+        <label for="pg-ch">Challenge (optional)</label><input id="pg-ch">
+        <button class="primary" id="pg-run">Verify</button>
+        <div class="tabs" id="pg-langs"><button data-lang="curl" aria-selected="true">curl</button><button data-lang="js">JavaScript</button><button data-lang="py">Python</button><button data-lang="rs">Rust</button></div>
+        <pre id="pg-code"></pre>
+      </div>
+      <div class="card"><h2>Response</h2><div id="pg-status" class="muted">Run a verification to see the response.</div><pre id="pg-out" hidden></pre></div>
+    </div>
+  </section>
+
+  <section id="events" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><h2>Events</h2><button class="small" id="ev-refresh">Refresh</button></div>
+      <table><thead><tr><th>Event</th><th>Type</th><th>Object</th><th>Created</th><th>Deliveries</th><th></th></tr></thead><tbody id="ev-list"></tbody></table>
+    </div>
+  </section>
+
+  <section id="webhooks" hidden>
+    <div class="grid">
+      <div class="card">
+        <h2>Add endpoint</h2>
+        <label for="we-url">URL</label><input id="we-url" placeholder="https://example.com/webhooks/receipts">
+        <label for="we-events">Events</label>
+        <select id="we-events"><option value="*">All events</option><option>request.fulfilled</option><option>request.created</option><option>receipt.rejected</option></select>
+        <button class="primary" id="we-create">Add endpoint</button>
+        <div id="we-out"></div>
+        <p class="muted">For local development: <span class="mono">receipts listen --forward-to http://localhost:3000/…</span></p>
+      </div>
+      <div class="card"><h2>Endpoints</h2><table><thead><tr><th>Endpoint</th><th>Events</th><th></th></tr></thead><tbody id="we-list"></tbody></table></div>
+    </div>
+  </section>
+
+  <section id="sandbox" hidden>
+    <div class="card">
+      <h2>Sandbox fixtures</h2>
+      <p class="muted">With a test key, these receipts always give the same outcome with no wallet, faucet or chain. Click one to try it in the Playground.</p>
+      <table><thead><tr><th>Receipt</th><th>Outcome</th></tr></thead><tbody id="sb-list"></tbody></table>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
+const zec = (z) => z == null ? "–" : (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "") + " ZEC";
+const when = (t) => t ? new Date(t * 1000).toLocaleString() : "–";
+const short = (s, n = 8) => s && s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s;
+
+let key = "";
+try { key = sessionStorage.getItem("receipts.key") || ""; } catch {}
+$("#key").value = key;
+$("#key").addEventListener("change", () => { key = $("#key").value.trim(); try { sessionStorage.setItem("receipts.key", key); } catch {} boot(); });
+
+async function api(method, path, body) {
+  const res = await fetch(path, { method, headers: { authorization: `Bearer ${key}`, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(json.error?.message || res.status); e.body = json; e.status = res.status; throw e; }
+  return json;
+}
+const errText = (e) => e.body?.error ? `${e.status} ${e.body.error.code}: ${e.body.error.message}` : String(e.message || e);
+
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll("main section").forEach((s) => s.hidden = s.id !== b.dataset.tab);
+  ({ requests: loadRequests, events: loadEvents, webhooks: loadEndpoints, sandbox: loadSandbox })[b.dataset.tab]?.();
+});
+
+// ---------- requests ----------
+async function loadRequests() {
+  if (!key) return;
+  try {
+    const page = await api("GET", "/v1/requests?limit=50");
+    $("#rq-list").innerHTML = page.data.map((r) => `<tr data-id="${r.id}" style="cursor:pointer">
+      <td><div class="mono">${esc(r.id)}</div><div class="muted">${esc(r.label || "")}</div></td>
+      <td><span class="pill ${r.status}">${r.status}</span></td><td>${zec(r.amount_zatoshis)}</td><td class="muted">${when(r.created)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No requests yet.</td></tr>`;
+    document.querySelectorAll("#rq-list tr[data-id]").forEach((tr) => tr.onclick = () => showRequest(tr.dataset.id));
+  } catch (e) { $("#rq-list").innerHTML = `<tr><td colspan="4" class="err">${esc(errText(e))}</td></tr>`; }
+}
+async function qrFor(id) {
+  try { const r = await fetch(`/v1/requests/${id}/qr.svg`, { headers: { authorization: `Bearer ${key}` } }); return r.ok ? await r.text() : ""; } catch { return ""; }
+}
+async function showRequest(id, into = "#rq-detail") {
+  const r = await api("GET", `/v1/requests/${id}`);
+  const f = r.fulfillment;
+  $(into).innerHTML = `<div style="margin-top:14px">
+    <div class="row"><span class="pill ${r.status}">${r.status}</span><span class="mono">${esc(r.id)}</span></div>
+    ${r.status === "open" ? `<div class="row" style="margin-top:10px;align-items:flex-start"><div class="qr">${await qrFor(r.id)}</div>
+      <div style="flex:1;min-width:200px"><label>Payment URI (ZIP-321)</label><div class="mono">${esc(r.payment_uri)}</div>
+      <label>Payer runs</label><div class="mono">${esc(r.cli_command)}</div></div></div>
+      <label>Paste the payer's receipt</label><textarea id="sub-${r.id}" placeholder="zrcpt1… or zrcpt_test_valid"></textarea>
+      <button class="primary" id="subbtn-${r.id}">Submit receipt</button><div id="suberr-${r.id}"></div>` : ""}
+    ${f ? `<label>Paid</label><div>${zec(f.paid_zatoshis)} · tx <span class="mono">${esc(short(f.txid, 10))}</span> · ${when(f.fulfilled_at)}</div>
+      <pre>${esc(JSON.stringify(f.verification, null, 2))}</pre>` : ""}</div>`;
+  const btn = document.getElementById(`subbtn-${r.id}`);
+  if (btn) btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Verifying…";
+    try { await api("POST", `/v1/requests/${r.id}/receipts`, { receipt: document.getElementById(`sub-${r.id}`).value.trim() }); await loadRequests(); await showRequest(r.id, into); }
+    catch (e) { document.getElementById(`suberr-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; btn.disabled = false; btn.textContent = "Submit receipt"; }
+  };
+}
+$("#rq-create").onclick = async () => {
+  const amount = $("#rq-amount").value.trim();
+  try {
+    const r = await api("POST", "/v1/requests", { payee: $("#rq-payee").value.trim(), label: $("#rq-label").value.trim() || undefined, amount_zatoshis: amount ? Math.round(Number(amount) * 1e8) : undefined });
+    await loadRequests(); await showRequest(r.id, "#rq-out");
+  } catch (e) { $("#rq-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+};
+$("#rq-refresh").onclick = loadRequests;
+
+// ---------- playground ----------
+let lang = "curl";
+function code() {
+  const receipt = $("#pg-receipt").value.trim() || "zrcpt1…";
+  const r = receipt.length > 60 ? receipt.slice(0, 40) + "…" : receipt;
+  const addr = $("#pg-addr").value.trim(), min = $("#pg-min").value.trim(), ch = $("#pg-ch").value.trim();
+  const k = key || "rcpt_test_…";
+  const body = { receipt: r, ...(addr && { expect_address: addr }), ...(min && { min_zatoshis: Number(min) }), ...(ch && { challenge: ch }) };
+  const base = location.origin;
+  return {
+    curl: `curl ${base}/v1/verify \\\n  -H "Authorization: Bearer ${k}" \\\n  -H "content-type: application/json" \\\n  -d '${JSON.stringify(body)}'`,
+    js: `import { Receipts } from "zcash-receipts/client";\nconst receipts = new Receipts("${k}", { baseUrl: "${base}" });\nconst v = await receipts.verify(${JSON.stringify(body, null, 2)});`,
+    py: `from zcash_receipts import Receipts\nreceipts = Receipts("${k}", base_url="${base}")\nv = receipts.verify(${[JSON.stringify(r), addr && `expect_address="${addr}"`, min && `min_zatoshis=${min}`, ch && `challenge="${ch}"`].filter(Boolean).join(", ")})`,
+    rs: `let client = receipts_client::Client::new("${k}").base_url("${base}");\nlet v = client.verify(&receipts_client::VerifyParams {\n    receipt: ${JSON.stringify(r)}.into(),${addr ? `\n    expect_address: Some("${addr}".into()),` : ""}${min ? `\n    min_zatoshis: Some(${min}),` : ""}${ch ? `\n    challenge: Some("${ch}".into()),` : ""}\n    ..Default::default()\n}).await?;`,
+  }[lang];
+}
+const renderCode = () => { $("#pg-code").textContent = code(); };
+document.querySelectorAll("#pg-langs button").forEach((b) => b.onclick = () => { lang = b.dataset.lang; document.querySelectorAll("#pg-langs button").forEach((x) => x.setAttribute("aria-selected", x === b)); renderCode(); });
+["#pg-receipt", "#pg-addr", "#pg-min", "#pg-ch"].forEach((s) => $(s).addEventListener("input", renderCode));
+$("#pg-run").onclick = async () => {
+  $("#pg-status").textContent = "Verifying…"; $("#pg-out").hidden = true;
+  const t0 = performance.now();
+  const body = { receipt: $("#pg-receipt").value.trim() };
+  if ($("#pg-addr").value.trim()) body.expect_address = $("#pg-addr").value.trim();
+  if ($("#pg-min").value.trim()) body.min_zatoshis = Number($("#pg-min").value.trim());
+  if ($("#pg-ch").value.trim()) body.challenge = $("#pg-ch").value.trim();
+  try {
+    const v = await api("POST", "/v1/verify", body);
+    $("#pg-status").innerHTML = `<span class="ok">200 valid</span> · ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+    $("#pg-out").textContent = JSON.stringify(v, null, 2);
+  } catch (e) {
+    $("#pg-status").innerHTML = `<span class="err">${esc(e.status)} ${esc(e.body?.error?.code || "")}</span>`;
+    $("#pg-out").textContent = JSON.stringify(e.body ?? String(e), null, 2);
+  }
+  $("#pg-out").hidden = false;
+};
+renderCode();
+
+// ---------- events ----------
+async function loadEvents() {
+  if (!key) return;
+  try {
+    const [ev, dl] = await Promise.all([api("GET", "/v1/events?limit=50"), api("GET", "/v1/deliveries?limit=200")]);
+    const by = {};
+    for (const d of dl.data) (by[d.event] ||= []).push(d);
+    $("#ev-list").innerHTML = ev.data.map((e) => `<tr><td class="mono">${esc(e.id)}</td><td>${esc(e.type)}</td>
+      <td class="mono">${esc(e.data.object.id || e.data.object.request || "")}</td><td class="muted">${when(e.created)}</td>
+      <td>${(by[e.id] || []).map((d) => `<div><span class="pill ${d.status}">${d.status}</span> <span class="muted">${d.attempts}× ${d.last_http_status ?? esc(d.last_error || "")}</span></div>`).join("") || `<span class="muted">none</span>`}</td>
+      <td><button class="small" data-resend="${e.id}">Resend</button></td></tr>`).join("") || `<tr><td colspan="6" class="muted">No events yet.</td></tr>`;
+    document.querySelectorAll("[data-resend]").forEach((b) => b.onclick = async () => { await api("POST", `/v1/events/${b.dataset.resend}/resend`, {}); setTimeout(loadEvents, 1500); });
+  } catch (e) { $("#ev-list").innerHTML = `<tr><td colspan="6" class="err">${esc(errText(e))}</td></tr>`; }
+}
+$("#ev-refresh").onclick = loadEvents;
+
+// ---------- webhooks ----------
+async function loadEndpoints() {
+  if (!key) return;
+  try {
+    const l = await api("GET", "/v1/webhook_endpoints");
+    $("#we-list").innerHTML = l.data.map((w) => `<tr><td><div class="mono">${esc(w.url)}</div><div class="muted mono">${esc(w.id)}</div></td><td>${esc(w.events.join(", "))}</td>
+      <td><button class="small" data-del="${w.id}">Delete</button></td></tr>`).join("") || `<tr><td colspan="3" class="muted">No endpoints.</td></tr>`;
+    document.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => { await api("DELETE", `/v1/webhook_endpoints/${b.dataset.del}`); loadEndpoints(); });
+  } catch (e) { $("#we-list").innerHTML = `<tr><td colspan="3" class="err">${esc(errText(e))}</td></tr>`; }
+}
+$("#we-create").onclick = async () => {
+  try {
+    const w = await api("POST", "/v1/webhook_endpoints", { url: $("#we-url").value.trim(), events: [$("#we-events").value] });
+    $("#we-out").innerHTML = `<label>Signing secret (shown once)</label><div class="mono">${esc(w.secret)}</div>`;
+    loadEndpoints();
+  } catch (e) { $("#we-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+};
+
+// ---------- sandbox ----------
+const OUTCOMES = { zrcpt_test_valid: "valid", zrcpt_test_wrong_payee: "422 wrong_payee", zrcpt_test_insufficient_amount: "422 insufficient_amount", zrcpt_test_challenge_mismatch: "422 challenge_mismatch", zrcpt_test_invalid: "422 receipt_invalid", zrcpt_test_not_mined: "422 transaction_not_mined", zrcpt_test_not_found: "422 transaction_not_found", zrcpt_test_chain_unavailable: "502 chain_unavailable" };
+async function loadSandbox() {
+  const l = await (await fetch("/v1/sandbox/fixtures")).json();
+  $("#sb-list").innerHTML = l.data.map((f) => `<tr style="cursor:pointer" data-fx="${f}"><td class="mono">${f}</td><td>${OUTCOMES[f] || ""}</td></tr>`).join("");
+  document.querySelectorAll("[data-fx]").forEach((tr) => tr.onclick = () => { $("#pg-receipt").value = tr.dataset.fx; renderCode(); document.querySelector('nav button[data-tab="playground"]').click(); });
+}
+
+async function boot() {
+  const h = await (await fetch("/v1/health")).json().catch(() => ({}));
+  $("#health").textContent = h.ok ? `API ${h.version} · test mode: ${h.test_network}` : "API unreachable";
+  $("#mode").textContent = key.startsWith("rcpt_live_") ? "LIVE · mainnet" : key ? "TEST · " + (h.test_network || "testnet") : "no key";
+  $("#mode").className = "mode" + (key.startsWith("rcpt_live_") ? " live" : "");
+  renderCode();
+  loadRequests();
+}
+boot();
+</script>
+</body>
+</html>

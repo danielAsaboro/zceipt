@@ -50,6 +50,52 @@ pub struct AppState {
     pub db: Db,
     pub config: Config,
     pub http: reqwest::Client,
+    /// Fixed-window request counters per API key: (window start, count).
+    pub rate: std::sync::Mutex<std::collections::HashMap<String, (i64, u32)>>,
+}
+
+/// The API version this server speaks. Clients may pin it with a `Receipts-Version` header.
+pub const API_VERSION: &str = "2026-10-14";
+/// Requests allowed per key per minute.
+pub const RATE_LIMIT: u32 = 300;
+
+async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    if let Some(v) = req.headers().get("receipts-version").and_then(|v| v.to_str().ok()) {
+        if v != API_VERSION {
+            return ApiError::invalid("api_version_unsupported", format!("this server speaks Receipts-Version {API_VERSION}, not {v}")).into_response();
+        }
+    }
+    let key = req
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| req.headers().get("x-api-key").and_then(|v| v.to_str().ok()).map(str::to_string));
+    let mut remaining = None;
+    if let Some(k) = key {
+        let t = now();
+        let window = t - t % 60;
+        let mut m = st.rate.lock().unwrap();
+        let e = m.entry(k).or_insert((window, 0));
+        if e.0 != window {
+            *e = (window, 0);
+        }
+        e.1 += 1;
+        if e.1 > RATE_LIMIT {
+            let mut res = ApiError::new_rate_limited().into_response();
+            res.headers_mut().insert("retry-after", (window + 60 - t).to_string().parse().unwrap());
+            return res;
+        }
+        remaining = Some(RATE_LIMIT - e.1);
+    }
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+    h.insert("receipts-version", API_VERSION.parse().unwrap());
+    if let Some(r) = remaining {
+        h.insert("ratelimit-limit", RATE_LIMIT.to_string().parse().unwrap());
+        h.insert("ratelimit-remaining", r.to_string().parse().unwrap());
+    }
+    res
 }
 
 pub type Shared = Arc<AppState>;
@@ -563,6 +609,43 @@ async fn resend_event(State(st): State<Shared>, auth: Auth, Path(id): Path<Strin
     Ok(Json(ev))
 }
 
+#[derive(Deserialize)]
+struct DeliveriesQuery {
+    event: Option<String>,
+    limit: Option<u32>,
+}
+
+/// Delivery attempts, newest first: which endpoint, how many attempts, last HTTP status.
+async fn list_deliveries(State(st): State<Shared>, auth: Auth, Query(q): Query<DeliveriesQuery>) -> Result<Json<Value>, ApiError> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let c = st.db.0.lock().unwrap();
+    let mut stmt = c.prepare(
+        "SELECT d.id, d.event_id, e.type, d.endpoint_id, w.url, d.attempts, d.status, d.last_status, d.last_error, d.next_attempt_at, d.delivered_at
+         FROM deliveries d JOIN events e ON e.id = d.event_id JOIN webhook_endpoints w ON w.id = d.endpoint_id
+         WHERE e.mode = ?1 AND (?2 IS NULL OR d.event_id = ?2) ORDER BY d.id DESC LIMIT ?3",
+    )?;
+    let data: Vec<Value> = stmt
+        .query_map(params![auth.mode.as_str(), q.event, limit], |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?, "object": "webhook_delivery", "event": r.get::<_, String>(1)?, "event_type": r.get::<_, String>(2)?,
+                "endpoint": r.get::<_, String>(3)?, "url": r.get::<_, String>(4)?, "attempts": r.get::<_, i64>(5)?, "status": r.get::<_, String>(6)?,
+                "last_http_status": r.get::<_, Option<i64>>(7)?, "last_error": r.get::<_, Option<String>>(8)?,
+                "next_attempt_at": r.get::<_, i64>(9)?, "delivered_at": r.get::<_, Option<i64>>(10)?,
+            }))
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(Json(json!({ "object": "list", "data": data, "has_more": false })))
+}
+
+/// The request's ZIP-321 payment URI as an SVG QR code.
+async fn request_qr(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -> Result<Response, ApiError> {
+    let row = load_request(&st, auth.mode, &id)?;
+    let uri = request_json(&st, &row)["payment_uri"].as_str().unwrap_or_default().to_string();
+    let code = qrcode::QrCode::with_error_correction_level(uri.as_bytes(), qrcode::EcLevel::M).map_err(|e| ApiError::internal(e.to_string()))?;
+    let svg = code.render::<qrcode::render::svg::Color>().min_dimensions(240, 240).quiet_zone(true).build();
+    Ok(([("content-type", "image/svg+xml")], svg).into_response())
+}
+
 async fn errors_handler() -> Json<Value> {
     Json(json!({
         "object": "list",
@@ -582,6 +665,10 @@ const OPENAPI: &str = include_str!("../../../docs/openapi.yaml");
 
 async fn openapi() -> impl IntoResponse {
     ([("content-type", "application/yaml")], OPENAPI)
+}
+
+async fn dashboard_page() -> Html<&'static str> {
+    Html(include_str!("../../../docs/dashboard.html"))
 }
 
 async fn docs_page() -> Html<&'static str> {
@@ -629,6 +716,8 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/requests", post(create_request).get(list_requests))
         .route("/v1/requests/{id}", get(get_request))
         .route("/v1/requests/{id}/receipts", post(submit_receipt))
+        .route("/v1/requests/{id}/qr.svg", get(request_qr))
+        .route("/v1/deliveries", get(list_deliveries))
         .route("/v1/webhook_endpoints", post(create_endpoint).get(list_endpoints))
         .route("/v1/webhook_endpoints/{id}", delete(delete_endpoint))
         .route("/v1/events", get(list_events))
@@ -638,7 +727,13 @@ pub fn router(state: Shared) -> Router {
         .route("/docs/{*name}", get(doc_md))
         .route("/llms.txt", get(llms_txt))
         .route("/llms-full.txt", get(llms_full))
-        .layer(tower_http::cors::CorsLayer::permissive())
+        .route("/dashboard", get(dashboard_page))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), api_middleware))
+        .layer(tower_http::cors::CorsLayer::permissive().expose_headers([
+            axum::http::HeaderName::from_static("receipts-version"),
+            axum::http::HeaderName::from_static("ratelimit-remaining"),
+            axum::http::HeaderName::from_static("idempotent-replayed"),
+        ]))
         .with_state(state)
 }
 
@@ -647,7 +742,12 @@ pub fn router(state: Shared) -> Router {
 pub async fn build(db_path: &str, config: Config) -> anyhow::Result<(Router, Vec<(String, String)>)> {
     let db = Db::open(db_path)?;
     let keys = db.ensure_keys()?;
-    let state = Arc::new(AppState { db, config, http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build()? });
+    let state = Arc::new(AppState {
+        db,
+        config,
+        http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build()?,
+        rate: Default::default(),
+    });
     tokio::spawn(webhooks::worker(state.clone()));
     tokio::spawn(verify::warm_up());
     Ok((router(state), keys))

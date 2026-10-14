@@ -26,3 +26,4 @@ orchard.workspace = true
 zcash_address.workspace = true
 zcash_protocol.workspace = true
 tracing = "0.1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

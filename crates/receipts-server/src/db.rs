@@ -49,6 +49,22 @@ CREATE TABLE IF NOT EXISTS request_payments (
     sender_addresses TEXT NOT NULL DEFAULT '[]',
     created INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS refunds (
+    id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL,
+    request_id TEXT NOT NULL REFERENCES requests(id),
+    payment_txid TEXT NOT NULL,
+    address TEXT NOT NULL,
+    amount_zatoshis INTEGER NOT NULL,
+    reason TEXT,
+    challenge TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    refunded_at INTEGER,
+    txid TEXT,
+    receipt TEXT,
+    verification TEXT
+);
 CREATE TABLE IF NOT EXISTS sign_in_challenges (
     id TEXT PRIMARY KEY,
     mode TEXT NOT NULL,
@@ -126,7 +142,9 @@ impl Db {
         ] {
             let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
         }
-        let _ = conn.execute("ALTER TABLE request_payments ADD COLUMN public_note TEXT", []);
+        for col in ["public_note TEXT", "refund_address TEXT"] {
+            let _ = conn.execute(&format!("ALTER TABLE request_payments ADD COLUMN {col}"), []);
+        }
         Ok(Db(Mutex::new(conn)))
     }
 

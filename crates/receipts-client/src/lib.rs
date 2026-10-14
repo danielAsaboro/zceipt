@@ -177,6 +177,34 @@ impl Client {
     pub async fn submit_receipt(&self, id: &str, receipt: &str) -> Result<Value, Error> {
         self.call(reqwest::Method::POST, &format!("/v1/requests/{id}/receipts"), Some(json!({ "receipt": receipt })), None).await
     }
+    /// Refund a payment to the address the payer signed into their receipt (`--refund-to`).
+    /// `amount_zatoshis: None` refunds what is left of the latest such payment.
+    pub async fn create_refund(&self, request_id: &str, amount_zatoshis: Option<u64>, reason: Option<&str>) -> Result<Value, Error> {
+        let mut b = json!({});
+        if let Some(a) = amount_zatoshis {
+            b["amount_zatoshis"] = a.into();
+        }
+        if let Some(r) = reason {
+            b["reason"] = r.into();
+        }
+        self.call(reqwest::Method::POST, &format!("/v1/requests/{request_id}/refunds"), Some(b), None).await
+    }
+    pub async fn get_refund(&self, id: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, &format!("/v1/refunds/{id}"), None, None).await
+    }
+    /// Settle a refund with the receipt for the refund payment (signing the refund's challenge).
+    pub async fn submit_refund_receipt(&self, id: &str, receipt: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::POST, &format!("/v1/refunds/{id}/receipts"), Some(json!({ "receipt": receipt })), None).await
+    }
+    /// Sign in with Zcash: a single-use nonce for `domain` (default: the API's host).
+    pub async fn create_sign_in_challenge(&self, domain: Option<&str>) -> Result<Value, Error> {
+        let b = domain.map(|d| json!({ "domain": d })).unwrap_or(json!({}));
+        self.call(reqwest::Method::POST, "/v1/sign_in/challenges", Some(b), None).await
+    }
+    /// Checks a `zsig1…` sign-in once and returns the proven address.
+    pub async fn verify_sign_in(&self, sign_in: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::POST, "/v1/sign_in/verify", Some(json!({ "sign_in": sign_in })), None).await
+    }
     pub async fn create_webhook_endpoint(&self, url: &str, events: Option<&[&str]>) -> Result<Value, Error> {
         let mut b = json!({ "url": url });
         if let Some(e) = events {

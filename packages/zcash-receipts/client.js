@@ -79,6 +79,19 @@ export class Receipts {
       /** Iterate every request across pages: `for await (const r of receipts.requests.each())`. */
       each: (params = {}) => paginate((p) => r.requests.list(p), params),
     };
+    this.refunds = {
+      /** Refund a payment to the payer's signed refund address: `{ amount_zatoshis?, reason?, payment_txid? }`. */
+      create: (requestId, params = {}, opts) => r._request("POST", `/v1/requests/${encodeURIComponent(requestId)}/refunds`, params, opts),
+      retrieve: (id) => r._request("GET", `/v1/refunds/${encodeURIComponent(id)}`),
+      /** Settle a refund with the receipt for the refund payment. */
+      submitReceipt: (id, params, opts) => r._request("POST", `/v1/refunds/${encodeURIComponent(id)}/receipts`, params, opts),
+    };
+    this.signIn = {
+      /** Sign in with Zcash: a single-use nonce bound to `{ domain }`, valid 5 minutes. */
+      createChallenge: (params = {}) => r._request("POST", "/v1/sign_in/challenges", params),
+      /** Check a `zsig1…` once: `{ sign_in }` → `{ verified, address, domain }`. */
+      verify: (params) => r._request("POST", "/v1/sign_in/verify", typeof params === "string" ? { sign_in: params } : params),
+    };
     this.webhookEndpoints = {
       create: (params) => r._request("POST", "/v1/webhook_endpoints", params),
       list: () => r._request("GET", "/v1/webhook_endpoints"),

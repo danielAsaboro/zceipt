@@ -42,3 +42,6 @@ zcash_protocol = { workspace = true, features = ["local-consensus"] }
 zcash_address.workspace = true
 zip32 = "0.3"
 zcash_note_encryption.workspace = true
+
+[dev-dependencies]
+base64 = "0.22"

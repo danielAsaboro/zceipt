@@ -91,13 +91,13 @@ pub fn load(st: &AppState, mode: Option<Mode>, id: &str) -> Result<RequestRec, A
 
 fn payments(st: &AppState, id: &str) -> Result<Vec<Value>, ApiError> {
     let c = st.db.0.lock().unwrap();
-    let mut stmt = c.prepare("SELECT txid, zatoshis, mined_height, memo, sender_addresses, created FROM request_payments WHERE request_id = ?1 ORDER BY id")?;
+    let mut stmt = c.prepare("SELECT txid, zatoshis, mined_height, memo, sender_addresses, created, refund_address FROM request_payments WHERE request_id = ?1 ORDER BY id")?;
     let rows = stmt
         .query_map([id], |r| {
             Ok(json!({
                 "txid": r.get::<_, String>(0)?, "zatoshis": r.get::<_, i64>(1)?, "mined_height": r.get::<_, Option<i64>>(2)?,
                 "memo": r.get::<_, Option<String>>(3)?, "sender_addresses": serde_json::from_str::<Value>(&r.get::<_, String>(4)?).unwrap_or(json!([])),
-                "created": r.get::<_, i64>(5)?,
+                "created": r.get::<_, i64>(5)?, "refund_address": r.get::<_, Option<String>>(6)?,
             }))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -152,6 +152,7 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "hosted_url": hosted(st, &format!("/pay/{}?secret={secret}", r.id)),
         "public_url": (r.kind == "campaign").then(|| hosted(st, &format!("/c/{}", r.id))),
         "payments": payments(st, &r.id).unwrap_or_default(),
+        "refunds": crate::refunds::refunds_of(st, &r.id),
         "fulfillment": r.fulfilled_at.map(|t| json!({
             "fulfilled_at": t,
             "txid": r.txid,
@@ -304,9 +305,11 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         let memo = v.outputs.iter().find(|o| o.recipient_raw == receipts_chain::chain::orchard_receiver_of(&r.payee).unwrap_or([0; 43])).and_then(|o| o.memo.clone());
         // A public note only if the contributor signed one into the receipt.
         let public_note = v.message.lines().find_map(|l| l.strip_prefix("public-note:")).map(|s| s.trim().chars().take(140).collect::<String>());
+        // A refund address only if the payer signed one into the receipt.
+        let refund_address = crate::refunds::checked_refund_address(st, mode, &v.message);
         tx.execute(
-            "INSERT INTO request_payments (request_id, txid, zatoshis, mined_height, memo, sender_addresses, created, public_note) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-            params![r.id, v.txid, paid as i64, v.mined_height, memo, serde_json::to_string(&v.sender_addresses).unwrap(), now(), public_note],
+            "INSERT INTO request_payments (request_id, txid, zatoshis, mined_height, memo, sender_addresses, created, public_note, refund_address) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![r.id, v.txid, paid as i64, v.mined_height, memo, serde_json::to_string(&v.sender_addresses).unwrap(), now(), public_note, refund_address],
         )?;
         let received = r.received + paid as i64;
         let fulfilled = match r.kind.as_str() {

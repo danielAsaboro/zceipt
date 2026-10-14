@@ -2931,6 +2931,7 @@ dependencies = [
  "age",
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bip0039",
  "clap",
  "hex",

@@ -61,6 +61,60 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
+  /v1/requests/{id}/refunds:
+    post:
+      tags: [Proof requests]
+      operationId: createRefund
+      summary: Refund a payment to the payer's signed refund address
+      description: |
+        Only works if the payer signed `refund-to:<address>` into their receipt (`receipts create --refund-to`).
+        Returns a ZIP-321 `payment_uri` to that address and a `challenge` for the refund receipt. Emits `refund.created`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount_zatoshis: { type: integer, minimum: 1, description: "Default: what is left of the payment." }
+                reason: { type: string, maxLength: 200 }
+                payment_txid: { type: string, description: "Which payment to refund. Default: the latest one with a refund address." }
+      responses:
+        "201": { description: Refund created }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /v1/refunds/{id}:
+    get:
+      tags: [Proof requests]
+      operationId: getRefund
+      summary: Retrieve a refund
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Refund }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/refunds/{id}/receipts:
+    post:
+      tags: [Proof requests]
+      operationId: submitRefundReceipt
+      summary: Settle a refund with a receipt for the refund payment
+      description: The receipt must sign `challenge:<refund challenge>` and pay the refund address at least `amount_zatoshis`. Emits `refund.succeeded`.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [receipt], properties: { receipt: { type: string } } }
+      responses:
+        "200": { description: Refund succeeded }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /v1/sign_in/challenges:
     post:
       tags: [Sign in with Zcash]

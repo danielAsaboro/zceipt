@@ -388,3 +388,50 @@ async fn sign_in_with_zcash() {
     let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": "zsig1AAAA" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("sign_in_malformed")));
 }
+
+#[tokio::test]
+async fn refunds_go_to_the_signed_address_and_need_proof() {
+    let (app, test, _) = app().await;
+    let refund_to = receipts_server::sandbox::SANDBOX_REFUND_ADDRESS;
+    // A payment without a signed refund address cannot be refunded through the API.
+    let (_, r1, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 300000 })), None).await;
+    let id1 = r1["id"].as_str().unwrap();
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id1}/refunds"), Some(&test), Some(json!({})), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("refund_not_possible")));
+    call(&app, "POST", &format!("/v1/requests/{id1}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id1}/refunds"), Some(&test), Some(json!({})), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("refund_address_missing")));
+
+    // The payer signed refund-to: the merchant can refund part, then the rest, never more.
+    let (_, r2, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 300000 })), None).await;
+    let id2 = r2["id"].as_str().unwrap();
+    let (s, paid, _) = call(&app, "POST", &format!("/v1/requests/{id2}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_refund_to" })), None).await;
+    assert_eq!(s, StatusCode::OK, "{paid}");
+    assert_eq!(paid["payments"][0]["refund_address"].as_str(), Some(refund_to));
+    let (s, rf, _) = call(&app, "POST", &format!("/v1/requests/{id2}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 100000, "reason": "one coffee was cold" })), Some("rf1")).await;
+    assert_eq!(s, StatusCode::CREATED, "{rf}");
+    assert_eq!((rf["status"].as_str(), rf["address"].as_str()), (Some("pending"), Some(refund_to)));
+    assert!(rf["payment_uri"].as_str().unwrap().starts_with(&format!("zcash:{refund_to}?amount=0.001&")));
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id2}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 200001 })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("refund_amount_invalid")));
+
+    // Settling needs a receipt that signs the refund's challenge and pays the refund address.
+    let rid = rf["id"].as_str().unwrap();
+    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_challenge_mismatch" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("challenge_mismatch")));
+    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_insufficient_amount" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("insufficient_amount")));
+    let (s, done, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!((s, done["status"].as_str()), (StatusCode::OK, Some("succeeded")), "{done}");
+    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("refund_already_succeeded")));
+
+    // The rest of the payment is still refundable; the request lists both refunds.
+    let (s, rest, _) = call(&app, "POST", &format!("/v1/requests/{id2}/refunds"), Some(&test), Some(json!({})), None).await;
+    assert_eq!((s, rest["amount_zatoshis"].as_i64()), (StatusCode::CREATED, Some(200000)));
+    let (_, req, _) = call(&app, "GET", &format!("/v1/requests/{id2}"), Some(&test), None, None).await;
+    assert_eq!(req["refunds"].as_array().unwrap().len(), 2);
+    let (_, ev, _) = call(&app, "GET", "/v1/events?limit=50", Some(&test), None, None).await;
+    let types: Vec<&str> = ev["data"].as_array().unwrap().iter().filter_map(|e| e["type"].as_str()).collect();
+    assert!(types.contains(&"refund.created") && types.contains(&"refund.succeeded"), "{types:?}");
+}

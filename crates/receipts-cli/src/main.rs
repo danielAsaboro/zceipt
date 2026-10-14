@@ -68,6 +68,10 @@ enum Cmd {
         /// For campaigns: a note you choose to show publicly (signed into the receipt).
         #[arg(long)]
         public_note: Option<String>,
+        /// Where the merchant should send a refund, signed into the receipt so only you could
+        /// have chosen it. Use an address of yours (any receiver type the merchant can pay).
+        #[arg(long)]
+        refund_to: Option<String>,
         /// A proof request link from the verifier page (`…?request=<code>&to=<ua>&min=<zats>`).
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
@@ -315,12 +319,16 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, public_note } => {
-            let msg = match public_note {
-                Some(n) if msg.is_empty() => format!("public-note:{n}"),
-                Some(n) => format!("{msg}\npublic-note:{n}"),
-                None => msg,
-            };
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, public_note, refund_to } => {
+            let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
+            if let Some(n) = public_note {
+                lines.push(format!("public-note:{n}"));
+            }
+            if let Some(a) = refund_to {
+                receipts_chain::chain::orchard_receiver_of(&a).map_err(|e| anyhow::anyhow!("--refund-to: {e}"))?;
+                lines.push(format!("refund-to:{a}"));
+            }
+            let msg = lines.join("\n");
             let pool = match pool.as_deref() {
                 None => None,
                 Some("ironwood") => Some(Pool::Ironwood),

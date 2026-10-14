@@ -179,8 +179,9 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> any
         Pool::Orchard => tx.orchard_bundle(),
     }
     .ok_or_else(|| anyhow!("transaction has no {:?} bundle", u.pool))?;
-    let vk = receipts_core::verifying_key();
-    let v = receipts_core::verify(&vk, receipt, u.coin_type, u.pool, u.txid, bundle)?;
+    static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
+    let vk = VK.get_or_init(receipts_core::verifying_key);
+    let v = receipts_core::verify(vk, receipt, u.coin_type, u.pool, u.txid, bundle)?;
     Ok(Report {
         valid: true,
         network: net.name(),

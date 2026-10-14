@@ -125,6 +125,30 @@ class _Requests(_Resource):
         return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
 
 
+class _Refunds(_Resource):
+    def create(self, request_id: str, *, amount_zatoshis: Optional[int] = None, reason: Optional[str] = None,
+               payment_txid: Optional[str] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+        """Refund a payment to the address the payer signed into their receipt (--refund-to)."""
+        body = {k: v for k, v in dict(amount_zatoshis=amount_zatoshis, reason=reason, payment_txid=payment_txid).items() if v is not None}
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(request_id)}/refunds", body, idempotency_key)
+
+    def retrieve(self, id: str) -> Dict[str, Any]:
+        return self._c._request("GET", f"/v1/refunds/{urllib.parse.quote(id)}")
+
+    def submit_receipt(self, id: str, *, receipt: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+        return self._c._request("POST", f"/v1/refunds/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
+
+
+class _SignIn(_Resource):
+    def create_challenge(self, *, domain: Optional[str] = None) -> Dict[str, Any]:
+        """Sign in with Zcash: a single-use nonce bound to domain, valid 5 minutes."""
+        return self._c._request("POST", "/v1/sign_in/challenges", {"domain": domain} if domain else {})
+
+    def verify(self, sign_in: str) -> Dict[str, Any]:
+        """Check a zsig1… sign-in once; returns the proven address."""
+        return self._c._request("POST", "/v1/sign_in/verify", {"sign_in": sign_in})
+
+
 class _WebhookEndpoints(_Resource):
     def create(self, *, url: str, events: Optional[list] = None) -> Dict[str, Any]:
         return self._c._request("POST", "/v1/webhook_endpoints", {"url": url, **({"events": events} if events else {})})
@@ -154,6 +178,8 @@ class Receipts:
         self.timeout = timeout
         self.livemode = api_key.startswith("rcpt_live_")
         self.requests = _Requests(self)
+        self.refunds = _Refunds(self)
+        self.sign_in = _SignIn(self)
         self.webhook_endpoints = _WebhookEndpoints(self)
         self.events = _Events(self)
 

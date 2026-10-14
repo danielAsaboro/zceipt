@@ -19,6 +19,9 @@ export interface ProofRequest {
   payment_uri: string; receipt_link: string; cli_command: string;
   fulfillment: null | { fulfilled_at: number; txid: string; paid_zatoshis: number; verification: Verification };
 }
+export interface Refund { id: string; object: "refund"; livemode: boolean; request: string; payment_txid: string; address: string; amount_zatoshis: number; reason: string | null; challenge: string; status: "pending" | "succeeded"; created: number; payment_uri: string; cli_command: string; refunded_at: number | null; txid: string | null }
+export interface SignInChallenge { id: string; object: "sign_in_challenge"; livemode: boolean; coin_type: number; domain: string; nonce: string; created: number; expires_at: number; status: "pending" | "used" | "expired"; wallet_command: string }
+export interface SignInResult { object: "sign_in"; verified: true; livemode: boolean; challenge: string; domain: string; issued_at: number; address: string }
 export interface WebhookEndpoint { id: string; object: "webhook_endpoint"; url: string; events: string[]; secret?: string }
 export interface ReceiptsEvent<T = any> { id: string; object: "event"; type: "request.created" | "request.payment_received" | "request.fulfilled" | "request.expired" | "receipt.rejected"; created: number; livemode: boolean; data: { object: T } }
 export interface List<T> { object: "list"; data: T[]; has_more: boolean }
@@ -42,6 +45,15 @@ export class Receipts {
     list(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number; starting_after?: string }): Promise<List<ProofRequest>>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<ProofRequest>;
     each(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number }): AsyncIterable<ProofRequest>;
+  };
+  refunds: {
+    create(requestId: string, params?: { amount_zatoshis?: number; reason?: string; payment_txid?: string }, opts?: RequestOptions): Promise<Refund>;
+    retrieve(id: string): Promise<Refund>;
+    submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<Refund>;
+  };
+  signIn: {
+    createChallenge(params?: { domain?: string }): Promise<SignInChallenge>;
+    verify(params: string | { sign_in: string }): Promise<SignInResult>;
   };
   webhookEndpoints: {
     create(params: { url: string; events?: string[] }): Promise<WebhookEndpoint>;

@@ -14,6 +14,7 @@
 
 pub mod db;
 pub mod error;
+pub mod refunds;
 pub mod requests;
 pub mod sandbox;
 pub mod signin;
@@ -518,6 +519,7 @@ const DOCS: &[(&str, &str)] = &[
     ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),
+    ("guides/refunds.md", include_str!("../../../docs/guides/refunds.md")),
     ("guides/sign-in.md", include_str!("../../../docs/guides/sign-in.md")),
 ];
 
@@ -552,6 +554,9 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/requests/{id}", get(get_request))
         .route("/v1/requests/{id}/receipts", post(submit_receipt))
         .route("/v1/requests/{id}/qr.svg", get(request_qr))
+        .route("/v1/requests/{id}/refunds", post(refunds::create))
+        .route("/v1/refunds/{id}", get(refunds::get))
+        .route("/v1/refunds/{id}/receipts", post(refunds::submit))
         .route("/v1/deliveries", get(list_deliveries))
         .route("/v1/public/requests/{id}", get(requests::public_get))
         .route("/v1/public/requests/{id}/qr.svg", get(requests::public_qr))

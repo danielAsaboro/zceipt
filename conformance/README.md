@@ -1,0 +1,20 @@
+# Conformance vectors
+
+`vectors.json` holds 77 cases built from real receipts (a regtest and a testnet Ironwood payment)
+and a real testnet "Sign in with Zcash". Each case says what any correct verifier must answer:
+
+- valid receipts, with the amounts and memos they must open to;
+- the same receipts with one character changed in 24 places (header, message, outputs, proof,
+  signature), truncated, extended, mis-prefixed, or checked against the wrong transaction;
+- a valid sign-in, and the same sign-in for another domain, another nonce, or altered.
+
+Both verifiers in this repository run every vector: the Rust one
+(`cargo test -p receipts-cli --test conformance`) and the WebAssembly/npm one
+(`node --test packages/zcash-receipts/test/conformance.test.js`). A third-party verifier is
+conformant when it agrees with `expect.valid` on all of them. Everything is offline: each
+receipt vector carries its raw transaction and height.
+
+The Rust run also includes a small fuzz pass: 20,000 random and mutated inputs through every
+decoder (`zrcpt1`, `zrcptb1`, `zsig1`), which must reject without panicking.
+
+Regenerate with `python3 scripts/gen-conformance.py` after changing an example.

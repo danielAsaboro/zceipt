@@ -30,6 +30,12 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="request_already_fulfilled"></a>`request_already_fulfilled` | 409 | The proof request was already fulfilled. |
 | <a id="payment_already_used"></a>`payment_already_used` | 409 | This payment (transaction output) already counted towards a request. One payment can settle only one request. |
 | <a id="request_expired"></a>`request_expired` | 409 | The proof request expired before a valid receipt arrived. |
+| <a id="refund_not_found"></a>`refund_not_found` | 404 | No refund with that id for this key's mode. |
+| <a id="payment_not_found"></a>`payment_not_found` | 404 | No payment with that txid on this request. |
+| <a id="refund_not_possible"></a>`refund_not_possible` | 409 | The request has no payments to refund. |
+| <a id="refund_address_missing"></a>`refund_address_missing` | 409 | The payer did not sign a refund address into their receipt (`receipts create --refund-to`). |
+| <a id="refund_amount_invalid"></a>`refund_amount_invalid` | 400 | The refund amount is zero or more than what is left of the payment. |
+| <a id="refund_already_succeeded"></a>`refund_already_succeeded` | 409 | The refund was already settled with a receipt. |
 | <a id="sign_in_malformed"></a>`sign_in_malformed` | 400 | The `sign_in` text could not be decoded as a zsig1… sign-in. |
 | <a id="sign_in_challenge_not_found"></a>`sign_in_challenge_not_found` | 404 | No sign-in challenge with that nonce for this key's mode. |
 | <a id="sign_in_challenge_used"></a>`sign_in_challenge_used` | 409 | The sign-in challenge was already used. Each nonce signs in once. |

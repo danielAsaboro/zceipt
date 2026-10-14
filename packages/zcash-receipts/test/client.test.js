@@ -42,3 +42,16 @@ test("API: verify succeeds, wrong challenge is a VerificationError with a code",
   assert.equal(v.mined_height, 4500997);
   await assert.rejects(r.verify({ receipt, challenge: "00112233aabbccdd" }), (e) => e instanceof VerificationError && e.code === "challenge_mismatch");
 });
+
+test("refunds and sign-in route to the right endpoints", async () => {
+  const { Receipts } = await import("../client.js");
+  const calls = [];
+  const fetch = async (url, init) => { calls.push([init.method, url, init.body]); return new Response(JSON.stringify({ ok: true }), { status: 200 }); };
+  const r = new Receipts("rcpt_test_x", { baseUrl: "http://api", fetch });
+  await r.refunds.create("preq_1", { amount_zatoshis: 5 });
+  await r.refunds.submitReceipt("rf_1", { receipt: "zrcpt_test_valid" });
+  await r.signIn.createChallenge({ domain: "a.example" });
+  await r.signIn.verify("zsig1abc");
+  assert.deepEqual(calls.map((c) => c[1]), ["http://api/v1/requests/preq_1/refunds", "http://api/v1/refunds/rf_1/receipts", "http://api/v1/sign_in/challenges", "http://api/v1/sign_in/verify"]);
+  assert.equal(JSON.parse(calls[3][2]).sign_in, "zsig1abc");
+});

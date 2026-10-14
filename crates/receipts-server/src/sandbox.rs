@@ -13,6 +13,7 @@
 //! | `zrcpt_test_chain_unavailable`   | `chain_unavailable` (502, retryable)      |
 //! | `zrcpt_test_partial`             | valid; pays half of what is still owed    |
 //! | `zrcpt_test_public_note`         | valid; the contributor opted in to a public campaign note |
+//! | `zrcpt_test_refund_to`           | valid; the payer signed a refund address  |
 //! | `zrcpt_test_same_payment`        | valid; always the same transaction, to see `payment_already_used` |
 
 use crate::{error::ApiError, verify::{Output, Verification}};
@@ -38,7 +39,11 @@ pub const FIXTURES: &[&str] = &[
     "zrcpt_test_partial",
     "zrcpt_test_same_payment",
     "zrcpt_test_public_note",
+    "zrcpt_test_refund_to",
 ];
+
+/// The refund address `zrcpt_test_refund_to` signs (a testnet address).
+pub const SANDBOX_REFUND_ADDRESS: &str = "utest1vuxevmthp07lftrlqy86a3us3nsl5ssq8ejwp5t5mqly2zrqa79v06qsm89983eqqllwwchnqkl0z2gh2nragk474pgexmf508m2qtz3r7w7nv25jaktzm4nxselfl5de9z9f8a9sv23r7v8fsr7nzcfz4vwsd80h2jtq0h0qpj5h3znrdf09hns22nmeh99a8mk8znd75cfzgs5nqu";
 
 /// Resolves a fixture. `payee`, `amount` and `challenge` are what the caller expects, so the
 /// valid fixture satisfies them and the failing ones fail exactly one check.
@@ -79,6 +84,10 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         }
         "zrcpt_test_public_note" => {
             v.message.push_str("\npublic-note:Good luck with the library!");
+            Ok(v)
+        }
+        "zrcpt_test_refund_to" => {
+            v.message.push_str(&format!("\nrefund-to:{SANDBOX_REFUND_ADDRESS}"));
             Ok(v)
         }
         "zrcpt_test_same_payment" => {

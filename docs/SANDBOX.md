@@ -16,6 +16,7 @@ like Stripe's test card numbers. They work in `POST /v1/verify` and
 | `zrcpt_test_chain_unavailable` | 502 `chain_unavailable` (retryable) |
 | `zrcpt_test_partial` | valid; pays half of what's still owed (for `partial` requests and campaigns) |
 | `zrcpt_test_public_note` | valid; the contributor opted in to a public campaign note |
+| `zrcpt_test_refund_to` | valid; the payer signed a refund address, so `POST /v1/requests/{id}/refunds` works |
 | `zrcpt_test_same_payment` | valid, but always the same transaction: submit it to two requests to see `payment_already_used` |
 
 `wrong_payee`, `insufficient_amount` and `challenge_mismatch` describe a check that fails.

@@ -4,7 +4,7 @@
 
 const ENDPOINTS = {
   mainnet: "https://zcash-mainnet.chainsafe.dev",
-  testnet: "",
+  testnet: "https://zcash-testnet.chainsafe.dev",
 };
 const EXPLORER = {
   mainnet: (t) => `https://mainnet.zcashexplorer.app/transactions/${t}`,

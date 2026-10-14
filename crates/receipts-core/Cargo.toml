@@ -19,6 +19,6 @@ thiserror.workspace = true
 base64.workspace = true
 
 [dev-dependencies]
-rand = { version = "0.8", features = ["std", "getrandom"] }
-incrementalmerkletree = "0.8.1"
-shardtree = "0.6"
+rand = { version = "0.10", features = ["std", "sys_rng"] }
+incrementalmerkletree = "0.9"
+shardtree = "0.8"

@@ -151,7 +151,7 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Resul
             .iter()
             .map(|o| Output {
                 action: o.index,
-                recipient: unified::Address::try_from_items(vec![unified::Receiver::Orchard(o.recipient)])
+                recipient: unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(o.recipient))])
                     .map(|a| a.encode(&nt))
                     .unwrap_or_default(),
                 zatoshis: o.value,
@@ -165,7 +165,7 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Resul
 #[wasm_bindgen]
 pub fn orchard_receiver_hex(ua: &str) -> Result<String, JsError> {
     use zcash_address::unified::Container;
-    let (_, a) = unified::Address::decode(ua).map_err(|e| JsError::new(&e.to_string()))?;
+    let (_, _, a) = unified::Address::decode(ua).map_err(|e| JsError::new(&e.to_string()))?;
     a.items()
         .into_iter()
         .find_map(|r| match r {

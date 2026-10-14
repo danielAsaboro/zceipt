@@ -1,4 +1,4 @@
-const __wbg_star0 = { rustsecp256k1_v0_10_0_context_preallocated_create: () => { throw new Error('secp256k1 is not available in the receipts verifier'); }, rustsecp256k1_v0_10_0_context_preallocated_destroy: () => { throw new Error('secp256k1 is not available in the receipts verifier'); }, rustsecp256k1_v0_10_0_context_preallocated_size: () => { throw new Error('secp256k1 is not available in the receipts verifier'); }, };
+const __wbg_star0 = { rustsecp256k1_v0_14_context_preallocated_create: () => { throw new Error('secp256k1 is not available in the receipts verifier'); }, rustsecp256k1_v0_14_context_preallocated_destroy: () => { throw new Error('secp256k1 is not available in the receipts verifier'); }, rustsecp256k1_v0_14_context_preallocated_size: () => { throw new Error('secp256k1 is not available in the receipts verifier'); }, };
 
 let wasm;
 
@@ -93,12 +93,6 @@ function getDataViewMemory0() {
         cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
     }
     return cachedDataViewMemory0;
-}
-/**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
- */
-export function warm_up() {
-    wasm.warm_up();
 }
 
 function passArray8ToWasm0(arg, malloc) {
@@ -198,6 +192,13 @@ export function orchard_receiver_hex(ua) {
     }
 }
 
+/**
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ */
+export function warm_up() {
+    wasm.warm_up();
+}
+
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
 
 async function __wbg_load(module, imports) {
@@ -261,9 +262,6 @@ function __wbg_get_imports() {
         const len1 = WASM_VECTOR_LEN;
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
-    };
-    imports.wbg.__wbg_wbindgenthrow_451ec1a8469d7eb6 = function(arg0, arg1) {
-        throw new Error(getStringFromWasm0(arg0, arg1));
     };
     imports.wbg.__wbindgen_init_externref_table = function() {
         const table = wasm.__wbindgen_export_3;

@@ -89,12 +89,12 @@ impl Report {
 }
 
 pub fn encode_orchard_receiver(net: Net, raw: [u8; 43]) -> String {
-    let ua = unified::Address::try_from_items(vec![unified::Receiver::Orchard(raw)]).expect("one receiver");
+    let ua = unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))]).expect("one receiver");
     ua.encode(&net.network_type())
 }
 
 pub fn orchard_receiver_of(ua: &str) -> anyhow::Result<[u8; 43]> {
-    let (_, addr) = unified::Address::decode(ua).map_err(|e| anyhow!("not a unified address: {e}"))?;
+    let (_, _, addr) = unified::Address::decode(ua).map_err(|e| anyhow!("not a unified address: {e}"))?;
     addr.items()
         .into_iter()
         .find_map(|r| match r {

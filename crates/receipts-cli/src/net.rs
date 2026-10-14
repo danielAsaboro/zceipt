@@ -66,6 +66,7 @@ pub struct Heights {
     nu6_1: Option<toml::Value>,
     nu6_2: Option<toml::Value>,
     nu6_3: Option<toml::Value>,
+    nu7: Option<toml::Value>,
 }
 
 impl Heights {
@@ -82,6 +83,7 @@ impl Heights {
             nu6_1: h(&self.nu6_1),
             nu6_2: h(&self.nu6_2),
             nu6_3: h(&self.nu6_3),
+            nu7: h(&self.nu7),
         }
     }
 }

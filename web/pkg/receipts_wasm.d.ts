@@ -1,10 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
- */
-export function warm_up(): void;
-/**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
  * Returns JSON describing what the receipt proves, or throws why it is invalid.
@@ -18,6 +14,10 @@ export function inspect(receipt: string): string;
  * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
  */
 export function orchard_receiver_hex(ua: string): string;
+/**
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ */
+export function warm_up(): void;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -27,10 +27,10 @@ export interface InitOutput {
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
-  readonly rustsecp256k1_v0_10_0_default_error_callback_fn: (a: number, b: number) => void;
-  readonly rustsecp256k1_v0_10_0_default_illegal_callback_fn: (a: number, b: number) => void;
-  readonly rustsecp256k1_v0_10_0_context_destroy: (a: number) => void;
-  readonly rustsecp256k1_v0_10_0_context_create: (a: number) => number;
+  readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;
+  readonly rustsecp256k1_v0_14_default_illegal_callback_fn: (a: number, b: number) => void;
+  readonly rustsecp256k1_v0_14_context_destroy: (a: number) => void;
+  readonly rustsecp256k1_v0_14_context_create: (a: number) => number;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

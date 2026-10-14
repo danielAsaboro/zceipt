@@ -27,7 +27,7 @@ fn committed_regtest_receipt_verifies() {
     assert_eq!(v.msg, b"Order #42 at Kemi's Coffee");
 
     let ua = std::fs::read_to_string(format!("{DIR}/merchant.ua")).unwrap();
-    let (_, addr) = unified::Address::decode(ua.trim()).unwrap();
+    let (_, _, addr) = unified::Address::decode(ua.trim()).unwrap();
     let orchard = addr.items().into_iter().find_map(|r| match r {
         unified::Receiver::Orchard(b) => Some(b),
         _ => None,

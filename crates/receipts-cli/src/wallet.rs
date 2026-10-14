@@ -13,7 +13,7 @@ use orchard::{
     value::NoteValue,
     Note,
 };
-use rand::rngs::OsRng;
+use crate::OsRng;
 use crate::net::{Heights, Net};
 use receipts_core::{Pool, Receipt, SpendWitness};
 use secrecy::ExposeSecret;
@@ -152,7 +152,7 @@ where
 
 /// Finds the wallet checkpoint whose root is `anchor` and returns the note's witness there.
 fn witness_at_anchor(
-    db: &mut WalletDb<rusqlite::Connection, Net, SystemClock, OsRng>,
+    db: &mut WalletDb<rusqlite::Connection, Net, SystemClock, rand::rand_core::UnwrapErr<rand::rngs::SysRng>>,
     pool: Pool,
     position: u64,
     anchor: orchard::Anchor,
@@ -185,7 +185,7 @@ pub fn create_receipt(
     let coin_type = net.coin_type();
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
-    let sk: SpendingKey = *usk.orchard();
+    let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
 
     let db_path = wallet.join("data.sqlite");
@@ -213,7 +213,7 @@ pub fn create_receipt(
     for (i, action) in bundle.actions().iter().enumerate() {
         if let Some(stored) = find_spent_note(&conn, pool, &fvk, &action.nullifier().to_bytes())? {
             let path = witness_at_anchor(&mut db, pool, stored.position, *bundle.anchor(), BlockHeight::from_u32(mined))?;
-            spends.push(SpendWitness { index: i, sk, note: stored.note, merkle_path: path });
+            spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path });
         }
     }
     if spends.is_empty() {

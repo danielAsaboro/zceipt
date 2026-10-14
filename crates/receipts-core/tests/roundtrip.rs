@@ -12,7 +12,10 @@ use orchard::{
     value::NoteValue,
     Bundle, Note,
 };
-use rand::rngs::OsRng;
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
+
+#[allow(non_upper_case_globals)]
+const OsRng: UnwrapErr<SysRng> = UnwrapErr(SysRng);
 use receipts_core::{
     create, verify, Error, Pool, Receipt, SpendWitness, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET,
 };

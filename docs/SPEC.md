@@ -109,6 +109,62 @@ not reveal that the payments came from one wallet.
 5. For each output, recover the note with `ock`.
 6. Report the proven spends and the opened outputs.
 
+## Message conventions
+
+`msg` is free text, signed by every spend. These lines have a meaning to verifiers; any other
+text is shown as is.
+
+| line | meaning | checked by |
+|---|---|---|
+| `challenge:<hex>` | answers a proof request; binds the receipt to one invoice so it can't be reused | proof requests (`challenge_mismatch`) |
+| `batch:<id> <i>/<n>` | the receipt's place in a batch (first line) | batch verification |
+| `refund-to:<address>` | where the payer wants refunds sent; only the spender can have written it | refunds API |
+| `public-note:<text>` | an opt-in note for a campaign's public page | campaigns |
+| `tex-deposit:<tex>` + `second-tx:<txid>` | this transaction is the first step of a ZIP 320 payment to that TEX address, and `<txid>` the second | deposit verification (below) |
+
+## Validity levels
+
+ZIP 311 leaves "validity levels" open. Verifiers here report each property separately:
+`spend_authority` (proven, with the number of actions), `outputs` (opened), `sender_address`
+(proven or not disclosed), `challenge` (matched, mismatch, present or none), `confirmations`
+and `finality` (final at 10 confirmations, the reorg limit lightwalletd clients assume). The
+overall verdict is `valid` when final and `valid_provisional` before.
+
+## Exchange deposits (ZIP 320)
+
+A shielded payment to a TEX address takes two transactions: `tx1` spends shielded notes to an
+ephemeral transparent address, `tx2` spends that output to the TEX's P2PKH. A deposit receipt is
+an ordinary receipt for `tx1` (usually with no disclosed shielded outputs) whose message carries
+the `tex-deposit:`/`second-tx:` lines. The verifier additionally checks that every input of `tx2`
+spends an output of `tx1`, and sums `tx2`'s outputs to the TEX's P2PKH hash. The receipt then
+proves that the holder of `tx1`'s spend authority made the deposit, which links their shielded
+funds to it: it should only be shown to the exchange.
+
+## Sign in with Zcash
+
+The address proof above, without a transaction. The wallet makes a fresh `alpha`, an address
+proof for `A` under `rk = SpendAuthSig.RandomizePublic(alpha, ak)`, and a `SpendAuthSig` by
+`rsk` over
+
+```
+personalization = "ZcashSignIn\0" || I2LEOSP_32(coinType)
+digest = BLAKE2b-256(personalization, "Receipts sign-in v1" || len32 || domain || len32 || nonce
+                     || issued_at:u64le || rk || A || rho || rseed || nf || cv_net || cmx || proof)
+text   = "zsig1" || base64url_nopad("ZSIG" | 1 | coinType:u32le | len16 domain | len16 nonce
+                     | issued_at:u64le | rk | A | rho | rseed | nf | cv_net | cmx | len32 proof | sig)
+```
+
+A verifier issues a single-use nonce bound to its domain, checks the signature, the domain, the
+nonce and the proof, then spends the nonce. A sign-in made for another domain or replayed fails.
+
+## Attestations
+
+For people who need a fact about a payment rather than the payment, a verifier that checked a
+receipt can sign an SD-JWT (Ed25519) stating a lower bound on the amount, a day the payment was
+on or before, the network and finality. The txid, the exact amount, the exact time, the request
+id and the label are selectively disclosable claims. This is the server's word, so it is only as
+trustworthy as the server; the receipt remains the trustless proof.
+
 ## Differences from the Sapling text, and open points
 
 - **Sender address (optional).** Sapling ZIP 311 can prove a payment address with a ZIP 304
@@ -121,7 +177,9 @@ not reveal that the payments came from one wallet.
   `A`. The address proof's fields are covered by the receipt signature (encoding version 2
   adds them per spend). Without it, as with Sapling, a disclosure proves "the holder of this
   spend authority paid", not "address X paid".
-- **Transparent inputs** (BIP 322) are out of scope, as they are still `TODO` in ZIP 311.
+- **Transparent inputs** (BIP 322) are out of scope, as they are still `TODO` in ZIP 311. The
+  ZIP 320 deposit above proves a transparent hop that follows a shielded spend, not a
+  transparent input itself.
 - **Witness availability.** The sender needs the spent note's Merkle path at the
   transaction's anchor. `receipts create` first uses the wallet's checkpoints. If they have
   been pruned, it rebuilds the path from public chain data: the pool's tree frontier just

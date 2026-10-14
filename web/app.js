@@ -180,13 +180,14 @@ function render(v, net) {
       ${rows}
       <div class="line"><span class="k">TX</span>${EXPLORER[v.network] ? `<a class="v mono" target="_blank" rel="noreferrer noopener" href="${EXPLORER[v.network](v.txid)}">${short(v.txid, 8)}</a>` : `<span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span>`}</div>
       <div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>
+      ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(proven)</small></span></div>`).join("")}
       ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message)}</span></div>` : ""}
       <div class="dash"></div>
       <div class="stamp good">VERIFIED</div>
       <ul class="facts">
         <li>The sender proved they authorized this payment (zero-knowledge proof + signature over this receipt).</li>
         <li>The amount, recipient and memo above were opened from the transaction on chain.</li>
-        <li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>
+        ${(v.sender_addresses || []).length ? `<li>The sender also proved they control the FROM address above.</li><li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
       </ul>
       <div id="reqChecks"></div>
       <div class="check">

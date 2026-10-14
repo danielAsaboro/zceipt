@@ -140,6 +140,7 @@ fn make_receipt(s: &Scenario, pool: Pool, msg: &[u8]) -> Receipt {
             sk: s.sender_sk.clone(),
             note: s.funding_note,
             merkle_path: s.funding_path.clone(),
+            prove_address: None,
         }],
         OsRng,
     )
@@ -246,6 +247,7 @@ fn only_the_spender_can_create() {
             sk: thief,
             note: s.funding_note,
             merkle_path: s.funding_path.clone(),
+            prove_address: None,
         }],
         OsRng,
     )
@@ -271,4 +273,45 @@ fn batch_roundtrip_and_checks() {
     // Duplicating a position is detected.
     let dup = ReceiptBatch { receipts: vec![mk(1, 2), mk(1, 2)] };
     assert!(check_batch(&dup).is_err());
+}
+
+#[test]
+fn address_proof_roundtrip_and_rejections() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let public_addr = fvk.address_at(5u32, Scope::External);
+    let mk = |addr| {
+        create(
+            &keys().0,
+            COIN_TYPE_TESTNET,
+            Pool::Ironwood,
+            TXID,
+            &s.payment,
+            b"donation drive",
+            &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+            &[SpendWitness {
+                index: s.spend_index,
+                sk: s.sender_sk.clone(),
+                note: s.funding_note,
+                merkle_path: s.funding_path.clone(),
+                prove_address: Some(addr),
+            }],
+            OsRng,
+        )
+    };
+    let r = mk(public_addr).unwrap();
+    let text = r.to_text();
+    let parsed = Receipt::from_text(&text).unwrap();
+    assert_eq!(parsed, r);
+    let v = verify(&keys().1, &parsed, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+    assert_eq!(v.proven_addresses, vec![(s.spend_index as u32, public_addr.to_raw_address_bytes())]);
+
+    // Someone else's address can't be claimed.
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(mk(merchant).unwrap_err(), Error::AddressNotOwned);
+
+    // Swapping the claimed address after signing breaks the signature.
+    let mut bad = r.clone();
+    bad.unsigned.spends[0].address.as_mut().unwrap().address = merchant.to_raw_address_bytes();
+    assert!(verify(&keys().1, &bad, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).is_err());
 }

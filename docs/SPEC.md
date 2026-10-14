@@ -111,10 +111,16 @@ not reveal that the payments came from one wallet.
 
 ## Differences from the Sapling text, and open points
 
-- **Sender address.** Sapling ZIP 311 can optionally prove a payment address with a ZIP 304
-  proof. That is not included here. Like Sapling, an Orchard spend authority covers every
-  diversified address of the key, so a disclosure proves "the holder of this spend authority
-  paid", not "address X paid".
+- **Sender address (optional).** Sapling ZIP 311 can prove a payment address with a ZIP 304
+  proof. The Orchard version here is a second action proof under the **same** `alpha`, so it
+  has the same `rk` as the spend disclosure. It spends a fresh 1-zatoshi note addressed to
+  the claimed address `A`, and reveals that note's `rho` and `rseed`. The verifier recomputes
+  the note commitment and the root of a one-leaf tree holding it, and uses that root as the
+  anchor. Because the value is non-zero, the circuit enforces the anchor, so the proof shows
+  that `A = (d, [ivk] g_d)` for the `ak` behind `rk`, and therefore that the spender controls
+  `A`. The address proof's fields are covered by the receipt signature (encoding version 2
+  adds them per spend). Without it, as with Sapling, a disclosure proves "the holder of this
+  spend authority paid", not "address X paid".
 - **Transparent inputs** (BIP 322) are out of scope, as they are still `TODO` in ZIP 311.
 - **Witness availability.** The sender needs the spent note's Merkle path at the
   transaction's anchor. `receipts create` first uses the wallet's checkpoints. If they have

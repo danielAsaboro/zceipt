@@ -11,11 +11,13 @@
 //!
 //! The text form is `zrcpt1` followed by the unpadded base64url encoding of the receipt.
 
-use crate::{OutputDisclosure, Pool, Receipt, SpendDisclosure, UnsignedReceipt};
+use crate::{AddressProof, OutputDisclosure, Pool, Receipt, SpendDisclosure, UnsignedReceipt};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
 const MAGIC: &[u8; 4] = b"ZRCT";
 const VERSION: u8 = 1;
+/// Version 2 adds an optional address proof after each spend.
+const VERSION_ADDR: u8 = 2;
 /// Prefix of the text encoding.
 pub const TEXT_PREFIX: &str = "zrcpt1";
 const MAX_PROOF_LEN: usize = 1 << 16;
@@ -69,8 +71,9 @@ impl UnsignedReceipt {
     /// The canonical byte encoding that signatures commit to.
     pub fn encode(&self) -> Vec<u8> {
         let mut v = Vec::new();
+        let with_addr = self.spends.iter().any(|s| s.address.is_some());
         v.extend_from_slice(MAGIC);
-        v.push(VERSION);
+        v.push(if with_addr { VERSION_ADDR } else { VERSION });
         v.extend_from_slice(&self.coin_type.to_le_bytes());
         v.push(self.pool.to_byte());
         v.extend_from_slice(&self.txid);
@@ -89,6 +92,22 @@ impl UnsignedReceipt {
             v.extend_from_slice(&s.cmx);
             v.extend_from_slice(&(s.proof.len() as u32).to_le_bytes());
             v.extend_from_slice(&s.proof);
+            if with_addr {
+                match &s.address {
+                    None => v.push(0),
+                    Some(a) => {
+                        v.push(1);
+                        v.extend_from_slice(&a.address);
+                        v.extend_from_slice(&a.rho);
+                        v.extend_from_slice(&a.rseed);
+                        v.extend_from_slice(&a.nf);
+                        v.extend_from_slice(&a.cv_net);
+                        v.extend_from_slice(&a.cmx);
+                        v.extend_from_slice(&(a.proof.len() as u32).to_le_bytes());
+                        v.extend_from_slice(&a.proof);
+                    }
+                }
+            }
         }
         v
     }
@@ -98,7 +117,7 @@ impl UnsignedReceipt {
             return Err(DecodeError::BadMagic);
         }
         let version = r.u8()?;
-        if version != VERSION {
+        if version != VERSION && version != VERSION_ADDR {
             return Err(DecodeError::UnsupportedVersion(version));
         }
         let coin_type = r.u32()?;
@@ -127,12 +146,28 @@ impl UnsignedReceipt {
                 return Err(DecodeError::TooLarge);
             }
             let proof = r.take(len)?.to_vec();
+            let address = if version == VERSION_ADDR && r.u8()? == 1 {
+                let address: [u8; 43] = r.take(43)?.try_into().unwrap();
+                let rho = r.arr32()?;
+                let rseed = r.arr32()?;
+                let nf = r.arr32()?;
+                let cv_net = r.arr32()?;
+                let cmx = r.arr32()?;
+                let len = r.u32()? as usize;
+                if len > MAX_PROOF_LEN {
+                    return Err(DecodeError::TooLarge);
+                }
+                Some(AddressProof { address, rho, rseed, nf, cv_net, cmx, proof: r.take(len)?.to_vec() })
+            } else {
+                None
+            };
             spends.push(SpendDisclosure {
                 index,
                 cv_net,
                 rk,
                 cmx,
                 proof,
+                address,
             });
         }
         Ok(UnsignedReceipt {

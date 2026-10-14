@@ -54,6 +54,8 @@ pub struct Report {
     pub mined_height: u32,
     pub message: String,
     pub proven_spend_actions: Vec<u32>,
+    /// Public addresses the sender proved they control (empty unless they chose to).
+    pub sender_addresses: Vec<String>,
     pub outputs: Vec<ReportOutput>,
 }
 
@@ -78,13 +80,20 @@ impl Report {
             println!("  message   {}", self.message);
         }
         println!("  sender    proved spend authority for action(s) {:?}", self.proven_spend_actions);
+        for a in &self.sender_addresses {
+            println!("  from      {a} (proven by the sender)");
+        }
         for o in &self.outputs {
             println!("  paid      {} ZEC to {}", o.zec, o.recipient);
             if let Some(m) = &o.memo {
                 println!("            memo: {m}");
             }
         }
-        println!("  nothing else about the sender's wallet is revealed");
+        if self.sender_addresses.is_empty() {
+            println!("  nothing else about the sender's wallet is revealed");
+        } else {
+            println!("  nothing else about the sender's wallet (balance, other transactions) is revealed");
+        }
     }
 }
 
@@ -142,6 +151,7 @@ pub async fn verify_against_chain(
         mined_height: height,
         message: String::from_utf8_lossy(&v.msg).into_owned(),
         proven_spend_actions: v.proven_spends,
+        sender_addresses: v.proven_addresses.iter().map(|(_, a)| encode_orchard_receiver(net, *a)).collect(),
         outputs: v
             .outputs
             .iter()

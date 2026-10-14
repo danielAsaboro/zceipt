@@ -44,6 +44,7 @@ struct Verified {
     mined_height: u32,
     message: String,
     proven_spend_actions: Vec<u32>,
+    sender_addresses: Vec<String>,
     outputs: Vec<Output>,
 }
 
@@ -146,6 +147,15 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Resul
         mined_height: height,
         message: String::from_utf8_lossy(&v.msg).into_owned(),
         proven_spend_actions: v.proven_spends,
+        sender_addresses: v
+            .proven_addresses
+            .iter()
+            .map(|(_, a)| {
+                unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(*a))])
+                    .map(|ua| ua.encode(&nt))
+                    .unwrap_or_default()
+            })
+            .collect(),
         outputs: v
             .outputs
             .iter()

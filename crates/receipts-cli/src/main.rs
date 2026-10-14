@@ -60,6 +60,10 @@ enum Cmd {
         /// lightwalletd server (host:port) used when rebuilding from chain data.
         #[arg(short, long)]
         server: Option<String>,
+        /// Also prove that this wallet controls this public address (e.g. a donation address),
+        /// so the verifier sees who paid. Without it, the sender stays anonymous.
+        #[arg(long)]
+        prove_address: Option<String>,
         /// A proof request link from the verifier page (`…?request=<code>&to=<ua>&min=<zats>`).
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
@@ -219,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request } => {
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address } => {
             let pool = match pool.as_deref() {
                 None => None,
                 Some("ironwood") => Some(Pool::Ironwood),
@@ -247,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref()).await?);
+                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref()).await?);
                 }
                 let batch = receipts_core::ReceiptBatch { receipts };
                 receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
@@ -261,7 +265,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
-            let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref()).await?;
+            let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref()).await?;
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.

@@ -1,24 +1,24 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
+ * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ */
+export function orchard_receiver_hex(ua: string): string;
+/**
  * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
  * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
  */
 export function open_batch(batch: string): string;
+/**
+ * Decodes a receipt without verifying it. Returns JSON.
+ */
+export function inspect(receipt: string): string;
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
  * Returns JSON describing what the receipt proves, or throws why it is invalid.
  */
 export function verify(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
-/**
- * Decodes a receipt without verifying it. Returns JSON.
- */
-export function inspect(receipt: string): string;
-/**
- * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
- */
-export function orchard_receiver_hex(ua: string): string;
 /**
  * Builds the verifying key now (a few seconds), so `verify` is fast later.
  */

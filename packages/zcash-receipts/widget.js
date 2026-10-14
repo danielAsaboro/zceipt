@@ -69,6 +69,7 @@ class ZcashReceipt extends HTMLElement {
         <div class="row"><span class="k">TO</span>${esc(short(o.recipient, 12))}</div>
         ${o.memo ? `<div class="row"><span class="k">MEMO</span><span class="memo">“${esc(o.memo)}”</span></div>` : ""}` : ""}
         ${v.outputs.length > 1 ? `<div class="row">+ ${v.outputs.length - 1} more output(s)</div>` : ""}
+        ${(v.sender_addresses || []).map((s) => `<div class="row"><span class="k">FROM</span>${esc(short(s, 12))} (proven)</div>`).join("")}
         <div class="row"><span class="k">TX</span>${esc(short(v.txid, 8))} · block ${v.mined_height.toLocaleString()}</div>
         ${v.message ? `<div class="row"><span class="k">NOTE</span>${esc(v.message)}</div>` : ""}
         <div class="fine">The sender proved they authorized this payment. Nothing else about their wallet is revealed.</div>`);

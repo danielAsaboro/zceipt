@@ -90,6 +90,26 @@ pub struct SpendDisclosure {
     pub cmx: [u8; 32],
     /// Halo 2 proof of the Orchard action statement.
     pub proof: Vec<u8>,
+    /// Optional proof that the same spend authority controls a named payment address.
+    pub address: Option<AddressProof>,
+}
+
+/// Proof that the spend authority behind a disclosed spend also controls `address`
+/// (the Orchard analogue of ZIP 311's optional ZIP 304 address proof).
+///
+/// It is a second action proof, under the *same* randomized key `rk`, that spends a fresh
+/// 1-zatoshi note addressed to `address`. The note is revealed (`rho`, `rseed`), so the verifier
+/// recomputes its commitment and the root of a one-leaf tree, and the circuit's anchor check
+/// (enforced because the value is non-zero) binds the proof to that address.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AddressProof {
+    pub address: [u8; 43],
+    pub rho: [u8; 32],
+    pub rseed: [u8; 32],
+    pub nf: [u8; 32],
+    pub cv_net: [u8; 32],
+    pub cmx: [u8; 32],
+    pub proof: Vec<u8>,
 }
 
 /// The part of a receipt covered by the signatures.
@@ -120,6 +140,8 @@ pub struct SpendWitness {
     pub note: Note,
     /// Merkle path of `note` to the bundle's anchor.
     pub merkle_path: MerklePath,
+    /// Also prove that this spend authority controls this address (it must belong to `sk`).
+    pub prove_address: Option<Address>,
 }
 
 /// What a verifier learns from a valid receipt.
@@ -131,6 +153,8 @@ pub struct VerifiedReceipt {
     pub msg: Vec<u8>,
     /// Actions whose spend authority was proven by the receipt's signer.
     pub proven_spends: Vec<u32>,
+    /// Addresses proven to be controlled by the spend authority of the given action.
+    pub proven_addresses: Vec<(u32, [u8; 43])>,
     pub outputs: Vec<VerifiedOutput>,
 }
 
@@ -177,6 +201,10 @@ pub enum Error {
     BadOutputKey(u32),
     #[error("the number of signatures does not match the number of spends")]
     SignatureCount,
+    #[error("the address to prove does not belong to the spending key")]
+    AddressNotOwned,
+    #[error("the address proof for action {0} is invalid")]
+    BadAddressProof(u32),
 }
 
 /// The digest every spend-authorization signature covers:
@@ -194,6 +222,10 @@ pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
 
 fn random_scalar(rng: &mut (impl Rng + CryptoRng)) -> pallas::Scalar {
     pallas::Scalar::random(rng)
+}
+
+fn random_scalar_base_bytes(rng: &mut (impl Rng + CryptoRng)) -> [u8; 32] {
+    pallas::Base::random(rng).to_repr()
 }
 
 fn random_bytes(rng: &mut (impl Rng + CryptoRng)) -> [u8; 32] {
@@ -241,6 +273,109 @@ fn recover_with_ock<A>(
             try_output_recovery_with_ock(&IronwoodDomain::for_action(action), ock, action, out)
         }
     }
+}
+
+/// The note version used for address proofs in `pool`.
+fn pool_note_version(pool: Pool) -> orchard::note::NoteVersion {
+    match pool {
+        Pool::Orchard => orchard::note::NoteVersion::V2,
+        Pool::Ironwood => orchard::note::NoteVersion::V3,
+    }
+}
+
+/// Merkle path of position 0 in a tree that holds a single leaf.
+fn single_leaf_path() -> MerklePath {
+    use incrementalmerkletree::{Hashable, Level};
+    use orchard::tree::MerkleHashOrchard;
+    let auth: [MerkleHashOrchard; 32] = core::array::from_fn(|i| MerkleHashOrchard::empty_root(Level::from(i as u8)));
+    MerklePath::from_parts(0, auth)
+}
+
+/// A zero-value note to a throwaway address with the given `rho`, like Orchard dummy outputs.
+fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut (impl Rng + CryptoRng)) -> Note {
+    let addr = loop {
+        if let Some(sk) = Option::<SpendingKey>::from(SpendingKey::from_bytes(random_bytes(rng))) {
+            break FullViewingKey::from(&sk).address_at(0u32, orchard::keys::Scope::External);
+        }
+    };
+    loop {
+        if let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(random_bytes(rng), &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(addr, NoteValue::ZERO, rho, rseed, version)) {
+                return n;
+            }
+        }
+    }
+}
+
+fn random_trapdoor(rng: &mut (impl Rng + CryptoRng)) -> ValueCommitTrapdoor {
+    loop {
+        let r = random_scalar(rng);
+        if let Some(t) = Option::<ValueCommitTrapdoor>::from(ValueCommitTrapdoor::from_bytes(r.to_repr())) {
+            return t;
+        }
+    }
+}
+
+fn address_proof(
+    pk: &ProvingKey,
+    pool: Pool,
+    fvk: &FullViewingKey,
+    address: Address,
+    alpha: pallas::Scalar,
+    rk: &redpallas::VerificationKey<SpendAuth>,
+    rng: &mut (impl Rng + CryptoRng),
+) -> Result<AddressProof, Error> {
+    fvk.scope_for_address(&address).ok_or(Error::AddressNotOwned)?;
+    let version = pool_note_version(pool);
+    let (rho, rseed, note) = loop {
+        let Some(rho) = Option::<Rho>::from(Rho::from_bytes(&random_scalar_base_bytes(rng))) else { continue };
+        let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(random_bytes(rng), &rho)) else { continue };
+        if let Some(n) = Option::<Note>::from(Note::from_parts(address, NoteValue::from_raw(1), rho, rseed, version)) {
+            break (rho, rseed, n);
+        }
+    };
+    let path = single_leaf_path();
+    let cmx_note: ExtractedNoteCommitment = note.commitment().into();
+    let anchor = path.root(cmx_note);
+    let nf = note.nullifier(fvk);
+    let spend = SpendInfo::new(fvk.clone(), note, path).ok_or(Error::AddressNotOwned)?;
+    let out_rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes())).ok_or(Error::Proving)?;
+    let dummy = dummy_output(out_rho, version, rng);
+    let rcv = random_trapdoor(rng);
+    let cv_net = ValueCommitment::derive(NoteValue::from_raw(1) - NoteValue::ZERO, rcv.clone());
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, RECEIPT_CIRCUIT).ok_or(Error::Proving)?;
+    let instance = Instance::from_parts(anchor, cv_net.clone(), nf, rk.clone(), cmx, Flags::ENABLED).ok_or(Error::Proving)?;
+    let proof = Proof::create(pk, &[circuit], &[instance], &mut *rng).map_err(|_| Error::Proving)?;
+    Ok(AddressProof {
+        address: address.to_raw_address_bytes(),
+        rho: rho.to_bytes(),
+        rseed: *rseed.as_bytes(),
+        nf: nf.to_bytes(),
+        cv_net: cv_net.to_bytes(),
+        cmx: cmx.to_bytes(),
+        proof: proof.as_ref().to_vec(),
+    })
+}
+
+fn verify_address_proof(
+    vk: &VerifyingKey,
+    pool: Pool,
+    index: u32,
+    rk: &redpallas::VerificationKey<SpendAuth>,
+    a: &AddressProof,
+) -> Result<(), Error> {
+    let bad = || Error::BadAddressProof(index);
+    let address = Option::<Address>::from(Address::from_raw_address_bytes(&a.address)).ok_or_else(bad)?;
+    let rho = Option::<Rho>::from(Rho::from_bytes(&a.rho)).ok_or_else(bad)?;
+    let rseed = Option::<RandomSeed>::from(RandomSeed::from_bytes(a.rseed, &rho)).ok_or_else(bad)?;
+    let note = Option::<Note>::from(Note::from_parts(address, NoteValue::from_raw(1), rho, rseed, pool_note_version(pool))).ok_or_else(bad)?;
+    let anchor = single_leaf_path().root(note.commitment().into());
+    let nf = Option::<orchard::note::Nullifier>::from(orchard::note::Nullifier::from_bytes(&a.nf)).ok_or_else(bad)?;
+    let cv_net = Option::<ValueCommitment>::from(ValueCommitment::from_bytes(&a.cv_net)).ok_or_else(bad)?;
+    let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&a.cmx)).ok_or_else(bad)?;
+    let instance = Instance::from_parts(anchor, cv_net, nf, rk.clone(), cmx, Flags::ENABLED).ok_or_else(bad)?;
+    Proof::new(a.proof.clone()).verify(vk, &[instance]).map_err(|_| bad())
 }
 
 /// Creates a receipt for `bundle`, which was mined in transaction `txid`.
@@ -338,12 +473,17 @@ pub fn create<A: Authorization, V>(
             .ok_or(Error::Proving)?;
         let proof = Proof::create(pk, &[circuit], &[instance], &mut rng).map_err(|_| Error::Proving)?;
 
+        let address = match w.prove_address {
+            Some(addr) => Some(address_proof(pk, pool, &fvk, addr, alpha, &rk, &mut rng)?),
+            None => None,
+        };
         spend_disclosures.push(SpendDisclosure {
             index: w.index as u32,
             cv_net: cv_net.to_bytes(),
             rk: (&rk).into(),
             cmx: cmx.to_bytes(),
             proof: proof.as_ref().to_vec(),
+            address,
         });
         signing_keys.push(rsk);
     }
@@ -398,6 +538,7 @@ pub fn verify<A: Authorization, V>(
     check_indices(actions.len(), u.spends.iter().map(|s| &s.index))?;
 
     let digest = signing_digest(u);
+    let mut proven_addresses = Vec::new();
     for (s, sig) in u.spends.iter().zip(&receipt.spend_auth_sigs) {
         let action = &actions[s.index as usize];
         let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk)
@@ -414,6 +555,11 @@ pub fn verify<A: Authorization, V>(
         Proof::new(s.proof.clone())
             .verify(vk, &[instance])
             .map_err(|_| Error::BadProof(s.index))?;
+        if let Some(a) = &s.address {
+            let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
+            verify_address_proof(vk, pool, s.index, &rk, a)?;
+            proven_addresses.push((s.index, a.address));
+        }
     }
 
     let mut outputs = Vec::with_capacity(u.outputs.len());
@@ -435,6 +581,7 @@ pub fn verify<A: Authorization, V>(
         txid: u.txid,
         msg: u.msg.clone(),
         proven_spends: u.spends.iter().map(|s| s.index).collect(),
+        proven_addresses,
         outputs,
     })
 }

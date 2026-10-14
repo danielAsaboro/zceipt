@@ -84,6 +84,13 @@ can't be dropped, added or reordered without breaking a signature. The verifier 
 every payment and the total. A DAO, payroll or grant program can prove "we paid all of these
 people" without exposing its treasury address or balance.
 
+## Optionally prove who paid
+
+By default the sender stays anonymous. For a donation drive or a treasury report, add
+`--prove-address <your public u1…>`. The receipt then also proves that the same spend
+authority controls that address, and the page shows it as **FROM … (proven)**. The CLI
+refuses an address the wallet doesn't own.
+
 ## Embed it in any site
 
 ```html
@@ -141,6 +148,7 @@ ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
 | Verified by the CLI against testnet lightwalletd, with `--expect-address` | `receipts verify … → VALID` |
 | Verified in the browser from the public testnet grpc-web server | VERIFIED in 9.3 s (zcash-testnet.chainsafe.dev) |
 | A proof request answered on testnet, and a replayed receipt rejected | [examples/testnet/request-answer-link.txt](examples/testnet/request-answer-link.txt) → REQUEST SATISFIED; the earlier receipt, which signs no challenge, → REQUEST NOT SATISFIED |
+| A receipt that also proves the sending address | [examples/testnet/receipt-with-sender-address.txt](examples/testnet/receipt-with-sender-address.txt): VALID, FROM shown as proven; a different wallet's address is refused |
 | A batch of 3 testnet payments to 2 recipients, verified as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt): CLI `VALID batch`, total 0.022 ZEC; page shows all three |
 | A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,984 to 4,500,997, VALID; regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
 

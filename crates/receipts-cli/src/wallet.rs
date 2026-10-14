@@ -197,6 +197,7 @@ pub async fn create_receipt(
     pool: Option<Pool>,
     witness_source: WitnessSource,
     server: Option<&str>,
+    prove_address: Option<&str>,
 ) -> anyhow::Result<Receipt> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let coin_type = net.coin_type();
@@ -204,6 +205,18 @@ pub async fn create_receipt(
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
+    let prove_address = match prove_address {
+        None => None,
+        Some(ua) => {
+            let raw = crate::chain::orchard_receiver_of(ua)?;
+            let addr = Option::<orchard::Address>::from(orchard::Address::from_raw_address_bytes(&raw))
+                .ok_or_else(|| anyhow!("invalid Orchard receiver in {ua}"))?;
+            if fvk.scope_for_address(&addr).is_none() {
+                bail!("{ua} is not an address of this wallet's account");
+            }
+            Some(addr)
+        }
+    };
 
     let db_path = wallet.join("data.sqlite");
     let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
@@ -244,7 +257,7 @@ pub async fn create_receipt(
                     crate::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
                 }
             };
-            spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path });
+            spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path, prove_address });
         }
     }
     if spends.is_empty() {

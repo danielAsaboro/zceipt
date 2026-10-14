@@ -356,7 +356,7 @@ async fn main() -> anyhow::Result<()> {
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref()).await?);
+                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref()).await?.0);
                 }
                 let batch = receipts_core::ReceiptBatch { receipts };
                 receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
@@ -370,7 +370,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
-            let receipt = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref()).await?;
+            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref()).await?;
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
@@ -402,8 +402,9 @@ async fn main() -> anyhow::Result<()> {
                 receipt.unsigned.spends.len(),
                 receipt.to_bytes().len()
             );
-            eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server):");
-            println!("{}#{}", link_base, text);
+            eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server;");
+            eprintln!("`h=` lets verifiers fetch the whole block, so the server never learns which transaction):");
+            println!("{}#{}&h={}", link_base, text, mined_height);
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height) } => {
             let receipt = read_receipt_arg(&receipt)?;

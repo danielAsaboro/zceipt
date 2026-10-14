@@ -56,7 +56,8 @@ class ZcashReceipt extends HTMLElement {
         ${(v.sender_addresses || []).map((s) => `<div class="row"><span class="k">FROM</span>${esc(short(s, 12))} (proven)</div>`).join("")}
         <div class="row"><span class="k">TX</span>${esc(short(v.txid, 8))} · block ${v.mined_height.toLocaleString()}</div>
         ${v.message ? `<div class="row"><span class="k">NOTE</span>${esc(v.message)}</div>` : ""}
-        <div class="fine">The sender proved they authorized this payment. Nothing else about their wallet is revealed.</div>`);
+        <div class="fine">The sender proved they authorized this payment. Nothing else about their wallet is revealed.</div>
+        <div class="fine">Verified on this device.${v.fetch?.mode === "block" ? ` The server saw only block ${v.mined_height.toLocaleString()} (${v.fetch.anonymity_set} transactions), not which one.` : v.fetch?.mode === "offline" ? " No server was contacted." : ""}</div>`);
       this.dispatchEvent(new CustomEvent("receipt-verified", { detail: v, bubbles: true }));
     } catch (e) {
       if (token !== this._token) return;

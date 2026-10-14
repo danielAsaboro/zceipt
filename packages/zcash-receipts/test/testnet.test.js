@@ -53,3 +53,19 @@ test("Sign in with Zcash verifies locally, only for its domain and nonce", async
   await assert.rejects(verifySignIn(s, { domain: "evil.example", nonce: "example-nonce-0001" }));
   await assert.rejects(verifySignIn(s, { domain: "kemis-coffee.test", nonce: "another" }));
 });
+
+test("block hints are read from links", async () => {
+  const { heightHint } = await import("../index.js");
+  assert.equal(heightHint("https://x/#zrcpt1abc&h=4500997"), 4500997);
+  assert.equal(heightHint("zrcpt1abc"), null);
+  assert.equal(heightHint("https://x/?request=ab#zrcpt1abc&h=12"), 12);
+});
+
+test("block-level fetch hides which transaction was checked", { skip: !!process.env.OFFLINE }, async () => {
+  const receipt = (await readFile(ex("testnet/receipt.txt"), "utf8")).trim();
+  const v = await verifyReceipt(`${receipt}&h=4500997`);
+  assert.equal(v.valid, true);
+  assert.equal(v.fetch.mode, "block");
+  assert.ok(v.fetch.anonymity_set > 1, JSON.stringify(v.fetch));
+  await assert.rejects(verifyReceipt(`${receipt}&h=4500996`), /not in block/);
+});

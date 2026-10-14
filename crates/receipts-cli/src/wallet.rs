@@ -198,7 +198,7 @@ pub async fn create_receipt(
     witness_source: WitnessSource,
     server: Option<&str>,
     prove_address: Option<&str>,
-) -> anyhow::Result<Receipt> {
+) -> anyhow::Result<(Receipt, u32)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let coin_type = net.coin_type();
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
@@ -291,7 +291,7 @@ pub async fn create_receipt(
 
     eprintln!("Building spend-authority proof(s)…");
     let pk = receipts_core::proving_key();
-    Ok(receipts_core::create(&pk, coin_type, pool, txid, bundle, msg, &selected, &spends, OsRng)?)
+    Ok((receipts_core::create(&pk, coin_type, pool, txid, bundle, msg, &selected, &spends, OsRng)?, mined))
 }
 
 trait RecoverExt {

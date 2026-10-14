@@ -37,6 +37,7 @@ const warmed = call("warm")
     if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s, one time)`; }
   })
   .catch(() => {});
+import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
@@ -162,6 +163,15 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
+function localBadge() {
+  const f = fetchMode || {};
+  const sees =
+    f.mode === "offline" ? "No server was contacted: you supplied the transaction."
+    : f.mode === "block" ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and its ${f.set} shielded transactions, not which one you checked.`
+    : `${escapeHtml(f.host || "The server")} saw which transaction you checked. Links with an <code>h=</code> block hint avoid this.`;
+  return `<div class="local" data-mode="${f.mode || "txid"}"><strong>Verified on this device.</strong> The receipt never left your browser; the proof was checked here in WebAssembly. ${sees}</div>`;
+}
+
 function render(v, net) {
   const rows = v.outputs
     .map(
@@ -195,6 +205,7 @@ function render(v, net) {
         <li>The amount, recipient and memo above were opened from the transaction on chain.</li>
         ${(v.sender_addresses || []).length ? `<li>The sender also proved they control the FROM address above.</li><li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
       </ul>
+      ${localBadge()}
       <div id="reqChecks"></div>
       <div class="check">
         <label for="mine">Was it paid to you? Paste your address</label>
@@ -264,12 +275,22 @@ async function run(receiptText) {
     const manual = $("#rawTx").value.trim();
     if (manual) {
       tx = { raw: hexToBytes(manual), height: Number($("#rawHeight").value) };
+      fetchMode = { mode: "offline" };
       setStep("fetch", "done", "using the transaction you pasted");
     } else {
       const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[summary.network]);
       if (!endpoint) throw new Error(`no ${summary.network} server set; open Settings`);
-      tx = await fetchRawTx(endpoint, summary.txid);
-      setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
+      const hint = heightHint(location.hash);
+      if (hint) {
+        // Fetch the whole block: the server learns the block, not which transaction is checked.
+        tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
+        fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint };
+        setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} transactions) from ${new URL(endpoint).host}`);
+      } else {
+        tx = await fetchRawTx(endpoint, summary.txid);
+        fetchMode = { mode: "txid", host: new URL(endpoint).host };
+        setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
+      }
     }
   } catch (e) {
     setStep("fetch", "fail", e.message);
@@ -351,8 +372,11 @@ function receiptFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
   if (h.includes("zrcptb1")) return "";
   const i = h.indexOf("zrcpt1");
-  return i >= 0 ? h.slice(i) : "";
+  return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
 }
+
+// How the transaction was obtained, for the privacy badge.
+let fetchMode = null;
 
 $("#verifyBtn").onclick = async () => {
   const t = $("#paste").value.trim();
@@ -371,7 +395,8 @@ $("#verifyBtn").onclick = async () => {
   const i = t.indexOf("zrcpt1");
   if (i < 0) return showError("Paste a receipt that starts with zrcpt1, or a link containing one.");
   const r = t.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
-  history.replaceState(null, "", "#" + r);
+  const h = heightHint(t);
+  history.replaceState(null, "", "#" + r + (h ? `&h=${h}` : ""));
   run(r);
 };
 window.addEventListener("hashchange", () => {

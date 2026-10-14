@@ -77,3 +77,111 @@ export async function fetchTransaction(endpoint, displayTxid) {
 }
 
 export { hexToBytes };
+
+// ---------- block-level fetching: the server learns the block, not the transaction ----------
+
+function bytesToHex(b) {
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function encodeVarint(n) {
+  const out = [];
+  let v = BigInt(n);
+  do {
+    let b = Number(v & 0x7fn);
+    v >>= 7n;
+    if (v) b |= 0x80;
+    out.push(b);
+  } while (v);
+  return out;
+}
+
+function parseFields(buf) {
+  const fields = [];
+  let p = 0;
+  while (p < buf.length) {
+    const [key, p2] = readVarint(buf, p); p = p2;
+    const field = Number(key >> 3n), wire = Number(key & 7n);
+    if (wire === 2) {
+      const [l, p3] = readVarint(buf, p); p = p3;
+      fields.push([field, buf.subarray(p, p + Number(l))]); p += Number(l);
+    } else if (wire === 0) {
+      const [v, p3] = readVarint(buf, p); p = p3;
+      fields.push([field, v]);
+    } else if (wire === 1) { p += 8; } else if (wire === 5) { p += 4; } else throw new Error("unexpected protobuf wire type");
+  }
+  return fields;
+}
+
+async function grpcUnary(endpoint, method, msg) {
+  const frame = new Uint8Array(5 + msg.length);
+  new DataView(frame.buffer).setUint32(1, msg.length);
+  frame.set(msg, 5);
+  const res = await fetch(`${endpoint.replace(/\/$/, "")}/cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`, {
+    method: "POST",
+    headers: { "content-type": "application/grpc-web+proto", "x-grpc-web": "1" },
+    body: frame,
+  });
+  if (!res.ok) throw new Error(`lightwalletd answered HTTP ${res.status}`);
+  const status = res.headers.get("grpc-status");
+  if (status && status !== "0") throw new Error(decodeURIComponent(res.headers.get("grpc-message") || `grpc-status ${status}`));
+  const body = new Uint8Array(await res.arrayBuffer());
+  let pos = 0, data = new Uint8Array(0), trailer = "";
+  while (pos + 5 <= body.length) {
+    const flag = body[pos];
+    const len = new DataView(body.buffer, body.byteOffset + pos + 1, 4).getUint32(0);
+    const chunk = body.subarray(pos + 5, pos + 5 + len);
+    pos += 5 + len;
+    if (flag & 0x80) trailer += new TextDecoder().decode(chunk);
+    else data = chunk;
+  }
+  const m = trailer.match(/grpc-status:\s*(\d+)/);
+  if (m && m[1] !== "0") {
+    const why = (trailer.match(/grpc-message:\s*(.*)/) || [])[1] || "";
+    throw new Error(`lightwalletd: ${decodeURIComponent(why.trim()) || "status " + m[1]}`);
+  }
+  return data;
+}
+
+/** Display txids (block-explorer hex) of the shielded transactions in block `height`. */
+export async function fetchBlockTxids(endpoint, height) {
+  const msg = new Uint8Array([0x08, ...encodeVarint(height)]); // BlockID.height
+  const block = await grpcUnary(endpoint, "GetBlock", msg);
+  const ids = [];
+  for (const [f, v] of parseFields(block)) {
+    if (f !== 7) continue; // CompactBlock.vtx
+    for (const [tf, tv] of parseFields(v)) if (tf === 2) ids.push(bytesToHex(Uint8Array.from(tv).reverse()));
+  }
+  return ids;
+}
+
+/**
+ * Fetches `displayTxid` without telling the server which transaction you care about: lists the
+ * shielded transactions in block `height`, then fetches up to `maxSet` of them (always including
+ * yours) in random order. Resolves to `{ raw, height, anonymitySet, blockTxs }`.
+ * Throws if the transaction is not in that block.
+ */
+export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64 } = {}) {
+  const ids = await fetchBlockTxids(endpoint, height);
+  const want = displayTxid.toLowerCase();
+  if (!ids.includes(want)) throw new Error(`transaction ${want.slice(0, 12)}… is not in block ${height}`);
+  const others = ids.filter((t) => t !== want);
+  for (let i = others.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [others[i], others[j]] = [others[j], others[i]];
+  }
+  const set = [want, ...others.slice(0, maxSet - 1)];
+  for (let i = set.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [set[i], set[j]] = [set[j], set[i]];
+  }
+  const results = await Promise.all(set.map((t) => fetchTransaction(endpoint, t)));
+  const mine = results[set.indexOf(want)];
+  return { ...mine, anonymitySet: set.length, blockTxs: ids.length };
+}
+
+/** The block-height hint in a receipt link (`…&h=4500997`), or null. Unsigned: only a fetch hint. */
+export function heightHint(input) {
+  const m = /[#?&]h=(\d{1,9})(?:&|$)/.exec(decodeURIComponent(String(input)));
+  return m ? Number(m[1]) : null;
+}

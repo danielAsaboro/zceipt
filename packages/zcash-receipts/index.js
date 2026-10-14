@@ -9,9 +9,9 @@
 // entirely by passing the raw transaction.
 
 import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in } from "./pkg/receipts_wasm.js";
-import { DEFAULT_ENDPOINTS, fetchTransaction, hexToBytes } from "./grpc.js";
+import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
-export { DEFAULT_ENDPOINTS, fetchTransaction };
+export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
 
 let ready;
 async function load() {
@@ -82,14 +82,25 @@ export async function verifyReceipt(input, options = {}) {
   const receipt = extractReceipt(input);
   const summary = JSON.parse(inspect(receipt));
   let raw = options.rawTx, height = options.height;
+  let fetchInfo = { mode: "offline", server: null, sees: "nothing: you supplied the transaction" };
   if (raw == null) {
     const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
     if (!endpoint) throw new Error(`no lightwalletd endpoint for ${summary.network}`);
-    ({ raw, height } = await fetchTransaction(endpoint, summary.txid));
+    const hint = options.height ?? heightHint(input);
+    if (hint && options.privateFetch !== false) {
+      const r = await fetchTransactionPrivately(endpoint, summary.txid, hint, { maxSet: options.maxAnonymitySet });
+      ({ raw, height } = r);
+      fetchInfo = { mode: "block", server: endpoint, anonymity_set: r.anonymitySet, sees: `block ${hint} and ${r.anonymitySet} of its ${r.blockTxs} shielded transactions, not which one you checked` };
+    } else {
+      ({ raw, height } = await fetchTransaction(endpoint, summary.txid));
+      fetchInfo = { mode: "txid", server: endpoint, sees: "the transaction id you checked (add the h= hint or pass rawTx to avoid this)" };
+    }
   } else if (typeof raw === "string") {
     raw = hexToBytes(raw.trim());
   }
   const v = JSON.parse(verify(receipt, raw, Number(height), !!options.regtest));
+  v.local = true;
+  v.fetch = fetchInfo;
   if (options.challenge != null) {
     const m = /(?:^|\n)challenge:([0-9a-f]{6,64})(?:\n|$)/.exec(v.message || "");
     if (!m || m[1] !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");

@@ -13,3 +13,5 @@ receipts.db*
 packages/receipts-python/build/
 *.egg-info/
 .venv/
+crates/receipts-core/fuzz/target
+crates/receipts-core/fuzz/artifacts

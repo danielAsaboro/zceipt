@@ -66,6 +66,9 @@ pub struct Report {
     pub pool: &'static str,
     pub txid: String,
     pub mined_height: u32,
+    /// False for offline verification: the transaction and height were supplied, not fetched from
+    /// the chain, so the report shows the receipt matches that transaction, not that it was mined.
+    pub chain_checked: bool,
     pub message: String,
     pub proven_spend_actions: Vec<u32>,
     /// Public addresses the sender proved they control (empty unless they chose to).
@@ -88,7 +91,12 @@ impl Report {
     pub fn print(&self) {
         println!("VALID receipt");
         println!("  network   {}", self.network);
-        println!("  tx        {} (mined at height {})", self.txid, self.mined_height);
+        if self.chain_checked {
+            println!("  tx        {} (mined at height {})", self.txid, self.mined_height);
+        } else {
+            println!("  tx        {} (height {} as given; not checked against the chain)", self.txid, self.mined_height);
+            println!("  offline   this shows the receipt matches the transaction you supplied, not that it was mined");
+        }
         println!("  pool      {}", self.pool);
         if !self.message.is_empty() {
             println!("  message   {}", self.message.replace('\n', "\n            "));
@@ -154,7 +162,9 @@ pub fn verify_offline(receipt: &Receipt, raw_hex: &str, height: u32, regtest: Op
     if tx.txid().as_ref() != &u.txid {
         bail!("that transaction is not the one this receipt is for");
     }
-    report_for(receipt, net, &tx, height)
+    let mut r = report_for(receipt, net, &tx, height)?;
+    r.chain_checked = false;
+    Ok(r)
 }
 
 fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
@@ -191,6 +201,7 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> any
         },
         txid: display_txid(&u.txid),
         mined_height: height,
+        chain_checked: true,
         message: String::from_utf8_lossy(&v.msg).into_owned(),
         proven_spend_actions: v.proven_spends,
         sender_addresses: v.proven_addresses.iter().map(|(_, a)| encode_orchard_receiver(net, *a)).collect(),
@@ -216,6 +227,14 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> any
 /// This lets a sender make a receipt long after paying, without having cached anything (one
 /// of ZIP 311's requirements). It downloads compact blocks covering the note's whole
 /// lifetime up to the spend, so it is fast for recent notes and slower for old ones.
+/// Blocks per window when rebuilding a witness from chain data.
+pub const WITNESS_WINDOW: u32 = 1000;
+
+/// The first block of the window holding `note_height` (never block 0).
+pub fn witness_window_start(note_height: u32) -> u32 {
+    ((note_height / WITNESS_WINDOW) * WITNESS_WINDOW).max(1)
+}
+
 pub async fn rebuild_witness(
     net: Net,
     server: Option<&str>,
@@ -229,11 +248,14 @@ pub async fn rebuild_witness(
     use orchard::tree::MerkleHashOrchard;
     use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
 
+    // Start at a window boundary rather than at the note's block, so the server learns only the
+    // window the spent note was created in (docs/ASSURANCE.md, "What the chain server sees").
+    let start = witness_window_start(note_height);
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
     let ts = client
-        .get_tree_state(BlockId { height: u64::from(note_height - 1), hash: vec![] })
+        .get_tree_state(BlockId { height: u64::from(start - 1), hash: vec![] })
         .await
-        .map_err(|e| anyhow!("tree state at {}: {}", note_height - 1, e.message()))?
+        .map_err(|e| anyhow!("tree state at {}: {}", start - 1, e.message()))?
         .into_inner();
     let mut tree = match pool {
         Pool::Ironwood => ts.ironwood_tree()?,
@@ -247,7 +269,7 @@ pub async fn rebuild_witness(
     };
     let mut stream = client
         .get_block_range(BlockRange {
-            start: Some(BlockId { height: u64::from(note_height), hash: vec![] }),
+            start: Some(BlockId { height: u64::from(start), hash: vec![] }),
             end: Some(BlockId { height: u64::from(max_height), hash: vec![] }),
             pool_types: vec![pool_type as i32],
         })

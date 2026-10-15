@@ -81,6 +81,18 @@ receipt  := unsigned | { spend_auth_sig[64] } * n_spends
 text     := "zrcpt1" || base64url_nopad(receipt)
 ```
 
+Version 2 (some spend proves a sender address) appends to every spend, after its proof:
+
+```
+addr_flag:u8 (0 or 1) | if 1: address[43] (d[11] | pk_d[32]) | rho[32] | rseed[32] | nf[32]
+                              | cv_net[32] (must be ValueCommit_0(1)) | cmx[32] | proof_len:u32le | proof
+```
+
+Every `proof_len` is at most 65,536. The version is determined by the contents (3 if the
+outputs are in another pool, else 2 if any spend has an address proof, else 1); any other
+version byte for the same contents is rejected, as is a flag other than 0 or 1, and anything
+after the signatures.
+
 A receipt with one spend and one output is about 5.2 KB (7 KB as text). That is small enough
 for a URL fragment, which browsers never send to a server.
 
@@ -190,11 +202,14 @@ trustworthy as the server; the receipt remains the trustless proof.
   has the same `rk` as the spend disclosure. It spends a fresh 1-zatoshi note addressed to
   the claimed address `A`, and reveals that note's `rho` and `rseed`. The verifier recomputes
   the note commitment and the root of a one-leaf tree holding it, and uses that root as the
-  anchor. Because the value is non-zero, the circuit enforces the anchor, so the proof shows
-  that `A = (d, [ivk] g_d)` for the `ak` behind `rk`, and therefore that the spender controls
-  `A`. The address proof's fields are covered by the receipt signature (encoding version 2
-  adds them per spend). Without it, as with Sapling, a disclosure proves "the holder of this
-  spend authority paid", not "address X paid".
+  anchor. The circuit only enforces the anchor when the spent value is non-zero, so the
+  verifier must know the value: as ZIP 304 does for Sapling, the proof uses `rcv = 0` and the
+  verifier requires `cv_net = ValueCommit_0(1) = [1] V` (it never uses a `cv_net` chosen by the
+  prover). With that, the proof shows that `A = (d, [ivk] g_d)` for the `ak` behind `rk`, and
+  therefore that the spender controls `A`. (Taking `cv_net` from the prover let anyone claim
+  any address by witnessing a zero-value note; see `CLAIM.md`.) The address proof's fields are
+  covered by the receipt signature (encoding version 2 adds them per spend). Without it, as with
+  Sapling, a disclosure proves "the holder of this spend authority paid", not "address X paid".
 - **Transparent inputs** (BIP 322) are out of scope, as they are still `TODO` in ZIP 311. The
   ZIP 320 deposit above proves a transparent hop that follows a shielded spend, not a
   transparent input itself.

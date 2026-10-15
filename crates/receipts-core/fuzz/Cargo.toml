@@ -1,0 +1,47 @@
+[package]
+name = "receipts-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+receipts-core = { path = ".." }
+
+# Not part of the main workspace (needs nightly and a sanitizer).
+[workspace]
+members = ["."]
+
+[patch.crates-io]
+orchard = { path = "../../../vendor/orchard" }
+
+[[bin]]
+name = "decode_receipt"
+path = "fuzz_targets/decode_receipt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_batch"
+path = "fuzz_targets/decode_batch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_sign_in"
+path = "fuzz_targets/decode_sign_in.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_text"
+path = "fuzz_targets/decode_text.rs"
+test = false
+doc = false
+bench = false

@@ -296,7 +296,7 @@ pub async fn create_receipt(
                     let h = stored
                         .mined_height
                         .ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
-                    eprintln!("Rebuilding the note's Merkle path from chain data (blocks {h}..{mined})…");
+                    eprintln!("Rebuilding the note's Merkle path from chain data (blocks {}..{mined})…", receipts_chain::chain::witness_window_start(h));
                     receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
                 }
             };

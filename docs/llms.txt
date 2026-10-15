@@ -24,6 +24,7 @@ Key facts for agents:
 - [Prove a payout round with one link](/docs/guides/grant-payouts.md)
 - [Refunds to a signed address, with proof both ways](/docs/guides/refunds.md)
 - [Attestations: prove a business fact without the transaction](/docs/guides/attestations.md)
+- [HTTP 402: gate a route behind a receipt (Express, Next.js, FastAPI, Django)](/docs/guides/http-402.md)
 - [Sign in with Zcash: prove an address, no transaction](/docs/guides/sign-in.md)
 
 ## Optional

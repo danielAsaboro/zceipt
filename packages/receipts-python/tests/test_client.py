@@ -53,3 +53,29 @@ class Api(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WebHelpers(unittest.TestCase):
+    PAYEE = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa"
+
+    def test_webhook_dispatch(self):
+        from zcash_receipts.web import handle_webhook
+        body = json.dumps({"id": "evt_9", "type": "refund.succeeded"})
+        seen = []
+        handle_webhook(body, sign_payload(body, "whsec_y"), "whsec_y", {"refund.succeeded": lambda e: seen.append(e["id"])})
+        self.assertEqual(seen, ["evt_9"])
+        with self.assertRaises(WebhookSignatureError):
+            handle_webhook(body, "t=1,v1=00", "whsec_y")
+
+    @unittest.skipUnless(URL and KEY, "needs RECEIPTS_URL and RECEIPTS_KEY")
+    def test_gate(self):
+        from zcash_receipts.web import check_gate
+        c = Receipts(KEY, base_url=URL)
+        g = check_gate(c, payee=self.PAYEE, amount_zatoshis=1_000_000, bind_to="alice")
+        self.assertEqual((g.allow, g.status), (False, 402))
+        rid = g.body["request"]
+        self.assertFalse(check_gate(c, payee=self.PAYEE, amount_zatoshis=1_000_000, request_id=rid, bind_to="alice").allow)
+        c.requests.submit_receipt(rid, receipt="zrcpt_test_valid")
+        self.assertTrue(check_gate(c, payee=self.PAYEE, amount_zatoshis=1_000_000, request_id=rid, bind_to="alice").allow)
+        self.assertFalse(check_gate(c, payee=self.PAYEE, amount_zatoshis=1_000_000, request_id=rid, bind_to="mallory").allow)
+        self.assertFalse(check_gate(c, payee=self.PAYEE, amount_zatoshis=5_000_000, request_id=rid, bind_to="alice").allow)

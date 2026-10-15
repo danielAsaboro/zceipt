@@ -17,6 +17,10 @@
     "./react": {
       "types": "./react.d.ts",
       "default": "./react.js"
+    },
+    "./middleware": {
+      "types": "./middleware.d.ts",
+      "default": "./middleware.js"
     }
   },
   "files": [
@@ -31,7 +35,9 @@
     "README.md",
     "react.js",
     "react.d.ts",
-    "background.js"
+    "background.js",
+    "middleware.js",
+    "middleware.d.ts"
   ],
   "scripts": {
     "test": "node --test test/*.test.js"

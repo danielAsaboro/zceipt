@@ -694,6 +694,7 @@ const DOCS: &[(&str, &str)] = &[
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),
     ("guides/refunds.md", include_str!("../../../docs/guides/refunds.md")),
     ("guides/attestations.md", include_str!("../../../docs/guides/attestations.md")),
+    ("guides/http-402.md", include_str!("../../../docs/guides/http-402.md")),
     ("guides/sign-in.md", include_str!("../../../docs/guides/sign-in.md")),
 ];
 

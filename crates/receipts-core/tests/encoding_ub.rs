@@ -96,3 +96,44 @@ fn length_limits_are_exact() {
     assert_eq!(batch(256).unwrap(), 256);
     assert_eq!(batch(257).unwrap_err(), DecodeError::TooLarge);
 }
+
+/// Batch positions must be 1..=n, each once, with one id and the right count.
+#[test]
+fn batch_positions_are_checked() {
+    let base = Receipt::from_text(&body(RECEIPTS[0], "zrcpt1")).unwrap();
+    let batch = |msgs: &[&str]| {
+        let receipts = msgs
+            .iter()
+            .map(|m| {
+                let mut r = base.clone();
+                r.unsigned.msg = m.as_bytes().to_vec();
+                r
+            })
+            .collect();
+        check_batch(&ReceiptBatch { receipts })
+    };
+    assert_eq!(batch(&["batch:ab 1/2", "batch:ab 2/2"]).unwrap(), "ab");
+    assert!(batch(&["batch:ab 0/2", "batch:ab 2/2"]).is_err());
+    assert!(batch(&["batch:ab 1/2", "batch:ab 3/2"]).is_err());
+    assert!(batch(&["batch:ab 1/2", "batch:ab 1/2"]).is_err());
+    assert!(batch(&["batch:ab 1/2", "batch:cd 2/2"]).is_err());
+    assert!(batch(&["batch:ab 1/3", "batch:ab 2/3"]).is_err());
+    assert!(batch(&["batch:ab 1/2", "no position"]).is_err());
+    assert!(batch(&["batch:ab 2/2", "batch:cd 1/2"]).is_err());
+}
+
+/// The sign-in's public digest is the one its signature verifies under; its proof-length cap is exact.
+#[test]
+fn sign_in_digest_and_limits() {
+    use orchard::primitives::redpallas::{Signature, SpendAuth, VerificationKey};
+    let s = SignIn::from_text(&body(include_str!("../../../examples/testnet/sign-in.txt"), "zsig1")).unwrap();
+    let rk = VerificationKey::<SpendAuth>::try_from(s.rk).unwrap();
+    assert!(rk.verify(&receipts_core::signin::signing_digest(&s), &Signature::<SpendAuth>::from(s.sig)).is_ok());
+    let with_proof = |n: usize| {
+        let mut t = s.clone();
+        t.address.proof = vec![7; n];
+        SignIn::from_bytes(&t.to_bytes())
+    };
+    assert!(with_proof(1 << 16).is_some());
+    assert!(with_proof((1 << 16) + 1).is_none());
+}

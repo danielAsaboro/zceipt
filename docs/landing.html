@@ -52,7 +52,7 @@
     <a class="card" href="/docs">API reference<span>Every endpoint, with examples</span></a>
     <a class="card" href="/docs#QUICKSTART.md">Quickstart<span>From zero to a verified payment</span></a>
   </div>
-  <p style="margin-top:14px">The whole flow in five seconds, no wallet needed: <code>receipts demo</code> (or <code>docker compose run --rm receipts demo --no-wait</code>).</p>
+  <p style="margin-top:14px">The whole flow in seconds once built, no wallet needed: <code>receipts demo</code> (or <code>docker compose run --build --rm receipts demo --no-wait</code>).</p>
 
   <h2>What each party learns</h2>
   <table>
@@ -64,7 +64,7 @@
   <p style="margin-top:10px">Details, with a test behind every claim: <a href="/docs#THREAT-MODEL.md">threat model</a> · <a href="/docs#COMPARISON.md">compared with viewing-key processors</a> · <a href="/docs#ZIP311-TODOS.md">how it fills ZIP 311's open items</a> · <a href="/docs#SPEC.md">spec</a>.</p>
 
   <h2>For developers</h2>
-  <p>A REST API with proof requests, signed webhooks, refunds, attestations and Sign in with Zcash; SDKs for TypeScript, Python and Rust; a drop-in "prove you paid" (HTTP 402) gate for Express, Next.js, FastAPI and Django; and a sandbox with fixtures and test clocks.</p>
+  <p>A REST API with proof requests, signed webhooks, refunds, attestations and Sign in with Zcash; SDKs for TypeScript, Python, Rust and Go; a drop-in "prove you paid" (HTTP 402) gate for Express, Next.js, FastAPI and Django; and a sandbox with fixtures and test clocks.</p>
   <pre>curl -s localhost:{port}/v1/verify -H "authorization: Bearer $RECEIPTS_KEY" \
   -d '{"receipt":"zrcpt_test_valid"}'</pre>
 

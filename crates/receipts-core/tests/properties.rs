@@ -2,10 +2,12 @@
 //! (seeded, so failures reproduce; no extra dependencies).
 //!
 //! 1. Encoding is a bijection: every structurally valid receipt round-trips, re-encoding is
-//!    byte-identical, and relabelling the version byte never decodes to the same receipt.
+//!    byte-identical, relabelling the version byte never decodes to the same receipt, and no
+//!    mutated byte string decodes unless it is itself the canonical encoding of what it decodes to.
 //! 2. The signing digest covers every field: changing any one field changes the digest.
-//! 3. Domain separation: receipts and Sign in with Zcash use distinct BLAKE2b
-//!    personalizations, per network, so a signature for one can't be replayed as the other.
+//! 3. Domain separation: the receipt digest is BLAKE2b under the "ZIP311Signed" personalization
+//!    of its own network, which differs from the sign-in personalization and from the other
+//!    network's (so the same bytes hash differently in each domain).
 
 use receipts_core::{signing_digest, AddressProof, OutputDisclosure, Pool, Receipt, SpendDisclosure, UnsignedReceipt};
 
@@ -95,6 +97,33 @@ fn encoding_is_a_bijection() {
 }
 
 #[test]
+fn only_canonical_encodings_decode() {
+    // Mutate real encodings at random (flip, insert, delete bytes): whatever still decodes must
+    // re-encode to exactly the mutated bytes. A decoder that accepted a non-canonical form (an
+    // extra flag value, a v2 with no address proof, a relabelled version) would fail this.
+    let mut r = Rng(0x5eed_0004);
+    let mut decoded = 0;
+    for _ in 0..4000 {
+        let mut b = random_receipt(&mut r).to_bytes();
+        for _ in 0..1 + r.below(3) {
+            let i = r.below(b.len() as u64) as usize;
+            match r.below(3) {
+                0 => b[i] ^= 1 << r.below(8),
+                1 => b.insert(i, r.u64() as u8),
+                _ => {
+                    b.remove(i);
+                }
+            }
+        }
+        if let Ok(rc) = Receipt::from_bytes(&b) {
+            decoded += 1;
+            assert_eq!(rc.to_bytes(), b, "a non-canonical encoding decoded");
+        }
+    }
+    assert!(decoded > 100, "the mutations should leave many decodable receipts ({decoded})");
+}
+
+#[test]
 fn the_signing_digest_covers_every_field() {
     let mut r = Rng(0x5eed_0002);
     for _ in 0..1500 {
@@ -145,11 +174,32 @@ fn the_signing_digest_covers_every_field() {
             }
             variants.push(v);
         }
-        if let Some(a) = &u.spends[i].address {
+        // Proof contents, not just their length.
+        if !u.spends[i].proof.is_empty() {
             let mut v = u.clone();
-            let mut a = a.clone();
-            a.address[0] ^= 1;
-            v.spends[i].address = Some(a);
+            let k = r.below(v.spends[i].proof.len() as u64) as usize;
+            v.spends[i].proof[k] ^= 1;
+            variants.push(v);
+        }
+        if let Some(a) = &u.spends[i].address {
+            for f in 0..7 {
+                let mut v = u.clone();
+                let mut a = a.clone();
+                match f {
+                    0 => a.address[0] ^= 1,
+                    1 => a.rho[1] ^= 1,
+                    2 => a.rseed[2] ^= 1,
+                    3 => a.nf[3] ^= 1,
+                    4 => a.cv_net[4] ^= 1,
+                    5 => a.cmx[5] ^= 1,
+                    _ => a.proof.push(7),
+                }
+                v.spends[i].address = Some(a);
+                variants.push(v);
+            }
+            // Dropping the address proof changes the digest too.
+            let mut v = u.clone();
+            v.spends[i].address = None;
             variants.push(v);
         }
         for v in variants {

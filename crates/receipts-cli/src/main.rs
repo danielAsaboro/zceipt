@@ -345,54 +345,10 @@ fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
     Ok(Receipt::from_text(&body)?)
 }
 
-struct Request {
-    code: String,
-    to: Option<String>,
-    min: u64,
-}
+use receipts_wallet::RequestLink as Request;
 
 fn parse_request(link: &str) -> anyhow::Result<Request> {
-    let query = link.split('#').next().unwrap_or(link).split_once('?').map(|(_, q)| q).unwrap_or("");
-    let mut code = None;
-    let mut to = None;
-    let mut min = 0;
-    for pair in query.split('&') {
-        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        let v = percent_decode(v);
-        match k {
-            "request" => code = Some(v),
-            "to" => to = Some(v),
-            "min" => min = v.parse().map_err(|_| anyhow!("bad min amount in request"))?,
-            _ => {}
-        }
-    }
-    let code = code.ok_or_else(|| anyhow!("that link has no request code"))?;
-    if !(6..=64).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_hexdigit()) {
-        bail!("malformed request code");
-    }
-    Ok(Request { code, to, min })
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < b.len() => {
-                if let Ok(x) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    out.push(x);
-                    i += 2;
-                } else {
-                    out.push(b'%');
-                }
-            }
-            c => out.push(c),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
+    receipts_wallet::parse_request_link(link)
 }
 
 fn parse_txid(s: &str) -> anyhow::Result<[u8; 32]> {
@@ -475,20 +431,7 @@ async fn main() -> anyhow::Result<()> {
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
-                let report = chain::verify_against_chain(&receipt, server.as_deref(), None).await?;
-                let paid: u64 = match &r.to {
-                    Some(to) => {
-                        let want = chain::orchard_receiver_of(to)?;
-                        report.outputs.iter().filter(|o| o.recipient_raw == want).map(|o| o.zatoshis).sum()
-                    }
-                    None => report.outputs.iter().map(|o| o.zatoshis).sum(),
-                };
-                if r.to.is_some() && paid == 0 {
-                    bail!("this transaction paid nothing to the requested address");
-                }
-                if paid < r.min {
-                    bail!("this transaction paid {} ZEC, less than the requested {}", chain::zec(paid), chain::zec(r.min));
-                }
+                let paid = receipts_wallet::check_answers(&receipt, r, server.as_deref(), None).await?;
                 eprintln!("Answers request {}: paid {} ZEC to the requested address.", r.code, chain::zec(paid));
             }
             if let Some(out) = out {

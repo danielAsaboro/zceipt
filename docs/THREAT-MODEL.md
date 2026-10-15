@@ -58,7 +58,7 @@ The receipt sits in the URL `#fragment`, which browsers never send to a server.
 | Party | Learns | Backed by |
 |---|---|---|
 | Shop | What the receipt reveals (section 2) | `packages/zcash-receipts/test/conformance.test.js` |
-| lightwalletd, link with `h=` | That someone fetched block *h* and every shielded transaction in it, not which one was checked | `packages/zcash-receipts/test/testnet.test.js` "block-level fetch hides which transaction was checked"; `grpc.js::fetchTransactionPrivately` |
+| lightwalletd, link with `h=` | That someone fetched block *h* and every shielded transaction in it, not which one was checked. The hiding is only as good as the block is busy: with one shielded transaction it hides nothing, so the page reports the count | `packages/zcash-receipts/test/testnet.test.js` "block-level fetch hides which transaction was checked"; `grpc.js::fetchTransactionPrivately` |
 | lightwalletd, no `h=` | The transaction id checked (the page says so) | `web/app.js::localBadge` |
 | lightwalletd, offline mode | Nothing (the verifier is given the raw transaction) | `receipts-cli/tests/conformance.rs::conformance_vectors` (all offline) |
 | Receipts server | Nothing: verification runs in WebAssembly on the device | `crates/receipts-wasm` (no network calls) |

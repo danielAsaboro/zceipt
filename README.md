@@ -11,16 +11,17 @@ with a zero-knowledge proof) and nothing about the sender's address, balance or 
 It implements ZIP 311 payment disclosures for **Orchard and Ironwood**, the
 pools wallets use today, with an API, SDKs and a browser verifier around it.
 
-**Try it in one command** (no wallet, faucet or setup; about five seconds):
+**Try it in one command** (no wallet, faucet or setup; a few minutes to build, then the tour takes about five seconds):
 
 ```bash
 cargo install --locked --path crates/receipts-cli && receipts demo
 ```
 
-No Rust? `docker compose run --rm receipts demo --no-wait`. The tour walks a coffee shop through
-asking for a payment, getting a receipt instead of a viewing key, finality, a refund and an
-accountant's attestation, then checks a real testnet receipt offline. It leaves the API,
-dashboard and verifier running for you to click around.
+The tour walks a coffee shop through asking for a payment, getting a receipt instead of a viewing
+key, finality, a refund and an accountant's attestation, then checks a real testnet receipt
+offline. It leaves the API, dashboard and verifier running for you to click around. No Rust?
+`docker compose run --build --rm receipts demo --no-wait` runs the tour, and `docker compose up
+--build` serves the API, dashboard and verifier on http://127.0.0.1:8723.
 
 | | With a viewing key | With a receipt |
 |---|---|---|
@@ -77,7 +78,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **REST API** (`receipts serve`) | proof requests (each with a ZIP-321 payment URI and a payer link), verification of receipts and batches, `rcpt_test_` / `rcpt_live_` keys, idempotency keys, cursor pagination, a stable error `code` on every failure, and an [OpenAPI spec](docs/openapi.yaml) |
 | **Webhooks** | HMAC-signed events (`request.created`, `request.payment_received`, `request.fulfilled`, `request.final`, `request.expired`, `receipt.rejected`, `refund.created`, `refund.succeeded`), retried with backoff for up to 8 attempts, plus resend |
 | **SDKs** | [TypeScript](packages/zcash-receipts) (with types), [Python](packages/receipts-python) (standard library only), [Rust](crates/receipts-client) and [Go](packages/receipts-go), all with typed errors, automatic retries and idempotency, and webhook verification. Every one of the 31 API operations is covered by all four; `scripts/sdk-parity.py` and a live test per SDK prove it ([table](conformance/sdk-parity.json)) |
-| **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component. Links carry an `h=` block hint, so the page downloads the whole block and lightwalletd never learns which transaction was checked; every result says what the server could see |
+| **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component. Links carry an `h=` block hint, so the page downloads every shielded transaction in that block and lightwalletd learns only the block (in a block with one shielded transaction that hides nothing, and the page says how many there were); every result says what the server could see |
 | **Inside the wallet** | `zcash-devtool wallet receipt --txid …` makes a receipt from the wallet that paid ([local patch](integrations/zcash-devtool), built on the `receipts-wallet` library) |
 | **Drop-in integrations** | HTTP 402 "prove you paid" gate and signed-webhook handler for Express, Next.js/fetch servers and FastAPI/Django/Flask ([guide](docs/guides/http-402.md), [paid API example](examples/paid-api/server.mjs)) |
 | **Payment-link checker** | `receipts check-link`, `POST /v1/payment_links/check`, `checkPaymentLink()` and a panel on the page lint a `zcash:` link before it goes on an invoice: wrong network, transparent/TEX/Sapling-only recipients a receipt can't prove, missing amount or memo, unknown required params, QR density |
@@ -113,7 +114,7 @@ payer proves their one payment, and nobody hands over a viewing key.
 
 ## Try it
 
-Requirements: Rust 1.89 or newer (`rust-toolchain.toml` pins 1.95; rustup installs it). For the web page you also need `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.104` and `cargo install wasm-tools`.
+Requirements: Rust (rustup installs the pinned 1.95 automatically; the crates build on 1.89+). For the web page you also need `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.104` and `cargo install wasm-tools`.
 
 ```bash
 cargo test --release -p receipts-core -p receipts-cli   # in-memory bundles + the committed regtest receipt

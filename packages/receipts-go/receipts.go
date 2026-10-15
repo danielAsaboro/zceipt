@@ -91,7 +91,21 @@ func (c *Client) raw(ctx context.Context, method, path string, body any) ([]byte
 		}
 		idem = randomKey()
 	}
+	// sleep waits for d or until ctx is done.
+	sleep := func(d time.Duration) error {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
 	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
@@ -104,8 +118,10 @@ func (c *Client) raw(ctx context.Context, method, path string, body any) ([]byte
 		}
 		res, err := c.HTTP.Do(req)
 		if err != nil {
-			if attempt < c.MaxRetries {
-				time.Sleep(time.Duration(500<<attempt) * time.Millisecond)
+			if ctx.Err() == nil && attempt < c.MaxRetries {
+				if err := sleep(time.Duration(500<<attempt) * time.Millisecond); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			return nil, err
@@ -120,13 +136,22 @@ func (c *Client) raw(ctx context.Context, method, path string, body any) ([]byte
 			if s, err := strconv.Atoi(res.Header.Get("Retry-After")); err == nil && s > 0 && s <= 60 {
 				wait = time.Duration(s) * time.Second
 			}
-			time.Sleep(wait)
+			if err := sleep(wait); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		var e struct {
 			Error struct{ Type, Code, Message, Param string } `json:"error"`
 		}
-		_ = json.Unmarshal(data, &e)
+		if json.Unmarshal(data, &e) != nil || e.Error.Code == "" {
+			// Not the API's error shape (a proxy, say): keep the body as the message.
+			msg := strings.TrimSpace(string(data))
+			if len(msg) > 300 {
+				msg = msg[:300]
+			}
+			return nil, &Error{Status: res.StatusCode, Type: "api_error", Code: "http_" + strconv.Itoa(res.StatusCode), Message: msg}
+		}
 		return nil, &Error{Status: res.StatusCode, Type: e.Error.Type, Code: e.Error.Code, Message: e.Error.Message, Param: e.Error.Param}
 	}
 }

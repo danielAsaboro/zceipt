@@ -22,6 +22,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--minutes", type=float, default=10)
 ap.add_argument("--receipts", default="receipts")
 ap.add_argument("--port", type=int, default=8760)
+ap.add_argument("--keep", action="store_true", help="keep the work dir (database, logs); it grows ~50 MB a minute")
 args = ap.parse_args()
 
 PAYEE = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa"
@@ -169,5 +170,8 @@ if drained_after is None:
     problems.append("webhook deliveries did not drain within 2 minutes after the load stopped")
 print(json.dumps({"drained_after_s": drained_after, "loops": loops, "calls": stats["calls"], "hooks": stats["hooks"], "events": stats["events"], "work": work}))
 print("SOAK OK" if not problems else "SOAK FAILED: " + "; ".join(problems))
+if not args.keep and not problems:
+    import shutil
+    shutil.rmtree(work, ignore_errors=True)
 sys.exit(1 if problems else 0)
 

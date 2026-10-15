@@ -9,12 +9,19 @@ zcash-devtool wallet -w ./wallet receipt -i ./wallet.age --txid <txid> -m "Invoi
 zcash-devtool wallet -w ./wallet receipt -i ./wallet.age --txid <txid> --request '<shop receipt link>' --refund-to <your address>
 ```
 
-It prints a verifier link (`…/verify/#zrcpt1…&h=<block>`). All the work is in
+With `--request` it checks, like `receipts create --request`, that the transaction actually paid
+the requested address at least the requested amount, and refuses otherwise; `--refund-to` must be
+an address a receipt can prove (an Orchard receiver). It prints a verifier link (`…/verify/#zrcpt1…&h=<block>`). All the work is in
 [`crates/receipts-wallet`](../../crates/receipts-wallet), the same library the `receipts` CLI uses.
 
 ## Applying it
 
-To a zcash-devtool checkout on the same librustzcash revision as this repository:
+The patch was built on our local NU7 port of zcash-devtool (`zecathon/vendor-ref/zcash-devtool-nu7`,
+not in this repository): upstream zcash-devtool at `5a26ee8` with every librustzcash dependency
+moved to the git revision this repository uses (`9e3b2e15…`), orchard 0.16, and the commands
+that don't build on that revision (inspect, pczt, tui, migration helpers) removed. Upstream
+zcash-devtool today depends on released crates (orchard 0.15), so it needs that port first. On a
+checkout that builds against the same revision:
 
 1. Copy `receipt.rs` to `src/commands/wallet/receipt.rs`.
 2. In `src/commands/wallet.rs`, add `pub(crate) mod receipt;` and a variant

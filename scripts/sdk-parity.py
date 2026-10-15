@@ -2,8 +2,9 @@
 """SDK parity: every API operation is covered by the JS, Python, Rust and Go SDKs.
 
 Checks conformance/sdk-parity.json against docs/openapi.yaml (every operationId listed) and
-against the SDKs (every method exists). With RECEIPTS_URL and RECEIPTS_KEY (a test key) set, it
-also calls every operation through the JS and Python SDKs against that server, in the sandbox.
+against the SDKs (every method exists). The live check, calling every operation against a
+server, is each SDK's own test (parity.test.js, test_client.py::Parity, receipts-client
+tests/api.rs::every_operation, receipts-go TestEveryOperation) with RECEIPTS_URL/RECEIPTS_KEY set.
 """
 import json, os, pathlib, re, subprocess, sys
 

@@ -1,5 +1,10 @@
 //! Make receipts from a zcash-devtool wallet (keys.toml + data.sqlite): `create_receipt`,
-//! `sign_in`, `wallet_network`. Used by the `receipts` CLI and by the `zcash-devtool wallet
+//! `sign_in`, `wallet_network`, and the proof-request helpers `parse_request_link` /
+//! `check_answers`.
+//!
+//! The wallet database is opened as zcash_client_sqlite opens it (it may cache witnesses), but
+//! no notes, transactions or keys are written; the mnemonic is decrypted in memory, held in
+//! zeroizing containers, and never logged or written. Used by the `receipts` CLI and by the `zcash-devtool wallet
 //! receipt` command (see integrations/zcash-devtool).
 //!
 //! The mnemonic is decrypted in memory with the wallet's age identity, used to derive the
@@ -76,8 +81,11 @@ fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy:
     decryptor
         .decrypt(ids.iter().map(|i| i.as_ref() as &dyn age::Identity))?
         .read_to_string(&mut phrase)?;
-    let mnemonic = <bip0039::Mnemonic<bip0039::English>>::from_phrase(phrase.trim())
-        .map_err(|e| anyhow!("bad mnemonic: {e}"))?;
+    // Zeroized when dropped.
+    let phrase = secrecy::SecretString::new(phrase);
+    let mnemonic = <bip0039::Mnemonic<bip0039::English>>::from_phrase(phrase.expose_secret().trim())
+        // Never echo the error: it can quote a word of the phrase.
+        .map_err(|_| anyhow!("the wallet's mnemonic doesn't decode as a BIP 39 phrase"))?;
     let seed = secrecy::SecretVec::new(mnemonic.to_seed("").to_vec());
     Ok((net, seed))
 }
@@ -385,4 +393,104 @@ pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, addres
     let issued_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
     let s = receipts_core::signin::sign_in(&receipts_core::proving_key(), net.coin_type(), domain, nonce, issued_at, &sk, addr, OsRng)?;
     Ok((s, receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes())))
+}
+
+/// A shop's proof-request link: `…?request=<challenge>&to=<payee>&min=<zatoshis>`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestLink {
+    pub code: String,
+    pub to: Option<String>,
+    pub min: u64,
+}
+
+/// Parses a proof-request link. Each parameter may appear once; the payee must have an Orchard
+/// receiver (so a receipt can prove it).
+pub fn parse_request_link(link: &str) -> anyhow::Result<RequestLink> {
+    let query = link.split('#').next().unwrap_or(link).split_once('?').map(|(_, q)| q).unwrap_or("");
+    let (mut code, mut to, mut min) = (None, None, None);
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let v = percent_decode(v);
+        let slot = match k {
+            "request" => &mut code,
+            "to" => &mut to,
+            "min" => &mut min,
+            _ => continue,
+        };
+        if slot.replace(v).is_some() {
+            bail!("the link has `{k}` more than once");
+        }
+    }
+    let code = code.ok_or_else(|| anyhow!("that link has no request code"))?;
+    if !(6..=64).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("malformed request code");
+    }
+    if let Some(to) = &to {
+        receipts_chain::chain::orchard_receiver_of(to).map_err(|e| anyhow!("the request's payee can't be proven with a receipt (needs an Orchard/Ironwood receiver): {e}"))?;
+    }
+    let min = match min {
+        None => 0,
+        Some(m) => m.parse().map_err(|_| anyhow!("bad min amount in request"))?,
+    };
+    Ok(RequestLink { code, to, min })
+}
+
+/// Checks that `receipt` answers `req` against the chain: it pays the requested address at least
+/// the requested amount. Returns what it paid that address.
+pub async fn check_answers(receipt: &Receipt, req: &RequestLink, server: Option<&str>, regtest: Option<&Path>) -> anyhow::Result<u64> {
+    let report = receipts_chain::chain::verify_against_chain(receipt, server, regtest).await?;
+    let paid: u64 = match &req.to {
+        Some(to) => {
+            let want = receipts_chain::chain::orchard_receiver_of(to)?;
+            report.outputs.iter().filter(|o| o.recipient_raw == want).map(|o| o.zatoshis).sum()
+        }
+        None => report.outputs.iter().map(|o| o.zatoshis).sum(),
+    };
+    if req.to.is_some() && paid == 0 {
+        bail!("this transaction paid nothing to the requested address");
+    }
+    if paid < req.min {
+        bail!("this transaction paid {} ZEC, less than the requested {}", receipts_chain::chain::zec(paid), receipts_chain::chain::zec(req.min));
+    }
+    Ok(paid)
+}
+
+/// Checks an address can receive a refund that a receipt can prove (an Orchard receiver).
+pub fn check_refund_address(addr: &str) -> anyhow::Result<()> {
+    receipts_chain::chain::orchard_receiver_of(addr).map(|_| ()).map_err(|e| anyhow!("refund address: {e}"))
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            // Slice bytes, not the str: "%é" must not panic on a char boundary.
+            if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(if b[i] == b'+' { b' ' } else { b[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn request_links() {
+        let to = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";
+        let r = super::parse_request_link(&format!("https://shop/verify/?request=00aa11bb&to={to}&min=5")).unwrap();
+        assert_eq!((r.code.as_str(), r.to.as_deref(), r.min), ("00aa11bb", Some(to), 5));
+        // A percent sign before a multi-byte character is refused, never a panic.
+        assert!(super::parse_request_link("https://shop/?request=00aa11bb&to=%\u{e9}x").is_err());
+        assert!(super::parse_request_link("https://x/?request=00aa11bb&request=ffff0000").is_err(), "duplicates refused");
+        assert!(super::parse_request_link("https://x/?request=00aa11bb&to=tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU").is_err(), "unprovable payee refused");
+        assert!(super::parse_request_link("https://x/?request=zz").is_err());
+        assert!(super::check_refund_address("not-an-address").is_err());
+    }
 }

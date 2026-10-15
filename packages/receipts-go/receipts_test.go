@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -94,5 +96,29 @@ func TestEveryOperation(t *testing.T) {
 		if !strings.HasPrefix(op, "_") && !done[op] {
 			t.Errorf("operation %s not exercised", op)
 		}
+	}
+}
+
+func TestRetriesRespectTheContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "20")
+		w.WriteHeader(503)
+		_, _ = w.Write([]byte("upstream down"))
+	}))
+	defer srv.Close()
+	c := New("rcpt_test_x")
+	c.BaseURL = srv.URL
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := c.Health(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 2*time.Second {
+		t.Fatalf("expected a prompt deadline error, got %v after %v", err, time.Since(start))
+	}
+	c.MaxRetries = 0
+	_, err = c.Health(context.Background())
+	var apiErr *Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "http_503" || apiErr.Message != "upstream down" {
+		t.Fatalf("non-JSON error body lost: %#v", err)
 	}
 }

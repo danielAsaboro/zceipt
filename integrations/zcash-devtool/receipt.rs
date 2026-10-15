@@ -57,26 +57,31 @@ impl Command {
 
         let mut lines = Vec::new();
         let mut link_base = self.link_base.clone();
-        if let Some(link) = &self.request {
-            let query = link.split('#').next().unwrap_or(link).split_once('?').map(|(_, q)| q).unwrap_or("");
-            let code = query
-                .split('&')
-                .find_map(|p| p.strip_prefix("request="))
-                .ok_or_else(|| anyhow!("that link has no request code"))?;
-            if !(6..=64).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_hexdigit()) {
-                bail!("malformed request code");
+        let request = match &self.request {
+            None => None,
+            Some(link) => {
+                // Same parsing and checks as `receipts create --request`.
+                let r = receipts_wallet::parse_request_link(link)?;
+                lines.push(format!("challenge:{}", r.code));
+                link_base = link.split('#').next().unwrap_or(link).to_string();
+                Some(r)
             }
-            lines.push(format!("challenge:{code}"));
-            link_base = link.split('#').next().unwrap_or(link).to_string();
+        };
+        if !(link_base.starts_with("https://") || link_base.starts_with("http://")) {
+            bail!("the verifier link must start with http:// or https://");
         }
         if !self.message.is_empty() {
             lines.push(self.message.clone());
         }
         if let Some(a) = &self.refund_to {
+            receipts_wallet::check_refund_address(a)?;
             lines.push(format!("refund-to:{a}"));
         }
         let msg = lines.join("\n");
-        let server = self.server.as_deref().filter(|s| s.contains(':'));
+        if self.server.as_deref().is_some_and(|s| !s.contains(':')) {
+            bail!("--server takes host:port (it is only used to rebuild a Merkle path from chain data)");
+        }
+        let server = self.server.as_deref();
 
         eprintln!("Building the receipt (a fresh Halo 2 proof for each note you spent)…");
         let (receipt, height) = receipts_wallet::create_receipt(
@@ -91,6 +96,11 @@ impl Command {
             self.prove_address.as_deref(),
         )
         .await?;
+        if let Some(r) = &request {
+            // Refuse to hand over a "receipt" that doesn't actually answer the request.
+            let paid = receipts_wallet::check_answers(&receipt, r, server, None).await?;
+            eprintln!("Answers request {}: paid {} zatoshis to the requested address.", r.code, paid);
+        }
         let text = receipt.to_text();
         if let Some(out) = &self.out {
             std::fs::write(out, &text)?;

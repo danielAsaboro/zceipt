@@ -196,6 +196,11 @@ ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
 
 ## Tests and evidence
 
+`python3 scripts/soak.py --minutes 15` drives a fresh server with every kind of request, refunds,
+attestations, test-clock finality and reorgs, and a webhook receiver that checks every signature.
+Last run: 297k calls, 120.9k webhooks, 0 errors, memory flat at 53 MB. (It found two problems,
+now fixed: webhook delivery fell behind under load, and missing indexes slowed the database.)
+
 `./scripts/e2e-regtest.sh` reproduces the real-chain story on a private Zebra regtest chain in
 about a minute: an Orchard payment and receipt, NU6.3, `receipts pay` answering a proof request
 with an Ironwood receipt, a refund settled with a cross-pool (Orchard to Ironwood) receipt, an

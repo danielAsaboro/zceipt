@@ -470,7 +470,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
-            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref()).await?;
+            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref()).await?;
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
@@ -837,7 +837,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
             devtool_run(vec!["sync".into()]).await?;
             eprintln!("Sending…");
             let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), format!("Receipts request {code}")]).await?;
-            let txid = out.split_whitespace().filter(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).last().ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
+            let txid = out.split_whitespace().rfind(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
             eprintln!("Sent {txid}.");
             txid
         }

@@ -52,7 +52,7 @@ pub fn deposit_claim(message: &str) -> Option<(String, String)> {
 
 /// Checks the deposit claim against tx1 (the receipt's transaction) and tx2. Offline.
 pub fn check(receipt: &Receipt, message: &str, net: NetworkType, tx1: &Transaction, tx2: &Transaction) -> Result<Deposit, String> {
-    let (tex, tx2_id) = deposit_claim(message).ok_or_else(|| format!("this receipt does not sign a TEX deposit (no tex-deposit:/second-tx: lines)"))?;
+    let (tex, tx2_id) = deposit_claim(message).ok_or_else(|| "this receipt does not sign a TEX deposit (no tex-deposit:/second-tx: lines)".to_string())?;
     if display_txid(tx2.txid().as_ref()) != tx2_id {
         return Err("the second transaction is not the one the receipt names".into());
     }
@@ -60,8 +60,8 @@ pub fn check(receipt: &Receipt, message: &str, net: NetworkType, tx1: &Transacti
         return Err("the first transaction is not the receipt's".into());
     }
     let hash = tex_p2pkh(&tex, net)?;
-    let t1 = tx1.transparent_bundle().ok_or_else(|| format!("the first transaction has no transparent output to an ephemeral address"))?;
-    let t2 = tx2.transparent_bundle().ok_or_else(|| format!("the second transaction has no transparent part"))?;
+    let t1 = tx1.transparent_bundle().ok_or_else(|| "the first transaction has no transparent output to an ephemeral address".to_string())?;
+    let t2 = tx2.transparent_bundle().ok_or_else(|| "the second transaction has no transparent part".to_string())?;
     let mut spent = Vec::new();
     for i in &t2.vin {
         let p = i.prevout();
@@ -69,7 +69,7 @@ pub fn check(receipt: &Receipt, message: &str, net: NetworkType, tx1: &Transacti
             return Err("the second transaction also spends funds that did not come from the first one".into());
         }
         let n = p.n();
-        t1.vout.get(n as usize).ok_or_else(|| format!("the second transaction spends an output the first one doesn't have"))?;
+        t1.vout.get(n as usize).ok_or_else(|| "the second transaction spends an output the first one doesn't have".to_string())?;
         spent.push(n);
     }
     if spent.is_empty() {

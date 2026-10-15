@@ -158,7 +158,7 @@ pub fn verify_offline(receipt: &Receipt, raw_hex: &str, height: u32, regtest: Op
 }
 
 fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         bail!("odd-length hex");
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow!("bad hex: {e}"))).collect()

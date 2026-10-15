@@ -101,7 +101,7 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
             Ok(v)
         }
         "zrcpt_test_insufficient_amount" => {
-            v.outputs[0].zatoshis = amount.saturating_sub(1).max(0);
+            v.outputs[0].zatoshis = amount.saturating_sub(1);
             if amount == 0 {
                 v.outputs.clear();
             }

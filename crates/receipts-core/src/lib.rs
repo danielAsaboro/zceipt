@@ -33,7 +33,7 @@ use orchard::{
     Action, Address, Bundle, Proof,
 };
 use pasta_curves::pallas;
-use rand_core::{CryptoRng, Rng};
+use rand_core::CryptoRng;
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 mod encoding;
@@ -234,15 +234,15 @@ pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
     h.as_bytes().try_into().expect("32 bytes")
 }
 
-pub(crate) fn random_scalar(rng: &mut (impl Rng + CryptoRng)) -> pallas::Scalar {
+pub(crate) fn random_scalar(rng: &mut impl CryptoRng) -> pallas::Scalar {
     pallas::Scalar::random(rng)
 }
 
-fn random_scalar_base_bytes(rng: &mut (impl Rng + CryptoRng)) -> [u8; 32] {
+fn random_scalar_base_bytes(rng: &mut impl CryptoRng) -> [u8; 32] {
     pallas::Base::random(rng).to_repr()
 }
 
-fn random_bytes(rng: &mut (impl Rng + CryptoRng)) -> [u8; 32] {
+fn random_bytes(rng: &mut impl CryptoRng) -> [u8; 32] {
     let mut b = [0u8; 32];
     rng.fill_bytes(&mut b);
     b
@@ -306,7 +306,7 @@ fn single_leaf_path() -> MerklePath {
 }
 
 /// A zero-value note to a throwaway address with the given `rho`, like Orchard dummy outputs.
-fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut (impl Rng + CryptoRng)) -> Note {
+fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut impl CryptoRng) -> Note {
     let addr = loop {
         if let Some(sk) = Option::<SpendingKey>::from(SpendingKey::from_bytes(random_bytes(rng))) {
             break FullViewingKey::from(&sk).address_at(0u32, orchard::keys::Scope::External);
@@ -321,7 +321,7 @@ fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut (impl R
     }
 }
 
-fn random_trapdoor(rng: &mut (impl Rng + CryptoRng)) -> ValueCommitTrapdoor {
+fn random_trapdoor(rng: &mut impl CryptoRng) -> ValueCommitTrapdoor {
     loop {
         let r = random_scalar(rng);
         if let Some(t) = Option::<ValueCommitTrapdoor>::from(ValueCommitTrapdoor::from_bytes(r.to_repr())) {
@@ -337,7 +337,7 @@ pub(crate) fn address_proof(
     address: Address,
     alpha: pallas::Scalar,
     rk: &redpallas::VerificationKey<SpendAuth>,
-    rng: &mut (impl Rng + CryptoRng),
+    rng: &mut impl CryptoRng,
 ) -> Result<AddressProof, Error> {
     fvk.scope_for_address(&address).ok_or(Error::AddressNotOwned)?;
     let version = pool_note_version(pool);
@@ -406,7 +406,7 @@ pub fn create<A: Authorization, V>(
     msg: &[u8],
     outputs: &[(usize, OutgoingViewingKey)],
     spends: &[SpendWitness],
-    rng: impl Rng + CryptoRng,
+    rng: impl CryptoRng,
 ) -> Result<Receipt, Error> {
     create_cross(pk, coin_type, pool, bundle, pool, bundle, txid, msg, outputs, spends, rng)
 }
@@ -425,7 +425,7 @@ pub fn create_cross<A: Authorization, V>(
     msg: &[u8],
     outputs: &[(usize, OutgoingViewingKey)],
     spends: &[SpendWitness],
-    mut rng: impl Rng + CryptoRng,
+    mut rng: impl CryptoRng,
 ) -> Result<Receipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);

@@ -17,7 +17,7 @@ use orchard::{
     primitives::redpallas::{self, SpendAuth},
     Address,
 };
-use rand_core::{CryptoRng, Rng};
+use rand_core::CryptoRng;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignIn {
@@ -60,7 +60,7 @@ pub fn sign_in(
     issued_at: u64,
     sk: &SpendingKey,
     address: Address,
-    mut rng: impl Rng + CryptoRng,
+    mut rng: impl CryptoRng,
 ) -> Result<SignIn, Error> {
     let fvk = FullViewingKey::from(sk);
     let alpha = random_scalar(&mut rng);

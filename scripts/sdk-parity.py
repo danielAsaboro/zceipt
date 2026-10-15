@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SDK parity: every API operation is covered by the JS, Python and Rust SDKs.
+"""SDK parity: every API operation is covered by the JS, Python, Rust and Go SDKs.
 
 Checks conformance/sdk-parity.json against docs/openapi.yaml (every operationId listed) and
 against the SDKs (every method exists). With RECEIPTS_URL and RECEIPTS_KEY (a test key) set, it
@@ -15,6 +15,8 @@ problems += [f"sdk-parity.json lists {o}, which openapi.yaml doesn't have" for o
 
 rust = (root / "crates/receipts-client/src/lib.rs").read_text()
 problems += [f"Rust SDK lacks {m['rust']} ({o})" for o, m in table.items() if not re.search(rf"pub async fn {m['rust']}\b", rust)]
+go = (root / "packages/receipts-go/receipts.go").read_text()
+problems += [f"Go SDK lacks {m.get('go')} ({o})" for o, m in table.items() if not m.get("go") or not re.search(rf"func \(c \*Client\) {m['go']}\(", go)]
 
 sys.path.insert(0, str(root / "packages/receipts-python"))
 from zcash_receipts import Receipts  # noqa: E402
@@ -37,7 +39,7 @@ import(process.argv[2]).then(({ Receipts }) => {
 });""", json.dumps(table), (root / "packages/zcash-receipts/client.js").as_uri()], capture_output=True, text=True)
 problems += json.loads(js.stdout or "[]") or ([f"JS check failed: {js.stderr}"] if js.returncode else [])
 
-print(f"{len(ops)} operations × 3 SDKs")
+print(f"{len(ops)} operations × 4 SDKs")
 for p in problems:
     print("MISSING", p)
 if problems:

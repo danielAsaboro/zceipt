@@ -27,3 +27,9 @@ Both give an HTTP 402 receipt gate and a signed-webhook handler; see the
 
 `receipts pay '<the shop's pay link>' -w <wallet> -i <key.age>` shows what it will pay, asks,
 pays from a zcash-devtool wallet, waits for the block and hands the receipt back.
+
+## Go
+
+`packages/receipts-go` (standard library only): `receipts.New(key)`, one method per operation
+(`CreateRequest`, `Verify`, `CreateRefund`, …), typed `*receipts.Error`, and
+`receipts.ConstructEvent` for webhooks. See its README.

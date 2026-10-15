@@ -691,6 +691,7 @@ const DOCS: &[(&str, &str)] = &[
     ("REGTEST.md", include_str!("../../../docs/REGTEST.md")),
     ("THREAT-MODEL.md", include_str!("../../../docs/THREAT-MODEL.md")),
     ("ZIP311-TODOS.md", include_str!("../../../docs/ZIP311-TODOS.md")),
+    ("COMPARISON.md", include_str!("../../../docs/COMPARISON.md")),
     ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),

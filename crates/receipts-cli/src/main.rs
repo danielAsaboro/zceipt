@@ -14,7 +14,8 @@ use std::path::PathBuf;
 
 /// Where `receipts create` points the shareable link. The page verifies everything in the
 /// browser; the receipt travels in the URL fragment, which browsers never send to a server.
-const DEFAULT_LINK_BASE: &str = "https://zecathon-receipts.vercel.app/";
+/// The verifier `receipts serve` (and `receipts demo`) host locally; pass --link-base for another.
+const DEFAULT_LINK_BASE: &str = "http://127.0.0.1:8723/verify/";
 
 #[derive(Parser)]
 #[command(name = "receipts", version, about = "Prove one shielded Zcash payment, reveal nothing else.")]

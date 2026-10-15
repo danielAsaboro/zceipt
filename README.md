@@ -1,38 +1,47 @@
 # Receipts
 
-**Prove one shielded Zcash payment to one person, and reveal nothing else.**
+**Prove one shielded Zcash payment. Reveal nothing else.**
 
-Receipts implements ZIP 311 payment disclosures for **Orchard and Ironwood**. A sender turns
-one shielded transaction into a link. Whoever opens the link sees who was paid, how much and
-the memo, plus a zero-knowledge proof that the sender authorized the payment. The link
-reveals nothing about the sender's address, balance or other transactions, and no viewing key
-changes hands.
+Shielded Zcash hides who paid whom. But sometimes you have to prove one payment: to a shop, an
+exchange, an auditor, a donor. Today that means handing over a **viewing key**, which shows every
+payment to that wallet (and, for a full viewing key, from it), past and future. Receipts replaces the key with a **receipt**: a link
+that proves one transaction (who was paid, how much, the memo, and that the sender authorized it
+with a zero-knowledge proof) and nothing about the sender's address, balance or other payments.
 
-```
-receipts create -w wallet -i key.age --txid <txid> -m "Invoice 42"
-→ https://zecathon-receipts.vercel.app/#zrcpt1…
-```
+It implements ZIP 311 payment disclosures for **Orchard and Ironwood**, the
+pools wallets use today, with an API, SDKs and a browser verifier around it.
 
-Opening the link verifies the receipt entirely in the browser (Rust compiled to WebAssembly).
-The receipt sits in the URL `#fragment`, which browsers never send to any server.
-
-> Built for ZECATHON 2026, Core & Tooling track.
-
-**See it in one command** (no wallet, faucet or setup; about five seconds):
+**Try it in one command** (no wallet, faucet or setup; about five seconds):
 
 ```bash
 cargo install --locked --path crates/receipts-cli && receipts demo
 ```
 
-Or with Docker, no Rust needed: `docker compose run --rm receipts demo --no-wait` for the tour,
-`docker compose up` for the API, dashboard and verifier on http://127.0.0.1:8723 (checked from a
-fresh copy: image built and tour passed in about 2 minutes). `./scripts/install.sh` does the
-`cargo install` and runs the tour.
+No Rust? `docker compose run --rm receipts demo --no-wait`. The tour walks a coffee shop through
+asking for a payment, getting a receipt instead of a viewing key, finality, a refund and an
+accountant's attestation, then checks a real testnet receipt offline. It leaves the API,
+dashboard and verifier running for you to click around.
 
-The tour starts the API, dashboard and browser verifier on a free local port, then walks a shop
-through asking for a payment, receiving a receipt instead of a viewing key, finality, a refund
-and an accountant's attestation, and verifies a real testnet receipt offline. The server keeps
-running so you can open the printed dashboard and verifier links.
+| | With a viewing key | With a receipt |
+|---|---|---|
+| What the other side sees | every incoming payment, past and future | this one payment, and that you made it |
+| Your address and balance | exposed or linkable | hidden (unless you choose to prove your address) |
+| Proof in a dispute | the processor's records | the receipt itself, checkable by anyone, offline |
+
+More: [threat model](docs/THREAT-MODEL.md) · [comparison with viewing-key processors](docs/COMPARISON.md) · [how it fills ZIP 311's TODOs](docs/ZIP311-TODOS.md) · [spec](docs/SPEC.md) · [crypto review](docs/CRYPTO-REVIEW.md). Built for ZECATHON 2026, Core & Tooling track.
+
+### Making a receipt
+
+```
+receipts create -w wallet -i key.age --txid <txid> -m "Invoice 42"
+→ http://127.0.0.1:8723/verify/#zrcpt1…&h=<block>
+```
+
+Opening the link verifies the receipt entirely in the browser (Rust compiled to WebAssembly).
+The receipt sits in the URL `#fragment`, which browsers never send to any server. Other ways in:
+`zcash-devtool wallet receipt` (inside the wallet), `receipts pay '<shop pay link>'` (pay and
+prove in one step), `docker compose up` (API, dashboard and verifier on http://127.0.0.1:8723),
+`./scripts/install.sh`.
 
 ## Why
 

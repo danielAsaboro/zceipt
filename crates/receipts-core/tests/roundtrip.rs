@@ -517,6 +517,12 @@ fn oversized_receipts_are_refused_at_creation() {
     assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long, &[], &[w()], OsRng).unwrap_err(), Error::TooLarge);
     let outs = vec![(s.merchant_index, fvk.to_ovk(Scope::External)); 256];
     assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &outs, &[w()], OsRng).unwrap_err(), Error::TooLarge);
+    let spends: Vec<_> = (0..256).map(|_| w()).collect();
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &spends, OsRng).unwrap_err(), Error::TooLarge);
+    // At the limits themselves the size check passes (these then fail on the repeated index).
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &outs[..255], &[w()], OsRng).unwrap_err(), Error::DuplicateIndex(s.merchant_index as u32));
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &spends[..255], OsRng).unwrap_err(), Error::DuplicateIndex(s.spend_index as u32));
+    assert!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long[..65_535], &[], &[w()], OsRng).is_ok());
 }
 
 #[test]

@@ -46,7 +46,23 @@ python3 -m unittest discover -s spec-verifier/tests
 ## 3. Mutation testing
 
 `cargo mutants` changed the core's code 178 ways (`lib.rs`, `encoding.rs`, `signin.rs`) and ran
-the core's tests against each. MUTANTS_SUMMARY
+the core's tests against each. The first run: 126 caught, 32 unviable
+(don't compile), **20 missed**. Every missed mutant was a missing test, not dead code:
+
+| Missed | What was untested | Test added |
+|---|---|---|
+| address proof `rho` fixed to a constant (2) | two address proofs for one address must not be linkable | `rt::address_proof_roundtrip_and_rejections` (distinct `rho`, `nf`, `cmx`, `rk`) |
+| `address_proof_anchor` (3) | the anchor equals a one-leaf tree root computed independently | same |
+| proof-length cap, batch size bounds (7) | exact boundaries: 65,536-byte proofs decode, 65,537 don't; batches of 1 and 256 decode, 0 and 257 don't | `tests/encoding_ub.rs::length_limits_are_exact` |
+| `check_batch` position and id checks (2) | position 0, positions above `n`, mixed ids | `::batch_positions_are_checked` |
+| sign-in digest, sign-in proof cap (4) | the public digest is the signed one; the cap is exact | `::sign_in_digest_and_limits` |
+| `display_txid` (2) | explorer byte order | `::txids_display_as_explorers_show_them` |
+
+Looking at the length fields also showed that `create` would encode a message over 65,535 bytes
+or more than 255 outputs with a wrapped length; it now refuses (`Error::TooLarge`), with tests at
+the exact limits. Re-running every mutant on changed lines (`--iterate`): **0 missed**. (One run
+with three parallel jobs reported 3 misses that a single-job re-run and a manual check showed
+were caught; the single-job result is the one recorded.)
 
 ```bash
 cargo mutants -p receipts-core -f crates/receipts-core/src/lib.rs -f crates/receipts-core/src/encoding.rs -f crates/receipts-core/src/signin.rs

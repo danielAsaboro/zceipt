@@ -66,11 +66,12 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component. Links carry an `h=` block hint, so the page downloads the whole block and lightwalletd never learns which transaction was checked; every result says what the server could see |
 | **Drop-in integrations** | HTTP 402 "prove you paid" gate and signed-webhook handler for Express, Next.js/fetch servers and FastAPI/Django/Flask ([guide](docs/guides/http-402.md), [paid API example](examples/paid-api/server.mjs)) |
 | **Payment-link checker** | `receipts check-link`, `POST /v1/payment_links/check`, `checkPaymentLink()` and a panel on the page lint a `zcash:` link before it goes on an invoice: wrong network, transparent/TEX/Sapling-only recipients a receipt can't prove, missing amount or memo, unknown required params, QR density |
+| **Cross-pool payments** | after NU6.3 wallets spend Orchard notes into Ironwood outputs; receipts (format v3) cover the Orchard spend and the Ironwood output together ([example](examples/regtest-crosspool)) |
 | **Exchange deposits (ZIP 320)** | `receipts create --tex-deposit <tex> --second-tx <txid>` proves who made a two-step TEX deposit; every verifier checks the second step spends the first and pays the TEX, with a clear warning that it links the shielded funds to the deposit. Proven on testnet |
 | **Attestations** | `POST /v1/requests/{id}/attestations`: an Ed25519 SD-JWT stating only "paid at least X on or before day D"; txid, exact amount, time, request and label stay hidden unless revealed one by one; `verifyAttestation(p, { issuer })` checks it offline against the issuer you trust |
 | **Refunds** | the payer signs `refund-to:` into their receipt; `POST /v1/requests/{id}/refunds` returns a ZIP-321 link to that address, and a receipt for the refund settles it (`refund.created`, `refund.succeeded`) |
 | **Sign in with Zcash** | `POST /v1/sign_in/challenges` + `receipts sign-in`: prove control of a shielded address for one domain and one nonce, with no transaction. Phishing and replay are refused; `verifySignIn()` checks it offline |
-| **Conformance** | [105 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts that the Rust and npm verifiers both run, plus a decoder fuzz pass in `cargo test` |
+| **Conformance** | [133 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts that the Rust and npm verifiers both run, plus a decoder fuzz pass in `cargo test` |
 | **Sandbox** | `zrcpt_test_*` fixtures with a fixed outcome for every error path, so you can integrate with no wallet and no faucet, plus test clocks that fast-forward expiry and the 10-confirmation `request.final` event |
 | **Local dev tools** | `receipts doctor` (checks servers, API key, clock, wallet), `receipts listen --forward-to …` and `receipts trigger <any event>`, like the Stripe CLI |
 | **For AI agents** | `/llms.txt`, `/llms-full.txt`, every doc as Markdown, and `receipts mcp`, an MCP server with `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`, `refund_payment` and `check_payment_link` |
@@ -189,6 +190,12 @@ ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
   Undisclosed outputs, including change, stay sealed.
 
 ## Tests and evidence
+
+`./scripts/e2e-regtest.sh` reproduces the real-chain story on a private Zebra regtest chain in
+about a minute: an Orchard payment and receipt, NU6.3, `receipts pay` answering a proof request
+with an Ironwood receipt, a refund settled with a cross-pool (Orchard to Ironwood) receipt, an
+attestation and Sign in with Zcash (8 checks; needs Docker, lightwalletd and zcash-devtool).
+
 
 `cargo test -p receipts-core --release` builds real Orchard and Ironwood bundles in memory
 (halo2 proofs and signatures included), then:

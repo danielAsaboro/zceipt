@@ -129,20 +129,18 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Resul
     if tx.txid().as_ref() != &u.txid {
         return Err(JsError::new("the fetched transaction does not match the receipt's txid"));
     }
-    let bundle = match u.pool {
-        Pool::Ironwood => tx.ironwood_bundle(),
-        Pool::Orchard => tx.orchard_bundle(),
-    }
-    .ok_or_else(|| JsError::new("the transaction has no bundle in the receipt's pool"))?;
     let v = VK.with(|vk| {
         let vk = vk.get_or_init(receipts_core::verifying_key);
-        receipts_core::verify(vk, &r, u.coin_type, u.pool, u.txid, bundle)
+        receipts_core::verify_tx_bundles(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle())
     })
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(serde_json::to_string(&Verified {
         valid: true,
         network: name,
-        pool: pool_name(u.pool),
+        pool: match u.output_pool {
+            Some(o) if o != u.pool => if u.pool == Pool::Orchard { "Orchard to Ironwood" } else { "Ironwood to Orchard" },
+            _ => pool_name(u.pool),
+        },
         txid: display_txid(&u.txid),
         mined_height: height,
         message: String::from_utf8_lossy(&v.msg).into_owned(),

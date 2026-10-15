@@ -84,6 +84,20 @@ text     := "zrcpt1" || base64url_nopad(receipt)
 A receipt with one spend and one output is about 5.2 KB (7 KB as text). That is small enough
 for a URL fragment, which browsers never send to a server.
 
+## Cross-pool receipts (version 3)
+
+After NU6.3, a wallet spending Orchard notes pays into Ironwood outputs: the spends are in the
+transaction's Orchard bundle and the payment in its Ironwood bundle. Version 3 adds the outputs'
+pool right after the spends' pool and always carries the per-spend address flag:
+
+```
+unsigned := "ZRCT" | version:u8 = 3 | coin_type:u32le | pool:u8 | output_pool:u8 (≠ pool) | txid[32] | …
+```
+
+Spend proofs and signatures are checked against `pool`'s bundle (its anchor and nullifiers),
+outputs are opened in `output_pool`'s bundle with that pool's note-encryption domain. The
+signature covers both pool bytes, so a receipt can't be moved between bundles.
+
 ## Batches
 
 ```

@@ -811,14 +811,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         }
     };
     eprintln!("Waiting for {txid} to be mined…");
-    let net = {
-        let keys = std::fs::read_to_string(wallet_dir.join("keys.toml"))?;
-        match keys.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"')) {
-            Some("main") => net::Net::Main,
-            Some("regtest") => bail!("for regtest wallets, pay with zcash-devtool and use `receipts create --request`"),
-            _ => net::Net::Test,
-        }
-    };
+    let net = wallet::wallet_network(&wallet_dir)?;
     let id = parse_txid(&txid)?;
     let mut mined = false;
     for _ in 0..120 {

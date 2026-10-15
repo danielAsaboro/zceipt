@@ -18,6 +18,10 @@ const MAGIC: &[u8; 4] = b"ZRCT";
 const VERSION: u8 = 1;
 /// Version 2 adds an optional address proof after each spend.
 const VERSION_ADDR: u8 = 2;
+/// Version 3: outputs come from a different pool than the spends (an Orchard spend paying an
+/// Ironwood output, as every wallet migrating after NU6.3 does). Adds the outputs' pool after
+/// the spends' pool, and always carries the per-spend address flag.
+const VERSION_XPOOL: u8 = 3;
 /// Prefix of the text encoding.
 pub const TEXT_PREFIX: &str = "zrcpt1";
 const MAX_PROOF_LEN: usize = 1 << 16;
@@ -71,11 +75,15 @@ impl UnsignedReceipt {
     /// The canonical byte encoding that signatures commit to.
     pub fn encode(&self) -> Vec<u8> {
         let mut v = Vec::new();
-        let with_addr = self.spends.iter().any(|s| s.address.is_some());
+        let xpool = self.output_pool.filter(|p| *p != self.pool);
+        let with_addr = xpool.is_some() || self.spends.iter().any(|s| s.address.is_some());
         v.extend_from_slice(MAGIC);
-        v.push(if with_addr { VERSION_ADDR } else { VERSION });
+        v.push(if xpool.is_some() { VERSION_XPOOL } else if with_addr { VERSION_ADDR } else { VERSION });
         v.extend_from_slice(&self.coin_type.to_le_bytes());
         v.push(self.pool.to_byte());
+        if let Some(p) = xpool {
+            v.push(p.to_byte());
+        }
         v.extend_from_slice(&self.txid);
         v.extend_from_slice(&(self.msg.len() as u16).to_le_bytes());
         v.extend_from_slice(&self.msg);
@@ -117,12 +125,22 @@ impl UnsignedReceipt {
             return Err(DecodeError::BadMagic);
         }
         let version = r.u8()?;
-        if version != VERSION && version != VERSION_ADDR {
+        if version != VERSION && version != VERSION_ADDR && version != VERSION_XPOOL {
             return Err(DecodeError::UnsupportedVersion(version));
         }
         let coin_type = r.u32()?;
         let pool_b = r.u8()?;
         let pool = Pool::from_byte(pool_b).ok_or(DecodeError::UnknownPool(pool_b))?;
+        let output_pool = if version == VERSION_XPOOL {
+            let b = r.u8()?;
+            let p = Pool::from_byte(b).ok_or(DecodeError::UnknownPool(b))?;
+            if p == pool {
+                return Err(DecodeError::UnknownPool(b)); // v3 must name a different pool
+            }
+            Some(p)
+        } else {
+            None
+        };
         let txid = r.arr32()?;
         let msg_len = r.u16()? as usize;
         let msg = r.take(msg_len)?.to_vec();
@@ -146,7 +164,7 @@ impl UnsignedReceipt {
                 return Err(DecodeError::TooLarge);
             }
             let proof = r.take(len)?.to_vec();
-            let address = if version == VERSION_ADDR && r.u8()? == 1 {
+            let address = if (version == VERSION_ADDR || version == VERSION_XPOOL) && r.u8()? == 1 {
                 let address: [u8; 43] = r.take(43)?.try_into().unwrap();
                 let rho = r.arr32()?;
                 let rseed = r.arr32()?;
@@ -173,6 +191,7 @@ impl UnsignedReceipt {
         Ok(UnsignedReceipt {
             coin_type,
             pool,
+            output_pool,
             txid,
             msg,
             outputs,

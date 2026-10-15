@@ -21,13 +21,15 @@ vectors = []
 cases = [
     ("regtest", ex("regtest/receipt.txt"), ex("regtest/tx.hex"), 222, True, [{"zatoshis": 42_000_000, "memo": "Invoice 42: two coffees"}]),
     ("regtest-orchard", ex("regtest-orchard/receipt.txt"), ex("regtest-orchard/tx.hex"), 212, True, [{"zatoshis": 42_000_000, "memo": "Invoice 7: Orchard espresso"}]),
+    ("regtest-crosspool", ex("regtest-crosspool/receipt.txt"), ex("regtest-crosspool/tx.hex"), int(ex("regtest-crosspool/height")), True, None),
     ("testnet", ex("testnet/receipt.txt"), ex("testnet/tx.hex"), 4_500_997, False, [{"zatoshis": 1_000_000, "memo": "Invoice 42: two coffees"}]),
 ]
 for name, r, tx, h, regtest, outs in cases:
     base = {"type": "receipt", "raw_tx": tx, "height": h, "regtest": regtest}
     if regtest:
         base["heights"] = f"examples/{name}/heights.toml"
-    vectors.append({"name": f"{name}/valid", **base, "receipt": r, "expect": {"valid": True, "outputs": outs}})
+    expect = {"valid": True, "outputs": outs} if outs else {"valid": True}
+    vectors.append({"name": f"{name}/valid", **base, "receipt": r, "expect": expect})
     for i in spread(r, "zrcpt1", 24):
         vectors.append({"name": f"{name}/flip-{i}", **base, "receipt": flip(r, i), "expect": {"valid": False}})
     vectors.append({"name": f"{name}/truncated", **base, "receipt": r[:-40], "expect": {"valid": False}})

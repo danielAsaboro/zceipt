@@ -120,7 +120,10 @@ pub struct AddressProof {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnsignedReceipt {
     pub coin_type: u32,
+    /// The pool of the spends (and of the outputs, unless `output_pool` says otherwise).
     pub pool: Pool,
+    /// The pool of the disclosed outputs, when it differs from the spends' (format v3).
+    pub output_pool: Option<Pool>,
     pub txid: [u8; 32],
     pub msg: Vec<u8>,
     pub outputs: Vec<OutputDisclosure>,
@@ -153,6 +156,8 @@ pub struct SpendWitness {
 pub struct VerifiedReceipt {
     pub coin_type: u32,
     pub pool: Pool,
+    /// Where the disclosed outputs are, if not in `pool`.
+    pub output_pool: Option<Pool>,
     pub txid: [u8; 32],
     pub msg: Vec<u8>,
     /// Actions whose spend authority was proven by the receipt's signer.
@@ -401,23 +406,43 @@ pub fn create<A: Authorization, V>(
     msg: &[u8],
     outputs: &[(usize, OutgoingViewingKey)],
     spends: &[SpendWitness],
+    rng: impl Rng + CryptoRng,
+) -> Result<Receipt, Error> {
+    create_cross(pk, coin_type, pool, bundle, pool, bundle, txid, msg, outputs, spends, rng)
+}
+
+/// Like `create`, for a transaction whose spends are in one pool's bundle and whose disclosed
+/// outputs are in another's (Orchard notes spent into Ironwood outputs after NU6.3).
+#[allow(clippy::too_many_arguments)]
+pub fn create_cross<A: Authorization, V>(
+    pk: &ProvingKey,
+    coin_type: u32,
+    pool: Pool,
+    bundle: &Bundle<A, V>,
+    output_pool: Pool,
+    output_bundle: &Bundle<A, V>,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[(usize, OutgoingViewingKey)],
+    spends: &[SpendWitness],
     mut rng: impl Rng + CryptoRng,
 ) -> Result<Receipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);
     }
     let actions = bundle.actions();
+    let out_actions = output_bundle.actions();
     let out_idx: Vec<u32> = outputs.iter().map(|(i, _)| *i as u32).collect();
     let spend_idx: Vec<u32> = spends.iter().map(|s| s.index as u32).collect();
-    check_indices(actions.len(), out_idx.iter())?;
+    check_indices(out_actions.len(), out_idx.iter())?;
     check_indices(actions.len(), spend_idx.iter())?;
 
     // Outputs: derive the ock and check it actually opens the output.
     let mut out_disclosures = Vec::with_capacity(outputs.len());
     for (i, ovk) in outputs {
-        let action = &actions[*i];
-        let ock = derive_ock(pool, ovk, action);
-        recover_with_ock(pool, &ock, action).ok_or(Error::WrongOvk(*i as u32))?;
+        let action = &out_actions[*i];
+        let ock = derive_ock(output_pool, ovk, action);
+        recover_with_ock(output_pool, &ock, action).ok_or(Error::WrongOvk(*i as u32))?;
         out_disclosures.push(OutputDisclosure {
             index: *i as u32,
             ock: ock.0,
@@ -500,6 +525,7 @@ pub fn create<A: Authorization, V>(
     let unsigned = UnsignedReceipt {
         coin_type,
         pool,
+        output_pool: (output_pool != pool).then_some(output_pool),
         txid,
         msg: msg.to_vec(),
         outputs: out_disclosures,
@@ -526,7 +552,46 @@ pub fn verify<A: Authorization, V>(
     txid: [u8; 32],
     bundle: &Bundle<A, V>,
 ) -> Result<VerifiedReceipt, Error> {
+    if receipt.unsigned.output_pool.is_some() {
+        return Err(Error::PoolMismatch); // needs both bundles: use verify_tx_bundles
+    }
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle)
+}
+
+/// Verifies a receipt against a transaction's Orchard and Ironwood bundles, whichever pools
+/// the receipt's spends and outputs are in.
+pub fn verify_tx_bundles<A: Authorization, V>(
+    vk: &VerifyingKey,
+    receipt: &Receipt,
+    expected_coin_type: u32,
+    txid: [u8; 32],
+    orchard: Option<&Bundle<A, V>>,
+    ironwood: Option<&Bundle<A, V>>,
+) -> Result<VerifiedReceipt, Error> {
     let u = &receipt.unsigned;
+    let pick = |p: Pool| match p {
+        Pool::Orchard => orchard,
+        Pool::Ironwood => ironwood,
+    };
+    let spends = pick(u.pool).ok_or(Error::PoolMismatch)?;
+    let outs = match u.output_pool {
+        None => spends,
+        Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
+    };
+    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs)
+}
+
+fn verify_cross<A: Authorization, V>(
+    vk: &VerifyingKey,
+    receipt: &Receipt,
+    expected_coin_type: u32,
+    pool: Pool,
+    txid: [u8; 32],
+    bundle: &Bundle<A, V>,
+    output_bundle: &Bundle<A, V>,
+) -> Result<VerifiedReceipt, Error> {
+    let u = &receipt.unsigned;
+    let output_pool = u.output_pool.unwrap_or(u.pool);
     if u.txid != txid {
         return Err(Error::TxidMismatch(display_txid(&u.txid)));
     }
@@ -543,7 +608,8 @@ pub fn verify<A: Authorization, V>(
         return Err(Error::SignatureCount);
     }
     let actions = bundle.actions();
-    check_indices(actions.len(), u.outputs.iter().map(|o| &o.index))?;
+    let out_actions = output_bundle.actions();
+    check_indices(out_actions.len(), u.outputs.iter().map(|o| &o.index))?;
     check_indices(actions.len(), u.spends.iter().map(|s| &s.index))?;
 
     let digest = signing_digest(u);
@@ -573,8 +639,8 @@ pub fn verify<A: Authorization, V>(
 
     let mut outputs = Vec::with_capacity(u.outputs.len());
     for o in &u.outputs {
-        let action = &actions[o.index as usize];
-        let (note, addr, memo) = recover_with_ock(pool, &OutgoingCipherKey(o.ock), action)
+        let action = &out_actions[o.index as usize];
+        let (note, addr, memo) = recover_with_ock(output_pool, &OutgoingCipherKey(o.ock), action)
             .ok_or(Error::BadOutputKey(o.index))?;
         outputs.push(VerifiedOutput {
             index: o.index,
@@ -587,6 +653,7 @@ pub fn verify<A: Authorization, V>(
     Ok(VerifiedReceipt {
         coin_type: u.coin_type,
         pool: u.pool,
+        output_pool: u.output_pool,
         txid: u.txid,
         msg: u.msg.clone(),
         proven_spends: u.spends.iter().map(|s| s.index).collect(),

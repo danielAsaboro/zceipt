@@ -176,18 +176,19 @@ pub async fn verify_against_chain(
 
 fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
-    let bundle = match u.pool {
-        Pool::Ironwood => tx.ironwood_bundle(),
-        Pool::Orchard => tx.orchard_bundle(),
-    }
-    .ok_or_else(|| anyhow!("transaction has no {:?} bundle", u.pool))?;
     static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
     let vk = VK.get_or_init(receipts_core::verifying_key);
-    let v = receipts_core::verify(vk, receipt, u.coin_type, u.pool, u.txid, bundle)?;
+    let v = receipts_core::verify_tx_bundles(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle())
+        .map_err(|e| anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)))?;
     Ok(Report {
         valid: true,
         network: net.name(),
-        pool: if u.pool == Pool::Ironwood { "Ironwood" } else { "Orchard" },
+        pool: match (u.pool, u.output_pool) {
+            (Pool::Orchard, Some(Pool::Ironwood)) => "Orchard to Ironwood",
+            (Pool::Ironwood, Some(Pool::Orchard)) => "Ironwood to Orchard",
+            (Pool::Ironwood, _) => "Ironwood",
+            (Pool::Orchard, _) => "Orchard",
+        },
         txid: display_txid(&u.txid),
         mined_height: height,
         message: String::from_utf8_lossy(&v.msg).into_owned(),

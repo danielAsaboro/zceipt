@@ -129,21 +129,15 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
             ApiError::chain(m)
         }
     })?;
-    let bundle = match u.pool {
-        Pool::Ironwood => tx.ironwood_bundle(),
-        Pool::Orchard => tx.orchard_bundle(),
-    }
-    .ok_or_else(|| ApiError::verification("receipt_invalid", "the transaction has no bundle in the receipt's pool"))?;
     let receipt_owned = receipt.clone();
     let v = {
         let coin = u.coin_type;
-        let pool = u.pool;
         let txid = u.txid;
         // Proof verification is CPU-bound; keep it off the async workers, and bound how many
         // run at once so a burst of submissions queues instead of starving the server.
-        let bundle = bundle.clone();
+        let (orchard, ironwood) = (tx.orchard_bundle().cloned(), tx.ironwood_bundle().cloned());
         let _permit = verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
-        tokio::task::spawn_blocking(move || receipts_core::verify(vk(), &receipt_owned, coin, pool, txid, &bundle))
+        tokio::task::spawn_blocking(move || receipts_core::verify_tx_bundles(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref()))
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?
             .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?
@@ -171,7 +165,12 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
         valid: true,
         livemode: net == Net::Main,
         network: net.name(),
-        pool: if v.pool == Pool::Ironwood { "ironwood" } else { "orchard" },
+        pool: match (v.pool, v.output_pool) {
+            (Pool::Orchard, Some(Pool::Ironwood)) => "orchard_to_ironwood",
+            (Pool::Ironwood, Some(Pool::Orchard)) => "ironwood_to_orchard",
+            (Pool::Ironwood, _) => "ironwood",
+            (Pool::Orchard, _) => "orchard",
+        },
         txid: display_txid(&v.txid),
         mined_height: height,
         challenge: challenge_of(&message),

@@ -35,10 +35,19 @@ struct KeysToml {
     activation_heights: Option<Heights>,
 }
 
-fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy::SecretVec<u8>)> {
+fn read_keys(wallet: &Path) -> anyhow::Result<KeysToml> {
     let keys_path = wallet.join("keys.toml");
-    let keys: KeysToml = toml::from_str(&std::fs::read_to_string(&keys_path).with_context(|| format!("reading {} (is -w a zcash-devtool wallet directory?)", keys_path.display()))?)?;
-    let net = match keys.network.as_deref().unwrap_or("test") {
+    Ok(toml::from_str(&std::fs::read_to_string(&keys_path).with_context(|| format!("reading {} (is -w a zcash-devtool wallet directory?)", keys_path.display()))?)?)
+}
+
+/// The network a wallet is for (no secrets are read).
+pub fn wallet_network(wallet: &Path) -> anyhow::Result<Net> {
+    let keys = read_keys(wallet)?;
+    net_of(&keys)
+}
+
+fn net_of(keys: &KeysToml) -> anyhow::Result<Net> {
+    Ok(match keys.network.as_deref().unwrap_or("test") {
         "main" => Net::Main,
         "test" => Net::Test,
         "regtest" => Net::Regtest(
@@ -48,7 +57,12 @@ fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy:
                 .to_local(),
         ),
         other => bail!("unsupported network {other}"),
-    };
+    })
+}
+
+fn decrypt_seed(wallet: &Path, identity: &Path) -> anyhow::Result<(Net, secrecy::SecretVec<u8>)> {
+    let keys = read_keys(wallet)?;
+    let net = net_of(&keys)?;
     let ct = keys.mnemonic.ok_or_else(|| anyhow!("this wallet has no mnemonic (viewing-only)"))?;
     let ids = age::IdentityFile::from_file(identity.to_string_lossy().into_owned())
         .context("reading age identity")?
@@ -232,12 +246,28 @@ pub async fn create_receipt(
     )?;
     let mined = mined.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?;
 
-    let pool = pool.unwrap_or(if tx.ironwood_bundle().is_some() { Pool::Ironwood } else { Pool::Orchard });
-    let bundle = match pool {
+    let bundle_of = |p: Pool| match p {
         Pool::Ironwood => tx.ironwood_bundle(),
         Pool::Orchard => tx.orchard_bundle(),
-    }
-    .ok_or_else(|| anyhow!("transaction has no {pool:?} bundle"))?;
+    };
+    // The spends' pool: where this wallet's nullifiers are. After NU6.3 a wallet spending
+    // Orchard notes pays into Ironwood outputs, so spends and outputs can be in different pools.
+    let spends_in = |p: Pool| -> anyhow::Result<bool> {
+        let Some(b) = bundle_of(p) else { return Ok(false) };
+        for a in b.actions() {
+            if find_spent_note(&conn, p, &fvk, &a.nullifier().to_bytes())?.is_some() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    };
+    let pool = match pool {
+        Some(p) => p,
+        None if spends_in(Pool::Ironwood)? => Pool::Ironwood,
+        None if spends_in(Pool::Orchard)? => Pool::Orchard,
+        None => bail!("this wallet did not spend any notes in that transaction, so it cannot prove it sent it"),
+    };
+    let bundle = bundle_of(pool).ok_or_else(|| anyhow!("transaction has no {pool:?} bundle"))?;
 
     // Spends: every action that spent one of our notes.
     let mut spends = Vec::new();
@@ -272,27 +302,45 @@ pub async fn create_receipt(
         PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External)),
         PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::Internal)),
     ];
-    let ours = |a: &orchard::Action<_>| {
-        ivks.iter().any(|ivk| match pool {
+    let ours = |p: Pool, a: &orchard::Action<_>| {
+        ivks.iter().any(|ivk| match p {
             Pool::Orchard => try_note_decryption(&OrchardDomain::for_action(a), ivk, a).is_some(),
             Pool::Ironwood => try_note_decryption(&IronwoodDomain::for_action(a), ivk, a).is_some(),
         })
     };
-    let selected: Vec<(usize, orchard::keys::OutgoingViewingKey)> = if outputs.is_empty() {
-        bundle
-            .actions()
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| !ours(a) && bundle.recover_output_with_ovk_v(pool, a, &ovk))
-            .map(|(i, _)| (i, ovk.clone()))
-            .collect()
-    } else {
-        outputs.iter().map(|&i| (i as usize, ovk.clone())).collect()
+    let sent_to_others = |p: Pool| -> Vec<(usize, orchard::keys::OutgoingViewingKey)> {
+        bundle_of(p)
+            .map(|b| {
+                b.actions()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, a)| !ours(p, a) && b.recover_output_with_ovk_v(p, a, &ovk))
+                    .map(|(i, _)| (i, ovk.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
     };
+    // Outputs: in the spends' pool, or else in the other pool (a cross-pool payment).
+    let other = if pool == Pool::Orchard { Pool::Ironwood } else { Pool::Orchard };
+    let (output_pool, selected) = if !outputs.is_empty() {
+        (pool, outputs.iter().map(|&i| (i as usize, ovk.clone())).collect())
+    } else {
+        let same = sent_to_others(pool);
+        if same.is_empty() && bundle_of(other).is_some() {
+            let cross = sent_to_others(other);
+            if cross.is_empty() { (pool, same) } else { (other, cross) }
+        } else {
+            (pool, same)
+        }
+    };
+    if output_pool != pool {
+        eprintln!("This payment spent {pool:?} notes into {output_pool:?} outputs; the receipt covers both (format v3).");
+    }
 
     eprintln!("Building spend-authority proof(s)…");
     let pk = receipts_core::proving_key();
-    Ok((receipts_core::create(&pk, coin_type, pool, txid, bundle, msg, &selected, &spends, OsRng)?, mined))
+    let out_bundle = bundle_of(output_pool).ok_or_else(|| anyhow!("transaction has no {output_pool:?} bundle"))?;
+    Ok((receipts_core::create_cross(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, &selected, &spends, OsRng)?, mined))
 }
 
 trait RecoverExt {

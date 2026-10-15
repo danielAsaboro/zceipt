@@ -50,6 +50,11 @@ fn digest(coin_type: u32, domain: &str, nonce: &str, issued_at: u64, rk: &[u8; 3
     h.as_bytes().try_into().unwrap()
 }
 
+/// The digest a sign-in's signature covers.
+pub fn signing_digest(s: &SignIn) -> [u8; 32] {
+    digest(s.coin_type, &s.domain, &s.nonce, s.issued_at, &s.rk, &s.address)
+}
+
 /// Proves control of `address` (which must belong to `sk`) for `domain` and `nonce`.
 #[allow(clippy::too_many_arguments)]
 pub fn sign_in(

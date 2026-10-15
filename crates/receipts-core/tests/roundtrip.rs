@@ -415,3 +415,166 @@ fn disclosures_are_unlinkable_to_the_action_and_to_each_other() {
     assert_ne!(a.unsigned.spends[0].cv_net, b.unsigned.spends[0].cv_net);
     assert_ne!(a.unsigned.spends[0].cmx, b.unsigned.spends[0].cmx);
 }
+
+// ---------- forged address proofs (zero-value witness note) ----------
+//
+// The Action circuit only checks the Merkle path when the spent note's value is non-zero
+// (`v_old * (root - anchor) = 0`). An address proof is meant to spend a 1-zatoshi note to the
+// claimed address under a one-leaf tree, but if the verifier takes `cv_net` from the prover it
+// cannot tell whether the witness note really had value 1. A prover can then witness a
+// zero-value note to an address of their own, skip the anchor check, and claim any address.
+// ZIP 304 avoids this by fixing `cv = ValueCommit_0(1)` on the verifier's side.
+
+/// An address proof for `victim`, made by the holder of `attacker_sk` (who does not own it).
+fn forge_address_proof(
+    attacker_sk: &SpendingKey,
+    alpha: pasta_curves::pallas::Scalar,
+    victim: orchard::Address,
+    version: orchard::note::NoteVersion,
+) -> receipts_core::AddressProof {
+    use ff::{Field, PrimeField};
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::{RandomSeed, Rho},
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let mut rng = OsRng;
+    let rand32 = |rng: &mut UnwrapErr<SysRng>| {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(rng, &mut b);
+        b
+    };
+    let fvk = FullViewingKey::from(attacker_sk);
+    let own = fvk.address_at(0u32, Scope::External);
+    let note_for = |addr, value, rng: &mut UnwrapErr<SysRng>| loop {
+        let Some(rho) = Option::<Rho>::from(Rho::from_bytes(&pasta_curves::pallas::Base::random(&mut *rng).to_repr())) else { continue };
+        let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(rand32(rng), &rho)) else { continue };
+        if let Some(n) = Option::<Note>::from(Note::from_parts(addr, NoteValue::from_raw(value), rho, rseed, version)) {
+            break (rho, rseed, n);
+        }
+    };
+    // The note the verifier will rebuild: 1 zatoshi to the victim.
+    let (rho_v, rseed_v, victim_note) = note_for(victim, 1, &mut rng);
+    let (_, victim_path) = single_leaf_witness(&victim_note.commitment().into());
+    let anchor = victim_path.root(victim_note.commitment().into());
+    // The note actually witnessed: zero value, to the attacker's own address.
+    let (_, _, own_note) = note_for(own, 0, &mut rng);
+    let nf = own_note.nullifier(&fvk);
+    let spend = SpendInfo::new(fvk.clone(), own_note, victim_path).unwrap();
+    let (_, _, dummy) = loop {
+        let rho = Rho::from_bytes(&nf.to_bytes()).unwrap();
+        let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(rand32(&mut rng), &rho)) else { continue };
+        if let Some(n) = Option::<Note>::from(Note::from_parts(own, NoteValue::ZERO, rho, rseed, version)) {
+            break (rho, rseed, n);
+        }
+    };
+    let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
+    let cv_net = ValueCommitment::derive(NoteValue::ZERO - NoteValue::ZERO, rcv.clone());
+    let rk = VerificationKey::<SpendAuth>::from(&SpendAuthorizingKey::from(attacker_sk).randomize(&alpha));
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(anchor, cv_net.clone(), nf, rk, cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
+    receipts_core::AddressProof {
+        address: victim.to_raw_address_bytes(),
+        rho: rho_v.to_bytes(),
+        rseed: *rseed_v.as_bytes(),
+        nf: nf.to_bytes(),
+        cv_net: cv_net.to_bytes(),
+        cmx: cmx.to_bytes(),
+        proof: proof.as_ref().to_vec(),
+    }
+}
+
+#[test]
+fn sign_in_as_someone_elses_address_is_refused() {
+    use receipts_core::signin::{verify_sign_in, SignIn};
+    use ff::Field;
+    let vk = &keys().1;
+    let thief = SpendingKey::from_bytes([3; 32]).unwrap();
+    let victim = FullViewingKey::from(&SpendingKey::from_bytes([7; 32]).unwrap()).address_at(0u32, Scope::External);
+    let mut rng = OsRng;
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&thief).randomize(&alpha);
+    let rk: [u8; 32] = (&orchard::primitives::redpallas::VerificationKey::from(&rsk)).into();
+    let address = forge_address_proof(&thief, alpha, victim, orchard::note::NoteVersion::V3);
+    // As made, and with `cv_net` replaced by the value the verifier expects.
+    for cv_net in [address.cv_net, receipts_core::address_proof_cv_net().to_bytes()] {
+        let address = receipts_core::AddressProof { cv_net, ..address.clone() };
+        let mut forged = SignIn { coin_type: 1, domain: "shop.example".into(), nonce: "n0nce-1".into(), issued_at: 1_760_000_000, rk, address, sig: [0; 64] };
+        let digest = receipts_core::signin::signing_digest(&forged);
+        forged.sig = (&rsk.sign(OsRng, &digest)).into();
+        let res = verify_sign_in(vk, &forged, 1, "shop.example", "n0nce-1");
+        assert!(res.is_err(), "a thief signed in as the victim's address: {res:?}");
+    }
+}
+
+#[test]
+fn claiming_someone_elses_sender_address_is_refused() {
+    use ff::Field;
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::RandomSeed,
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    use ff::PrimeField;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mut rng = OsRng;
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let victim = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    // An honest spend disclosure with a known alpha (as `create` makes it)...
+    let action = &s.payment.actions()[s.spend_index];
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let rk = VerificationKey::<SpendAuth>::from(&rsk);
+    let rho = action.rho();
+    let dummy_addr = FullViewingKey::from(&SpendingKey::from_bytes([5; 32]).unwrap()).address_at(0u32, Scope::External);
+    let dummy = loop {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(&mut rng, &mut b);
+        if let Some(rs) = Option::<RandomSeed>::from(RandomSeed::from_bytes(b, &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(dummy_addr, NoteValue::ZERO, rho, rs, s.funding_note.version())) {
+                break n;
+            }
+        }
+    };
+    let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
+    let cv_net = ValueCommitment::derive(s.funding_note.value() - NoteValue::ZERO, rcv.clone());
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let spend = SpendInfo::new(fvk.clone(), s.funding_note, s.funding_path.clone()).unwrap();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(*s.payment.anchor(), cv_net.clone(), *action.nullifier(), rk.clone(), cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
+    // ...plus an address proof for the merchant's address, which the sender does not own.
+    let forged_address = forge_address_proof(&s.sender_sk, alpha, victim, s.funding_note.version());
+    for cv in [forged_address.cv_net, receipts_core::address_proof_cv_net().to_bytes()] {
+    let address = receipts_core::AddressProof { cv_net: cv, ..forged_address.clone() };
+    let unsigned = receipts_core::UnsignedReceipt {
+        coin_type: COIN_TYPE_TESTNET,
+        pool: Pool::Ironwood,
+        output_pool: None,
+        txid: TXID,
+        msg: b"I am the merchant".to_vec(),
+        outputs: vec![],
+        spends: vec![receipts_core::SpendDisclosure {
+            index: s.spend_index as u32,
+            cv_net: cv_net.to_bytes(),
+            rk: (&rk).into(),
+            cmx: cmx.to_bytes(),
+            proof: proof.as_ref().to_vec(),
+            address: Some(address),
+        }],
+    };
+    let digest = receipts_core::signing_digest(&unsigned);
+    let forged = Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned };
+    let forged = Receipt::from_bytes(&forged.to_bytes()).unwrap();
+    let res = verify(&keys().1, &forged, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+    assert!(res.is_err(), "a sender proved control of the merchant's address: {:?}", res.map(|v| v.proven_addresses));
+    }
+}

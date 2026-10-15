@@ -104,7 +104,13 @@ pub struct SpendDisclosure {
 /// It is a second action proof, under the *same* randomized key `rk`, that spends a fresh
 /// 1-zatoshi note addressed to `address`. The note is revealed (`rho`, `rseed`), so the verifier
 /// recomputes its commitment and the root of a one-leaf tree, and the circuit's anchor check
-/// (enforced because the value is non-zero) binds the proof to that address.
+/// binds the proof to that address.
+///
+/// The circuit only enforces the anchor when the spent value is non-zero, so the verifier must
+/// know that the witnessed value is 1. As in ZIP 304, the value commitment uses a zero trapdoor:
+/// `cv_net` must equal `ValueCommit_0(1)`, which the verifier checks. (A version of this code that
+/// took `cv_net` from the prover let anyone claim any address by witnessing a zero-value note to
+/// their own address; see `tests/roundtrip.rs::claiming_someone_elses_sender_address_is_refused`.)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AddressProof {
     pub address: [u8; 43],
@@ -321,13 +327,13 @@ fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut impl Cr
     }
 }
 
-fn random_trapdoor(rng: &mut impl CryptoRng) -> ValueCommitTrapdoor {
-    loop {
-        let r = random_scalar(rng);
-        if let Some(t) = Option::<ValueCommitTrapdoor>::from(ValueCommitTrapdoor::from_bytes(r.to_repr())) {
-            return t;
-        }
-    }
+fn zero_trapdoor() -> ValueCommitTrapdoor {
+    Option::from(ValueCommitTrapdoor::from_bytes([0; 32])).expect("zero is a canonical scalar")
+}
+
+/// `ValueCommit_0(1 - 0)`: the value commitment every address proof must carry (ZIP 304's `cv`).
+pub fn address_proof_cv_net() -> ValueCommitment {
+    ValueCommitment::derive(NoteValue::from_raw(1) - NoteValue::ZERO, zero_trapdoor())
 }
 
 pub(crate) fn address_proof(
@@ -355,8 +361,8 @@ pub(crate) fn address_proof(
     let spend = SpendInfo::new(fvk.clone(), note, path).ok_or(Error::AddressNotOwned)?;
     let out_rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes())).ok_or(Error::Proving)?;
     let dummy = dummy_output(out_rho, version, rng);
-    let rcv = random_trapdoor(rng);
-    let cv_net = ValueCommitment::derive(NoteValue::from_raw(1) - NoteValue::ZERO, rcv.clone());
+    let rcv = zero_trapdoor();
+    let cv_net = address_proof_cv_net();
     let cmx: ExtractedNoteCommitment = dummy.commitment().into();
     let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, RECEIPT_CIRCUIT).ok_or(Error::Proving)?;
     let instance = Instance::from_parts(anchor, cv_net.clone(), nf, rk.clone(), cmx, Flags::ENABLED).ok_or(Error::Proving)?;
@@ -386,7 +392,11 @@ pub(crate) fn verify_address_proof(
     let note = Option::<Note>::from(Note::from_parts(address, NoteValue::from_raw(1), rho, rseed, pool_note_version(pool))).ok_or_else(bad)?;
     let anchor = single_leaf_path().root(note.commitment().into());
     let nf = Option::<orchard::note::Nullifier>::from(orchard::note::Nullifier::from_bytes(&a.nf)).ok_or_else(bad)?;
-    let cv_net = Option::<ValueCommitment>::from(ValueCommitment::from_bytes(&a.cv_net)).ok_or_else(bad)?;
+    // The value must be 1 for the circuit to enforce the anchor: `cv_net` is fixed, not the prover's.
+    let cv_net = address_proof_cv_net();
+    if a.cv_net != cv_net.to_bytes() {
+        return Err(bad());
+    }
     let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&a.cmx)).ok_or_else(bad)?;
     let instance = Instance::from_parts(anchor, cv_net, nf, rk.clone(), cmx, Flags::ENABLED).ok_or_else(bad)?;
     Proof::new(a.proof.clone()).verify(vk, &[instance]).map_err(|_| bad())

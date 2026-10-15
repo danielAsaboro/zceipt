@@ -158,6 +158,16 @@ impl Db {
         for col in ["public_note TEXT", "refund_address TEXT"] {
             let _ = conn.execute(&format!("ALTER TABLE request_payments ADD COLUMN {col}"), []);
         }
+        // Indexes for the hot lookups (the soak test showed throughput sliding without them).
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS deliveries_due ON deliveries(status, next_attempt_at);
+             CREATE INDEX IF NOT EXISTS request_payments_request ON request_payments(request_id);
+             CREATE INDEX IF NOT EXISTS refunds_request ON refunds(request_id);
+             CREATE INDEX IF NOT EXISTS requests_mode_created ON requests(mode, created);
+             CREATE INDEX IF NOT EXISTS requests_clock ON requests(test_clock);
+             CREATE INDEX IF NOT EXISTS requests_open_expiry ON requests(status, expires_at);
+             CREATE INDEX IF NOT EXISTS events_mode ON events(mode);",
+        )?;
         Ok(Db(Mutex::new(conn)))
     }
 

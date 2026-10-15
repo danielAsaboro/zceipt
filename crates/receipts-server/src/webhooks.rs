@@ -44,65 +44,88 @@ fn backoff(base: i64, attempts: i64) -> i64 {
     (base << (attempts - 1).clamp(0, 9)).min(3600)
 }
 
-/// Delivers due webhooks forever, once a second.
+/// Most due deliveries taken per pass, and most sent at once.
+const BATCH: usize = 200;
+const IN_FLIGHT: usize = 32;
+
+/// Delivers due webhooks forever: a pass every 250 ms, or straight away while there's a backlog.
 pub async fn worker(st: Shared) {
     loop {
-        if let Err(e) = tick(&st).await {
-            tracing::warn!("webhook worker: {e}");
+        match tick(&st).await {
+            Ok(n) if n == BATCH => continue,
+            Ok(_) => {}
+            Err(e) => tracing::warn!("webhook worker: {e}"),
         }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 }
 
-async fn tick(st: &Shared) -> anyhow::Result<()> {
+async fn tick(st: &Shared) -> anyhow::Result<usize> {
     let due: Vec<(i64, String, String, String, i64, String)> = {
         let c = st.db.0.lock().unwrap();
         let mut stmt = c.prepare(
             "SELECT d.id, e.body, w.url, w.secret, d.attempts, w.mode FROM deliveries d
              JOIN events e ON e.id = d.event_id JOIN webhook_endpoints w ON w.id = d.endpoint_id
-             WHERE d.status = 'pending' AND d.next_attempt_at <= ?1 AND w.disabled = 0 LIMIT 20",
+             WHERE d.status = 'pending' AND d.next_attempt_at <= ?1 AND w.disabled = 0
+             ORDER BY d.next_attempt_at, d.id LIMIT ?2",
         )?;
-        let rows = stmt.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
+        let rows = stmt.query_map(params![now(), BATCH as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
         rows.collect::<Result<_, _>>()?
     };
-    for (id, body, url, secret, attempts, mode) in due {
-        // Live deliveries: resolve the host now and connect only to a public address, pinned
-        // so a DNS answer can't change between this check and the connection.
-        let client = if mode == "live" {
-            match pinned_public_client(&url).await {
-                Ok(c) => c,
-                Err(e) => {
-                    let c = st.db.0.lock().unwrap();
-                    c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
-                    continue;
-                }
+    let n = due.len();
+    // Send concurrently (a slow endpoint must not hold up the rest), at most IN_FLIGHT at once.
+    let mut set = tokio::task::JoinSet::new();
+    for d in due {
+        while set.len() >= IN_FLIGHT {
+            if let Some(r) = set.join_next().await {
+                r??;
             }
-        } else {
-            st.http.clone()
-        };
-        let res = client
-            .post(&url)
-            .header("content-type", "application/json")
-            .header("user-agent", "Receipts-Webhooks/1")
-            .header("receipts-signature", sign(&secret, now(), &body))
-            .body(body.clone())
-            .send()
-            .await;
-        let (ok, status, err) = match res {
-            Ok(r) => (r.status().is_success(), Some(r.status().as_u16() as i64), None),
-            Err(e) => (false, None, Some(e.to_string())),
-        };
-        let c = st.db.0.lock().unwrap();
-        if ok {
-            c.execute("UPDATE deliveries SET status = 'delivered', attempts = attempts + 1, last_status = ?1, delivered_at = ?2 WHERE id = ?3", params![status, now(), id])?;
-        } else {
-            let attempts = attempts + 1;
-            let status_text = if attempts >= st.config.webhook_max_attempts { "failed" } else { "pending" };
-            c.execute(
-                "UPDATE deliveries SET status = ?1, attempts = ?2, last_status = ?3, last_error = ?4, next_attempt_at = ?5 WHERE id = ?6",
-                params![status_text, attempts, status, err, now() + backoff(st.config.webhook_backoff_secs, attempts), id],
-            )?;
         }
+        set.spawn(deliver(st.clone(), d));
+    }
+    while let Some(r) = set.join_next().await {
+        r??;
+    }
+    Ok(n)
+}
+
+async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, String, String, String, i64, String)) -> anyhow::Result<()> {
+    // Live deliveries: resolve the host now and connect only to a public address, pinned
+    // so a DNS answer can't change between this check and the connection.
+    let client = if mode == "live" {
+        match pinned_public_client(&url).await {
+            Ok(c) => c,
+            Err(e) => {
+                let c = st.db.0.lock().unwrap();
+                c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
+                return Ok(());
+            }
+        }
+    } else {
+        st.http.clone()
+    };
+    let res = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .header("user-agent", "Receipts-Webhooks/1")
+        .header("receipts-signature", sign(&secret, now(), &body))
+        .body(body)
+        .send()
+        .await;
+    let (ok, status, err) = match res {
+        Ok(r) => (r.status().is_success(), Some(r.status().as_u16() as i64), None),
+        Err(e) => (false, None, Some(e.to_string())),
+    };
+    let c = st.db.0.lock().unwrap();
+    if ok {
+        c.execute("UPDATE deliveries SET status = 'delivered', attempts = attempts + 1, last_status = ?1, delivered_at = ?2 WHERE id = ?3", params![status, now(), id])?;
+    } else {
+        let attempts = attempts + 1;
+        let status_text = if attempts >= st.config.webhook_max_attempts { "failed" } else { "pending" };
+        c.execute(
+            "UPDATE deliveries SET status = ?1, attempts = ?2, last_status = ?3, last_error = ?4, next_attempt_at = ?5 WHERE id = ?6",
+            params![status_text, attempts, status, err, now() + backoff(st.config.webhook_backoff_secs, attempts), id],
+        )?;
     }
     Ok(())
 }

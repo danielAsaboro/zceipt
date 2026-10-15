@@ -272,6 +272,9 @@ enum Cmd {
         /// Verifier page used in proof-request links. Default: this server's own /verify/.
         #[arg(long)]
         verifier_url: Option<String>,
+        /// Requests allowed per API key per minute.
+        #[arg(long, default_value_t = receipts_server::RATE_LIMIT)]
+        rate_limit: u32,
     },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
     Tx {
@@ -581,14 +584,14 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", ::hex::encode(raw));
             }
         }
-        Cmd::Serve { listen, db, test_network, heights, test_lightwalletd, live_lightwalletd, verifier_url } => {
+        Cmd::Serve { listen, db, test_network, heights, test_lightwalletd, live_lightwalletd, verifier_url, rate_limit } => {
             let test_net = match test_network.as_str() {
                 "test" => net::Net::Test,
                 "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
                 n => bail!("--test-network must be test or regtest, not {n}"),
             };
             let verifier_url = verifier_url.unwrap_or_else(|| format!("http://{listen}/verify/"));
-            let config = receipts_server::Config { test_lightwalletd, live_lightwalletd, public_url: format!("http://{listen}"), ..receipts_server::Config::new(test_net, verifier_url) };
+            let config = receipts_server::Config { test_lightwalletd, live_lightwalletd, rate_limit, public_url: format!("http://{listen}"), ..receipts_server::Config::new(test_net, verifier_url) };
             let (app, keys) = receipts_server::build(&db, config).await?;
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("Receipts API on http://{listen}  (test mode: {}, live mode: mainnet)", test_net.name());

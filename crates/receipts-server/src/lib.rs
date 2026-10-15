@@ -60,6 +60,8 @@ pub struct Config {
     /// Campaign pages refresh their public numbers at most this often (batched updates make
     /// it harder to match a contribution to an on-chain transaction by timing).
     pub campaign_snapshot_secs: i64,
+    /// Requests allowed per API key per minute (default RATE_LIMIT).
+    pub rate_limit: u32,
 }
 
 impl Config {
@@ -74,6 +76,7 @@ impl Config {
             webhook_max_attempts: webhooks::MAX_ATTEMPTS,
             public_url: "http://127.0.0.1:8723".into(),
             campaign_snapshot_secs: 600,
+            rate_limit: RATE_LIMIT,
         }
     }
 }
@@ -119,7 +122,7 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
     });
     let mut remaining = None;
     if let Some(k) = key {
-        let limit = if k.starts_with("public:") { PUBLIC_SUBMIT_LIMIT } else { RATE_LIMIT };
+        let limit = if k.starts_with("public:") { PUBLIC_SUBMIT_LIMIT } else { st.config.rate_limit };
         let t = now();
         let window = t - t % 60;
         let mut m = st.rate.lock().unwrap();

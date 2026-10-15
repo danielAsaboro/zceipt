@@ -1,0 +1,8 @@
+target
+**/node_modules
+.git
+*.db
+*.db-*
+web/zcash-receipts
+packages/receipts-python/build
+.venv

@@ -1,0 +1,13 @@
+# One command: `docker compose up`, then open http://127.0.0.1:8723 (the API keys are in the log).
+# The tour: `docker compose run --rm receipts demo --no-wait`.
+services:
+  receipts:
+    build: .
+    image: receipts:local
+    ports:
+      - "127.0.0.1:8723:8723"
+    volumes:
+      - receipts-data:/data
+    restart: unless-stopped
+volumes:
+  receipts-data:

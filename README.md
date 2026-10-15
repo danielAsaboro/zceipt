@@ -24,7 +24,12 @@ The receipt sits in the URL `#fragment`, which browsers never send to any server
 cargo install --locked --path crates/receipts-cli && receipts demo
 ```
 
-It starts the API, dashboard and browser verifier on a free local port, then walks a shop
+Or with Docker, no Rust needed: `docker compose run --rm receipts demo --no-wait` for the tour,
+`docker compose up` for the API, dashboard and verifier on http://127.0.0.1:8723 (checked from a
+fresh copy: image built and tour passed in about 2 minutes). `./scripts/install.sh` does the
+`cargo install` and runs the tour.
+
+The tour starts the API, dashboard and browser verifier on a free local port, then walks a shop
 through asking for a payment, receiving a receipt instead of a viewing key, finality, a refund
 and an accountant's attestation, and verifies a real testnet receipt offline. The server keeps
 running so you can open the printed dashboard and verifier links.

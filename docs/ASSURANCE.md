@@ -46,8 +46,8 @@ python3 -m unittest discover -s spec-verifier/tests
 ## 3. Mutation testing
 
 `cargo mutants` changed the core's code 178 ways (`lib.rs`, `encoding.rs`, `signin.rs`) and ran
-the core's tests against each. The first run: 126 caught, 32 unviable
-(don't compile), **20 missed**. Every missed mutant was a missing test, not dead code:
+the core's tests against each. The first run: 126 caught, 32 unviable (don't compile), **20
+missed**. Every missed mutant was a missing test, not dead code:
 
 | Missed | What was untested | Test added |
 |---|---|---|
@@ -60,9 +60,9 @@ the core's tests against each. The first run: 126 caught, 32 unviable
 
 Looking at the length fields also showed that `create` would encode a message over 65,535 bytes
 or more than 255 outputs with a wrapped length; it now refuses (`Error::TooLarge`), with tests at
-the exact limits. Re-running every mutant on changed lines (`--iterate`): **0 missed**. (One run
-with three parallel jobs reported 3 misses that a single-job re-run and a manual check showed
-were caught; the single-job result is the one recorded.)
+the exact limits. A clean full run afterwards (189 mutants, since the new checks add some):
+**157 caught, 32 unviable, 0 missed, 0 timeouts**. (An intermediate re-run that let parallel jobs
+share one build directory gave unreliable results and is not counted.)
 
 ```bash
 cargo mutants -p receipts-core -f crates/receipts-core/src/lib.rs -f crates/receipts-core/src/encoding.rs -f crates/receipts-core/src/signin.rs

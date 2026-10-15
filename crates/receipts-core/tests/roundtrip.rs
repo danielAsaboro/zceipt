@@ -578,3 +578,173 @@ fn claiming_someone_elses_sender_address_is_refused() {
     assert!(res.is_err(), "a sender proved control of the merchant's address: {:?}", res.map(|v| v.proven_addresses));
     }
 }
+
+// ---------- differential corpus for the independent Python verifier ----------
+
+/// An honest spend disclosure for the scenario's spent note, with a chosen alpha (as `create`
+/// makes it), so tests can re-sign receipts they alter.
+fn honest_spend(s: &Scenario, bundle: &Bundle<Authorized, i64>, alpha: pasta_curves::pallas::Scalar) -> receipts_core::SpendDisclosure {
+    use ff::{Field, PrimeField};
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::RandomSeed,
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let mut rng = OsRng;
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let action = &bundle.actions()[s.spend_index];
+    let rk = VerificationKey::<SpendAuth>::from(&SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha));
+    let rho = action.rho();
+    let dummy_addr = FullViewingKey::from(&SpendingKey::from_bytes([5; 32]).unwrap()).address_at(0u32, Scope::External);
+    let dummy = loop {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(&mut rng, &mut b);
+        if let Some(rs) = Option::<RandomSeed>::from(RandomSeed::from_bytes(b, &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(dummy_addr, NoteValue::ZERO, rho, rs, s.funding_note.version())) {
+                break n;
+            }
+        }
+    };
+    let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
+    let cv_net = ValueCommitment::derive(s.funding_note.value() - NoteValue::ZERO, rcv.clone());
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let spend = SpendInfo::new(fvk, s.funding_note, s.funding_path.clone()).unwrap();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(*bundle.anchor(), cv_net.clone(), *action.nullifier(), rk.clone(), cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
+    receipts_core::SpendDisclosure { index: s.spend_index as u32, cv_net: cv_net.to_bytes(), rk: (&rk).into(), cmx: cmx.to_bytes(), proof: proof.as_ref().to_vec(), address: None }
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn bundle_json(b: &Bundle<Authorized, i64>) -> serde_json::Value {
+    let actions: Vec<_> = b
+        .actions()
+        .iter()
+        .map(|a| {
+            let rk: [u8; 32] = a.rk().into();
+            serde_json::json!({
+                "cv": hex(&a.cv_net().to_bytes()), "nf": hex(&a.nullifier().to_bytes()), "rk": hex(&rk),
+                "cmx": hex(&a.cmx().to_bytes()), "epk": hex(&a.encrypted_note().epk_bytes),
+                "enc": hex(&a.encrypted_note().enc_ciphertext.0), "out": hex(&a.encrypted_note().out_ciphertext),
+            })
+        })
+        .collect();
+    serde_json::json!({ "anchor": hex(&b.anchor().to_bytes()), "actions": actions })
+}
+
+/// What the Rust verifier says, plus the public inputs it uses for every proof (whatever the verdict).
+fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32) -> serde_json::Value {
+    let res = verify(&keys().1, r, coin, pool, TXID, b);
+    let pis: Vec<_> = r
+        .unsigned
+        .spends
+        .iter()
+        .map(|s| {
+            let nf = b.actions().get(s.index as usize).map(|a| hex(&a.nullifier().to_bytes()));
+            serde_json::json!({
+                "anchor": hex(&b.anchor().to_bytes()), "cv_net": hex(&s.cv_net), "nf": nf, "rk": hex(&s.rk), "cmx": hex(&s.cmx),
+                "address_anchor": s.address.as_ref().and_then(|a| receipts_core::address_proof_anchor(pool, a)).map(|x| hex(&x)),
+            })
+        })
+        .collect();
+    match res {
+        Ok(v) => serde_json::json!({
+            "ok": true, "public_inputs": pis,
+            "outputs": v.outputs.iter().map(|o| serde_json::json!({"index": o.index, "recipient": hex(&o.recipient), "value": o.value, "memo": hex(&o.memo)})).collect::<Vec<_>>(),
+            "proven_addresses": v.proven_addresses.iter().map(|(_, a)| hex(a)).collect::<Vec<_>>(),
+        }),
+        Err(e) => serde_json::json!({ "ok": false, "error": format!("{e:?}"), "public_inputs": pis }),
+    }
+}
+
+/// Writes signed adversarial receipts (each re-signed after the change, so only the check under
+/// test can catch it) with the Rust verdicts, for `spec-verifier/tests/test_differential.py`.
+/// Set DIFF_CORPUS=path to write the file.
+#[test]
+fn differential_corpus() {
+    use ff::Field;
+    use orchard::primitives::redpallas::{SigningKey, SpendAuth, VerificationKey};
+    let Ok(path) = std::env::var("DIFF_CORPUS") else { return };
+    let mut rng = OsRng;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let so = scenario(BundleVersion::orchard_v2());
+    let mut cases = Vec::new();
+    let mut add = |name: &str, pool: Pool, b: &Bundle<Authorized, i64>, r: &Receipt, coin: u32| {
+        cases.push(serde_json::json!({
+            "name": name, "pool": if pool == Pool::Orchard { "orchard" } else { "ironwood" }, "coin_type": coin,
+            "receipt": hex(&r.to_bytes()), "rust": rust_view(r, pool, b, coin),
+        }));
+    };
+    let sign = |u: receipts_core::UnsignedReceipt, rsks: &[&SigningKey<SpendAuth>]| {
+        let d = receipts_core::signing_digest(&u);
+        Receipt { spend_auth_sigs: rsks.iter().map(|k| (&k.sign(OsRng, &d)).into()).collect(), unsigned: u }
+    };
+
+    let a = make_receipt(&s, Pool::Ironwood, b"order 42");
+    add("honest/ironwood", Pool::Ironwood, &s.payment, &a, COIN_TYPE_TESTNET);
+    add("honest/orchard", Pool::Orchard, &so.payment, &make_receipt(&so, Pool::Orchard, b"order 7"), COIN_TYPE_TESTNET);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let with_addr = create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"from my public address",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: Some(fvk.address_at(5u32, Scope::External)) }],
+        OsRng).unwrap();
+    add("honest/with-address", Pool::Ironwood, &s.payment, &with_addr, COIN_TYPE_TESTNET);
+
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let spend = honest_spend(&s, &s.payment, alpha);
+    let base = receipts_core::UnsignedReceipt {
+        coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: b"manual".to_vec(),
+        outputs: a.unsigned.outputs.clone(), spends: vec![spend.clone()],
+    };
+    add("manual/valid", Pool::Ironwood, &s.payment, &sign(base.clone(), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/new-message", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { msg: b"challenge:00ff".to_vec(), ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/no-outputs", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { outputs: vec![], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    let victim = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    let forged = forge_address_proof(&s.sender_sk, alpha, victim, s.funding_note.version());
+    let with = |a: receipts_core::AddressProof| receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { address: Some(a), ..spend.clone() }], ..base.clone() };
+    add("forged-address/prover-cv", Pool::Ironwood, &s.payment, &sign(with(forged.clone()), &[&rsk]), COIN_TYPE_TESTNET);
+    add("forged-address/fixed-cv", Pool::Ironwood, &s.payment, &sign(with(receipts_core::AddressProof { cv_net: receipts_core::address_proof_cv_net().to_bytes(), ..forged.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    let mut o = base.clone();
+    o.outputs[0].index = s.payment.actions().len() as u32;
+    add("resigned/output-index-out-of-range", Pool::Ironwood, &s.payment, &sign(o, &[&rsk]), COIN_TYPE_TESTNET);
+    let mut o = base.clone();
+    o.outputs.push(o.outputs[0].clone());
+    add("resigned/duplicate-output", Pool::Ironwood, &s.payment, &sign(o, &[&rsk]), COIN_TYPE_TESTNET);
+    let mut o = base.clone();
+    o.outputs[0].ock[0] ^= 1;
+    add("resigned/wrong-ock", Pool::Ironwood, &s.payment, &sign(o, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/ock-for-another-output", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { outputs: vec![receipts_core::OutputDisclosure { index: (s.merchant_index as u32 + 1) % s.payment.actions().len() as u32, ock: base.outputs[0].ock }], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    let zero = SigningKey::<SpendAuth>::try_from([0u8; 32]).unwrap();
+    let zero_rk: [u8; 32] = (&VerificationKey::from(&zero)).into();
+    add("resigned/rk-identity", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { rk: zero_rk, ..spend.clone() }], ..base.clone() }, &[&zero]), COIN_TYPE_TESTNET);
+    add("resigned/non-canonical-cmx", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { cmx: [0xff; 32], ..spend.clone() }], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/cv-not-a-point", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { cv_net: [0xff; 32], ..spend.clone() }], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/proof-from-another-receipt", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { proof: a.unsigned.spends[0].proof.clone(), ..spend.clone() }], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/cv-from-another-receipt", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { cv_net: a.unsigned.spends[0].cv_net, ..spend.clone() }], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/spend-index-of-another-action", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { index: (s.spend_index as u32 + 1) % s.payment.actions().len() as u32, ..spend.clone() }], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/mainnet-receipt-on-testnet", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_MAINNET, ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/wrong-pool-bundle", Pool::Orchard, &so.payment, &sign(receipts_core::UnsignedReceipt { pool: Pool::Orchard, ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
+    let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap()).randomize(&alpha);
+    add("signed-by-someone-else", Pool::Ironwood, &s.payment, &sign(base.clone(), &[&other]), COIN_TYPE_TESTNET);
+    // Single-byte flips of an honest receipt, not re-signed.
+    let bytes = a.to_bytes();
+    for i in (0..bytes.len()).step_by(41).chain(bytes.len() - 64..bytes.len()).step_by(1) {
+        let mut b = bytes.clone();
+        b[i] ^= 0x10;
+        if let Ok(r) = Receipt::from_bytes(&b) {
+            add(&format!("flip/{i}"), Pool::Ironwood, &s.payment, &r, COIN_TYPE_TESTNET);
+        }
+    }
+    let out = serde_json::json!({
+        "bundles": { "ironwood": bundle_json(&s.payment), "orchard": bundle_json(&so.payment) },
+        "cases": cases,
+    });
+    std::fs::write(path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+}

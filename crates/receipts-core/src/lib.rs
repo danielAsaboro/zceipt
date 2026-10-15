@@ -378,6 +378,16 @@ pub(crate) fn address_proof(
     })
 }
 
+/// The anchor an address proof is verified against: the root of the one-leaf tree holding the
+/// revealed 1-zatoshi note to the claimed address (`None` if the fields don't form a note).
+pub fn address_proof_anchor(pool: Pool, a: &AddressProof) -> Option<[u8; 32]> {
+    let address = Option::<Address>::from(Address::from_raw_address_bytes(&a.address))?;
+    let rho = Option::<Rho>::from(Rho::from_bytes(&a.rho))?;
+    let rseed = Option::<RandomSeed>::from(RandomSeed::from_bytes(a.rseed, &rho))?;
+    let note = Option::<Note>::from(Note::from_parts(address, NoteValue::from_raw(1), rho, rseed, pool_note_version(pool)))?;
+    Some(single_leaf_path().root(note.commitment().into()).to_bytes())
+}
+
 pub(crate) fn verify_address_proof(
     vk: &VerifyingKey,
     pool: Pool,

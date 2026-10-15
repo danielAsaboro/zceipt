@@ -1,0 +1,113 @@
+[
+ {
+  "connection": "conn-1.json",
+  "upstream": "testnet.zec.rocks:443",
+  "bytes_sent": 320,
+  "bytes_received": 10287,
+  "requests": [
+   {
+    "stream": 1,
+    "headers": [
+     [
+      ":method",
+      "POST"
+     ],
+     [
+      ":scheme",
+      "http"
+     ],
+     [
+      ":authority",
+      "127.0.0.1:19067"
+     ],
+     [
+      ":path",
+      "/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTreeState"
+     ],
+     [
+      "te",
+      "trailers"
+     ],
+     [
+      "content-type",
+      "application/grpc"
+     ],
+     [
+      "user-agent",
+      "tonic/0.14.6"
+     ]
+    ],
+    "messages": [
+     {
+      "compressed": 0,
+      "bytes": 5,
+      "protobuf": [
+       {
+        "field": 1,
+        "value": 4500983
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "stream": 3,
+    "headers": [
+     [
+      ":method",
+      "POST"
+     ],
+     [
+      ":scheme",
+      "http"
+     ],
+     [
+      ":authority",
+      "127.0.0.1:19067"
+     ],
+     [
+      ":path",
+      "/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange"
+     ],
+     [
+      "te",
+      "trailers"
+     ],
+     [
+      "content-type",
+      "application/grpc"
+     ],
+     [
+      "user-agent",
+      "tonic/0.14.6"
+     ]
+    ],
+    "messages": [
+     {
+      "compressed": 0,
+      "bytes": 17,
+      "protobuf": [
+       {
+        "field": 1,
+        "value": "08f8db9202"
+       },
+       {
+        "field": 2,
+        "value": "0885dc9202"
+       },
+       {
+        "field": 3,
+        "value": "04"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "other_frames": {
+   "SETTINGS": 2,
+   "WINDOW_UPDATE": 1,
+   "GOAWAY": 1
+  }
+ }
+]

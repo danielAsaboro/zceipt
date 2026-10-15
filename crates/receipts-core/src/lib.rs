@@ -220,6 +220,8 @@ pub enum Error {
     AddressNotOwned,
     #[error("the address proof for action {0} is invalid")]
     BadAddressProof(u32),
+    #[error("too large to encode: at most 65,535 message bytes, 255 outputs and 255 spends")]
+    TooLarge,
 }
 
 /// The digest every spend-authorization signature covers:
@@ -449,6 +451,10 @@ pub fn create_cross<A: Authorization, V>(
 ) -> Result<Receipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);
+    }
+    // The encoding's length fields are u16 (message) and u8 (outputs, spends).
+    if msg.len() > u16::MAX as usize || outputs.len() > u8::MAX as usize || spends.len() > u8::MAX as usize {
+        return Err(Error::TooLarge);
     }
     let actions = bundle.actions();
     let out_actions = output_bundle.actions();

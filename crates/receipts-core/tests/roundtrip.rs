@@ -310,6 +310,23 @@ fn address_proof_roundtrip_and_rejections() {
     let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
     assert_eq!(mk(merchant).unwrap_err(), Error::AddressNotOwned);
 
+    // The anchor the verifier uses is the root of a one-leaf tree holding the revealed note.
+    let a = r.unsigned.spends[0].address.as_ref().unwrap();
+    let rho = orchard::note::Rho::from_bytes(&a.rho).unwrap();
+    let rseed = orchard::note::RandomSeed::from_bytes(a.rseed, &rho).unwrap();
+    let note = Note::from_parts(public_addr, NoteValue::from_raw(1), rho, rseed, orchard::note::NoteVersion::V3).unwrap();
+    let (root, _) = single_leaf_witness(&note.commitment().into());
+    assert_eq!(receipts_core::address_proof_anchor(Pool::Ironwood, a), Some(root.to_bytes()));
+    assert_eq!(a.cv_net, receipts_core::address_proof_cv_net().to_bytes());
+
+    // Two proofs for the same address share nothing a verifier could link them by.
+    let r2 = mk(public_addr).unwrap();
+    let a2 = r2.unsigned.spends[0].address.as_ref().unwrap();
+    assert_ne!(a.rho, a2.rho);
+    assert_ne!(a.nf, a2.nf);
+    assert_ne!(a.cmx, a2.cmx);
+    assert_ne!(r.unsigned.spends[0].rk, r2.unsigned.spends[0].rk);
+
     // Swapping the claimed address after signing breaks the signature.
     let mut bad = r.clone();
     bad.unsigned.spends[0].address.as_mut().unwrap().address = merchant.to_raw_address_bytes();
@@ -487,6 +504,19 @@ fn forge_address_proof(
         cmx: cmx.to_bytes(),
         proof: proof.as_ref().to_vec(),
     }
+}
+
+/// A receipt that wouldn't fit its encoding's length fields is refused when created, rather than
+/// encoded with a wrapped length.
+#[test]
+fn oversized_receipts_are_refused_at_creation() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let w = || SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None };
+    let long = vec![b'x'; 65_536];
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long, &[], &[w()], OsRng).unwrap_err(), Error::TooLarge);
+    let outs = vec![(s.merchant_index, fvk.to_ovk(Scope::External)); 256];
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &outs, &[w()], OsRng).unwrap_err(), Error::TooLarge);
 }
 
 #[test]

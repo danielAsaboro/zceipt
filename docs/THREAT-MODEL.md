@@ -105,6 +105,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 |---|---|---|
 | The site | That the user controls the address they chose, for this domain and nonce, once | `api.rs::sign_in_with_zcash`; `roundtrip.rs::sign_in_roundtrip_and_replay` |
 | Another site (phishing, replay) | Can't reuse the proof: it signs the domain and a single-use nonce | same |
+| Someone who knows your address | Can't sign in as you: the address proof's value commitment is fixed to `ValueCommit_0(1)`, so the circuit enforces that the proven note is yours (before 2026-10-15 it was not, and this was possible) | `roundtrip.rs::sign_in_as_someone_elses_address_is_refused`; conformance `sign-in/pre-fix` |
 | Onlooker | Nothing; no transaction is made | (no transaction) |
 
 ## 10. Exchange deposits (ZIP 320)

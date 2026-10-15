@@ -1,0 +1,60 @@
+[
+ {
+  "connection": "conn-1.json",
+  "upstream": "testnet.zec.rocks:443",
+  "bytes_sent": 254,
+  "bytes_received": 9471,
+  "requests": [
+   {
+    "stream": 1,
+    "headers": [
+     [
+      ":method",
+      "POST"
+     ],
+     [
+      ":scheme",
+      "http"
+     ],
+     [
+      ":authority",
+      "127.0.0.1:19067"
+     ],
+     [
+      ":path",
+      "/cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTransaction"
+     ],
+     [
+      "te",
+      "trailers"
+     ],
+     [
+      "content-type",
+      "application/grpc"
+     ],
+     [
+      "user-agent",
+      "tonic/0.14.6"
+     ]
+    ],
+    "messages": [
+     {
+      "compressed": 0,
+      "bytes": 34,
+      "protobuf": [
+       {
+        "field": 3,
+        "value": "730e9e149ac2e98fd73215525e191b0149549072c19c840d4cb696cce4e61d57"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "other_frames": {
+   "SETTINGS": 2,
+   "WINDOW_UPDATE": 1,
+   "GOAWAY": 1
+  }
+ }
+]

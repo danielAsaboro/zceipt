@@ -31,6 +31,24 @@ offline. It leaves the API, dashboard and verifier running for you to click arou
 
 More: [threat model](docs/THREAT-MODEL.md) · [comparison with viewing-key processors](docs/COMPARISON.md) · [how it fills ZIP 311's TODOs](docs/ZIP311-TODOS.md) · [spec](docs/SPEC.md) · [crypto review](docs/CRYPTO-REVIEW.md). Built for ZECATHON 2026, Core & Tooling track.
 
+## The claim, and how to check it without trusting us
+
+- **What a receipt proves, what it reveals, and why:** [docs/CLAIM.md](docs/CLAIM.md), with the
+  security argument and its assumptions.
+- **A second verifier, written from the protocol specification** in Python with no shared code
+  ([spec-verifier](spec-verifier)), agrees with the Rust one on all 163 shared vectors and on 213
+  signed adversarial receipts; its primitives match the Zcash test vectors. Run it:
+  `python3 -m unittest discover -s spec-verifier/tests`.
+- **Every requirement traced** to the code and the test that checks it, in both verifiers:
+  [docs/TRACEABILITY.md](docs/TRACEABILITY.md). Where ZIP 311, the protocol spec or ZIP 229 are
+  ambiguous or silent, and what we chose: [docs/SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md).
+- **Evidence that doesn't come from us** (the testnet chain, published test vectors, mutation
+  testing, fuzzing, Miri, and a recording of exactly what the chain server receives):
+  [docs/ASSURANCE.md](docs/ASSURANCE.md).
+- Going back to the primary sources found a real forgery in our sender-address proofs and
+  "Sign in with Zcash" (anyone could claim any address); it is fixed, and the test that forges it
+  now fails to.
+
 ### Making a receipt
 
 ```
@@ -63,11 +81,11 @@ people use today.
 | | Revealed to the verifier | How it is checked |
 |---|---|---|
 | Recipient, amount, memo of each chosen output | ✅ | The output's `ock` opens the on-chain ciphertext; the note commitment must match `cmx` |
-| The sender authorized the transaction | ✅ | A fresh Halo 2 Action proof for the spent note (same anchor and nullifier as on chain) and a spend-authorization signature over the whole receipt |
+| The signer holds the spend authority used in the transaction | ✅ | A fresh Halo 2 Action proof for the spent note (same anchor and nullifier as on chain) and a spend-authorization signature over the whole receipt |
 | An optional message (invoice number, challenge) | ✅ | Covered by the signature, so it cannot be swapped |
 | Sender's address, balance, other notes or transactions | ❌ | Never included; `rk` and `cv_net` are freshly randomized |
 
-The full construction is in [docs/SPEC.md](docs/SPEC.md).
+The full construction is in [docs/SPEC.md](docs/SPEC.md); the precise claim, its limits (a receipt is a bearer proof; it does not by itself show the transaction was mined) and the argument are in [docs/CLAIM.md](docs/CLAIM.md).
 
 ## For developers
 
@@ -204,6 +222,10 @@ ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
   Orchard key, and never writes anything back.
 - **A receipt** carries one `ock` per disclosed output and a fresh proof per disclosed spend.
   Undisclosed outputs, including change, stay sealed.
+- **What the chain server sees**, recorded byte for byte ([docs/ASSURANCE.md](docs/ASSURANCE.md)):
+  verifying sends one request holding only the txid. Creating a receipt from chain data (when
+  the wallet pruned the note's witness) asks for the tree state and blocks from the start of the
+  1,000-block window the spent note was created in, not its exact block.
 
 ## Tests and evidence
 

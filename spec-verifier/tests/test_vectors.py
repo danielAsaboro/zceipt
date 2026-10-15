@@ -13,7 +13,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from specverify import aead, orchard as o, pallas as pl  # noqa: E402
 
-TV = os.environ.get("ZCASH_TEST_VECTORS", os.path.expanduser("~/development/zecathon/refs/zcash-test-vectors/test-vectors/json"))
+TV = os.environ.get("ZCASH_TEST_VECTORS", os.path.join(os.path.dirname(__file__), "zcash-test-vectors"))
 
 
 def rows(name):

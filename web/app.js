@@ -418,7 +418,10 @@ window.addEventListener("hashchange", () => {
   const bt = batchFromHash();
   if (bt) return runBatch(bt);
   const r = receiptFromHash();
-  if (r) run(r);
+  if (r) {
+    $("#paste").value = r;
+    run(r);
+  }
 });
 
 const initialBatch = batchFromHash();

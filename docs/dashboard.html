@@ -11,7 +11,7 @@
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 var(--sans); }
   header { display:flex; align-items:center; gap:18px; padding:14px 22px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
-  header .brand { font-family:var(--mono); font-weight:800; letter-spacing:.28em; }
+  header .brand { font-family:var(--mono); font-weight:800; letter-spacing:.28em; font-size:16px; margin:0; }
   header .mode { font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:99px; border:1px solid var(--warn); color:var(--warn); }
   header .mode.live { border-color:var(--good); color:var(--good); }
   header input { flex:1; min-width:240px; max-width:520px; }
@@ -22,13 +22,14 @@
   section[hidden] { display:none; }
   .grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
   @media (max-width:820px){ .grid { grid-template-columns:minmax(0,1fr); } }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; overflow-x:auto; min-width:0; }
+  :focus-visible { outline:2px solid var(--warn); outline-offset:2px; }
   h2 { font-size:16px; margin:0 0 12px; }
   label { display:block; color:var(--dim); font-size:12px; margin:10px 0 4px; }
   input, textarea, select { width:100%; background:#141311; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:9px 11px; font:13px var(--mono); }
   textarea { min-height:90px; resize:vertical; }
   button.primary { margin-top:12px; background:var(--paper); color:var(--ink); border:0; border-radius:8px; padding:9px 14px; font:600 14px var(--sans); cursor:pointer; }
-  button.small { background:none; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:3px 8px; font:12px var(--sans); cursor:pointer; }
+  button.small { background:none; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; min-height:28px; font:12px var(--sans); cursor:pointer; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { color:var(--dim); font-weight:600; font-size:12px; }
@@ -47,7 +48,7 @@
   .qr { background:#fff; border-radius:8px; padding:6px; width:200px; }
   .qr svg { width:100%; height:auto; display:block; }
   .tabs { display:flex; gap:6px; margin-top:12px; }
-  .tabs button { background:none; border:1px solid var(--line); color:var(--dim); border-radius:6px; padding:3px 10px; cursor:pointer; font:12px var(--sans); }
+  .tabs button { background:none; border:1px solid var(--line); color:var(--dim); border-radius:6px; padding:5px 10px; min-height:28px; cursor:pointer; font:12px var(--sans); }
   .tabs button[aria-selected=true] { color:var(--text); border-color:var(--dim); }
   .err { color:var(--bad); font-family:var(--mono); font-size:12px; margin-top:8px; white-space:pre-wrap; }
   .ok { color:var(--good); }
@@ -57,9 +58,9 @@
 </head>
 <body>
 <header>
-  <span class="brand">RECEIPTS</span>
+  <h1 class="brand">RECEIPTS <span class="muted" style="letter-spacing:normal;font-weight:400;font-family:var(--sans);font-size:13px">dashboard</span></h1>
   <span class="mode" id="mode">no key</span>
-  <input id="key" type="password" placeholder="rcpt_test_… (kept in this tab only)" autocomplete="off" spellcheck="false">
+  <input id="key" type="password" aria-label="API key" placeholder="rcpt_test_… (kept in this tab only)" autocomplete="off" spellcheck="false">
   <span class="muted" id="health"></span>
 </header>
 <nav role="tablist">

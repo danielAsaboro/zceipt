@@ -44,7 +44,7 @@ async function load() {
     <div class="step"><b>1</b>Pay from any shielded Zcash wallet: scan the code, or use <code>${esc(j.payment_uri)}</code> <button class="copy" data-copy="${esc(j.payment_uri)}">Copy</button></div>
     <div class="step"><b>2</b>Make a receipt for that payment:<br><code>${esc(j.cli_command)}</code> <button class="copy" data-copy="${esc(j.cli_command)}">Copy command</button></div>
     <div class="step"><b>3</b>Paste the receipt link it prints:
-      <textarea id="receipt" placeholder="https://…#zrcpt1…"></textarea>
+      <textarea id="receipt" aria-label="Your receipt or receipt link" placeholder="https://…#zrcpt1…"></textarea>
       <button id="submit">Confirm payment</button><div id="msg"></div></div>`;
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = "Copied"; });
   document.getElementById("submit").onclick = submit;

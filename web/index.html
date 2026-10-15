@@ -50,7 +50,8 @@
     .step .detail { display: block; color: var(--text-2); font-family: var(--mono); font-size: 12px; margin-top: 2px; word-break: break-word; }
     @keyframes spin { to { transform: rotate(360deg); } }
     details { margin-top: 22px; color: var(--text-2); font-size: 14px; }
-    details summary { cursor: pointer; }
+    details summary { cursor: pointer; padding: 10px 0; min-height: 24px; }
+    :focus-visible { outline: 2px solid var(--good, #3c9); outline-offset: 2px; }
     details .grid { display: grid; gap: 8px; margin-top: 10px; }
     .how { margin-top: 36px; border-top: 1px solid #24221f; padding-top: 22px; }
     .how h2 { font-size: 15px; margin: 0 0 10px; }
@@ -144,7 +145,7 @@
           <label class="hint"><input type="checkbox" id="regtest" style="width:auto;margin-right:6px">Local regtest chain (served by scripts/dev-server.mjs)</label>
           <label class="hint" for="rawTx">Or paste the raw transaction hex and its block height, and nothing is fetched at all</label>
           <textarea id="rawTx" placeholder="raw transaction hex" spellcheck="false"></textarea>
-          <input id="rawHeight" placeholder="block height" inputmode="numeric">
+          <input id="rawHeight" placeholder="block height" inputmode="numeric" aria-label="Block height of the pasted transaction">
         </div>
       </details>
 

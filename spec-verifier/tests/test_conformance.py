@@ -35,7 +35,10 @@ def run(vec):
             raise rc.DecodeError("not a receipt")
         b = rc.b64decode(text[6:])
         coin = int.from_bytes(b[5:9], "little") if len(b) >= 9 else 1
-        return v.verify(b, bytes.fromhex(vec["raw_tx"]), coin)
+        # A source must be mined no later than the payment: raw bytes carry no height, so the
+        # caller enforces it, as the docstring of verify() says.
+        sources = [bytes.fromhex(t["raw_tx"]) for t in vec.get("source_txs", []) if t["height"] <= vec["height"]]
+        return v.verify(b, bytes.fromhex(vec["raw_tx"]), coin, sources)
     if vec["type"] == "sign_in":
         si = rc.decode_sign_in(vec["sign_in"])
         return v.verify_sign_in(vec["sign_in"], si.coin_type, vec["domain"], vec["nonce"])
@@ -59,6 +62,8 @@ class Conformance(unittest.TestCase):
             for i, o in enumerate(vec["expect"].get("outputs", [])):
                 self.assertEqual(got["outputs"][i]["value"], o["zatoshis"], vec["name"])
                 self.assertEqual(memo_text(got["outputs"][i]["memo"]), o["memo"], vec["name"])
+            for i, src in enumerate(vec["expect"].get("sources", [])):
+                self.assertEqual([s["source"]["value"] for s in got["spends"] if "source" in s][i], src["zatoshis"], vec["name"])
         self.assertEqual(disagreements, [], f"{len(disagreements)} of {len(vectors)} vectors disagree")
         print(f"{len(vectors)} conformance vectors agree")
 

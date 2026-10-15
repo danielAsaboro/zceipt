@@ -45,7 +45,35 @@ struct Verified {
     message: String,
     proven_spend_actions: Vec<u32>,
     sender_addresses: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sources: Vec<Source>,
     outputs: Vec<Output>,
+}
+
+/// A proven source of a spent note (see `receipts_core::SourceProof`).
+#[derive(Serialize)]
+struct Source {
+    spend_action: u32,
+    source_txid: String,
+    source_action: u32,
+    source_height: u32,
+    zatoshis: Option<u64>,
+    /// The source transaction's transparent inputs, as outpoints (`source_funding` reads them).
+    transparent_inputs: Vec<Outpoint>,
+    net_into_shielded_zatoshis: i64,
+}
+
+#[derive(Serialize)]
+struct Outpoint {
+    prevout_txid: String,
+    prevout_index: u32,
+}
+
+#[derive(serde::Deserialize)]
+struct SourceTxIn {
+    /// Raw transaction, hex.
+    raw: String,
+    height: u32,
 }
 
 fn net_of(coin_type: u32) -> Result<(Network, NetworkType, &'static str), JsError> {
@@ -105,11 +133,43 @@ pub fn warm_up() {
     });
 }
 
+/// The source transactions a receipt's source proofs name (explorer-order txids), as a JSON
+/// array, so the page can fetch them before calling `verify`.
+#[wasm_bindgen]
+pub fn source_txids(receipt: &str) -> Result<String, JsError> {
+    let r = parse(receipt)?;
+    let mut ids: Vec<String> = r.unsigned.spends.iter().filter_map(|s| s.source.as_ref()).map(|s| display_txid(&s.txid)).collect();
+    ids.dedup();
+    Ok(serde_json::to_string(&ids)?)
+}
+
+/// Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
+/// JSON `{ address, zatoshis }`, for showing who funded a source transaction.
+#[wasm_bindgen]
+pub fn transparent_output(raw_tx: &[u8], height: u32, index: u32, coin_type: u32, regtest: bool) -> Result<String, JsError> {
+    use zcash_address::ToAddress;
+    use zcash_transparent::address::TransparentAddress;
+    let (net, mut nt, _) = net_of(coin_type)?;
+    if regtest {
+        nt = NetworkType::Regtest;
+    }
+    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    let out = tx.transparent_bundle().and_then(|b| b.vout.get(index as usize)).ok_or_else(|| JsError::new("no such transparent output"))?;
+    let address = match out.recipient_address() {
+        Some(TransparentAddress::PublicKeyHash(h)) => Some(zcash_address::ZcashAddress::from_transparent_p2pkh(nt, h).encode()),
+        Some(TransparentAddress::ScriptHash(h)) => Some(zcash_address::ZcashAddress::from_transparent_p2sh(nt, h).encode()),
+        None => None,
+    };
+    Ok(serde_json::json!({ "address": address, "zatoshis": u64::from(out.value()) }).to_string())
+}
+
 /// Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
 /// `regtest` marks a local test chain (receipts there carry the testnet coin type).
+/// `sources`, for receipts with source proofs, is JSON `[{ "raw": "<hex>", "height": n }]`
+/// holding each source transaction (see `source_txids`); without it such receipts are refused.
 /// Returns JSON describing what the receipt proves, or throws why it is invalid.
 #[wasm_bindgen]
-pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Result<String, JsError> {
+pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources: Option<String>) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
     let r = parse(receipt)?;
     let u = &r.unsigned;
@@ -129,11 +189,54 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Resul
     if tx.txid().as_ref() != &u.txid {
         return Err(JsError::new("the fetched transaction does not match the receipt's txid"));
     }
+    let mut stxs: std::collections::BTreeMap<[u8; 32], (Transaction, u32)> = Default::default();
+    if let Some(json) = sources.filter(|s| !s.is_empty()) {
+        let list: Vec<SourceTxIn> = serde_json::from_str(&json).map_err(|e| JsError::new(&format!("bad sources: {e}")))?;
+        for s in list {
+            let raw = hex::decode(s.raw.trim()).map_err(|_| JsError::new("bad source transaction hex"))?;
+            let stx = Transaction::read(&raw[..], BranchId::for_height(&net, BlockHeight::from_u32(s.height))).map_err(|e| JsError::new(&format!("bad source transaction: {e}")))?;
+            stxs.insert(*stx.txid().as_ref(), (stx, s.height));
+        }
+    }
+    let lookup = |pool: Pool, txid: &[u8; 32], index: u32| {
+        let (stx, h) = stxs.get(txid)?;
+        if *h > height || txid == &u.txid {
+            return None;
+        }
+        let b = match pool {
+            Pool::Orchard => stx.orchard_bundle(),
+            Pool::Ironwood => stx.ironwood_bundle(),
+        }?;
+        receipts_core::output_cmx(b, index)
+    };
     let v = VK.with(|vk| {
         let vk = vk.get_or_init(receipts_core::verifying_key);
-        receipts_core::verify_tx_bundles(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle())
+        receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
     })
     .map_err(|e| JsError::new(&e.to_string()))?;
+    let sources_out = v
+        .sources
+        .iter()
+        .map(|s| {
+            let (stx, h) = &stxs[&s.txid];
+            let vb = |b: Option<i64>| b.unwrap_or(0);
+            let net_in = -(vb(stx.orchard_bundle().map(|b| i64::from(*b.value_balance())))
+                + vb(stx.ironwood_bundle().map(|b| i64::from(*b.value_balance())))
+                + vb(stx.sapling_bundle().map(|b| i64::from(*b.value_balance()))));
+            Source {
+                spend_action: s.spend,
+                source_txid: display_txid(&s.txid),
+                source_action: s.index,
+                source_height: *h,
+                zatoshis: s.value,
+                transparent_inputs: stx
+                    .transparent_bundle()
+                    .map(|b| b.vin.iter().map(|i| Outpoint { prevout_txid: display_txid(i.prevout().hash()), prevout_index: i.prevout().n() }).collect())
+                    .unwrap_or_default(),
+                net_into_shielded_zatoshis: net_in,
+            }
+        })
+        .collect();
     Ok(serde_json::to_string(&Verified {
         valid: true,
         network: name,
@@ -154,6 +257,7 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Resul
                     .unwrap_or_default()
             })
             .collect(),
+        sources: sources_out,
         outputs: v
             .outputs
             .iter()

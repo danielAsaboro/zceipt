@@ -1,34 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Decodes a receipt without verifying it. Returns JSON.
- */
-export function inspect(receipt: string): string;
-/**
- * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
- */
-export function orchard_receiver_hex(ua: string): string;
-/**
- * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
- * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
- * The caller must still make sure the nonce was its own, unexpired and is used only once.
- */
-export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
-/**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
- */
-export function warm_up(): void;
-/**
- * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
- * `regtest` marks a local test chain (receipts there carry the testnet coin type).
- * Returns JSON describing what the receipt proves, or throws why it is invalid.
- */
-export function verify(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
-/**
- * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
- */
-export function secret_kind(text: string): string;
-/**
  * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
  * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
  */
@@ -39,12 +11,52 @@ export function open_batch(batch: string): string;
  */
 export function check_payment_uri(uri: string, network: string): string;
 /**
+ * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
+ * `regtest` marks a local test chain (receipts there carry the testnet coin type).
+ * `sources`, for receipts with source proofs, is JSON `[{ "raw": "<hex>", "height": n }]`
+ * holding each source transaction (see `source_txids`); without it such receipts are refused.
+ * Returns JSON describing what the receipt proves, or throws why it is invalid.
+ */
+export function verify(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean, sources?: string | null): string;
+/**
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ */
+export function warm_up(): void;
+/**
+ * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
+ * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
+ * The caller must still make sure the nonce was its own, unexpired and is used only once.
+ */
+export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
+/**
+ * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+ */
+export function secret_kind(text: string): string;
+/**
+ * The source transactions a receipt's source proofs name (explorer-order txids), as a JSON
+ * array, so the page can fetch them before calling `verify`.
+ */
+export function source_txids(receipt: string): string;
+/**
+ * Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
+ * JSON `{ address, zatoshis }`, for showing who funded a source transaction.
+ */
+export function transparent_output(raw_tx: Uint8Array, height: number, index: number, coin_type: number, regtest: boolean): string;
+/**
  * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
  * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
  * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
  * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
  */
 export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_height: number, tx2_raw: Uint8Array, tx2_height: number, regtest: boolean): string;
+/**
+ * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ */
+export function orchard_receiver_hex(ua: string): string;
+/**
+ * Decodes a receipt without verifying it. Returns JSON.
+ */
+export function inspect(receipt: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -56,7 +68,9 @@ export interface InitOutput {
   readonly open_batch: (a: number, b: number) => [number, number, number, number];
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
   readonly secret_kind: (a: number, b: number) => [number, number];
-  readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly source_txids: (a: number, b: number) => [number, number, number, number];
+  readonly transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

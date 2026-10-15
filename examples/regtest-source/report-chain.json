@@ -1,0 +1,41 @@
+{
+  "valid": true,
+  "network": "regtest",
+  "pool": "Ironwood",
+  "txid": "b1ea959a1ddf196eb7dc2f80cb40b761aaa5b664f58e73cf42d6fddf5621125c",
+  "mined_height": 538,
+  "chain_checked": true,
+  "message": "Deposit 99",
+  "proven_spend_actions": [
+    1
+  ],
+  "sender_addresses": [],
+  "sources": [
+    {
+      "spend_action": 1,
+      "source_txid": "5093e033f09e7c83e4d8048ecea7ba89331009ac1bdd54184d0ebb4417b60bf1",
+      "source_action": 0,
+      "source_height": 530,
+      "zatoshis": null,
+      "zec": null,
+      "transparent_inputs": [
+        {
+          "prevout_txid": "cd79ad1e117c2887c7b9358f5965aabc73a15ae11da6d3491f4bfb450f7baba4",
+          "prevout_index": 0,
+          "address": "tmRyMkJH1MJYcfbkshZcWs2XhZNWc9jy8Vb",
+          "zatoshis": 30000000
+        }
+      ],
+      "net_into_shielded_zatoshis": 29985000
+    }
+  ],
+  "outputs": [
+    {
+      "action": 1,
+      "recipient": "uregtest1sp8qyw3r9rxza7yzcx36967l6neavc6f7sqaaq7unv8jyg766demn7633m22avretv43jwwexzm7sw7vugde4ez4w3jv3w6kkgqcvxa4",
+      "zatoshis": 12000000,
+      "zec": "0.12000000",
+      "memo": "Deposit 99"
+    }
+  ]
+}

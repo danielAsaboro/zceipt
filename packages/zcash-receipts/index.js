@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -71,6 +71,8 @@ export async function orchardReceiver(ua) {
  *   expectAddress  fail unless an output paid this unified address
  *   minZatoshis    fail unless that address received at least this much
  *   challenge      fail unless the receipt signs `challenge:<code>`
+ *   sourceTxs      for receipts that prove where the money came from: `[{ rawTx, height }]`
+ *                  for each source transaction, instead of fetching them by txid
  *
  * Resolves to `{ valid: true, network, pool, txid, mined_height, message, proven_spend_actions,
  * outputs: [{ action, recipient, zatoshis, memo }], paidToExpected }` or throws with the reason.
@@ -98,7 +100,33 @@ export async function verifyReceipt(input, options = {}) {
   } else if (typeof raw === "string") {
     raw = hexToBytes(raw.trim());
   }
-  const v = JSON.parse(verify(receipt, raw, Number(height), !!options.regtest));
+  // Source proofs: the receipt names earlier transactions its spent notes came from.
+  const needed = JSON.parse(source_txids(receipt));
+  let sources;
+  if (needed.length) {
+    let list = options.sourceTxs;
+    if (list == null) {
+      const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
+      // Fetched by txid: the server learns which source transactions you checked.
+      list = await Promise.all(needed.map((id) => fetchTransaction(endpoint, id)));
+      fetchInfo.sources = `the source transaction id(s) ${needed.join(", ")}`;
+    }
+    sources = JSON.stringify(list.map((t) => ({ raw: typeof (t.rawTx ?? t.raw) === "string" ? (t.rawTx ?? t.raw) : bytesToHex(t.rawTx ?? t.raw), height: Number(t.height) })));
+  }
+  const v = JSON.parse(verify(receipt, raw, Number(height), !!options.regtest, sources));
+  // Who funded each source transaction in the clear (its transparent inputs' previous outputs).
+  if (v.sources && options.sourceFunding !== false && options.sourceTxs == null) {
+    const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
+    const coin = summary.network === "mainnet" ? 133 : 1;
+    for (const s of v.sources) {
+      for (const i of s.transparent_inputs.slice(0, 16)) {
+        try {
+          const prev = await fetchTransaction(endpoint, i.prevout_txid);
+          Object.assign(i, JSON.parse(transparent_output(prev.raw, Number(prev.height), i.prevout_index, coin, !!options.regtest)));
+        } catch { /* leave the outpoint as it is */ }
+      }
+    }
+  }
   v.local = true;
   v.fetch = fetchInfo;
   // Exchange deposit (ZIP 320 TEX two-step): also check the second transaction.
@@ -132,6 +160,10 @@ export async function verifyReceipt(input, options = {}) {
  * Resolves to `{ id, results: [verifyReceipt result, …], totals: { recipient: zatoshis } }`.
  * Options are passed to each `verifyReceipt` call, except `rawTx`/`height`.
  */
+function bytesToHex(b) {
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 export async function verifyBatch(input, options = {}) {
   await load();
   const text = extractBatch(input);

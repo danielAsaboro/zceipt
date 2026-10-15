@@ -9,7 +9,8 @@ const { vectors } = JSON.parse(await readFile(new URL("../../../conformance/vect
 async function run(v) {
   try {
     if (v.type === "receipt") {
-      const r = await verifyReceipt(v.receipt, { rawTx: v.raw_tx, height: v.height, regtest: v.regtest });
+      const sourceTxs = v.source_txs ? v.source_txs.map((t) => ({ rawTx: t.raw_tx, height: t.height })) : undefined;
+      const r = await verifyReceipt(v.receipt, { rawTx: v.raw_tx, height: v.height, regtest: v.regtest, sourceTxs });
       return { valid: r.valid === true, r };
     }
     const r = await verifySignIn(v.sign_in, { domain: v.domain, nonce: v.nonce });
@@ -27,5 +28,6 @@ test(`conformance: ${vectors.length} vectors`, async () => {
       assert.deepEqual(got.r.outputs.map((o) => ({ zatoshis: o.zatoshis, memo: o.memo })), v.expect.outputs, v.name);
     }
     if (v.expect.network) assert.equal(got.r.network, v.expect.network, v.name);
+    if (v.expect.sources) assert.deepEqual(got.r.sources.map((s) => ({ zatoshis: s.zatoshis })), v.expect.sources, v.name);
   }
 });

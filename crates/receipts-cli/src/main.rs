@@ -64,6 +64,15 @@ enum Cmd {
         /// so the verifier sees who paid. Without it, the sender stays anonymous.
         #[arg(long)]
         prove_address: Option<String>,
+        /// Also prove where the money came from: for each spent note, the earlier transaction
+        /// output that created it (for example the shielding of an exchange withdrawal). The
+        /// verifier learns that link and nothing else; add --reveal-source-value to also show
+        /// each spent note's exact value.
+        #[arg(long)]
+        prove_source: bool,
+        /// With --prove-source, reveal the exact value of each spent note.
+        #[arg(long, requires = "prove_source")]
+        reveal_source_value: bool,
         /// For campaigns: a note you choose to show publicly (signed into the receipt).
         #[arg(long)]
         public_note: Option<String>,
@@ -112,6 +121,10 @@ enum Cmd {
         /// Block height of --second-raw-tx. Default: --height.
         #[arg(long)]
         second_height: Option<u32>,
+        /// Offline source proofs: a source transaction as HEIGHT:FILE (raw hex). Repeat it for
+        /// each source the receipt names.
+        #[arg(long = "source-raw-tx", requires = "raw_tx")]
+        source_raw_txs: Vec<String>,
     },
     /// Decode a receipt without touching the network.
     Inspect {
@@ -371,7 +384,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, public_note, refund_to, tex_deposit, second_tx } => {
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, public_note, refund_to, tex_deposit, second_tx } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
@@ -403,6 +416,11 @@ async fn main() -> anyhow::Result<()> {
                 None => link_base,
             };
             let source = if from_chain { wallet::WitnessSource::Chain } else { wallet::WitnessSource::Auto };
+            let prove_source = match (prove_source, reveal_source_value) {
+                (false, _) => None,
+                (true, false) => Some(wallet::SourceMode::HideValue),
+                (true, true) => Some(wallet::SourceMode::RevealValue),
+            };
             if txids.len() > 1 {
                 if !outputs.is_empty() {
                     bail!("--output selects actions of one transaction; omit it for a batch");
@@ -413,7 +431,7 @@ async fn main() -> anyhow::Result<()> {
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref()).await?.0);
+                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref(), prove_source).await?.0);
                 }
                 let batch = receipts_core::ReceiptBatch { receipts };
                 receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
@@ -427,7 +445,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
-            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref()).await?;
+            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source).await?;
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
@@ -450,10 +468,15 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("`h=` lets verifiers fetch the whole block, so the server never learns which transaction):");
             println!("{}#{}&h={}", link_base, text, mined_height);
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height, source_raw_txs } => {
             let receipt = read_receipt_arg(&receipt)?;
             let raw1 = std::fs::read_to_string(&raw)?;
-            let report = chain::verify_offline(&receipt, &raw1, height, regtest.as_deref())?;
+            let mut sources = Vec::new();
+            for s in &source_raw_txs {
+                let (h, f) = s.split_once(':').ok_or_else(|| anyhow!("--source-raw-tx takes HEIGHT:FILE"))?;
+                sources.push((std::fs::read_to_string(f)?, h.parse().map_err(|_| anyhow!("bad height in --source-raw-tx {s}"))?));
+            }
+            let report = chain::verify_offline_with_sources(&receipt, &raw1, height, &sources, regtest.as_deref())?;
             if receipts_chain::deposit::deposit_claim(&report.message).is_some() {
                 let second = second_raw_tx.ok_or_else(|| anyhow!("this is an exchange-deposit receipt: pass the second step with --second-raw-tx (and --second-height if it is in another block)"))?;
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
@@ -808,7 +831,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let mut attempt = 0;
     let (receipt, height) = loop {
         devtool_run(vec!["sync".into()]).await?;
-        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None).await {
+        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, None).await {
             Ok(x) => break x,
             Err(e) if attempt < 12 && e.to_string().contains("not mined") => {
                 attempt += 1;

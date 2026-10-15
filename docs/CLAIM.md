@@ -24,6 +24,9 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    receipt that a verifier accepts, by editing, merging or truncating receipts they hold.
 4. **Sender address (optional).** For every spend that carries an address proof for `A`, the same
    `ask` (same `rk`) also controls `A`: `A = (d, [ivk] g_d)` for an `ivk` derived from that `ak`.
+5. **Source of funds (optional).** For every spend that carries a source proof naming output `k`
+   of transaction `S`, the note spent by action `i` of `T` is the note whose commitment `S`
+   published at output `k`; if the proof reveals a value `v`, that note carried exactly `v`.
 
 It does **not** claim:
 
@@ -47,6 +50,7 @@ It does **not** claim:
 | which actions' spends the signer authorized, by index | the values of those spent notes (`cv` is a hiding commitment with a fresh `rcv`) |
 | the message `msg` | a link between this receipt's `rk` and the transaction's `rk`, or another receipt's (fresh `α`) |
 | `A`, if and only if the signer chose to prove it | when the recipient later spends a disclosed note (see below) |
+| with a source proof: which earlier output created each proven spend's note (and its value, if chosen) | anything about other notes of the wallet, or where *those* came from |
 
 Knowing a disclosed note's plaintext does not let the verifier recognise its later spend: Orchard
 nullifiers are `Extract([PRF_nk(ρ) + ψ] K + cm)` ("Computing ρ values and Nullifiers"), and the
@@ -113,6 +117,20 @@ before the fix and are refused now. A forgery that keeps its own `cv` is also re
 verifier on its own (rule "cv_net is not ValueCommit_0(1)"); one that writes the expected `cv`
 fails the Halo 2 check, which the spec verifier does not run, and the two verifiers agree on the
 public inputs that check uses.
+
+**Source of funds (5).** A third Action proof under the same `rk` uses the anchor the verifier
+builds from `cmx_k`, read from `S`: the root of a one-leaf tree. As for (1), the extracted note has
+nullifier `nf_i`, so it is the note `T` spent (unique nullifiers). The verifier fixes `cv` with a
+zero trapdoor, `ValueCommit_0(1)` or `ValueCommit_0(v)`, so `v_old ≥ 1` and the circuit enforces
+the Merkle path: `Extract(cm) = cmx_k`, unless the prover finds a Sinsemilla collision giving
+the same root from another leaf or position. Orchard nullifiers do not depend on the position,
+so position 0 of a fresh tree is a sound stand-in for the note's real position. With a revealed
+value, the proof's output is opened with value 0 (the verifier recomputes `cmx_out`), so
+`v_old − 0 = v`. `tests/roundtrip.rs::a_zero_value_note_cannot_claim_any_source` builds the
+forgery the fixed `cv` prevents: the owner of a zero-value note, witnessing it against any
+output's tree, satisfies the circuit with their own `cv` (checked), and is refused with every
+`cv` the verifier allows. `::source_claims_are_bound_by_the_signature_and_the_proof` re-signs
+lies about the value (lower and higher), relabelled proofs and borrowed proofs; all are refused.
 
 ## Assumptions
 

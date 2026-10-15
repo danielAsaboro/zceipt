@@ -1,9 +1,11 @@
 """Receipt encodings, written from docs/SPEC.md (Encoding, Cross-pool receipts, Batches,
 Sign in with Zcash), not from the Rust code.
 
-Canonical decoding: the version is determined by the contents (3 iff the outputs are in another
-pool than the spends, else 2 iff some spend carries an address proof, else 1), address flags are
-exactly 0 or 1, nothing may follow the signatures. Any other byte string is rejected.
+Canonical decoding: the version is determined by the contents (4 iff some spend carries a source
+proof, else 3 iff the outputs are in another pool than the spends, else 2 iff some spend carries an
+address proof, else 1), address flags are exactly 0 or 1 (v2/v3) and spend flags 0..3 (v4), a
+revealed source value is at least 1, nothing may follow the signatures. Any other byte string is
+rejected.
 """
 
 import base64
@@ -30,6 +32,17 @@ class AddressProof:
 
 
 @dataclass
+class SourceProof:
+    txid: bytes
+    index: int
+    value: Optional[int]  # None: hidden
+    cmx: Optional[bytes]  # hidden value: the proof's output commitment
+    out_address: Optional[bytes]  # revealed value: the proof's opened zero-value output
+    out_rseed: Optional[bytes]
+    proof: bytes
+
+
+@dataclass
 class Spend:
     index: int
     cv_net: bytes
@@ -37,6 +50,7 @@ class Spend:
     cmx: bytes
     proof: bytes
     address: Optional[AddressProof] = None
+    source: Optional[SourceProof] = None
 
 
 @dataclass
@@ -86,7 +100,7 @@ def decode(b: bytes) -> Receipt:
     if r.take(4) != b"ZRCT":
         raise DecodeError("bad magic")
     version = r.take(1)[0]
-    if version not in (1, 2, 3):
+    if version not in (1, 2, 3, 4):
         raise DecodeError(f"unsupported version {version}")
     coin_type = r.int(4)
     pb = r.take(1)[0]
@@ -100,6 +114,11 @@ def decode(b: bytes) -> Receipt:
         if ob == pb:
             raise DecodeError("version 3 needs two different pools")
         output_pool = POOLS[ob]
+    elif version == 4:
+        ob = r.take(1)[0]
+        if ob not in POOLS:
+            raise DecodeError("unknown output pool")
+        output_pool = POOLS[ob] if ob != pb else None
     txid = r.take(32)
     msg = r.take(r.int(2))
     outputs = [Output(r.int(4), r.take(32)) for _ in range(r.take(1)[0])]
@@ -112,10 +131,30 @@ def decode(b: bytes) -> Receipt:
                 raise DecodeError("non-canonical address flag")
             if flag:
                 s.address = AddressProof(r.take(43), r.take(32), r.take(32), r.take(32), r.take(32), r.take(32), _proof(r))
+        elif version == 4:
+            flag = r.take(1)[0]
+            if flag > 3:
+                raise DecodeError("non-canonical spend flags")
+            if flag & 1:
+                s.address = AddressProof(r.take(43), r.take(32), r.take(32), r.take(32), r.take(32), r.take(32), _proof(r))
+            if flag & 2:
+                stxid, sindex, vflag = r.take(32), r.int(4), r.take(1)[0]
+                if vflag == 0:
+                    s.source = SourceProof(stxid, sindex, None, r.take(32), None, None, b"")
+                elif vflag == 1:
+                    value = r.int(8)
+                    if value == 0:
+                        raise DecodeError("non-canonical: a revealed source value of zero")
+                    s.source = SourceProof(stxid, sindex, value, None, r.take(43), r.take(32), b"")
+                else:
+                    raise DecodeError("non-canonical source value flag")
+                s.source.proof = _proof(r)
         spends.append(s)
     unsigned = b[: r.i]
     if version == 2 and not any(s.address for s in spends):
         raise DecodeError("non-canonical: version 2 without an address proof")
+    if version == 4 and not any(s.source for s in spends):
+        raise DecodeError("non-canonical: version 4 without a source proof")
     sigs = [r.take(64) for _ in spends]
     if r.i != len(b):
         raise DecodeError("trailing bytes")

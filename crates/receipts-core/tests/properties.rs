@@ -9,7 +9,7 @@
 //!    of its own network, which differs from the sign-in personalization and from the other
 //!    network's (so the same bytes hash differently in each domain).
 
-use receipts_core::{signing_digest, AddressProof, OutputDisclosure, Pool, Receipt, SpendDisclosure, UnsignedReceipt};
+use receipts_core::{signing_digest, AddressProof, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
 
 struct Rng(u64);
 impl Rng {
@@ -40,6 +40,7 @@ fn random_receipt(r: &mut Rng) -> Receipt {
         _ => None,
     };
     let with_addr = r.below(3) == 0;
+    let with_source = r.below(3) == 0;
     let n_sp = 1 + r.below(3) as usize;
     let spends: Vec<SpendDisclosure> = (0..n_sp)
         .map(|i| SpendDisclosure {
@@ -56,6 +57,17 @@ fn random_receipt(r: &mut Rng) -> Receipt {
                 nf: r.bytes(),
                 cv_net: r.bytes(),
                 cmx: r.bytes(),
+                proof: r.vec(300),
+            }),
+            // At least one source proof when "with_source", so v4 is canonical.
+            source: (with_source && (i == 0 || r.below(2) == 0)).then(|| SourceProof {
+                txid: r.bytes(),
+                index: r.below(100) as u32,
+                value: if r.below(2) == 0 {
+                    SourceValue::Hidden { cmx: r.bytes() }
+                } else {
+                    SourceValue::Revealed { value: 1 + r.below(1_000_000), address: r.bytes(), rseed: r.bytes() }
+                },
                 proof: r.vec(300),
             }),
         })

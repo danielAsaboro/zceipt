@@ -95,6 +95,9 @@ struct StoredNote {
     position: u64,
     /// Height at which the note was received, if known.
     mined_height: Option<u32>,
+    /// The transaction and action index that created the note.
+    source_txid: [u8; 32],
+    source_action: u32,
 }
 
 /// Looks up a note this wallet received, by nullifier, in the pool's received-notes table.
@@ -110,7 +113,7 @@ fn find_spent_note(
     };
     let sql = format!(
         "SELECT rn.diversifier, rn.value, rn.rho, rn.rseed, rn.commitment_tree_position,
-                rn.recipient_key_scope, rn.note_version, t.mined_height
+                rn.recipient_key_scope, rn.note_version, t.mined_height, t.txid, rn.action_index
          FROM {table} rn JOIN transactions t ON t.id_tx = rn.transaction_id
          WHERE rn.nf = ?1"
     );
@@ -125,6 +128,9 @@ fn find_spent_note(
     let scope: Option<i64> = row.get(5)?;
     let version: i64 = row.get(6)?;
     let mined_height: Option<u32> = row.get(7)?;
+    let source_txid: Vec<u8> = row.get(8)?;
+    let source_txid: [u8; 32] = source_txid.try_into().map_err(|_| anyhow!("bad txid"))?;
+    let source_action: u32 = row.get(9)?;
 
     let d = Diversifier::from_bytes(d.try_into().map_err(|_| anyhow!("bad diversifier"))?);
     let scope = match scope {
@@ -152,7 +158,7 @@ fn find_spent_note(
     ))
     .ok_or_else(|| anyhow!("stored note does not reconstruct"))?;
     let position = position.ok_or_else(|| anyhow!("note has no tree position yet; sync the wallet"))?;
-    Ok(Some(StoredNote { note, position: position as u64, mined_height }))
+    Ok(Some(StoredNote { note, position: position as u64, mined_height, source_txid, source_action }))
 }
 
 fn search_checkpoints<S>(
@@ -205,6 +211,15 @@ fn witness_at_anchor(
     })
 }
 
+/// Whether to prove where each spent note came from, and whether to reveal its value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceMode {
+    /// Prove the source transaction output; keep the note's value hidden.
+    HideValue,
+    /// Prove the source transaction output and reveal the note's exact value.
+    RevealValue,
+}
+
 /// How to obtain each spent note's Merkle path at the transaction's anchor.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum WitnessSource {
@@ -225,6 +240,7 @@ pub async fn create_receipt(
     witness_source: WitnessSource,
     server: Option<&str>,
     prove_address: Option<&str>,
+    prove_source: Option<SourceMode>,
 ) -> anyhow::Result<(Receipt, u32)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let coin_type = net.coin_type();
@@ -300,7 +316,29 @@ pub async fn create_receipt(
                     receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
                 }
             };
-            spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path, prove_address });
+            let source = match prove_source {
+                None => None,
+                Some(mode) => {
+                    // Read the source output's cmx from the wallet's own copy of that transaction.
+                    // A wallet that found the note in compact blocks may not keep the full
+                    // transaction; then the note's own commitment stands in, with no network
+                    // request (so no server learns which transaction is being proven), and every
+                    // verifier checks it against the chain anyway.
+                    let cmx = match db.get_transaction(TxId::from_bytes(stored.source_txid))? {
+                        Some(stx) => {
+                            let sb = match pool {
+                                Pool::Ironwood => stx.ironwood_bundle(),
+                                Pool::Orchard => stx.orchard_bundle(),
+                            };
+                            sb.and_then(|b| receipts_core::output_cmx(b, stored.source_action))
+                                .ok_or_else(|| anyhow!("the source transaction has no such output"))?
+                        }
+                        None => orchard::note::ExtractedNoteCommitment::from(stored.note.commitment()).to_bytes(),
+                    };
+                    Some(receipts_core::SourceWitness { txid: stored.source_txid, index: stored.source_action, cmx, reveal_value: mode == SourceMode::RevealValue })
+                }
+            };
+            spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path, prove_address, source });
         }
     }
     if spends.is_empty() {

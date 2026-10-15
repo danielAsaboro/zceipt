@@ -88,8 +88,9 @@ addr_flag:u8 (0 or 1) | if 1: address[43] (d[11] | pk_d[32]) | rho[32] | rseed[3
                               | cv_net[32] (must be ValueCommit_0(1)) | cmx[32] | proof_len:u32le | proof
 ```
 
-Every `proof_len` is at most 65,536. The version is determined by the contents (3 if the
-outputs are in another pool, else 2 if any spend has an address proof, else 1); any other
+Every `proof_len` is at most 65,536. The version is determined by the contents (4 if any spend
+has a source proof, else 3 if the outputs are in another pool, else 2 if any spend has an
+address proof, else 1); any other
 version byte for the same contents is rejected, as is a flag other than 0 or 1, and anything
 after the signatures.
 
@@ -113,6 +114,56 @@ so every receipt has a single encoding and its signature covers those exact byte
 Spend proofs and signatures are checked against `pool`'s bundle (its anchor and nullifiers),
 outputs are opened in `output_pool`'s bundle with that pool's note-encryption domain. The
 signature covers both pool bytes, so a receipt can't be moved between bundles.
+
+## Source of funds (version 4)
+
+A sender can also prove **where the money came from**: for a disclosed spend at action `i`, that
+the spent note was created by output `k` of an earlier transaction `S`. This answers the
+question exchanges and compliance desks ask of shielded deposits ("source of funds",
+zcash/zcash#3828), with one link instead of a viewing key. If `S` was the sender shielding an
+exchange withdrawal, its transparent inputs are public, so the verifier sees the deposit's
+funds trace to that withdrawal, and nothing else about the wallet.
+
+The proof is a third Action proof, under the **same** `rk` as the spend disclosure:
+
+1. Spend the same note `n` (so the same nullifier `nf_i`), but against the root of a one-leaf
+   tree whose only leaf is `cmx_k`, the source output's commitment. Orchard nullifiers do not
+   depend on the note's tree position (`nf = Extract([PRF_nk(ρ) + ψ] K + cm)`), so this is a
+   valid spend statement for `n` exactly when `Extract(cm(n)) = cmx_k`.
+2. The circuit only enforces the anchor when the spent value is non-zero, so the verifier fixes
+   `cv_net` itself, with a zero trapdoor, and never takes it from the prover:
+   - value hidden: `cv_net = ValueCommit_0(1)`; the proof's output (to a throwaway address,
+     `ρ = nf_i`) carries `v − 1`. This shows `v ≥ 1` and nothing more about `v`.
+   - value revealed: `cv_net = ValueCommit_0(v)`; the proof's output carries 0 and is opened
+     (`address`, `rseed`), so the verifier recomputes its `cmx` and knows the spent note
+     carried exactly `v`.
+
+The verifier reads `cmx_k` from `S` itself (fetched by txid and checked mined, before the
+payment), rebuilds the one-leaf anchor, and checks the proof against
+`(anchor, cv_net, nf_i, rk, cmx_out, enableSpends = 1, enableOutputs = 1)`, with `nf_i` taken
+from the payment transaction. A verifier that does not have `S` refuses the receipt rather than
+ignoring the claim.
+
+Encoding: version 4 always carries the outputs' pool byte (equal to the spends' pool when the
+outputs are in the same pool) and replaces the per-spend address flag by a flags byte:
+
+```
+flags:u8 (bit 0: address proof, bit 1: source proof; other bits 0)
+  | if bit 0: address proof (as in version 2)
+  | if bit 1: txid_S[32] | index_k:u32le | value_flag:u8 (0 or 1)
+              | if 0: cmx_out[32]
+              | if 1: value:u64le (≥ 1) | out_address[43] | out_rseed[32]
+              | proof_len:u32le | proof
+```
+
+Version 4 is used exactly when some spend carries a source proof; a revealed value of zero, a
+value flag other than 0 or 1, or a flags byte above 3 is rejected. The signature covers every
+field, so a source claim can't be added, removed or edited. A source proof made for one receipt
+does not verify in another (it is bound to that receipt's fresh `rk`).
+
+What it reveals: the link `S:k → T:i` and, if chosen, the note's value; through `S`'s public
+transparent inputs, whoever funded `S` in the clear. A wallet that keeps no copy of `S` uses the
+note's own commitment and asks no server for `S`; verifiers fetch `S` by txid.
 
 ## Batches
 

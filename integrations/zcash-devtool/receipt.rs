@@ -35,6 +35,15 @@ pub(crate) struct Command {
     #[arg(long)]
     prove_address: Option<String>,
 
+    /// Also prove where the money came from: the earlier transaction output that created each
+    /// note you spent (for example your shielding of an exchange withdrawal)
+    #[arg(long)]
+    prove_source: bool,
+
+    /// With --prove-source, also reveal each spent note's exact value
+    #[arg(long, requires = "prove_source")]
+    reveal_source_value: bool,
+
     /// lightwalletd host:port, used only if a Merkle path must be rebuilt from chain data
     #[arg(short, long)]
     server: Option<String>,
@@ -94,6 +103,11 @@ impl Command {
             receipts_wallet::WitnessSource::Auto,
             server,
             self.prove_address.as_deref(),
+            match (self.prove_source, self.reveal_source_value) {
+                (false, _) => None,
+                (true, false) => Some(receipts_wallet::SourceMode::HideValue),
+                (true, true) => Some(receipts_wallet::SourceMode::RevealValue),
+            },
         )
         .await?;
         if let Some(r) = &request {

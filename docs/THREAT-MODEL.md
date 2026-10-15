@@ -115,7 +115,17 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Exchange | That the receipt's signer made this two-step deposit: this **links** the payer's shielded funds to the deposit, and every verifier says so | `receipts-cli/tests/conformance.rs::tex_deposit_offline`; `receipts-core/src/deposit.rs::WARNING` |
 | Onlooker | What ZIP 320 already makes public (two transparent hops); the receipt is not on chain | ZIP 320 |
 
-## 11. Webhooks and the 402 gate
+## 11. Source of funds (`--prove-source`)
+
+| Party | Learns | Backed by |
+|---|---|---|
+| Verifier (an exchange, say) | For each proven spend: the earlier transaction and output that created the spent note, and its value only with `--reveal-source-value`. Through that transaction's public transparent inputs, who funded it in the clear (the sender's own shielding of a withdrawal, typically). This **links** the payment to that earlier transaction, and every verifier says so | `roundtrip.rs::ironwood_source_roundtrip`, `::orchard_source_roundtrip`; `scripts/e2e-regtest.sh` (exchange withdrawal, shielding, deposit) |
+| Verifier | Not: other notes of the wallet, where they came from, the sender's address or balance; a hidden value stays hidden (the proof's output and value commitment carry nothing the verifier can open) | `roundtrip.rs::source_proofs_stay_unlinkable`; `lib.rs::source_proof` |
+| Verifier | Can't be fooled: a source must be the very output that created the note (`::a_source_must_be_the_output_that_created_the_note`), a revealed value must be exact (`::source_claims_are_bound_by_the_signature_and_the_proof`), and a zero-value note can't claim any source (`::a_zero_value_note_cannot_claim_any_source`); the spec verifier agrees on every case (`spec-verifier/tests/test_differential.py`) | as named |
+| lightwalletd (verifier side) | The source transaction ids, fetched by txid (the payment itself can still use the `h=` block hint) | `receipts-chain/src/chain.rs::fetch_sources` |
+| lightwalletd (wallet side) | Nothing new: the wallet reads the source from its own records, or uses the note's own commitment, without a request | `receipts-wallet/src/lib.rs::create_receipt` |
+
+## 12. Webhooks and the 402 gate
 
 | Party | Learns | Backed by |
 |---|---|---|

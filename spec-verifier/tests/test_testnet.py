@@ -54,6 +54,19 @@ class Testnet(unittest.TestCase):
         for r in batch:
             v.verify(r.unsigned_bytes + b"".join(r.sigs), raw(r), 1)
 
+    def test_source_of_funds(self):
+        """examples/testnet/source: the payment 571de6e4… with a proof that its spent note came
+        from 2a2bd721… action 0, once with the value hidden and once revealed."""
+        src = os.path.join(EX, "source")
+        rd = lambda n: bytes.fromhex(open(os.path.join(src, n)).read().strip())
+        for name, value in (("receipt-source-hidden", None), ("receipt-source-value", 12_500_000)):
+            b = receipt_bytes(os.path.join("source", name))
+            rep = v.verify(b, rd("tx.hex"), 1, [rd("source-tx.hex")])
+            [s] = [s for s in rep["spends"] if "source" in s]
+            self.assertEqual((s["source"]["txid"][:8], s["source"]["index"], s["source"]["value"]), ("2a2bd721", 0, value), name)
+            with self.assertRaisesRegex(v.Invalid, "source transaction output is not available"):
+                v.verify(b, rd("tx.hex"), 1)
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

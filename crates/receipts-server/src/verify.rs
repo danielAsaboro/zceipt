@@ -49,6 +49,10 @@ pub struct Verification {
     /// `{ id, position, total }` if the receipt is part of a batch.
     pub batch: Option<serde_json::Value>,
     pub sender_addresses: Vec<String>,
+    /// Where spent notes came from, for spends whose source the sender proved (see
+    /// `receipts_chain::chain::ReportSource`). Empty unless the sender chose to.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<serde_json::Value>,
     pub outputs: Vec<Output>,
     /// `valid` once the transaction has FINALITY_CONFIRMATIONS confirmations, `valid_provisional` before.
     pub verdict: &'static str,
@@ -129,6 +133,16 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
             ApiError::chain(m)
         }
     })?;
+    let sources = chain::fetch_sources(receipt, net, server).await.map_err(|e| ApiError::verification("source_not_found", e.to_string()))?;
+    let source_cmx: std::collections::BTreeMap<([u8; 32], u8, u32), [u8; 32]> = sources
+        .iter()
+        .filter(|(id, s)| s.height <= height && **id != u.txid)
+        .flat_map(|(id, s)| {
+            let o = s.tx.orchard_bundle().into_iter().flat_map(move |b| b.actions().iter().enumerate().map(move |(i, a)| ((*id, 0u8, i as u32), a.cmx().to_bytes())));
+            let w = s.tx.ironwood_bundle().into_iter().flat_map(move |b| b.actions().iter().enumerate().map(move |(i, a)| ((*id, 1u8, i as u32), a.cmx().to_bytes())));
+            o.chain(w).collect::<Vec<_>>()
+        })
+        .collect();
     let receipt_owned = receipt.clone();
     let v = {
         let coin = u.coin_type;
@@ -137,14 +151,33 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
         // run at once so a burst of submissions queues instead of starving the server.
         let (orchard, ironwood) = (tx.orchard_bundle().cloned(), tx.ironwood_bundle().cloned());
         let _permit = verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
-        tokio::task::spawn_blocking(move || receipts_core::verify_tx_bundles(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref()))
+        tokio::task::spawn_blocking(move || {
+            let lookup = |pool: Pool, id: &[u8; 32], index: u32| source_cmx.get(&(*id, u8::from(pool == Pool::Ironwood), index)).copied();
+            receipts_core::verify_tx_bundles_with_sources(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref(), &lookup)
+        })
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?
             .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?
     };
     let message = String::from_utf8_lossy(&v.msg).into_owned();
     let tip = chain::chain_tip(net, server).await.ok();
-    let (verdict, checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
+    let (verdict, mut checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
+    checks["source_of_funds"] = if v.sources.is_empty() { "not_disclosed" } else { "proven" }.into();
+    let source_json: Vec<serde_json::Value> = v
+        .sources
+        .iter()
+        .map(|s| {
+            let stx = &sources[&s.txid];
+            serde_json::json!({
+                "spend_action": s.spend,
+                "source_txid": display_txid(&s.txid),
+                "source_action": s.index,
+                "source_height": stx.height,
+                "zatoshis": s.value,
+                "transparent_inputs": stx.transparent_inputs.iter().map(|t| serde_json::json!({ "prevout_txid": t.prevout_txid, "prevout_index": t.prevout_index, "address": t.address, "zatoshis": t.zatoshis })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
     let deposit = match receipts_chain::deposit::deposit_claim(&message) {
         None => None,
         Some((_, tx2_id)) => {
@@ -177,6 +210,7 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
         batch: batch_position(&v.msg).map(|(id, i, n)| serde_json::json!({ "id": id, "position": i, "total": n })),
         message,
         sender_addresses: v.proven_addresses.iter().map(|(_, a)| chain::encode_orchard_receiver(net, *a)).collect(),
+        sources: source_json,
         outputs: v
             .outputs
             .iter()

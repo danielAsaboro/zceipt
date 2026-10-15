@@ -96,6 +96,61 @@ pub struct SpendDisclosure {
     pub proof: Vec<u8>,
     /// Optional proof that the same spend authority controls a named payment address.
     pub address: Option<AddressProof>,
+    /// Optional proof of where the spent note came from (format v4).
+    pub source: Option<SourceProof>,
+}
+
+/// Proof that the note spent in a disclosed action is the note created by output `index` of an
+/// earlier transaction `txid` (the receipt's spend pool): where the money came from.
+///
+/// It is a third action proof, under the *same* randomized key `rk`, that spends the very same
+/// note (same nullifier, so the same note) against the root of a one-leaf tree holding the source
+/// action's `cmx`, which the verifier reads from the source transaction itself. Orchard nullifiers
+/// do not depend on the note's tree position, so the one-leaf tree is as good as the real one.
+///
+/// As for address proofs, the circuit only checks the anchor when the spent value is non-zero,
+/// so `cv_net` is fixed with a zero trapdoor and never taken from the prover:
+/// - value hidden: `cv_net = ValueCommit_0(1)` and the proof's output carries `v - 1`;
+/// - value revealed: `cv_net = ValueCommit_0(v)` and the proof's output (to a throwaway address)
+///   is opened, so the verifier sees it carries 0 and the spent note carries exactly `v`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceProof {
+    /// The transaction whose output created the spent note.
+    pub txid: [u8; 32],
+    /// The action index of that output in the source transaction's bundle of the receipt's pool.
+    pub index: u32,
+    pub value: SourceValue,
+    pub proof: Vec<u8>,
+}
+
+/// Whether a source proof reveals the spent note's value, and the proof's own output.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceValue {
+    /// Value hidden: only the commitment to the proof's output (which carries `v - 1`).
+    Hidden { cmx: [u8; 32] },
+    /// Value `v` (at least 1) revealed: the proof's zero-value output, opened.
+    Revealed { value: u64, address: [u8; 43], rseed: [u8; 32] },
+}
+
+impl SourceProof {
+    /// The revealed value of the spent note, if any.
+    pub fn revealed_value(&self) -> Option<u64> {
+        match self.value {
+            SourceValue::Hidden { .. } => None,
+            SourceValue::Revealed { value, .. } => Some(value),
+        }
+    }
+}
+
+/// Where a spent note came from, for `create`. The wallet knows this from its own records.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceWitness {
+    pub txid: [u8; 32],
+    pub index: u32,
+    /// The `cmx` of that action, read from the source transaction (checked against the note).
+    pub cmx: [u8; 32],
+    /// Reveal the note's value to the verifier.
+    pub reveal_value: bool,
 }
 
 /// Proof that the spend authority behind a disclosed spend also controls `address`
@@ -155,6 +210,8 @@ pub struct SpendWitness {
     pub merkle_path: MerklePath,
     /// Also prove that this spend authority controls this address (it must belong to `sk`).
     pub prove_address: Option<Address>,
+    /// Also prove which earlier transaction output created `note`.
+    pub source: Option<SourceWitness>,
 }
 
 /// What a verifier learns from a valid receipt.
@@ -170,7 +227,19 @@ pub struct VerifiedReceipt {
     pub proven_spends: Vec<u32>,
     /// Addresses proven to be controlled by the spend authority of the given action.
     pub proven_addresses: Vec<(u32, [u8; 43])>,
+    /// Where the note spent by the given action came from, proven against the source transaction.
+    pub sources: Vec<VerifiedSource>,
     pub outputs: Vec<VerifiedOutput>,
+}
+
+/// A proven link: the note spent by action `spend` was created by output `index` of `txid`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedSource {
+    pub spend: u32,
+    pub txid: [u8; 32],
+    pub index: u32,
+    /// The note's value, if the payer revealed it.
+    pub value: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -222,6 +291,14 @@ pub enum Error {
     BadAddressProof(u32),
     #[error("too large to encode: at most 65,535 message bytes, 255 outputs and 255 spends")]
     TooLarge,
+    #[error("the source proof for action {0} is invalid")]
+    BadSourceProof(u32),
+    #[error("the source transaction output for action {0} is not available to the verifier")]
+    SourceUnavailable(u32),
+    #[error("the source given for action {0} did not create the spent note")]
+    WrongSource(u32),
+    #[error("a note of value zero has no provable source")]
+    ZeroValueSource,
 }
 
 /// The digest every spend-authorization signature covers:
@@ -315,6 +392,11 @@ fn single_leaf_path() -> MerklePath {
 
 /// A zero-value note to a throwaway address with the given `rho`, like Orchard dummy outputs.
 fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut impl CryptoRng) -> Note {
+    note_to_throwaway(rho, NoteValue::ZERO, version, rng)
+}
+
+/// A note of `value` to a throwaway address with the given `rho`.
+fn note_to_throwaway(rho: Rho, value: NoteValue, version: orchard::note::NoteVersion, rng: &mut impl CryptoRng) -> Note {
     let addr = loop {
         if let Some(sk) = Option::<SpendingKey>::from(SpendingKey::from_bytes(random_bytes(rng))) {
             break FullViewingKey::from(&sk).address_at(0u32, orchard::keys::Scope::External);
@@ -322,7 +404,7 @@ fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut impl Cr
     };
     loop {
         if let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(random_bytes(rng), &rho)) {
-            if let Some(n) = Option::<Note>::from(Note::from_parts(addr, NoteValue::ZERO, rho, rseed, version)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(addr, value, rho, rseed, version)) {
                 return n;
             }
         }
@@ -412,6 +494,132 @@ pub(crate) fn verify_address_proof(
     let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&a.cmx)).ok_or_else(bad)?;
     let instance = Instance::from_parts(anchor, cv_net, nf, rk.clone(), cmx, Flags::ENABLED).ok_or_else(bad)?;
     Proof::new(a.proof.clone()).verify(vk, &[instance]).map_err(|_| bad())
+}
+
+/// The value commitment a source proof must carry: `ValueCommit_0(1)` when the value is hidden,
+/// `ValueCommit_0(v)` when it is revealed. `None` for a revealed value of zero, which would let
+/// the circuit skip its anchor check.
+pub fn source_proof_cv_net(value: Option<u64>) -> Option<ValueCommitment> {
+    let v = value.unwrap_or(1);
+    (v >= 1).then(|| ValueCommitment::derive(NoteValue::from_raw(v) - NoteValue::ZERO, zero_trapdoor()))
+}
+
+/// The anchor a source proof is verified against: the root of the one-leaf tree holding the
+/// source output's `cmx` (`None` if `cmx` is not a valid commitment).
+pub fn source_proof_anchor(source_cmx: &[u8; 32]) -> Option<orchard::Anchor> {
+    let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(source_cmx))?;
+    Some(single_leaf_path().root(cmx))
+}
+
+/// The `cmx` public input of a source proof for the spend whose nullifier is `nf`: the hidden
+/// output's commitment, or the commitment of the opened zero-value output.
+pub fn source_proof_cmx(pool: Pool, nf: &[u8; 32], s: &SourceProof) -> Option<[u8; 32]> {
+    match &s.value {
+        SourceValue::Hidden { cmx } => Some(*cmx),
+        SourceValue::Revealed { address, rseed, .. } => {
+            let nf = Option::<orchard::note::Nullifier>::from(orchard::note::Nullifier::from_bytes(nf))?;
+            source_output_cmx(pool, &nf, address, rseed).map(|c| c.to_bytes())
+        }
+    }
+}
+
+/// The commitment of a revealed source proof's output: zero value to `address`, `rho = nf`.
+fn source_output_cmx(pool: Pool, nf: &orchard::note::Nullifier, address: &[u8; 43], rseed: &[u8; 32]) -> Option<ExtractedNoteCommitment> {
+    let address = Option::<Address>::from(Address::from_raw_address_bytes(address))?;
+    let rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes()))?;
+    let rseed = Option::<RandomSeed>::from(RandomSeed::from_bytes(*rseed, &rho))?;
+    let note = Option::<Note>::from(Note::from_parts(address, NoteValue::ZERO, rho, rseed, pool_note_version(pool)))?;
+    Some(note.commitment().into())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn source_proof(
+    pk: &ProvingKey,
+    pool: Pool,
+    index: u32,
+    fvk: &FullViewingKey,
+    note: Note,
+    src: &SourceWitness,
+    alpha: pallas::Scalar,
+    rk: &redpallas::VerificationKey<SpendAuth>,
+    rng: &mut impl CryptoRng,
+) -> Result<SourceProof, Error> {
+    let cmx_src: ExtractedNoteCommitment = note.commitment().into();
+    if cmx_src.to_bytes() != src.cmx {
+        return Err(Error::WrongSource(index));
+    }
+    let v = note.value().inner();
+    if v == 0 {
+        return Err(Error::ZeroValueSource);
+    }
+    let path = single_leaf_path();
+    let anchor = path.root(cmx_src);
+    let nf = note.nullifier(fvk);
+    let spend = SpendInfo::new(fvk.clone(), note, path).ok_or(Error::NoteNotOwned)?;
+    let out_rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes())).ok_or(Error::Proving)?;
+    let out_value = if src.reveal_value { 0 } else { v - 1 };
+    let out = note_to_throwaway(out_rho, NoteValue::from_raw(out_value), pool_note_version(pool), rng);
+    let cv_net = source_proof_cv_net(src.reveal_value.then_some(v)).ok_or(Error::ZeroValueSource)?;
+    let cmx: ExtractedNoteCommitment = out.commitment().into();
+    let circuit = Circuit::from_action_context(spend, out, alpha, zero_trapdoor(), RECEIPT_CIRCUIT).ok_or(Error::Proving)?;
+    let instance = Instance::from_parts(anchor, cv_net, nf, rk.clone(), cmx, Flags::ENABLED).ok_or(Error::Proving)?;
+    let proof = Proof::create(pk, &[circuit], &[instance], &mut *rng).map_err(|_| Error::Proving)?;
+    let value = if src.reveal_value {
+        SourceValue::Revealed { value: v, address: out.recipient().to_raw_address_bytes(), rseed: *out.rseed().as_bytes() }
+    } else {
+        SourceValue::Hidden { cmx: cmx.to_bytes() }
+    };
+    Ok(SourceProof { txid: src.txid, index: src.index, value, proof: proof.as_ref().to_vec() })
+}
+
+/// `source_proof`, exposed for tests that build receipts by hand. Not part of the API.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn __source_proof_for_tests(
+    pk: &ProvingKey,
+    pool: Pool,
+    index: u32,
+    fvk: &FullViewingKey,
+    note: Note,
+    src: &SourceWitness,
+    alpha: pallas::Scalar,
+    rk: &redpallas::VerificationKey<SpendAuth>,
+    rng: &mut impl CryptoRng,
+) -> Result<SourceProof, Error> {
+    source_proof(pk, pool, index, fvk, note, src, alpha, rk, rng)
+}
+
+/// Checks a source proof for the spend at action `index` (nullifier `nf`, key `rk`), given the
+/// `cmx` of the source output as read from the source transaction.
+pub(crate) fn verify_source_proof(
+    vk: &VerifyingKey,
+    pool: Pool,
+    index: u32,
+    rk: &redpallas::VerificationKey<SpendAuth>,
+    nf: &orchard::note::Nullifier,
+    s: &SourceProof,
+    source_cmx: &[u8; 32],
+) -> Result<(), Error> {
+    let bad = || Error::BadSourceProof(index);
+    let anchor = source_proof_anchor(source_cmx).ok_or_else(bad)?;
+    // Fixed by the verifier, never taken from the prover: this is what forces a non-zero value.
+    let cv_net = source_proof_cv_net(s.revealed_value()).ok_or_else(bad)?;
+    let cmx = match &s.value {
+        SourceValue::Hidden { cmx } => Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(cmx)).ok_or_else(bad)?,
+        // The opened output carries 0, so the spent note carries exactly the revealed value.
+        SourceValue::Revealed { address, rseed, .. } => source_output_cmx(pool, nf, address, rseed).ok_or_else(bad)?,
+    };
+    let instance = Instance::from_parts(anchor, cv_net, *nf, rk.clone(), cmx, Flags::ENABLED).ok_or_else(bad)?;
+    Proof::new(s.proof.clone()).verify(vk, &[instance]).map_err(|_| bad())
+}
+
+/// Looks up the `cmx` of output `index` in the `pool` bundle of transaction `txid`, for source
+/// proofs. Return `None` if the transaction or output is unknown (the receipt is then refused).
+pub type SourceLookup<'a> = &'a dyn Fn(Pool, &[u8; 32], u32) -> Option<[u8; 32]>;
+
+/// Reads the source output's `cmx` from a source transaction's bundle (for `SourceLookup`s).
+pub fn output_cmx<A: Authorization, V>(bundle: &Bundle<A, V>, index: u32) -> Option<[u8; 32]> {
+    bundle.actions().get(index as usize).map(|a| a.cmx().to_bytes())
 }
 
 /// Creates a receipt for `bundle`, which was mined in transaction `txid`.
@@ -537,6 +745,10 @@ pub fn create_cross<A: Authorization, V>(
             Some(addr) => Some(address_proof(pk, pool, &fvk, addr, alpha, &rk, &mut rng)?),
             None => None,
         };
+        let source = match &w.source {
+            Some(src) => Some(source_proof(pk, pool, w.index as u32, &fvk, w.note, src, alpha, &rk, &mut rng)?),
+            None => None,
+        };
         spend_disclosures.push(SpendDisclosure {
             index: w.index as u32,
             cv_net: cv_net.to_bytes(),
@@ -544,6 +756,7 @@ pub fn create_cross<A: Authorization, V>(
             cmx: cmx.to_bytes(),
             proof: proof.as_ref().to_vec(),
             address,
+            source,
         });
         signing_keys.push(rsk);
     }
@@ -581,7 +794,28 @@ pub fn verify<A: Authorization, V>(
     if receipt.unsigned.output_pool.is_some() {
         return Err(Error::PoolMismatch); // needs both bundles: use verify_tx_bundles
     }
-    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle)
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, &no_sources)
+}
+
+/// A `SourceLookup` that knows no transactions: receipts with source proofs are refused.
+fn no_sources(_: Pool, _: &[u8; 32], _: u32) -> Option<[u8; 32]> {
+    None
+}
+
+/// Like `verify`, also checking source proofs against the outputs `sources` returns.
+pub fn verify_with_sources<A: Authorization, V>(
+    vk: &VerifyingKey,
+    receipt: &Receipt,
+    expected_coin_type: u32,
+    pool: Pool,
+    txid: [u8; 32],
+    bundle: &Bundle<A, V>,
+    sources: SourceLookup<'_>,
+) -> Result<VerifiedReceipt, Error> {
+    if receipt.unsigned.output_pool.is_some() {
+        return Err(Error::PoolMismatch);
+    }
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, sources)
 }
 
 /// Verifies a receipt against a transaction's Orchard and Ironwood bundles, whichever pools
@@ -594,6 +828,20 @@ pub fn verify_tx_bundles<A: Authorization, V>(
     orchard: Option<&Bundle<A, V>>,
     ironwood: Option<&Bundle<A, V>>,
 ) -> Result<VerifiedReceipt, Error> {
+    verify_tx_bundles_with_sources(vk, receipt, expected_coin_type, txid, orchard, ironwood, &no_sources)
+}
+
+/// Like `verify_tx_bundles`, also checking source proofs against the outputs `sources` returns.
+/// A receipt with a source proof whose output `sources` does not know is refused.
+pub fn verify_tx_bundles_with_sources<A: Authorization, V>(
+    vk: &VerifyingKey,
+    receipt: &Receipt,
+    expected_coin_type: u32,
+    txid: [u8; 32],
+    orchard: Option<&Bundle<A, V>>,
+    ironwood: Option<&Bundle<A, V>>,
+    sources: SourceLookup<'_>,
+) -> Result<VerifiedReceipt, Error> {
     let u = &receipt.unsigned;
     let pick = |p: Pool| match p {
         Pool::Orchard => orchard,
@@ -604,9 +852,10 @@ pub fn verify_tx_bundles<A: Authorization, V>(
         None => spends,
         Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
     };
-    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs)
+    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, sources)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn verify_cross<A: Authorization, V>(
     vk: &VerifyingKey,
     receipt: &Receipt,
@@ -615,6 +864,7 @@ fn verify_cross<A: Authorization, V>(
     txid: [u8; 32],
     bundle: &Bundle<A, V>,
     output_bundle: &Bundle<A, V>,
+    sources: SourceLookup<'_>,
 ) -> Result<VerifiedReceipt, Error> {
     let u = &receipt.unsigned;
     let output_pool = u.output_pool.unwrap_or(u.pool);
@@ -640,6 +890,7 @@ fn verify_cross<A: Authorization, V>(
 
     let digest = signing_digest(u);
     let mut proven_addresses = Vec::new();
+    let mut proven_sources = Vec::new();
     for (s, sig) in u.spends.iter().zip(&receipt.spend_auth_sigs) {
         let action = &actions[s.index as usize];
         let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk)
@@ -660,6 +911,12 @@ fn verify_cross<A: Authorization, V>(
             let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
             verify_address_proof(vk, pool, s.index, &rk, a)?;
             proven_addresses.push((s.index, a.address));
+        }
+        if let Some(src) = &s.source {
+            let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
+            let source_cmx = sources(pool, &src.txid, src.index).ok_or(Error::SourceUnavailable(s.index))?;
+            verify_source_proof(vk, pool, s.index, &rk, action.nullifier(), src, &source_cmx)?;
+            proven_sources.push(VerifiedSource { spend: s.index, txid: src.txid, index: src.index, value: src.revealed_value() });
         }
     }
 
@@ -684,6 +941,7 @@ fn verify_cross<A: Authorization, V>(
         msg: u.msg.clone(),
         proven_spends: u.spends.iter().map(|s| s.index).collect(),
         proven_addresses,
+        sources: proven_sources,
         outputs,
     })
 }

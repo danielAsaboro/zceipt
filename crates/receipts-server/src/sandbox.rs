@@ -69,6 +69,7 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         challenge: challenge.map(str::to_string),
         batch: None,
         sender_addresses: vec![],
+        sources: vec![],
         outputs: vec![Output { action: 0, recipient, recipient_raw: raw, zatoshis: amount, memo: Some("sandbox fixture".into()) }],
         verdict: "valid",
         checks: serde_json::Value::Null,

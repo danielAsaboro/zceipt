@@ -34,9 +34,9 @@ receipts verify @examples/testnet/receipt.txt
   10/10; ChaCha20-Poly1305 against RFC 8439;
 - on the real testnet transactions: it recomputes each v6 txid from the raw bytes (so the server
   that served them need not be trusted) and opens every disclosed Ironwood output;
-- against the Rust verifier: 163/163 shared conformance vectors, and 213/213 signed adversarial
+- against the Rust verifier: 223/223 shared conformance vectors, and 224/224 signed adversarial
   receipts (each altered receipt re-signed by the spender, so only the check under test can
-  catch it). The 4 that the Rust verifier rejects only on a Halo 2 proof get exactly the public
+  catch it). The 9 that the Rust verifier rejects only on a Halo 2 proof get exactly the public
   inputs the Rust verifier used.
 
 ```bash
@@ -132,7 +132,7 @@ python3 scripts/wire/wire.py decode /tmp/wire
   receipt verify against testnet, offline verification prints that mining was not checked, and
   `receipts demo --no-wait` runs the whole tour (exit 0).
 
-The full workspace suite (`cargo test --workspace`) passes; so does the npm verifier on the 163
+The full workspace suite (`cargo test --workspace`) passes; so does the npm verifier on the 223
 conformance vectors (`node --test packages/zcash-receipts/test/conformance.test.js`).
 
 ## What this found

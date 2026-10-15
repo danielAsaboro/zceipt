@@ -53,6 +53,9 @@ fn single_leaf_witness(cmx: &ExtractedNoteCommitment) -> (MerkleHashOrchard, Mer
 
 struct Scenario {
     sender_sk: SpendingKey,
+    /// The transaction that created the sender's note (the payment's source).
+    funding: Bundle<Authorized, i64>,
+    funding_index: usize,
     payment: Bundle<Authorized, i64>,
     funding_note: Note,
     funding_path: MerklePath,
@@ -78,6 +81,11 @@ fn decrypt(version: BundleVersion, bundle: &Bundle<Authorized, i64>, fvk: &FullV
 
 /// Sender is funded with 100_000 zats, then pays a merchant 42_000 zats with a memo.
 fn scenario(version: BundleVersion) -> Scenario {
+    scenario_valued(version, 100_000, 42_000)
+}
+
+/// Sender is funded with `fund` zats, then pays a merchant `pay` zats with a memo.
+fn scenario_valued(version: BundleVersion, fund: u64, pay: u64) -> Scenario {
     let mut rng = OsRng;
     let pk = network_pk(version);
     let sender_sk = SpendingKey::from_bytes([7; 32]).unwrap();
@@ -88,13 +96,14 @@ fn scenario(version: BundleVersion) -> Scenario {
 
     let empty: orchard::Anchor = MerkleHashOrchard::empty_root(32.into()).into();
     let mut b = Builder::new(BundleType::DEFAULT, version, Flags::SPENDS_DISABLED, empty).unwrap();
-    b.add_output(None, sender_addr, NoteValue::from_raw(100_000), [0u8; 512]).unwrap();
+    b.add_output(None, sender_addr, NoteValue::from_raw(fund), [0u8; 512]).unwrap();
     let (unauth, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
     let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
     let funding = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[]).unwrap();
 
     let funding_note = decrypt(version, &funding, &sender_fvk);
     let cmx: ExtractedNoteCommitment = funding_note.commitment().into();
+    let funding_index = funding.actions().iter().position(|a| *a.cmx() == cmx).unwrap();
     let (root, funding_path) = single_leaf_witness(&cmx);
 
     let mut memo = [0u8; 512];
@@ -102,8 +111,8 @@ fn scenario(version: BundleVersion) -> Scenario {
     let ovk = sender_fvk.to_ovk(Scope::External);
     let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), root.into()).unwrap();
     b.add_spend(sender_fvk.clone(), funding_note, funding_path.clone()).unwrap();
-    b.add_output(Some(ovk.clone()), merchant_addr, NoteValue::from_raw(42_000), memo).unwrap();
-    b.add_output(Some(ovk), sender_addr, NoteValue::from_raw(58_000), [0u8; 512]).unwrap();
+    b.add_output(Some(ovk.clone()), merchant_addr, NoteValue::from_raw(pay), memo).unwrap();
+    b.add_output(Some(ovk), sender_addr, NoteValue::from_raw(fund - pay), [0u8; 512]).unwrap();
     let (unauth, meta) = b.build::<i64>(&mut rng).unwrap().unwrap();
     let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
     let payment = unauth
@@ -116,10 +125,12 @@ fn scenario(version: BundleVersion) -> Scenario {
         sender_sk,
         spend_index: meta.spend_action_index(0).unwrap(),
         merchant_index: meta.output_action_index(0).unwrap(),
+        funding,
+        funding_index,
         payment,
         funding_note,
         funding_path,
-        merchant_value: 42_000,
+        merchant_value: pay,
     }
 }
 
@@ -141,6 +152,7 @@ fn make_receipt(s: &Scenario, pool: Pool, msg: &[u8]) -> Receipt {
             note: s.funding_note,
             merkle_path: s.funding_path.clone(),
             prove_address: None,
+            source: None,
         }],
         OsRng,
     )
@@ -248,6 +260,7 @@ fn only_the_spender_can_create() {
             note: s.funding_note,
             merkle_path: s.funding_path.clone(),
             prove_address: None,
+            source: None,
         }],
         OsRng,
     )
@@ -295,6 +308,7 @@ fn address_proof_roundtrip_and_rejections() {
                 note: s.funding_note,
                 merkle_path: s.funding_path.clone(),
                 prove_address: Some(addr),
+                source: None,
             }],
             OsRng,
         )
@@ -489,7 +503,7 @@ fn forge_address_proof(
         }
     };
     let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
-    let cv_net = ValueCommitment::derive(NoteValue::ZERO - NoteValue::ZERO, rcv.clone());
+    let cv_net = ValueCommitment::derive(NoteValue::from_raw(0) - NoteValue::ZERO, rcv.clone());
     let rk = VerificationKey::<SpendAuth>::from(&SpendAuthorizingKey::from(attacker_sk).randomize(&alpha));
     let cmx: ExtractedNoteCommitment = dummy.commitment().into();
     let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
@@ -512,7 +526,7 @@ fn forge_address_proof(
 fn oversized_receipts_are_refused_at_creation() {
     let s = scenario(BundleVersion::ironwood_v3());
     let fvk = FullViewingKey::from(&s.sender_sk);
-    let w = || SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None };
+    let w = || SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None };
     let long = vec![b'x'; 65_536];
     assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long, &[], &[w()], OsRng).unwrap_err(), Error::TooLarge);
     let outs = vec![(s.merchant_index, fvk.to_ovk(Scope::External)); 256];
@@ -605,6 +619,7 @@ fn claiming_someone_elses_sender_address_is_refused() {
             cmx: cmx.to_bytes(),
             proof: proof.as_ref().to_vec(),
             address: Some(address),
+            source: None,
         }],
     };
     let digest = receipts_core::signing_digest(&unsigned);
@@ -651,7 +666,7 @@ fn honest_spend(s: &Scenario, bundle: &Bundle<Authorized, i64>, alpha: pasta_cur
     let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
     let instance = Instance::from_parts(*bundle.anchor(), cv_net.clone(), *action.nullifier(), rk.clone(), cmx, Flags::ENABLED).unwrap();
     let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
-    receipts_core::SpendDisclosure { index: s.spend_index as u32, cv_net: cv_net.to_bytes(), rk: (&rk).into(), cmx: cmx.to_bytes(), proof: proof.as_ref().to_vec(), address: None }
+    receipts_core::SpendDisclosure { index: s.spend_index as u32, cv_net: cv_net.to_bytes(), rk: (&rk).into(), cmx: cmx.to_bytes(), proof: proof.as_ref().to_vec(), address: None, source: None }
 }
 
 fn hex(b: &[u8]) -> String {
@@ -675,8 +690,9 @@ fn bundle_json(b: &Bundle<Authorized, i64>) -> serde_json::Value {
 }
 
 /// What the Rust verifier says, plus the public inputs it uses for every proof (whatever the verdict).
-fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32) -> serde_json::Value {
-    let res = verify(&keys().1, r, coin, pool, TXID, b);
+fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32, source: Option<&Bundle<Authorized, i64>>) -> serde_json::Value {
+    let lookup = |_p: Pool, t: &[u8; 32], i: u32| if t == &FUNDING_TXID { source.and_then(|sb| receipts_core::output_cmx(sb, i)) } else { None };
+    let res = receipts_core::verify_with_sources(&keys().1, r, coin, pool, TXID, b, &lookup);
     let pis: Vec<_> = r
         .unsigned
         .spends
@@ -686,6 +702,11 @@ fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32) ->
             serde_json::json!({
                 "anchor": hex(&b.anchor().to_bytes()), "cv_net": hex(&s.cv_net), "nf": nf, "rk": hex(&s.rk), "cmx": hex(&s.cmx),
                 "address_anchor": s.address.as_ref().and_then(|a| receipts_core::address_proof_anchor(pool, a)).map(|x| hex(&x)),
+                "source": s.source.as_ref().map(|src| serde_json::json!({
+                    "anchor": source.and_then(|sb| receipts_core::output_cmx(sb, src.index)).and_then(|c| receipts_core::source_proof_anchor(&c)).map(|a| hex(&a.to_bytes())),
+                    "cv_net": receipts_core::source_proof_cv_net(src.revealed_value()).map(|c| hex(&c.to_bytes())),
+                    "cmx": b.actions().get(s.index as usize).and_then(|a| receipts_core::source_proof_cmx(pool, &a.nullifier().to_bytes(), src)).map(|c| hex(&c)),
+                })),
             })
         })
         .collect();
@@ -694,6 +715,7 @@ fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32) ->
             "ok": true, "public_inputs": pis,
             "outputs": v.outputs.iter().map(|o| serde_json::json!({"index": o.index, "recipient": hex(&o.recipient), "value": o.value, "memo": hex(&o.memo)})).collect::<Vec<_>>(),
             "proven_addresses": v.proven_addresses.iter().map(|(_, a)| hex(a)).collect::<Vec<_>>(),
+            "sources": v.sources.iter().map(|x| serde_json::json!({"spend": x.spend, "index": x.index, "value": x.value})).collect::<Vec<_>>(),
         }),
         Err(e) => serde_json::json!({ "ok": false, "error": format!("{e:?}"), "public_inputs": pis }),
     }
@@ -712,9 +734,11 @@ fn differential_corpus() {
     let so = scenario(BundleVersion::orchard_v2());
     let mut cases = Vec::new();
     let mut add = |name: &str, pool: Pool, b: &Bundle<Authorized, i64>, r: &Receipt, coin: u32| {
+        // Source proofs are checked against each scenario's own funding transaction.
+        let source = if pool == Pool::Orchard { &so.funding } else { &s.funding };
         cases.push(serde_json::json!({
             "name": name, "pool": if pool == Pool::Orchard { "orchard" } else { "ironwood" }, "coin_type": coin,
-            "receipt": hex(&r.to_bytes()), "rust": rust_view(r, pool, b, coin),
+            "receipt": hex(&r.to_bytes()), "rust": rust_view(r, pool, b, coin, Some(source)),
         }));
     };
     let sign = |u: receipts_core::UnsignedReceipt, rsks: &[&SigningKey<SpendAuth>]| {
@@ -728,7 +752,7 @@ fn differential_corpus() {
     let fvk = FullViewingKey::from(&s.sender_sk);
     let with_addr = create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"from my public address",
         &[(s.merchant_index, fvk.to_ovk(Scope::External))],
-        &[SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: Some(fvk.address_at(5u32, Scope::External)) }],
+        &[SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: Some(fvk.address_at(5u32, Scope::External)), source: None }],
         OsRng).unwrap();
     add("honest/with-address", Pool::Ironwood, &s.payment, &with_addr, COIN_TYPE_TESTNET);
 
@@ -769,6 +793,30 @@ fn differential_corpus() {
     add("resigned/wrong-pool-bundle", Pool::Orchard, &so.payment, &sign(receipts_core::UnsignedReceipt { pool: Pool::Orchard, ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
     let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap()).randomize(&alpha);
     add("signed-by-someone-else", Pool::Ironwood, &s.payment, &sign(base.clone(), &[&other]), COIN_TYPE_TESTNET);
+    // Source proofs.
+    add("honest/source-hidden", Pool::Ironwood, &s.payment, &receipt_with_source(&s, Pool::Ironwood, false), COIN_TYPE_TESTNET);
+    let revealed = receipt_with_source(&s, Pool::Ironwood, true);
+    add("honest/source-revealed", Pool::Ironwood, &s.payment, &revealed, COIN_TYPE_TESTNET);
+    add("honest/source-orchard", Pool::Orchard, &so.payment, &receipt_with_source(&so, Pool::Orchard, true), COIN_TYPE_TESTNET);
+    let honest_src = receipts_core::__source_proof_for_tests(&keys().0, Pool::Ironwood, s.spend_index as u32, &fvk, s.funding_note, &source_witness(&s, true), alpha, &orchard::primitives::redpallas::VerificationKey::from(&rsk), &mut { OsRng }).unwrap();
+    let with_src = |p: receipts_core::SourceProof| receipts_core::UnsignedReceipt { spends: vec![receipts_core::SpendDisclosure { source: Some(p), ..spend.clone() }], ..base.clone() };
+    add("manual/source-valid", Pool::Ironwood, &s.payment, &sign(with_src(honest_src.clone()), &[&rsk]), COIN_TYPE_TESTNET);
+    let lie = |v: u64| {
+        let mut p = honest_src.clone();
+        if let receipts_core::SourceValue::Revealed { value, .. } = &mut p.value {
+            *value = v;
+        }
+        p
+    };
+    add("resigned/source-value-lower", Pool::Ironwood, &s.payment, &sign(with_src(lie(99_999)), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/source-value-higher", Pool::Ironwood, &s.payment, &sign(with_src(lie(100_001)), &[&rsk]), COIN_TYPE_TESTNET);
+    let other_out = ((s.funding_index + 1) % s.funding.actions().len()) as u32;
+    add("resigned/source-other-output", Pool::Ironwood, &s.payment, &sign(with_src(receipts_core::SourceProof { index: other_out, ..honest_src.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/source-unknown-tx", Pool::Ironwood, &s.payment, &sign(with_src(receipts_core::SourceProof { txid: [0x11; 32], ..honest_src.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/source-is-the-payment", Pool::Ironwood, &s.payment, &sign(with_src(receipts_core::SourceProof { txid: TXID, ..honest_src.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/source-proof-from-another-receipt", Pool::Ironwood, &s.payment, &sign(with_src(revealed.unsigned.spends[0].source.clone().unwrap()), &[&rsk]), COIN_TYPE_TESTNET);
+    let hidden_as_revealed = receipts_core::__source_proof_for_tests(&keys().0, Pool::Ironwood, s.spend_index as u32, &fvk, s.funding_note, &source_witness(&s, false), alpha, &orchard::primitives::redpallas::VerificationKey::from(&rsk), &mut { OsRng }).unwrap();
+    add("resigned/source-hidden-relabelled-as-1", Pool::Ironwood, &s.payment, &sign(with_src(receipts_core::SourceProof { value: receipts_core::SourceValue::Revealed { value: 1, address: s.funding_note.recipient().to_raw_address_bytes(), rseed: *s.funding_note.rseed().as_bytes() }, ..hidden_as_revealed }), &[&rsk]), COIN_TYPE_TESTNET);
     // Single-byte flips of an honest receipt, not re-signed.
     let bytes = a.to_bytes();
     for i in (0..bytes.len()).step_by(41).chain(bytes.len() - 64..bytes.len()).step_by(1) {
@@ -780,7 +828,260 @@ fn differential_corpus() {
     }
     let out = serde_json::json!({
         "bundles": { "ironwood": bundle_json(&s.payment), "orchard": bundle_json(&so.payment) },
+        // The funding transaction of each scenario, at FUNDING_TXID, for source proofs.
+        "source_txid": hex(&FUNDING_TXID),
+        "source_bundles": { "ironwood": bundle_json(&s.funding), "orchard": bundle_json(&so.funding) },
         "cases": cases,
     });
     std::fs::write(path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+}
+
+// ---------- source proofs: where the spent money came from ----------
+
+const FUNDING_TXID: [u8; 32] = [0xcd; 32];
+
+fn funding_lookup(s: &Scenario) -> impl Fn(Pool, &[u8; 32], u32) -> Option<[u8; 32]> + '_ {
+    move |_pool, txid, index| (txid == &FUNDING_TXID).then(|| receipts_core::output_cmx(&s.funding, index)).flatten()
+}
+
+fn source_witness(s: &Scenario, reveal_value: bool) -> receipts_core::SourceWitness {
+    receipts_core::SourceWitness {
+        txid: FUNDING_TXID,
+        index: s.funding_index as u32,
+        cmx: s.funding.actions()[s.funding_index].cmx().to_bytes(),
+        reveal_value,
+    }
+}
+
+fn receipt_with_source(s: &Scenario, pool: Pool, reveal_value: bool) -> Receipt {
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    create(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        pool,
+        TXID,
+        &s.payment,
+        b"deposit to exchange B",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness {
+            index: s.spend_index,
+            sk: s.sender_sk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: Some(source_witness(s, reveal_value)),
+        }],
+        OsRng,
+    )
+    .unwrap()
+}
+
+fn source_roundtrip(version: BundleVersion, pool: Pool) {
+    let s = scenario(version);
+    for reveal in [false, true] {
+        let receipt = receipt_with_source(&s, pool, reveal);
+        assert_eq!(receipt.to_bytes()[4], 4, "a receipt with a source proof is format v4");
+        let parsed = Receipt::from_text(&receipt.to_text()).unwrap();
+        assert_eq!(parsed, receipt);
+        let lookup = funding_lookup(&s);
+        let v = receipts_core::verify_with_sources(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment, &lookup).unwrap();
+        assert_eq!(
+            v.sources,
+            vec![receipts_core::VerifiedSource {
+                spend: s.spend_index as u32,
+                txid: FUNDING_TXID,
+                index: s.funding_index as u32,
+                value: reveal.then_some(100_000),
+            }]
+        );
+        assert_eq!(v.outputs[0].value, s.merchant_value);
+        // A verifier that can't see the source transaction refuses rather than ignoring the claim.
+        assert_eq!(verify(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment).unwrap_err(), Error::SourceUnavailable(s.spend_index as u32));
+        println!("{pool:?} receipt with source (reveal={reveal}): {} bytes", receipt.to_bytes().len());
+        if let Ok(dir) = std::env::var("RECEIPT_FIXTURE_DIR") {
+            std::fs::write(format!("{dir}/{pool:?}-source-{reveal}.receipt"), receipt.to_text()).unwrap();
+        }
+    }
+}
+
+#[test]
+fn ironwood_source_roundtrip() {
+    source_roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_source_roundtrip() {
+    source_roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+#[test]
+fn a_source_must_be_the_output_that_created_the_note() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let receipt = receipt_with_source(&s, Pool::Ironwood, false);
+    let i = s.spend_index as u32;
+    // The claimed index points at another output of the source transaction (its dummy action).
+    let other = (s.funding_index + 1) % s.funding.actions().len();
+    let wrong_output = |_p: Pool, _t: &[u8; 32], _i: u32| receipts_core::output_cmx(&s.funding, other as u32);
+    assert_eq!(receipts_core::verify_with_sources(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &wrong_output).unwrap_err(), Error::BadSourceProof(i));
+    // ...or at an output of an unrelated transaction (here: the merchant's output of the payment).
+    let unrelated = |_p: Pool, _t: &[u8; 32], _i: u32| receipts_core::output_cmx(&s.payment, s.merchant_index as u32);
+    assert_eq!(receipts_core::verify_with_sources(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &unrelated).unwrap_err(), Error::BadSourceProof(i));
+    // `create` refuses a source whose cmx isn't the note's.
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let mut bad = source_witness(&s, false);
+    bad.cmx = s.funding.actions()[other].cmx().to_bytes();
+    let w = SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: Some(bad) };
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[w], OsRng).unwrap_err(), Error::WrongSource(i));
+}
+
+#[test]
+fn source_claims_are_bound_by_the_signature_and_the_proof() {
+    use receipts_core::{SourceProof, SourceValue};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let lookup = funding_lookup(&s);
+    let check = |r: &Receipt| receipts_core::verify_with_sources(&keys().1, r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &lookup);
+    let hidden = receipt_with_source(&s, Pool::Ironwood, false);
+    let revealed = receipt_with_source(&s, Pool::Ironwood, true);
+    let edit = |r: &Receipt, f: &dyn Fn(&mut SourceProof)| {
+        let mut r = r.clone();
+        f(r.unsigned.spends[0].source.as_mut().unwrap());
+        r
+    };
+    let set_value = |p: &mut SourceProof, v: u64| {
+        if let SourceValue::Revealed { value, .. } = &mut p.value {
+            *value = v;
+        }
+    };
+    // Edits without re-signing break the signature.
+    assert_eq!(check(&edit(&revealed, &|p| set_value(p, 1_000_000))).unwrap_err(), Error::BadSignature(s.spend_index as u32));
+    assert!(check(&edit(&hidden, &|p| p.index += 1)).is_err());
+    // Dropping the source proof breaks the signature too (the claim can't be silently removed).
+    let mut dropped = hidden.clone();
+    dropped.unsigned.spends[0].source = None;
+    assert!(check(&dropped).is_err());
+
+    // The signer themself can't lie about the value either: re-sign with a known alpha.
+    use ff::Field;
+    let mut rng = OsRng;
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let rk = orchard::primitives::redpallas::VerificationKey::from(&rsk);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let mut spend = honest_spend(&s, &s.payment, alpha);
+    let honest_source = |reveal: bool| {
+        receipts_core::__source_proof_for_tests(&keys().0, Pool::Ironwood, s.spend_index as u32, &fvk, s.funding_note, &source_witness(&s, reveal), alpha, &rk, &mut { OsRng }).unwrap()
+    };
+    let resign = |spend: receipts_core::SpendDisclosure| {
+        let unsigned = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs: vec![], spends: vec![spend] };
+        let digest = receipts_core::signing_digest(&unsigned);
+        Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned }
+    };
+    let bad = Error::BadSourceProof(s.spend_index as u32);
+    let opened = honest_source(true);
+    spend.source = Some(opened.clone());
+    assert_eq!(check(&resign(spend.clone())).unwrap().sources[0].value, Some(100_000));
+    spend.source = Some(honest_source(false));
+    assert_eq!(check(&resign(spend.clone())).unwrap().sources[0].value, None);
+    // Revealing any other value than the note's fails, smaller or larger.
+    for lie in [1, 99_999, 100_001, 1_000_000] {
+        let mut p = opened.clone();
+        set_value(&mut p, lie);
+        spend.source = Some(p);
+        assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad, "value {lie} accepted");
+    }
+    // A hidden-value proof can't be relabelled as revealing 1 zatoshi (its output isn't 0), and
+    // a revealed one can't be relabelled as hidden with a made-up output.
+    let SourceValue::Hidden { cmx } = honest_source(false).value else { unreachable!() };
+    let hidden_proof = honest_source(false);
+    for addr_seed in [([0u8; 43], [0u8; 32]), (s.funding_note.recipient().to_raw_address_bytes(), *s.funding_note.rseed().as_bytes())] {
+        spend.source = Some(SourceProof { value: SourceValue::Revealed { value: 1, address: addr_seed.0, rseed: addr_seed.1 }, ..hidden_proof.clone() });
+        assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad);
+    }
+    spend.source = Some(SourceProof { value: SourceValue::Hidden { cmx }, ..opened.clone() });
+    assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad);
+    // A source proof made under another receipt's key doesn't transfer.
+    spend.source = hidden.unsigned.spends[0].source.clone();
+    assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad);
+}
+
+/// The forgery that fixing `cv_net` prevents. The circuit only checks the anchor when the spent
+/// value is non-zero, so the owner of a *zero-value* note could otherwise "prove" it came from any
+/// output at all, for instance a withdrawal from a regulated exchange they never received.
+#[test]
+fn a_zero_value_note_cannot_claim_any_source() {
+    use ff::Field;
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::{RandomSeed, Rho},
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let s = scenario_valued(BundleVersion::ironwood_v3(), 0, 0);
+    assert_eq!(s.funding_note.value().inner(), 0);
+    let victim = scenario(BundleVersion::ironwood_v3());
+    let claimed: ExtractedNoteCommitment = *victim.funding.actions()[victim.funding_index].cmx();
+    let mut rng = OsRng;
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let rk = VerificationKey::<SpendAuth>::from(&rsk);
+    // `create` refuses outright.
+    let w = SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: Some(source_witness(&s, false)) };
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &[w], OsRng).unwrap_err(), Error::ZeroValueSource);
+    // A hand-made proof: the real (zero-value) note, witnessed against the claimed output's tree.
+    let (_, claimed_path) = single_leaf_witness(&claimed);
+    let anchor = claimed_path.root(claimed);
+    let nf = s.funding_note.nullifier(&fvk);
+    let spend = SpendInfo::new(fvk.clone(), s.funding_note, claimed_path).unwrap();
+    let rho = Rho::from_bytes(&nf.to_bytes()).unwrap();
+    let out = loop {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(&mut rng, &mut b);
+        if let Some(rs) = Option::<RandomSeed>::from(RandomSeed::from_bytes(b, &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(fvk.address_at(0u32, Scope::External), NoteValue::ZERO, rho, rs, s.funding_note.version())) {
+                break n;
+            }
+        }
+    };
+    let zero = ValueCommitTrapdoor::from_bytes([0; 32]).unwrap();
+    let cv_own = ValueCommitment::derive(NoteValue::from_raw(0) - NoteValue::ZERO, zero.clone());
+    let cmx: ExtractedNoteCommitment = out.commitment().into();
+    let circuit = Circuit::from_action_context(spend, out, alpha, zero, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(anchor, cv_own.clone(), nf, rk.clone(), cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], std::slice::from_ref(&instance), &mut rng).unwrap();
+    // The proof is valid for the prover's own value commitment: this is a real forgery...
+    assert!(proof.verify(&keys().1, &[instance]).is_ok(), "the forgery should satisfy the circuit");
+    // ...which the verifier refuses because it fixes the value commitment itself.
+    let mut honest = honest_spend(&s, &s.payment, alpha);
+    let lookup = |_p: Pool, _t: &[u8; 32], _i: u32| Some(claimed.to_bytes());
+    for claimed_value in [None, Some(1u64), Some(100_000)] {
+        let value = match claimed_value {
+            None => receipts_core::SourceValue::Hidden { cmx: cmx.to_bytes() },
+            Some(v) => receipts_core::SourceValue::Revealed { value: v, address: out.recipient().to_raw_address_bytes(), rseed: *out.rseed().as_bytes() },
+        };
+        honest.source = Some(receipts_core::SourceProof { txid: FUNDING_TXID, index: 0, value, proof: proof.as_ref().to_vec() });
+        let unsigned = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs: vec![], spends: vec![honest.clone()] };
+        let digest = receipts_core::signing_digest(&unsigned);
+        let forged = Receipt::from_bytes(&Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned }.to_bytes()).unwrap();
+        let res = receipts_core::verify_with_sources(&keys().1, &forged, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &lookup);
+        assert_eq!(res.unwrap_err(), Error::BadSourceProof(s.spend_index as u32), "a zero-value note claimed a source (value {claimed_value:?})");
+    }
+}
+
+/// Source proofs reveal the link the payer chose to reveal, and nothing that links this receipt
+/// to the transaction's own `rk` or to another receipt for the same spend.
+#[test]
+fn source_proofs_stay_unlinkable() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let a = receipt_with_source(&s, Pool::Ironwood, false);
+    let b = receipt_with_source(&s, Pool::Ironwood, false);
+    let (sa, sb) = (&a.unsigned.spends[0], &b.unsigned.spends[0]);
+    assert_ne!(sa.rk, sb.rk);
+    assert_ne!(sa.source, sb.source);
+    let tx_rk: [u8; 32] = s.payment.actions()[s.spend_index].rk().into();
+    assert_ne!(sa.rk, tx_rk);
+    // Hidden value: the encoding carries no value and no value commitment.
+    assert_eq!(sa.source.as_ref().unwrap().revealed_value(), None);
 }

@@ -64,17 +64,61 @@ def check_address_proof(a: rc.AddressProof, pool: str):
             "cmx": cmx.to_bytes(32, "little").hex(), "enable_spends": 1, "enable_outputs": 1}
 
 
-def verify(receipt_bytes: bytes, raw_tx: bytes, expected_coin_type: int):
-    """Returns a report dict; raises Invalid or rc.DecodeError on any failed check."""
+def source_cv_net(value) -> bytes:
+    """ValueCommit_0(v) for a revealed value v >= 1, ValueCommit_0(1) for a hidden one: fixed by the
+    verifier, so the spent value is non-zero and the circuit enforces the one-leaf anchor."""
+    v = 1 if value is None else value
+    if v < 1:
+        raise Invalid("a source value must be at least 1")
+    return pl.repr_p(o.value_commit(0, v))
+
+
+def check_source_proof(src: rc.SourceProof, pool: str, nf: bytes, source_cmx: bytes):
+    """Everything about a source proof except its Halo 2 proof, given the cmx of the source
+    output read from the source transaction. Returns its public inputs (rk is the spend's)."""
+    anchor = o.single_leaf_root(_canonical_base(source_cmx, "source output cmx"))
+    if src.value is None:
+        cmx = _canonical_base(src.cmx, "source proof cmx")
+    else:
+        # The opened output: value 0 to the given address, rho = the spend's nullifier.
+        d, pk_d_repr = src.out_address[:11], src.out_address[11:]
+        try:
+            pl.decode_point(pk_d_repr)
+        except ValueError:
+            raise Invalid("source proof: output pk_d is not a valid non-zero point")
+        rho = _canonical_base(nf, "nullifier")
+        if o.derive_esk(src.out_rseed, nf) == 0:
+            raise Invalid("source proof: rseed gives a zero esk")
+        g_d = o.diversify_hash(d)
+        psi = o.derive_psi(src.out_rseed, nf)
+        rcm = o.derive_rcm(LEAD_BYTE[pool], src.out_rseed, pl.repr_p(g_d), pk_d_repr, 0, nf, psi)
+        cm = o.note_commit(rcm, pl.repr_p(g_d), pk_d_repr, 0, rho, psi)
+        if cm == "bot":
+            raise Invalid("source proof: the output note has no commitment")
+        cmx = pl.extract_p(cm)
+    return {"anchor": anchor.to_bytes(32, "little").hex(), "cv_net": source_cv_net(src.value).hex(), "nf": nf.hex(),
+            "cmx": cmx.to_bytes(32, "little").hex(), "enable_spends": 1, "enable_outputs": 1}
+
+
+def verify(receipt_bytes: bytes, raw_tx: bytes, expected_coin_type: int, source_txs=()):
+    """Returns a report dict; raises Invalid or rc.DecodeError on any failed check.
+    source_txs: raw source transactions for source proofs (each must precede the payment; the
+    caller checks heights, since raw bytes carry none)."""
     r = rc.decode(receipt_bytes)
     tx = txmod.parse(raw_tx)
     if txmod.txid(tx) != r.txid:
         raise Invalid("the receipt is for another transaction")
-    return verify_bundles(r, {"orchard": tx["orchard"], "ironwood": tx.get("ironwood")}, expected_coin_type)
+    sources = {}
+    for raw in source_txs:
+        stx = txmod.parse(raw)
+        sources[txmod.txid(stx)] = {"orchard": stx["orchard"], "ironwood": stx.get("ironwood")}
+    return verify_bundles(r, {"orchard": tx["orchard"], "ironwood": tx.get("ironwood")}, expected_coin_type, sources)
 
 
-def verify_bundles(r: rc.Receipt, tx: dict, expected_coin_type: int):
-    """The checks after the transaction is known: tx maps a pool name to its parsed bundle."""
+def verify_bundles(r: rc.Receipt, tx: dict, expected_coin_type: int, sources=None):
+    """The checks after the transaction is known: tx maps a pool name to its parsed bundle, and
+    sources maps a source txid (internal byte order) to its {pool: bundle} map."""
+    sources = sources or {}
     if r.coin_type != expected_coin_type:
         raise Invalid("wrong network (coin type)")
     if not r.spends:
@@ -116,6 +160,14 @@ def verify_bundles(r: rc.Receipt, tx: dict, expected_coin_type: int):
             pi = check_address_proof(s.address, r.pool)
             pi["rk"] = s.rk.hex()
             entry["address"] = {"address": s.address.address.hex(), "proof": "not checked", "public_inputs": pi}
+        if s.source:
+            sb = sources.get(s.source.txid, {}).get(r.pool)
+            if s.source.txid == r.txid or not sb or s.source.index >= len(sb["actions"]):
+                raise Invalid(f"spend {s.index}: the source transaction output is not available")
+            pi = check_source_proof(s.source, r.pool, act["nf"], sb["actions"][s.source.index]["cmx"])
+            pi["rk"] = s.rk.hex()
+            entry["source"] = {"txid": s.source.txid[::-1].hex(), "index": s.source.index, "value": s.source.value,
+                               "proof": "not checked", "public_inputs": pi}
         report["spends"].append(entry)
     for out in r.outputs:
         note = recover_with_ock(out_bundle["actions"][out.index], out.ock, LEAD_BYTE[out_pool])

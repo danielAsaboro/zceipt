@@ -1,0 +1,162 @@
+# What people say is hard about Zcash, and what Receipts does about it
+
+Receipts proves one shielded payment and reveals nothing else (ZIP 311 for Orchard and
+Ironwood). This document steps back from the code. It collects what real users, merchants,
+exchanges and developers say is painful about Zcash, isolates the pains a payment-proof tool can
+honestly fix, looks at how other chains handle the same problems, and records what we built in
+response and how it was checked.
+
+Read in October 2026 from: the Zcash Community Forum (83 posts), GitHub issues across 15 Zcash
+repositories (92 issues), X/Twitter (about 30 searches, 31 posts kept), Hacker News, and the
+documentation, issues and forums of Bitcoin, Ethereum, Monero, Aleo, Penumbra, Namada and
+Midnight projects. Reddit refuses automated reading (its servers and the browser both blocked
+it), so Reddit is not covered. Every row links to what was read; the text is paraphrased.
+
+## 1. The pain points
+
+`Fit` says how a payment-proof tool relates to the pain: **core** (it is the job), **related**
+(a receipt is part of the answer), **no** (a different problem). `Status` says where Receipts
+stands: **done** (shipped before this pass), **new** (built in this pass), **open**.
+
+### A. Proving a payment without a viewing key
+
+| # | Pain | Sources | Fit | Status |
+|---|---|---|---|---|
+| A1 | There is no standard, verifiable artifact to prove a shielded payment; the Sprout-only tool was deprecated and nothing replaced it. Oldest open need (2015–2020, 140+ comments) | [zcash#2036](https://github.com/zcash/zcash/issues/2036), [zcash#406](https://github.com/zcash/zcash/issues/406), [zips#387](https://github.com/zcash/zips/issues/387), [forum: receipt standard](https://forum.zcashcommunity.com/t/should-zcash-have-a-proof-of-payment-receipt-standard/42732) | core | done |
+| A2 | "So how do you prove you paid? Hand over your viewing key and expose everything" | [X: Sapling](https://x.com/saplingdotcash/status/2104741422079615363), [X: to zooko](https://x.com/saplingdotcash/status/2104751792462680143), [forum: destroy a view key](https://forum.zcashcommunity.com/t/is-it-possible-to-destroy-a-view-key/48369/5) | core | done |
+| A3 | Existing proofs show a payment happened, not that *I* paid it, and anyone holding one can replay it | [zcash#737](https://github.com/zcash/zcash/issues/737), [zcash#4618](https://github.com/zcash/zcash/issues/4618) | core | done (spend authority + challenge) |
+| A4 | A sender can't prove a z-to-z payment when the recipient denies it | [forum: 10 ZEC dispute](https://forum.zcashcommunity.com/t/an-anonymous-transaction-how-does-the-sender-prove-that-he-sent-the-anonymous-transaction-authentication-issues-for-anonymous-transmissions/36768), [X: sync bug](https://x.com/MaCapital8/status/2011538812313407651) | core | done |
+| A5 | Someone holding only a txid can't check the amount without the viewing key | [forum](https://forum.zcashcommunity.com/t/how-to-verify-the-amount-from-the-tx-send-to-a-privacy-address/43027) | core | done |
+| A6 | Apps ask users to paste their whole viewing key to show one thing (stream tips, dashboards) | [X: LiveZEC](https://x.com/LiveZEC/status/2106022681476829520) | related | done for payments |
+| A7 | No way to prove ownership of a shielded address | [zcash#1770](https://github.com/zcash/zcash/issues/1770) | related | done (address proofs, Sign in with Zcash) |
+| A8 | **Can't prove the *source* of a shielded payment** (marked as blocking ZIP 311) | [zcash#3828](https://github.com/zcash/zcash/issues/3828) | core | **new** (§3) |
+| A9 | Disclosure is all or nothing per output (reveal only the amount, or not the memo) | [zcash#2631](https://github.com/zcash/zcash/issues/2631) (blocking ZIP 311) | related | open (§4) |
+| A10 | How viewing keys and payment disclosures interact is unspecified | [zips#327](https://github.com/zcash/zips/issues/327) | core | done ([CLAIM.md](CLAIM.md): a viewing key can't make a receipt) |
+| A11 | A "selected-payment receipts SDK" grant was turned down; the grants committee asked for receipts through ZIP 311 on Ironwood instead | [forum, Sep 2026](https://forum.zcashcommunity.com/t/grant-application-zcash-selected-payment-receipts-sdk/57729/4) | core | done (this is what Receipts is) |
+
+### B. Exchanges, source of funds and the transparent trap
+
+| # | Pain | Sources | Fit | Status |
+|---|---|---|---|---|
+| B1 | Binance threatened a global delisting unless it could refuse shielded deposits, because it couldn't see where funds came from. Largest forum thread found (694 posts, 3.2k likes); led to TEX addresses | [forum](https://forum.zcashcommunity.com/t/important-potential-binance-delisting/45954) | core | **new** (§3) |
+| B2 | Shielded deposits rejected; refunds took up to 32 working days | [forum](https://forum.zcashcommunity.com/t/binance-rejecting-deposits-from-zcash-shielded-addresses/47667) | related | done (TEX deposit receipts) + **new** |
+| B3 | Exchanges demand source of funds: every deposit's origin, wallet ownership, 10+ years of history | [forum: Kraken-style email](https://forum.zcashcommunity.com/t/anybody-else-getting-this-from-kraken-exchange/55347), [forum: Binance](https://forum.zcashcommunity.com/t/binance-harassed-me-for-trading-privacy-coins-including-zcash/53273) | core | **new** |
+| B4 | EU exchanges flag users as "high-risk" after they withdraw to a t-address and shield it | [forum](https://forum.zcashcommunity.com/t/flagged-for-shielding-zec-privacy-in-europe-under-attack/53140) | core | **new**: the proof shows the shielded funds are that very withdrawal |
+| B5 | DEXs and exchanges list Zcash t-address only "because they can check source of funds"; shielded inputs into a CEX raise red flags | [X: sethforprivacy](https://x.com/sethforprivacy/status/1978121050371010938), [X: MisterMonero](https://x.com/MisterMonero/status/1986707619307004397), [X: Midnight president](https://x.com/Memesandmkts/status/2068921697068073052) | core | **new** |
+| B6 | So most volume stays transparent ($420B labelled by Arkham), and unshielding large amounts is suspicious | [X: arkham](https://x.com/arkham/status/2110586299342262407), [X: janowitz](https://x.com/janowitz/status/2109617211128074516), [X: thaianhoang](https://x.com/thaianhoang/status/2110608015237824776) | related | **new** (gives exchanges a reason to accept shielded) |
+| B7 | Wallets and regulators want "safe source" proofs before accepting funds; protocol engineers worry about privacy loss | [forum: transaction controls](https://forum.zcashcommunity.com/t/introducing-transaction-controls-in-zcash/49640) | core | **new** (opt-in, per payment) |
+| B8 | Users forced into t-to-t sends to reach KYC'd exchanges; "exchanges will confiscate" shielded funds | [zingolib#1313](https://github.com/zingolabs/zingolib/issues/1313), [zingo-mobile#908](https://github.com/zingolabs/zingo-mobile/issues/908), [zwallet#112](https://github.com/hhanh00/zwallet/issues/112) | related | **new** |
+| B9 | Delistings under MiCA Art. 76 / AMLR 2027; Dubai ban | [X](https://x.com/KiwiTuckerNE/status/2104545622984687721), [X](https://x.com/realMaxAvery/status/2019193593970249764), [forum: EU](https://forum.zcashcommunity.com/t/binance-to-disable-zec-trading-in-france-italy-poland-and-spain-by-the-end-of-june/44750) | related | regulatory; receipts are the per-payment disclosure such rules ask for |
+| B10 | Compliance teams only follow what the law recognises; new attestations without regulator sign-off won't be adopted | [forum: compliance bridge](https://forum.zcashcommunity.com/t/grant-application-shielded-compliance-bridge/56862) | caution | open: adoption is the exchange's call, not ours |
+| B11 | TEX sends break wallets (crash, zero balance, stranded refunds) | [zwallet#173](https://github.com/hhanh00/zwallet/issues/173), [zingo-mobile#1400](https://github.com/zingolabs/zingo-mobile/issues/1400), [zingolib#2387](https://github.com/zingolabs/zingolib/issues/2387) | no | wallet bugs |
+| B12 | Exchanges lack bulk deposit monitoring for shielded addresses | [zcash#1333](https://github.com/zcash/zcash/issues/1333), [zallet#773](https://github.com/zcash/zallet/issues/773) | related | done (requests API, webhooks) |
+
+### C. Merchants: invoices, refunds, disputes
+
+| # | Pain | Sources | Fit | Status |
+|---|---|---|---|---|
+| C1 | Accepting ZEC means syncing nodes, Docker and exporting viewing keys; a non-technical merchant gave up in 20 minutes; the BTCPay plugin broke unnoticed | [forum: CipherPay](https://forum.zcashcommunity.com/t/cipherpay-yes-another-zcash-payment-processor-sorry-live/54830), [forum: BTCPay](https://forum.zcashcommunity.com/t/btcpayserver-zcash-plugin-opinions-on-next-steps/53734) | related | done (no viewing key on the server; `receipts demo`) |
+| C2 | No standard refund, underpaid or expired states | [forum: order-pay](https://forum.zcashcommunity.com/t/grant-application-zec-order-pay-shielded-zec-checkout-refunds-and-creator-payouts-for-service-marketplaces/58168) | related | done (requests, refunds, finality) |
+| C3 | Refunds are slow because privacy makes failed payments hard to trace | [X: ZECBIT](https://x.com/NafterG/status/2103437968124018963) | core | done (signed `refund-to:`) |
+| C4 | Shielded receivers learn no return address; swap UIs make users type refund addresses by hand, unvalidated | [X](https://x.com/monaverse_nft/status/2101960445267472704), [zodl-android#1983](https://github.com/zodl-inc/zodl-android/issues/1983) | related | done |
+| C5 | Unsigned ZIP 321 requests: over/under/duplicate payments, no way to authenticate who is asking | [zips#611](https://github.com/zcash/zips/issues/611), [zips#977](https://github.com/zcash/zips/issues/977), [forum: ZecAuth](https://forum.zcashcommunity.com/t/zip-321-tells-a-wallet-what-to-pay-zecauth-adds-authenticated-privacy-aware-interaction/57553) | related | open (§4) |
+| C6 | Multi-payment URIs can hide recipients the user then signs | [zodl-android#2217](https://github.com/zodl-inc/zodl-android/issues/2217) | related | done (`receipts check-link` warns; `receipts pay` shows the full address and amount) |
+| C7 | Strangers can't trade without someone paying first and hoping | [X: Aegis Gate](https://x.com/RaphElevator/status/2107193116650254665) | related | done for the proof half; escrow is out of scope |
+| C8 | Point-of-sale: 3 minutes to confirm a shielded payment pushes builders back to transparent | [forum: ROZO](https://forum.zcashcommunity.com/t/rozo-merchant-pos-fast-zcash-payments-for-merchants-irl-grant-application/56374) | no | block time |
+
+### D. Accounting, tax, audits, donations
+
+| # | Pain | Sources | Fit | Status |
+|---|---|---|---|---|
+| D1 | Nothing turns a viewing key into records an accountant or auditor recognises (52-like thread) | [forum](https://forum.zcashcommunity.com/t/is-anyone-actually-using-viewing-keys-for-business-accounting/56300) | related | done for payments sent (batches); ledgers are a viewing-key job |
+| D2 | Wallet tax exports are thin or missing; history wrong (change as income) | [forum](https://forum.zcashcommunity.com/t/exporting-transaction-history-to-json-csv-from-ufvk-seed/54662), [librustzcash#1304](https://github.com/zcash/librustzcash/issues/1304), [zwallet#160](https://github.com/hhanh00/zwallet/issues/160) | no | wallet history |
+| D3 | A DAO treasury couldn't produce repeatable proof of shielded reserves | [forum](https://forum.zcashcommunity.com/t/shielded-viewing-keys/54837) | related | open (reserve proofs reveal nullifiers; see §4) |
+| D4 | Donation campaigns publish viewing keys by hand for transparency | [forum: Venezuela](https://forum.zcashcommunity.com/t/zcash-for-venezuela/56445), [forum: ZOMG](https://forum.zcashcommunity.com/t/zomg-transparency-report-and-accounts/38949) | core | done (aggregate campaigns, public notes) |
+| D5 | Grant and payroll proof for one transfer | [X: Zalary](https://x.com/UseZalary/status/2109338990109151660), [X: Obliq](https://x.com/IamAlikeX/status/2108080560811933808) | core | done (batches) |
+
+### E. Not a payment-proof problem (recorded so we don't pretend otherwise)
+
+| # | Pain | Sources |
+|---|---|---|
+| E1 | Amount and timing correlation de-anonymised the Ledger thief's pass-through (108/108 exits matched); 5,249 possible round trips | [X: YFarmX](https://x.com/YFarmX/status/2108918564015006200), [X: zecblock](https://x.com/zecblock/status/2109826962768429132) |
+| E2 | Wallets break around network upgrades; balance shown but sends fail | [zwallet#266](https://github.com/hhanh00/zwallet/issues/266), [zwallet#268](https://github.com/hhanh00/zwallet/issues/268) |
+| E3 | Slow sync, old wallets hard to recover | [X: lopp](https://x.com/lopp/status/1989769520936788160), [zodl-ios#1241](https://github.com/zodl-inc/zodl-ios/issues/1241) |
+| E4 | Same seed, different u1 address across wallets | [X](https://x.com/besiktaspokemon/status/2099643383408906574) |
+| E5 | NEAR Intents exits: holds, AML reversals, t-address reuse | [X: spirobel](https://x.com/spirobel/status/2110246706050912628) |
+| E6 | Memo download leaks txids to the server; memos off by default | [zwallet#38](https://github.com/hhanh00/zwallet/issues/38), [zingo-mobile#93](https://github.com/zingolabs/zingo-mobile/issues/93) |
+
+What stands out: the loudest pain a payment-proof tool can address is **B (source of funds)**.
+It is the largest forum thread, it is why exchanges keep Zcash transparent, and it is the one
+ZIP 311 blocker (A8) nobody had attempted.
+
+## 2. What other chains do about the same problems
+
+| System | Primitive | What it solves | Limits users complain about | Source |
+|---|---|---|---|---|
+| Monero | `get_tx_proof` / OutProof, SpendProof, reserve proof | Prove a payment, prove who paid, prove a balance; Bisq auto-confirms trades with tx keys | Proof keys lost on restore; GUI bugs; merchants got false "received nothing"; Koinly can't import; delisted by Binance and Kraken EEA | [prove a payment](https://getmonero.org/resources/user-guides/prove-payment.html), [GUI bug](https://github.com/monero-project/monero-gui/issues/2270), [false "never received"](https://forum.getmonero.org/5/support/89195/monero-never-received-funds-despite-confirmation), [Koinly](https://feedback.koinly.io/integrations/p/support-xmr), [Kraken EEA](https://decrypt.co/284276/monero-kraken-delisting-xmr-european) |
+| Bitcoin BIP-352 | Silent payments | Unlinkable receiving | No proof of payment or refund story; a btc++ project ("Silent Receipts") adds one | [BIP-352](https://bips.dev/352/), [silent-receipts](https://github.com/echennells/silent-receipts) |
+| Lightning BOLT12 | Payer proofs, preimage | Prove you paid, reveal chosen fields, bind a note | Shipped without security analysis (2026 paper) | [delving bitcoin](https://delvingbitcoin.org/t/expanding-on-bolt12/1167) |
+| Bitcoin BIP-322 | Message signing | Prove control of an address (EU travel rule accepts it) | Transparent only | [BIP-322](https://bips.dev/322/) |
+| Railgun | Private Proofs of Innocence | Prove funds are **not** from flagged lists; 1-hour standby after shielding | One list provider; users wait | [Railgun docs](https://docs.railgun.org/wiki/assurance/private-proofs-of-innocence), [L2BEAT](https://l2beat.com/privacy/projects/railgun) |
+| Privacy Pools (0xbow) | Association sets, ragequit | Prove membership in an approved set of deposits | Closed list operator; 13-day revocation; withdraw delays | [docs](https://docs.privacypools.com/), [L2BEAT](https://l2beat.com/privacy/projects/privacy-pools) |
+| Tornado Cash | Compliance tool | Prove a withdrawal's deposit | The proof note could also spend the funds | [docs history](https://git.hackliberty.org/TornadoCash/docs/commit/6d8785da0395c877a464a3b1c3a50d653596dcf9) |
+| Aleo | Per-transaction view keys | Disclose one transaction | Key hash on chain | [Aleo](https://aleo.org/post/aleo-view-key-compliance/) |
+| Midnight | Selective disclosure in contracts | Programmable disclosure | Rival pitch: "Zcash can't prove anything" ([X](https://x.com/1Exit_Liquidity/status/2099183711736733890)) | [docs](https://docs.midnight.network/learn) |
+| EU rules | MiCA Art. 76(3), AMLR Art. 79 (2027) | Holders and history must be identifiable to the CASP | Unclear whether opt-in disclosure counts | [MiCA Art. 76](https://www.springlex.eu/de/packages/mica/mica-regulation/article-76/) |
+
+The pattern across chains: payment proofs exist where privacy is default (Monero, Lightning),
+and **provenance** proofs (Railgun, Privacy Pools) exist where exchanges and regulators push
+back. Zcash had neither for its shielded pools. Railgun and Privacy Pools need new circuits and a
+list operator. Zcash can do the positive version, "these funds came from *that* transaction",
+with the Orchard circuit it already has, no list operator, and no waiting period.
+
+## 3. What we built: proofs of where the money came from
+
+`receipts create --prove-source` (and `zcash-devtool wallet receipt --prove-source`) adds, for
+each spent note, a proof that it was created by output `k` of an earlier transaction `S`. With
+`--reveal-source-value` the proof also shows the note's exact value. The verifier fetches `S`,
+reads its public transparent inputs, and reports who funded it in the clear.
+
+The typical case is B4: a user withdraws from an exchange to a transparent address, shields it,
+and later deposits shielded ZEC at another exchange. The receipt shows the deposit spent a note
+created by that shielding transaction, which was funded by that withdrawal, and nothing else
+about the wallet.
+
+```
+receipts verify @deposit.txt
+  source    action 1 spent the note created by tx 5093e033… action 0 (height 530)
+            that tx was funded in the clear: 0.30000000 ZEC from tmRyMkJH…
+            it moved 0.29985000 ZEC from transparent into the shielded pool
+  paid      0.12000000 ZEC to uregtest1vj3g…   memo: Deposit 99
+```
+
+How it works (details in [SPEC.md](SPEC.md#source-of-funds-version-4), argument in
+[CLAIM.md](CLAIM.md)): a third Orchard Action proof, under the same randomized key as the spend
+disclosure, spends the same note against a one-leaf tree whose leaf is the source output's
+commitment, which the verifier reads from `S`. Orchard nullifiers don't depend on the note's
+position, so the one-leaf tree is a sound stand-in. The circuit only checks the tree when the
+value is non-zero, so the verifier fixes the value commitment itself (as the sender-address
+fix did): `ValueCommit_0(1)` with the value hidden, or `ValueCommit_0(v)` with the proof's
+zero-value output opened, so `v` is exact. No new circuit, no trusted list, no waiting period.
+
+### Evidence
+
+| Check | Result |
+|---|---|
+| Unit and adversarial tests (`crates/receipts-core/tests/roundtrip.rs`) | Orchard and Ironwood round trips, hidden and revealed; a wrong source output, an unrelated output, a lie about the value (lower or higher), a hidden proof relabelled as revealed, a proof borrowed from another receipt, a dropped or edited claim: all refused. `a_zero_value_note_cannot_claim_any_source` builds a real forgery that satisfies the circuit and shows the fixed value commitment is what stops it |
+| Independent verifier (`spec-verifier`, Python, written from the spec) | Decodes v4 and checks everything but the Halo 2 proof; agrees with Rust on 224 signed adversarial cases, including 9 source-proof cases whose public inputs match exactly |
+| Real testnet | Receipts for testnet tx `571de6e4…` prove its note came from `2a2bd721…` action 0 (hidden, and with the value 0.125 TAZ revealed); verified against the chain by the CLI and the browser verifier, offline by the Rust, JS and Python tests ([examples/testnet/source](../examples/testnet/source)) |
+| Private chain end to end (`scripts/e2e-regtest.sh`, 14/14) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
+| Everywhere a receipt is verified | CLI (online and offline with `--source-raw-tx`), API (`sources`, `checks.source_of_funds`), browser verifier and npm package (`sourceTxs`), devtool wallet command |
+| No leak | The wallet builds the proof from its own records and asks no server for `S`; verifiers fetch `S` by txid (documented in [THREAT-MODEL.md](THREAT-MODEL.md) §11) |
+
+## 4. Considered and not built (yet)
+
+| Idea | Pain | Why not now |
+|---|---|---|
+| Hide the memo, keep the rest (per-field disclosure) | A9 | Easy without new circuits (open the note without its memo), but the evidence is one 2017 design issue; no user asked. Next if someone does |
+| Prove an amount bracket ("at least X") without the exact amount | A9, X: [Pli](https://x.com/ZecPli/status/2102083749819334736) | Needs a range proof circuit; out of scope for a no-new-circuit design |
+| Signed payment requests | C5 | A signature by the payee's key doesn't stop an attacker who swaps in their own key; it needs an identity binding (domain or a pinned address). Worth a design, not a quick feature |
+| Reserve proofs (prove a balance) | D3 | Revealing nullifiers lets the verifier see when the notes are spent; Monero's reserve proofs have the same flaw. Needs a better construction |
+| Recipient-side income proofs | D1 | Proving receipt of an unspent note reveals its nullifier (same flaw). A note opening without ownership already exists elsewhere |
+| Multi-hop provenance (withdrawal → self-transfer → deposit) | B3 | Works today by giving one receipt per hop in a batch; a verifier view that draws the chain is a small follow-up |

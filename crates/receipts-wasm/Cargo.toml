@@ -19,6 +19,7 @@ hex = "0.4"
 zcash_primitives.workspace = true
 zcash_protocol.workspace = true
 zcash_address.workspace = true
+zcash_transparent.workspace = true
 getrandom = { version = "0.2", features = ["js"] }
 getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
 console_error_panic_hook = "0.1"

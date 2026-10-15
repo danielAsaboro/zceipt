@@ -5,18 +5,25 @@
 //!             | txid[32] | msg_len:u16le | msg
 //!             | n_outputs:u8 | { index:u32le | ock[32] }*
 //!             | n_spends:u8  | { index:u32le | cv_net[32] | rk[32] | cmx[32]
-//!                              | proof_len:u32le | proof | [addr_flag:u8 (0|1) | address proof if 1, v2/v3] }*
+//!                              | proof_len:u32le | proof | [addr_flag:u8 (0|1) | address proof if 1, v2/v3]
+//!                              | [flags:u8 (bit 0 address, bit 1 source) | address proof if bit 0
+//!                                 | source proof if bit 1, v4] }*
+//! source   := txid[32] | index:u32le | value_flag:u8 (0|1)
+//!             | { cmx[32] if 0 | value:u64le (>= 1) | address[43] | rseed[32] if 1 }
+//!             | proof_len:u32le | proof
 //! receipt  := unsigned | { spend_auth_sig[64] } * n_spends
 //! ```
 //!
 //! Version 1: no address proofs. Version 2: at least one spend carries an address proof.
-//! Version 3: outputs in another pool than the spends. Decoding is strict and canonical: a
+//! Version 3: outputs in another pool than the spends. Version 4: at least one spend carries a
+//! source proof; the output pool byte is always present (equal to the spends' pool when the
+//! outputs are in the same pool) and each spend has a flags byte. Decoding is strict and canonical: a
 //! receipt is accepted only if re-encoding it gives back exactly the same bytes, so one receipt
 //! has one encoding.
 //!
 //! The text form is `zrcpt1` followed by the unpadded base64url encoding of the receipt.
 
-use crate::{AddressProof, OutputDisclosure, Pool, Receipt, SpendDisclosure, UnsignedReceipt};
+use crate::{AddressProof, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
 const MAGIC: &[u8; 4] = b"ZRCT";
@@ -27,6 +34,8 @@ const VERSION_ADDR: u8 = 2;
 /// Ironwood output, as every wallet migrating after NU6.3 does). Adds the outputs' pool after
 /// the spends' pool, and always carries the per-spend address flag.
 const VERSION_XPOOL: u8 = 3;
+/// Version 4: at least one spend proves where its note came from (a source proof).
+const VERSION_SOURCE: u8 = 4;
 /// Prefix of the text encoding.
 pub const TEXT_PREFIX: &str = "zrcpt1";
 const MAX_PROOF_LEN: usize = 1 << 16;
@@ -80,17 +89,53 @@ impl<'a> Reader<'a> {
     }
 }
 
+fn encode_address(v: &mut Vec<u8>, a: &AddressProof) {
+    v.extend_from_slice(&a.address);
+    v.extend_from_slice(&a.rho);
+    v.extend_from_slice(&a.rseed);
+    v.extend_from_slice(&a.nf);
+    v.extend_from_slice(&a.cv_net);
+    v.extend_from_slice(&a.cmx);
+    v.extend_from_slice(&(a.proof.len() as u32).to_le_bytes());
+    v.extend_from_slice(&a.proof);
+}
+
+fn read_address(r: &mut Reader<'_>) -> Result<AddressProof, DecodeError> {
+    let address: [u8; 43] = r.take(43)?.try_into().unwrap();
+    let rho = r.arr32()?;
+    let rseed = r.arr32()?;
+    let nf = r.arr32()?;
+    let cv_net = r.arr32()?;
+    let cmx = r.arr32()?;
+    let len = r.u32()? as usize;
+    if len > MAX_PROOF_LEN {
+        return Err(DecodeError::TooLarge);
+    }
+    Ok(AddressProof { address, rho, rseed, nf, cv_net, cmx, proof: r.take(len)?.to_vec() })
+}
+
 impl UnsignedReceipt {
     /// The canonical byte encoding that signatures commit to.
     pub fn encode(&self) -> Vec<u8> {
         let mut v = Vec::new();
         let xpool = self.output_pool.filter(|p| *p != self.pool);
+        let with_source = self.spends.iter().any(|s| s.source.is_some());
         let with_addr = xpool.is_some() || self.spends.iter().any(|s| s.address.is_some());
         v.extend_from_slice(MAGIC);
-        v.push(if xpool.is_some() { VERSION_XPOOL } else if with_addr { VERSION_ADDR } else { VERSION });
+        v.push(if with_source {
+            VERSION_SOURCE
+        } else if xpool.is_some() {
+            VERSION_XPOOL
+        } else if with_addr {
+            VERSION_ADDR
+        } else {
+            VERSION
+        });
         v.extend_from_slice(&self.coin_type.to_le_bytes());
         v.push(self.pool.to_byte());
-        if let Some(p) = xpool {
+        if with_source {
+            v.push(xpool.unwrap_or(self.pool).to_byte());
+        } else if let Some(p) = xpool {
             v.push(p.to_byte());
         }
         v.extend_from_slice(&self.txid);
@@ -109,19 +154,35 @@ impl UnsignedReceipt {
             v.extend_from_slice(&s.cmx);
             v.extend_from_slice(&(s.proof.len() as u32).to_le_bytes());
             v.extend_from_slice(&s.proof);
-            if with_addr {
+            if with_source {
+                v.push(u8::from(s.address.is_some()) | (u8::from(s.source.is_some()) << 1));
+                if let Some(a) = &s.address {
+                    encode_address(&mut v, a);
+                }
+                if let Some(src) = &s.source {
+                    v.extend_from_slice(&src.txid);
+                    v.extend_from_slice(&src.index.to_le_bytes());
+                    match &src.value {
+                        SourceValue::Hidden { cmx } => {
+                            v.push(0);
+                            v.extend_from_slice(cmx);
+                        }
+                        SourceValue::Revealed { value, address, rseed } => {
+                            v.push(1);
+                            v.extend_from_slice(&value.to_le_bytes());
+                            v.extend_from_slice(address);
+                            v.extend_from_slice(rseed);
+                        }
+                    }
+                    v.extend_from_slice(&(src.proof.len() as u32).to_le_bytes());
+                    v.extend_from_slice(&src.proof);
+                }
+            } else if with_addr {
                 match &s.address {
                     None => v.push(0),
                     Some(a) => {
                         v.push(1);
-                        v.extend_from_slice(&a.address);
-                        v.extend_from_slice(&a.rho);
-                        v.extend_from_slice(&a.rseed);
-                        v.extend_from_slice(&a.nf);
-                        v.extend_from_slice(&a.cv_net);
-                        v.extend_from_slice(&a.cmx);
-                        v.extend_from_slice(&(a.proof.len() as u32).to_le_bytes());
-                        v.extend_from_slice(&a.proof);
+                        encode_address(&mut v, a);
                     }
                 }
             }
@@ -134,7 +195,7 @@ impl UnsignedReceipt {
             return Err(DecodeError::BadMagic);
         }
         let version = r.u8()?;
-        if version != VERSION && version != VERSION_ADDR && version != VERSION_XPOOL {
+        if !(VERSION..=VERSION_SOURCE).contains(&version) {
             return Err(DecodeError::UnsupportedVersion(version));
         }
         let coin_type = r.u32()?;
@@ -147,6 +208,10 @@ impl UnsignedReceipt {
                 return Err(DecodeError::SamePool);
             }
             Some(p)
+        } else if version == VERSION_SOURCE {
+            let b = r.u8()?;
+            let p = Pool::from_byte(b).ok_or(DecodeError::UnknownPool(b))?;
+            (p != pool).then_some(p)
         } else {
             None
         };
@@ -173,22 +238,32 @@ impl UnsignedReceipt {
                 return Err(DecodeError::TooLarge);
             }
             let proof = r.take(len)?.to_vec();
-            let flag = if version == VERSION_ADDR || version == VERSION_XPOOL { r.u8()? } else { 0 };
-            if flag > 1 {
+            let flag = if version >= VERSION_ADDR { r.u8()? } else { 0 };
+            let max_flag = if version == VERSION_SOURCE { 3 } else { 1 };
+            if flag > max_flag {
                 return Err(DecodeError::NonCanonical);
             }
-            let address = if flag == 1 {
-                let address: [u8; 43] = r.take(43)?.try_into().unwrap();
-                let rho = r.arr32()?;
-                let rseed = r.arr32()?;
-                let nf = r.arr32()?;
-                let cv_net = r.arr32()?;
-                let cmx = r.arr32()?;
+            let address = if flag & 1 == 1 { Some(read_address(r)?) } else { None };
+            let source = if flag & 2 == 2 {
+                let txid = r.arr32()?;
+                let index = r.u32()?;
+                let value = match r.u8()? {
+                    0 => SourceValue::Hidden { cmx: r.arr32()? },
+                    1 => {
+                        let value = u64::from_le_bytes(r.take(8)?.try_into().unwrap());
+                        if value == 0 {
+                            return Err(DecodeError::NonCanonical);
+                        }
+                        let address: [u8; 43] = r.take(43)?.try_into().unwrap();
+                        SourceValue::Revealed { value, address, rseed: r.arr32()? }
+                    }
+                    _ => return Err(DecodeError::NonCanonical),
+                };
                 let len = r.u32()? as usize;
                 if len > MAX_PROOF_LEN {
                     return Err(DecodeError::TooLarge);
                 }
-                Some(AddressProof { address, rho, rseed, nf, cv_net, cmx, proof: r.take(len)?.to_vec() })
+                Some(SourceProof { txid, index, value, proof: r.take(len)?.to_vec() })
             } else {
                 None
             };
@@ -199,6 +274,7 @@ impl UnsignedReceipt {
                 cmx,
                 proof,
                 address,
+                source,
             });
         }
         Ok(UnsignedReceipt {

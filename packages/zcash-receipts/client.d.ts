@@ -4,6 +4,15 @@ export interface Verification {
   pool: "orchard" | "ironwood" | "orchard_to_ironwood" | "ironwood_to_orchard"; txid: string; mined_height: number; message: string;
   challenge: string | null; batch: { id: string; position: number; total: number } | null;
   sender_addresses: string[]; outputs: Output[]; paid_to_expected?: number;
+  /** Where spent notes came from, if the sender proved it (`receipts create --prove-source`). */
+  sources?: SourceOfFunds[];
+}
+export interface SourceOfFunds {
+  spend_action: number; source_txid: string; source_action: number; source_height: number;
+  /** The spent note's exact value, if the sender revealed it. */
+  zatoshis: number | null;
+  transparent_inputs: { prevout_txid: string; prevout_index: number; address?: string | null; zatoshis?: number | null }[];
+  net_into_shielded_zatoshis?: number;
 }
 export interface BatchVerification {
   object: "batch_verification"; valid: true; livemode: boolean; id: string; total_zatoshis: number;

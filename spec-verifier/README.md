@@ -28,8 +28,8 @@ against these public inputs".
 | Primitives against zcash-test-vectors (the protocol designers' own Python reference, independent of librustzcash) | map-to-curve 13/13, group hash 11/11, Sinsemilla 11/11, empty roots 33/33, Merkle paths, generators, note commitments 10/10, note recovery 10/10, ZIP 244 txids 10/10 |
 | ChaCha20-Poly1305 | RFC 8439 §2.8.2 |
 | v6 txid and Ironwood note recovery | the real testnet transaction `571de6e4…` recomputes, and its output opens to 0.01 TAZ, "Invoice 42: two coffees" |
-| Shared conformance vectors (`conformance/vectors.json`) | 163/163 agree with the Rust verifier |
-| Signed adversarial corpus (`tests/corpus.json`, from the Rust test `differential_corpus`) | 213/213 agree; the 4 the Rust verifier rejects only on a Halo 2 proof get identical public inputs here |
+| Shared conformance vectors (`conformance/vectors.json`) | 223/223 agree with the Rust verifier |
+| Signed adversarial corpus (`tests/corpus.json`, from the Rust test `differential_corpus`) | 224/224 agree; the 9 the Rust verifier rejects only on a Halo 2 proof get identical public inputs here |
 
 The zcash-test-vectors files used are copied unmodified into `tests/zcash-test-vectors` (MIT; see
 `SOURCE` there for the commit). Regenerate the corpus with

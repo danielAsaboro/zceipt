@@ -80,3 +80,18 @@ test("payment links are linted", async () => {
   assert.equal(bad.ok, false);
   assert.ok(bad.findings.some((f) => f.code === "network_mismatch"));
 });
+
+test("source-of-funds receipts verify offline with their source transaction, and not without it", async () => {
+  const rawTx = await readFile(ex("testnet/source/tx.hex"), "utf8");
+  const src = await readFile(ex("testnet/source/source-tx.hex"), "utf8");
+  for (const [name, value] of [["receipt-source-hidden", null], ["receipt-source-value", 12_500_000]]) {
+    const receipt = await readFile(ex(`testnet/source/${name}.txt`), "utf8");
+    const v = await verifyReceipt(receipt, { rawTx, height: 4500997, sourceTxs: [{ rawTx: src, height: 4500984 }] });
+    assert.equal(v.sources.length, 1, name);
+    assert.match(v.sources[0].source_txid, /^2a2bd721/, name);
+    assert.equal(v.sources[0].zatoshis, value, name);
+    await assert.rejects(verifyReceipt(receipt, { rawTx, height: 4500997, sourceTxs: [] }), /not available/, name);
+    // A source mined after the payment can't be its source.
+    await assert.rejects(verifyReceipt(receipt, { rawTx, height: 4500997, sourceTxs: [{ rawTx: src, height: 4500998 }] }), /not available/, name);
+  }
+});

@@ -11,7 +11,7 @@ self.onmessage = async (e) => {
     let result;
     if (op === "inspect") result = JSON.parse(inspect(args.receipt));
     else if (op === "warm") { warm_up(); result = true; }
-    else if (op === "verify") result = JSON.parse(verify(args.receipt, args.rawTx, args.height, !!args.regtest));
+    else if (op === "verify") result = JSON.parse(verify(args.receipt, args.rawTx, args.height, !!args.regtest, args.sources));
     else if (op === "receiver") result = orchard_receiver_hex(args.ua);
     else throw new Error("unknown op " + op);
     self.postMessage({ id, ok: true, result });

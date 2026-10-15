@@ -73,7 +73,46 @@ pub struct Report {
     pub proven_spend_actions: Vec<u32>,
     /// Public addresses the sender proved they control (empty unless they chose to).
     pub sender_addresses: Vec<String>,
+    /// Where spent notes came from, for spends whose source the sender chose to prove.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<ReportSource>,
     pub outputs: Vec<ReportOutput>,
+}
+
+/// A proven source: the note spent by `spend_action` was created by `source_action` of
+/// `source_txid`, a transaction the verifier fetched (or was given) and read.
+#[derive(Serialize)]
+pub struct ReportSource {
+    pub spend_action: u32,
+    pub source_txid: String,
+    pub source_action: u32,
+    pub source_height: u32,
+    /// The note's value, if the sender revealed it.
+    pub zatoshis: Option<u64>,
+    pub zec: Option<String>,
+    /// The source transaction's public transparent inputs: who funded it, if it was funded in
+    /// the clear (an exchange withdrawal shielded by the sender, for instance).
+    pub transparent_inputs: Vec<FundingInput>,
+    /// Net value the source transaction moved from transparent into the shielded pools (public).
+    /// Shielded spends inside it, if any, are not visible, and their origin stays hidden unless
+    /// the sender proves it with another receipt.
+    pub net_into_shielded_zatoshis: i64,
+}
+
+#[derive(Serialize, Clone)]
+pub struct FundingInput {
+    pub prevout_txid: String,
+    pub prevout_index: u32,
+    /// The address and value the input spent, if the verifier could read the previous output.
+    pub address: Option<String>,
+    pub zatoshis: Option<u64>,
+}
+
+/// A source transaction the verifier has read, with what it learned about its funding.
+pub struct SourceTx {
+    pub tx: Transaction,
+    pub height: u32,
+    pub transparent_inputs: Vec<FundingInput>,
 }
 
 #[derive(Serialize)]
@@ -105,6 +144,21 @@ impl Report {
         for a in &self.sender_addresses {
             println!("  from      {a} (proven by the sender)");
         }
+        for src in &self.sources {
+            let value = src.zec.as_ref().map(|z| format!("a {z} ZEC note")).unwrap_or_else(|| "the note".into());
+            println!("  source    action {} spent {value} created by tx {} action {} (height {})", src.spend_action, src.source_txid, src.source_action, src.source_height);
+            for t in &src.transparent_inputs {
+                match (&t.address, t.zatoshis) {
+                    (Some(a), Some(z)) => println!("            that tx was funded in the clear: {} ZEC from {a}", zec(z)),
+                    _ => println!("            that tx spent transparent output {}:{}", t.prevout_txid, t.prevout_index),
+                }
+            }
+            if src.transparent_inputs.is_empty() {
+                println!("            that tx had no transparent inputs: its own funding was shielded and is not shown");
+            } else if src.net_into_shielded_zatoshis > 0 {
+                println!("            it moved {} ZEC from transparent into the shielded pool", zec(src.net_into_shielded_zatoshis as u64));
+            }
+        }
         for o in &self.outputs {
             println!("  paid      {} ZEC to {}", o.zec, o.recipient);
             if let Some(m) = &o.memo {
@@ -113,6 +167,8 @@ impl Report {
         }
         if crate::deposit::deposit_claim(&self.message).is_some() {
             // The deposit block that follows says what this does reveal.
+        } else if !self.sources.is_empty() {
+            println!("  nothing else about the sender's wallet (balance, other transactions) is revealed");
         } else if self.sender_addresses.is_empty() {
             println!("  nothing else about the sender's wallet is revealed");
         } else {
@@ -154,17 +210,88 @@ pub fn zec(z: u64) -> String {
 
 /// Verifies a receipt against a raw transaction (hex) at a known height: no network at all.
 pub fn verify_offline(receipt: &Receipt, raw_hex: &str, height: u32, regtest: Option<&std::path::Path>) -> anyhow::Result<Report> {
+    verify_offline_with_sources(receipt, raw_hex, height, &[], regtest)
+}
+
+/// Like `verify_offline`, with the raw source transactions (hex) and their heights for source
+/// proofs. Their transparent inputs are listed by outpoint only (no previous outputs offline).
+pub fn verify_offline_with_sources(receipt: &Receipt, raw_hex: &str, height: u32, sources: &[(String, u32)], regtest: Option<&std::path::Path>) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
     let net = net::for_receipt(u.coin_type, regtest)?;
-    let raw = hex_decode(raw_hex.trim())?;
-    let branch = BranchId::for_height(&net, BlockHeight::from_u32(height));
-    let tx = Transaction::read(&raw[..], branch)?;
+    let tx = read_tx(net, raw_hex, height)?;
     if tx.txid().as_ref() != &u.txid {
         bail!("that transaction is not the one this receipt is for");
     }
-    let mut r = report_for(receipt, net, &tx, height)?;
+    let mut map = std::collections::BTreeMap::new();
+    for (hex_text, h) in sources {
+        let stx = read_tx(net, hex_text, *h)?;
+        let id: [u8; 32] = *stx.txid().as_ref();
+        let transparent_inputs = outpoints(&stx).into_iter().map(|(t, n)| FundingInput { prevout_txid: display_txid(&t), prevout_index: n, address: None, zatoshis: None }).collect();
+        map.insert(id, SourceTx { tx: stx, height: *h, transparent_inputs });
+    }
+    let mut r = report_for(receipt, net, &tx, height, &map)?;
     r.chain_checked = false;
     Ok(r)
+}
+
+fn read_tx(net: Net, raw_hex: &str, height: u32) -> anyhow::Result<Transaction> {
+    let raw = hex_decode(raw_hex.trim())?;
+    let branch = BranchId::for_height(&net, BlockHeight::from_u32(height));
+    Ok(Transaction::read(&raw[..], branch)?)
+}
+
+/// The transparent outpoints a transaction spends.
+fn outpoints(tx: &Transaction) -> Vec<([u8; 32], u32)> {
+    tx.transparent_bundle()
+        .map(|b| b.vin.iter().map(|i| (*i.prevout().hash(), i.prevout().n())).collect())
+        .unwrap_or_default()
+}
+
+/// Net value a transaction moved from transparent into the shielded pools (negative: out).
+fn net_into_shielded(tx: &Transaction) -> i64 {
+    let o = tx.orchard_bundle().map(|b| i64::from(*b.value_balance())).unwrap_or(0);
+    let i = tx.ironwood_bundle().map(|b| i64::from(*b.value_balance())).unwrap_or(0);
+    let s = tx.sapling_bundle().map(|b| i64::from(*b.value_balance())).unwrap_or(0);
+    -(o + i + s)
+}
+
+/// Encodes a transparent output's address, if it is a standard P2PKH or P2SH output.
+fn transparent_address(net: Net, out: &zcash_transparent::bundle::TxOut) -> Option<String> {
+    use zcash_address::ToAddress;
+    use zcash_transparent::address::TransparentAddress;
+    let nt = crate::deposit::network_type(net);
+    Some(match out.recipient_address()? {
+        TransparentAddress::PublicKeyHash(h) => zcash_address::ZcashAddress::from_transparent_p2pkh(nt, h).encode(),
+        TransparentAddress::ScriptHash(h) => zcash_address::ZcashAddress::from_transparent_p2sh(nt, h).encode(),
+    })
+}
+
+/// Fetches the source transactions a receipt's source proofs name, and the previous outputs
+/// their transparent inputs spent (at most `MAX_FUNDING_INPUTS` per source).
+pub async fn fetch_sources(receipt: &Receipt, net: Net, server: Option<&str>) -> anyhow::Result<std::collections::BTreeMap<[u8; 32], SourceTx>> {
+    const MAX_FUNDING_INPUTS: usize = 16;
+    let mut map = std::collections::BTreeMap::new();
+    for s in receipt.unsigned.spends.iter().filter_map(|s| s.source.as_ref()) {
+        if map.contains_key(&s.txid) {
+            continue;
+        }
+        let (tx, height) = fetch_mined_tx(net, server, s.txid).await.with_context(|| format!("fetching source transaction {}", display_txid(&s.txid)))?;
+        let mut transparent_inputs = Vec::new();
+        for (i, (t, n)) in outpoints(&tx).into_iter().enumerate() {
+            let mut f = FundingInput { prevout_txid: display_txid(&t), prevout_index: n, address: None, zatoshis: None };
+            if i < MAX_FUNDING_INPUTS {
+                if let Ok((prev, _)) = fetch_mined_tx(net, server, t).await {
+                    if let Some(out) = prev.transparent_bundle().and_then(|b| b.vout.get(n as usize)) {
+                        f.address = transparent_address(net, out);
+                        f.zatoshis = Some(u64::from(out.value()));
+                    }
+                }
+            }
+            transparent_inputs.push(f);
+        }
+        map.insert(s.txid, SourceTx { tx, height, transparent_inputs });
+    }
+    Ok(map)
 }
 
 fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
@@ -181,15 +308,45 @@ pub async fn verify_against_chain(
 ) -> anyhow::Result<Report> {
     let net = net::for_receipt(receipt.unsigned.coin_type, regtest)?;
     let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
-    report_for(receipt, net, &tx, height)
+    let sources = fetch_sources(receipt, net, server).await?;
+    report_for(receipt, net, &tx, height, &sources)
 }
 
-fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> anyhow::Result<Report> {
+fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, sources: &std::collections::BTreeMap<[u8; 32], SourceTx>) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
     static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
     let vk = VK.get_or_init(receipts_core::verifying_key);
-    let v = receipts_core::verify_tx_bundles(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle())
+    let lookup = |pool: Pool, txid: &[u8; 32], index: u32| {
+        let s = sources.get(txid)?;
+        // A source must come before the payment (it also can't be the payment itself).
+        if s.height > height || txid == &u.txid {
+            return None;
+        }
+        let bundle = match pool {
+            Pool::Orchard => s.tx.orchard_bundle(),
+            Pool::Ironwood => s.tx.ironwood_bundle(),
+        }?;
+        receipts_core::output_cmx(bundle, index)
+    };
+    let v = receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
         .map_err(|e| anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)))?;
+    let report_sources = v
+        .sources
+        .iter()
+        .map(|s| {
+            let stx = &sources[&s.txid];
+            ReportSource {
+                spend_action: s.spend,
+                source_txid: display_txid(&s.txid),
+                source_action: s.index,
+                source_height: stx.height,
+                zatoshis: s.value,
+                zec: s.value.map(zec),
+                transparent_inputs: stx.transparent_inputs.clone(),
+                net_into_shielded_zatoshis: net_into_shielded(&stx.tx),
+            }
+        })
+        .collect();
     Ok(Report {
         valid: true,
         network: net.name(),
@@ -205,6 +362,7 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32) -> any
         message: String::from_utf8_lossy(&v.msg).into_owned(),
         proven_spend_actions: v.proven_spends,
         sender_addresses: v.proven_addresses.iter().map(|(_, a)| encode_orchard_receiver(net, *a)).collect(),
+        sources: report_sources,
         outputs: v
             .outputs
             .iter()

@@ -14,7 +14,8 @@ fn run(v: &Value) -> Result<Value, String> {
             let r = Receipt::from_text(&s("receipt")).map_err(|e| e.to_string())?;
             let heights = Path::new(ROOT).join(v["heights"].as_str().unwrap_or("examples/regtest/heights.toml"));
             let regtest = v["regtest"].as_bool().unwrap().then_some(heights.as_path());
-            let rep = receipts_chain::chain::verify_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, regtest).map_err(|e| e.to_string())?;
+            let sources: Vec<(String, u32)> = v["source_txs"].as_array().map(|a| a.iter().map(|t| (t["raw_tx"].as_str().unwrap().to_string(), t["height"].as_u64().unwrap() as u32)).collect()).unwrap_or_default();
+            let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &sources, regtest).map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(&rep).unwrap())
         }
         Some("sign_in") => {
@@ -46,6 +47,11 @@ fn conformance_vectors() {
             for (i, o) in outs.iter().enumerate() {
                 assert_eq!(r["outputs"][i]["zatoshis"], o["zatoshis"], "{name}");
                 assert_eq!(r["outputs"][i]["memo"], o["memo"], "{name}");
+            }
+        }
+        if let (Ok(r), Some(srcs)) = (&got, v["expect"]["sources"].as_array()) {
+            for (i, s) in srcs.iter().enumerate() {
+                assert_eq!(r["sources"][i]["zatoshis"], s["zatoshis"], "{name}");
             }
         }
         if let (Ok(r), Some(n)) = (&got, v["expect"]["network"].as_str()) {
@@ -120,4 +126,24 @@ fn tex_deposit_offline() {
     assert!(receipts_core::deposit::check(&r, &msg, NetworkType::Main, &tx1, &tx2).is_err());
     let other = msg.replace(d.tex_address.as_str(), "textest1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq");
     assert!(receipts_core::deposit::check(&r, &other, NetworkType::Test, &tx1, &tx2).is_err());
+}
+
+/// Real testnet receipts with source proofs (examples/testnet/source), verified offline against
+/// the payment and the source transaction; without the source transaction they are refused.
+#[test]
+fn source_of_funds_offline() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/source/");
+    let rd = |n: &str| std::fs::read_to_string(format!("{dir}{n}")).unwrap();
+    for (name, value) in [("receipt-source-hidden.txt", None), ("receipt-source-value.txt", Some(12_500_000u64))] {
+        let text = rd(name);
+        let r = receipts_core::Receipt::from_text(text.trim()).unwrap();
+        let rep = receipts_chain::chain::verify_offline_with_sources(&r, &rd("tx.hex"), 4_500_997, &[(rd("source-tx.hex"), 4_500_984)], None).unwrap();
+        assert_eq!(rep.sources.len(), 1, "{name}");
+        assert!(rep.sources[0].source_txid.starts_with("2a2bd721"), "{name}");
+        assert_eq!(rep.sources[0].zatoshis, value, "{name}");
+        let err = receipts_chain::chain::verify_offline(&r, &rd("tx.hex"), 4_500_997, None).err().expect("refused without the source").to_string();
+        assert!(err.contains("not available"), "{name}: {err}");
+        // A source mined after the payment is refused too.
+        assert!(receipts_chain::chain::verify_offline_with_sources(&r, &rd("tx.hex"), 4_500_997, &[(rd("source-tx.hex"), 4_500_998)], None).is_err());
+    }
 }

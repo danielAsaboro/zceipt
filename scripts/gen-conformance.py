@@ -36,6 +36,23 @@ for name, r, tx, h, regtest, outs in cases:
     vectors.append({"name": f"{name}/truncated", **base, "receipt": r[:-40], "expect": {"valid": False}})
     vectors.append({"name": f"{name}/extra-bytes", **base, "receipt": r + "AAAA", "expect": {"valid": False}})
     vectors.append({"name": f"{name}/wrong-prefix", **base, "receipt": "zrcpt2" + r[6:], "expect": {"valid": False}})
+# Source of funds (format v4): each vector also carries the source transaction(s), and a
+# verifier must refuse the receipt without them, or with a source mined after the payment.
+src_cases = [
+    ("testnet-source-hidden", ex("testnet/source/receipt-source-hidden.txt"), ex("testnet/source/tx.hex"), 4_500_997, False, ex("testnet/source/source-tx.hex"), 4_500_984, None),
+    ("testnet-source-value", ex("testnet/source/receipt-source-value.txt"), ex("testnet/source/tx.hex"), 4_500_997, False, ex("testnet/source/source-tx.hex"), 4_500_984, 12_500_000),
+    ("regtest-source", ex("regtest-source/receipt-source-hidden.txt"), ex("regtest-source/tx.hex"), 538, True, ex("regtest-source/source-tx.hex"), 530, None),
+    ("regtest-source-value", ex("regtest-source/receipt-source-value.txt"), ex("regtest-source/tx.hex"), 538, True, ex("regtest-source/source-tx.hex"), 530, 14_992_500),
+]
+for name, r, tx, h, regtest, stx, sh, value in src_cases:
+    base = {"type": "receipt", "raw_tx": tx, "height": h, "regtest": regtest, "source_txs": [{"raw_tx": stx, "height": sh}]}
+    if regtest:
+        base["heights"] = "examples/regtest-source/heights.toml"
+    vectors.append({"name": f"{name}/valid", **base, "receipt": r, "expect": {"valid": True, "sources": [{"zatoshis": value}]}})
+    for i in spread(r, "zrcpt1", 12):
+        vectors.append({"name": f"{name}/flip-{i}", **base, "receipt": flip(r, i), "expect": {"valid": False}})
+    vectors.append({"name": f"{name}/no-source-tx", **base, "source_txs": [], "receipt": r, "expect": {"valid": False}})
+    vectors.append({"name": f"{name}/source-after-payment", **base, "source_txs": [{"raw_tx": stx, "height": h + 1}], "receipt": r, "expect": {"valid": False}})
 # Made before 2026-10-15, when address proofs took cv_net from the prover (forgeable; see
 # docs/CLAIM.md). Honest when made, refused now: their cv_net is not ValueCommit_0(1).
 vectors.append({"name": "pre-fix/receipt-with-sender-address", "type": "receipt", "raw_tx": ex("testnet/sender-address-tx.hex"), "height": 4_501_025, "regtest": False, "receipt": ex("testnet/pre-fix/receipt-with-sender-address.txt"), "expect": {"valid": False}})

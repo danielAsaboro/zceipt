@@ -14,6 +14,10 @@ export interface VerifyOptions {
   expectAddress?: string;
   minZatoshis?: number;
   challenge?: string;
+  /** For receipts with source proofs: each source transaction, instead of fetching it by txid. */
+  sourceTxs?: { rawTx: Uint8Array | string; height: number }[];
+  /** Set false to skip fetching the previous outputs that funded each source transaction. */
+  sourceFunding?: boolean;
 }
 export const DEFAULT_ENDPOINTS: { mainnet: string; testnet: string };
 export function extractReceipt(input: string): string;
@@ -22,7 +26,7 @@ export function inspectReceipt(input: string): Promise<{ network: string; pool: 
 export function orchardReceiver(ua: string): Promise<string>;
 export function verifyReceipt(input: string, options?: VerifyOptions): Promise<Omit<Verification, "object" | "livemode" | "challenge" | "batch"> & { paidToExpected?: number; local: true; fetch: FetchInfo }>;
 /** What the lightwalletd server could learn from this verification. */
-export interface FetchInfo { mode: "offline" | "block" | "txid"; server: string | null; anonymity_set?: number; sees: string }
+export interface FetchInfo { mode: "offline" | "block" | "txid"; server: string | null; anonymity_set?: number; sees: string; sources?: string }
 export function verifyBatch(input: string, options?: VerifyOptions): Promise<{ id: string; results: Verification[]; totals: Record<string, number> }>;
 export function fetchTransaction(endpoint: string, displayTxid: string): Promise<{ raw: Uint8Array; height: number }>;
 /** Fetches a transaction by downloading its whole block's shielded transactions, so the server can't tell which one you wanted. */

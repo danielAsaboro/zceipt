@@ -59,7 +59,8 @@ sync() { "$D" wallet -w "./$1" sync $S >/dev/null 2>&1 || echo "  (sync of $1 fa
 # Received notes need confirmations before they're spendable: retry while blocks arrive.
 send() {
   for i in $(seq 1 40); do
-    out=$("$D" wallet -w "./$1" send -i "./$1.age" --address "$2" --value "$3" --memo "$4" $S 2>&1 | grep -oE '[0-9a-f]{64}' | tail -1 || true)
+    memo=(); [ -n "$4" ] && memo=(--memo "$4")
+    out=$("$D" wallet -w "./$1" send -i "./$1.age" --address "$2" --value "$3" "${memo[@]}" $S 2>&1 | grep -oE '[0-9a-f]{64}' | tail -1 || true)
     [ -n "$out" ] && { echo "$out"; return; }
     sleep 3; sync "$1"
   done
@@ -99,6 +100,35 @@ ATT=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$RID/attestations"
 curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/attestations/verify" -d "{\"attestation\":\"$ATT\"}" | jq -e '.valid and .claims.paid_at_least_zatoshis == 20000000' >/dev/null && ok "attestation: paid at least 0.2 ZEC net of the refund" || bad "attestation"
 NONCE=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/sign_in/challenges" -d '{"domain":"e2e.test"}' | jq -r .nonce)
 RECEIPTS_KEY=$KEY "$R" sign-in -w ./sender -i ./sender.age --domain e2e.test --nonce "$NONCE" --submit "http://127.0.0.1:$API" 2>/dev/null | jq -e .verified >/dev/null && ok "Sign in with Zcash as the payer" || bad "sign-in"
+
+echo "== Source of funds: an exchange withdrawal to a transparent address, shielded, then spent"
+for w in exchange customer; do "$D" wallet -w "./$w" init --name "$w" -i "./$w.age" -n regtest --activation-heights ./heights.toml --birthday "$(height)" $S > "init-$w.log" 2>&1 || { bad "wallet $w"; }; done
+EXCHANGE=$("$D" wallet -w ./exchange list-addresses | sed -n 's/.*Default Address: //p')
+MN=$("$D" wallet -w ./customer display-mnemonic --enable -i ./customer.age 2>/dev/null | tail -1)
+CUST_T=$("$D" wallet derive-address --mnemonic "$MN" -n regtest | sed -n 's/^Transparent Address: //p'); MN=
+mine 4 "$EXCHANGE"; mine 101; sync exchange
+W=$(send exchange "$CUST_T" 30000000 "") && ok "exchange withdrew 0.3 ZEC to the customer's transparent address ($W)" || { bad "withdrawal"; W=none; }
+SH=
+for i in $(seq 1 40); do
+  sync customer
+  SH=$("$D" wallet -w ./customer shield -i ./customer.age $S 2>&1 | grep -oE '[0-9a-f]{64}' | tail -1 || true)
+  [ -n "$SH" ] && break; sleep 3
+done
+[ -n "$SH" ] && ok "customer shielded it ($SH)" || { bad "shield"; SH=none; }
+DEP=$(send customer "$MERCHANT" 12000000 "Deposit 99") && ok "customer paid the merchant from the shielded note ($DEP)" || { bad "deposit"; DEP=none; }
+sleep 8; sync customer
+for i in $(seq 1 10); do "$R" create -w ./customer -i ./customer.age --txid "$DEP" -m "Deposit 99" --prove-source -s "127.0.0.1:$GRPC" --out source.txt > create-source.log 2>&1 && break; sleep 4; sync customer; done
+SRC=$("$R" verify @source.txt --json --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>/dev/null || true)
+echo "$SRC" > source-report.json
+echo "$SRC" | jq -e --arg sh "$SH" --arg t "$CUST_T" '.sources[0].source_txid == $sh and .sources[0].zatoshis == null and .sources[0].transparent_inputs[0].address == $t and .sources[0].transparent_inputs[0].zatoshis == 30000000' >/dev/null \
+  && ok "source proof: the deposit's note came from the shielding of 0.3 ZEC withdrawn to $CUST_T (value hidden)" || { bad "source proof"; tail -3 create-source.log; }
+"$R" create -w ./customer -i ./customer.age --txid "$DEP" -m "Deposit 99" --prove-source --reveal-source-value -s "127.0.0.1:$GRPC" --out source-value.txt > create-source-value.log 2>&1
+"$R" verify @source-value.txt --json --regtest ./heights.toml -s "127.0.0.1:$GRPC" > source-value-report.json 2>&1 || true
+jq -e '.sources[0].zatoshis > 0 and .sources[0].zatoshis <= .sources[0].net_into_shielded_zatoshis' source-value-report.json >/dev/null 2>&1 \
+  && ok "source proof with the note's exact value revealed ($(jq -r .sources[0].zec source-value-report.json) ZEC of the shielded $(jq -r .sources[0].net_into_shielded_zatoshis source-value-report.json) zats)" || { bad "source proof with value"; tail -3 source-value-report.json; }
+"$R" tx "$DEP" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex > source-deposit-tx.txt 2>/dev/null || true
+"$R" tx "$SH" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex > source-shield-tx.txt 2>/dev/null || true
+if [ -n "${EXPORT_SOURCE:-}" ]; then mkdir -p "$EXPORT_SOURCE"; cp source.txt source-value.txt source-report.json source-value-report.json source-deposit-tx.txt source-shield-tx.txt heights.toml "$EXPORT_SOURCE"/; fi
 
 echo
 echo "${#PASS[@]} passed, ${#FAIL[@]} failed"

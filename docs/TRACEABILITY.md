@@ -17,7 +17,7 @@ cases in `svt/corpus.json` (written by `rt::differential_corpus`, each re-signed
 |---|---|---|---|
 | Disclose zero or more outputs | `core/lib.rs::create_cross`, `verify_cross` | `sv/verify.py::verify_bundles` | corpus `resigned/no-outputs` (both accept); `examples/testnet/deposit-receipt.txt` |
 | Only a sender can create one | Action proof for the spent note + `SpendAuthSig` by `rk` | signature (proof: public inputs only) | `rt::only_the_spender_can_create`; corpus `signed-by-someone-else` |
-| Non-malleable | strict canonical decoding `core/encoding.rs::Receipt::from_bytes`; signature over all bytes | `sv/receipt.py::decode` (from `SPEC.md`) | `prop::encoding_is_a_bijection`, `::only_canonical_encodings_decode`, `::the_signing_digest_covers_every_field`; `rt::every_byte_matters`; corpus `flip/*`; 163 conformance vectors in both |
+| Non-malleable | strict canonical decoding `core/encoding.rs::Receipt::from_bytes`; signature over all bytes | `sv/receipt.py::decode` (from `SPEC.md`) | `prop::encoding_is_a_bijection`, `::only_canonical_encodings_decode`, `::the_signing_digest_covers_every_field`; `rt::every_byte_matters`; corpus `flip/*`; 223 conformance vectors in both |
 | Can be tied to a challenge | `msg` is signed; `challenge:<hex>` checked by proof requests | `msg` is in the signed bytes | corpus `resigned/new-message`; `receipts-server/tests/api.rs::real_receipt_replay_is_refused` |
 | Optionally prove the sender's address | `core/lib.rs::address_proof`, `verify_address_proof` | `sv/verify.py::check_address_proof` | `rt::address_proof_roundtrip_and_rejections`, `::claiming_someone_elses_sender_address_is_refused`; corpus `honest/with-address`, `forged-address/*` |
 | No ephemeral data kept from sending | Merkle path rebuilt from chain data | n/a | `receipts-chain/src/chain.rs::rebuild_witness`; `receipts create --from-chain` on testnet (`ASSURANCE.md`) |
@@ -59,6 +59,12 @@ cases in `svt/corpus.json` (written by `rt::differential_corpus`, each re-signed
 | Network | `CoinTypeMismatch` | coin type check | corpus `resigned/mainnet-receipt-on-testnet` |
 | Address proof `cv_net = ValueCommit_0(1)` | `verify_address_proof` | `check_address_proof` | `rt::*_refused`; corpus `forged-address/prover-cv` |
 | Sign in with Zcash: domain, nonce, network, signature, address proof | `core/signin.rs::verify_sign_in` | `sv/verify.py::verify_sign_in` | `rt::sign_in_roundtrip_and_replay`, `::sign_in_as_someone_elses_address_is_refused`; conformance `sign-in/*` |
+| Source proof (v4): anchor is the one-leaf root of the source output's `cmx`, read from the source transaction | `core/lib.rs::verify_source_proof`, `source_proof_anchor` | `sv/verify.py::check_source_proof` | `rt::a_source_must_be_the_output_that_created_the_note`; corpus `resigned/source-other-output` |
+| Source proof `cv_net` fixed by the verifier: `ValueCommit_0(1)` hidden, `ValueCommit_0(v)` revealed, never 0 | `source_proof_cv_net` | `source_cv_net` | `rt::a_zero_value_note_cannot_claim_any_source`; corpus `resigned/source-value-lower`, `-higher` |
+| Revealed value is exact: the proof's output is opened with value 0, `rho = nf` | `source_output_cmx` | `check_source_proof` (revealed branch) | `rt::source_claims_are_bound_by_the_signature_and_the_proof`; corpus `resigned/source-hidden-relabelled-as-1` |
+| Same `rk` as the spend disclosure (no borrowed proofs) | `verify_cross` passes the spend's `rk` | `pi["rk"] = s.rk` | corpus `resigned/source-proof-from-another-receipt` |
+| The source is a different, earlier transaction the verifier has; otherwise refused | `SourceLookup` returning `None` gives `SourceUnavailable`; `chain.rs` refuses later heights and the payment itself | `verify_bundles` (`source transaction output is not available`); heights checked by the caller | `conf::source_of_funds_offline`; conformance `*-source*/no-source-tx`, `/source-after-payment`; corpus `resigned/source-unknown-tx`, `/source-is-the-payment` |
+| v4 canonical: flags ≤ 3, value flag 0 or 1, revealed value ≥ 1, v4 only with a source | `encoding.rs` | `sv/receipt.py::decode` | `prop::encoding_is_a_bijection`, `::only_canonical_encodings_decode` |
 
 ## Primitives in the spec verifier, against published vectors
 

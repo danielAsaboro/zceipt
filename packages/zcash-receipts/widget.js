@@ -54,6 +54,7 @@ class ZcashReceipt extends HTMLElement {
         ${o.memo ? `<div class="row"><span class="k">MEMO</span><span class="memo">“${esc(o.memo)}”</span></div>` : ""}` : ""}
         ${v.outputs.length > 1 ? `<div class="row">+ ${v.outputs.length - 1} more output(s)</div>` : ""}
         ${(v.sender_addresses || []).map((s) => `<div class="row"><span class="k">FROM</span>${esc(short(s, 12))} (proven)</div>`).join("")}
+        ${(v.sources || []).map((s) => `<div class="row"><span class="k">FUNDS</span>${s.zatoshis != null ? esc((s.zatoshis / 1e8).toFixed(8)) + " ZEC note " : ""}from ${esc(short(s.source_txid, 6))}:${s.source_action}${(s.transparent_inputs || []).filter((i) => i.address).map((i) => `, funded by ${esc(short(i.address, 8))}`).join("")} (proven)</div>`).join("")}
         <div class="row"><span class="k">TX</span>${esc(short(v.txid, 8))} · block ${v.mined_height.toLocaleString()}</div>
         ${v.message ? `<div class="row"><span class="k">NOTE</span>${esc(v.message)}</div>` : ""}
         <div class="fine">The sender proved they authorized this payment. Nothing else about their wallet is revealed.</div>

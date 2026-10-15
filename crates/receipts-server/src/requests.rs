@@ -433,7 +433,7 @@ fn mode_of(r: &RequestRec) -> Mode {
 
 fn check_secret(r: &RequestRec, secret: Option<&str>) -> Result<(), ApiError> {
     match (&r.client_secret, secret) {
-        (Some(s), Some(given)) if s == given => Ok(()),
+        (Some(s), Some(given)) if crate::ct_eq(s.as_bytes(), given.as_bytes()) => Ok(()),
         _ => Err(ApiError::not_found("request_not_found", "unknown request or wrong client secret")),
     }
 }

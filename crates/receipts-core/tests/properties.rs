@@ -1,0 +1,185 @@
+//! Property tests for the receipt format's invariants, over thousands of random receipts
+//! (seeded, so failures reproduce; no extra dependencies).
+//!
+//! 1. Encoding is a bijection: every structurally valid receipt round-trips, re-encoding is
+//!    byte-identical, and relabelling the version byte never decodes to the same receipt.
+//! 2. The signing digest covers every field: changing any one field changes the digest.
+//! 3. Domain separation: receipts and Sign in with Zcash use distinct BLAKE2b
+//!    personalizations, per network, so a signature for one can't be replayed as the other.
+
+use receipts_core::{signing_digest, AddressProof, OutputDisclosure, Pool, Receipt, SpendDisclosure, UnsignedReceipt};
+
+struct Rng(u64);
+impl Rng {
+    fn u64(&mut self) -> u64 {
+        // xorshift64*
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+    fn below(&mut self, n: u64) -> u64 {
+        self.u64() % n
+    }
+    fn bytes<const N: usize>(&mut self) -> [u8; N] {
+        let mut b = [0u8; N];
+        b.iter_mut().for_each(|x| *x = self.u64() as u8);
+        b
+    }
+    fn vec(&mut self, max: u64) -> Vec<u8> {
+        (0..self.below(max)).map(|_| self.u64() as u8).collect()
+    }
+}
+
+fn random_receipt(r: &mut Rng) -> Receipt {
+    let pool = if r.below(2) == 0 { Pool::Orchard } else { Pool::Ironwood };
+    let output_pool = match r.below(3) {
+        0 => Some(if pool == Pool::Orchard { Pool::Ironwood } else { Pool::Orchard }),
+        _ => None,
+    };
+    let with_addr = r.below(3) == 0;
+    let n_sp = 1 + r.below(3) as usize;
+    let spends: Vec<SpendDisclosure> = (0..n_sp)
+        .map(|i| SpendDisclosure {
+            index: r.below(100) as u32,
+            cv_net: r.bytes(),
+            rk: r.bytes(),
+            cmx: r.bytes(),
+            proof: r.vec(300),
+            // At least one address proof when "with_addr", so v2 is canonical.
+            address: (with_addr && (i == 0 || r.below(2) == 0)).then(|| AddressProof {
+                address: r.bytes(),
+                rho: r.bytes(),
+                rseed: r.bytes(),
+                nf: r.bytes(),
+                cv_net: r.bytes(),
+                cmx: r.bytes(),
+                proof: r.vec(300),
+            }),
+        })
+        .collect();
+    let unsigned = UnsignedReceipt {
+        coin_type: if r.below(2) == 0 { 1 } else { 133 },
+        pool,
+        output_pool,
+        txid: r.bytes(),
+        msg: r.vec(200),
+        outputs: (0..r.below(4)).map(|_| OutputDisclosure { index: r.below(100) as u32, ock: r.bytes() }).collect(),
+        spends,
+    };
+    let sigs = (0..n_sp).map(|_| r.bytes::<64>()).collect();
+    Receipt { unsigned, spend_auth_sigs: sigs }
+}
+
+#[test]
+fn encoding_is_a_bijection() {
+    let mut r = Rng(0x5eed_0001);
+    for _ in 0..3000 {
+        let rc = random_receipt(&mut r);
+        let b = rc.to_bytes();
+        let back = Receipt::from_bytes(&b).expect("a structurally valid receipt decodes");
+        assert_eq!(back, rc);
+        assert_eq!(back.to_bytes(), b, "re-encoding is byte-identical");
+        assert_eq!(Receipt::from_text(&rc.to_text()).unwrap(), rc);
+        for v in 0u8..=5 {
+            if v == b[4] {
+                continue;
+            }
+            let mut m = b.clone();
+            m[4] = v;
+            if let Ok(other) = Receipt::from_bytes(&m) {
+                assert_ne!(other, rc, "version {v} relabelled to the same receipt");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_signing_digest_covers_every_field() {
+    let mut r = Rng(0x5eed_0002);
+    for _ in 0..1500 {
+        let rc = random_receipt(&mut r);
+        let base = signing_digest(&rc.unsigned);
+        let mut variants: Vec<UnsignedReceipt> = Vec::new();
+        let u = &rc.unsigned;
+        let mut v = u.clone();
+        v.coin_type ^= 1;
+        variants.push(v);
+        let mut v = u.clone();
+        v.pool = if u.pool == Pool::Orchard { Pool::Ironwood } else { Pool::Orchard };
+        v.output_pool = v.output_pool.filter(|p| *p != v.pool);
+        variants.push(v);
+        let mut v = u.clone();
+        v.output_pool = match u.output_pool {
+            Some(_) => None,
+            None => Some(if u.pool == Pool::Orchard { Pool::Ironwood } else { Pool::Orchard }),
+        };
+        variants.push(v);
+        let mut v = u.clone();
+        v.txid[r.below(32) as usize] ^= 1 << r.below(8);
+        variants.push(v);
+        let mut v = u.clone();
+        v.msg.push(r.u64() as u8);
+        variants.push(v);
+        if !u.outputs.is_empty() {
+            let mut v = u.clone();
+            v.outputs[0].ock[r.below(32) as usize] ^= 1;
+            variants.push(v);
+            let mut v = u.clone();
+            v.outputs[0].index ^= 1;
+            variants.push(v);
+            let mut v = u.clone();
+            v.outputs.pop();
+            variants.push(v);
+        }
+        let i = r.below(u.spends.len() as u64) as usize;
+        for f in 0..5 {
+            let mut v = u.clone();
+            let s = &mut v.spends[i];
+            match f {
+                0 => s.cv_net[0] ^= 1,
+                1 => s.rk[31] ^= 0x80,
+                2 => s.cmx[7] ^= 2,
+                3 => s.proof.push(0),
+                _ => s.index ^= 1,
+            }
+            variants.push(v);
+        }
+        if let Some(a) = &u.spends[i].address {
+            let mut v = u.clone();
+            let mut a = a.clone();
+            a.address[0] ^= 1;
+            v.spends[i].address = Some(a);
+            variants.push(v);
+        }
+        for v in variants {
+            assert_ne!(signing_digest(&v), base, "a changed field left the digest unchanged");
+        }
+    }
+}
+
+#[test]
+fn receipts_and_sign_ins_are_domain_separated() {
+    use blake2b_simd::Params;
+    let personal = |tag: &[u8; 12], coin: u32| {
+        let mut p = [0u8; 16];
+        p[..12].copy_from_slice(tag);
+        p[12..].copy_from_slice(&coin.to_le_bytes());
+        p
+    };
+    let mut r = Rng(0x5eed_0003);
+    for _ in 0..500 {
+        let data = r.vec(500);
+        let h = |tag: &[u8; 12], coin| Params::new().hash_length(32).personal(&personal(tag, coin)).hash(&data);
+        let receipt_main = h(b"ZIP311Signed", 133);
+        let receipt_test = h(b"ZIP311Signed", 1);
+        let signin_main = h(b"ZcashSignIn\0", 133);
+        assert_ne!(receipt_main.as_bytes(), receipt_test.as_bytes(), "networks are separated");
+        assert_ne!(receipt_main.as_bytes(), signin_main.as_bytes(), "protocols are separated");
+    }
+    // And the real receipt digest uses the receipt personalization for its network.
+    let rc = random_receipt(&mut r);
+    let enc = rc.unsigned.encode();
+    let want = Params::new().hash_length(32).personal(&personal(b"ZIP311Signed", rc.unsigned.coin_type)).hash(&enc);
+    assert_eq!(&signing_digest(&rc.unsigned)[..], want.as_bytes());
+}

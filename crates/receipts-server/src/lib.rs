@@ -159,6 +159,12 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
 
 pub type Shared = Arc<AppState>;
 
+/// Constant-time equality for secrets (client secrets, signatures): the time taken doesn't
+/// depend on where the first difference is. Lengths are not secret.
+pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -687,6 +693,7 @@ const DOCS: &[(&str, &str)] = &[
     ("THREAT-MODEL.md", include_str!("../../../docs/THREAT-MODEL.md")),
     ("ZIP311-TODOS.md", include_str!("../../../docs/ZIP311-TODOS.md")),
     ("COMPARISON.md", include_str!("../../../docs/COMPARISON.md")),
+    ("CRYPTO-REVIEW.md", include_str!("../../../docs/CRYPTO-REVIEW.md")),
     ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),

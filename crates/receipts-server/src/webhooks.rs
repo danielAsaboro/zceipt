@@ -36,7 +36,7 @@ pub fn verify_signature(secret: &str, header: &str, body: &str, tolerance_secs: 
     }
     let expected = sign(secret, t, body);
     let expected = expected.split("v1=").nth(1).unwrap_or_default();
-    sigs.iter().any(|s| s.len() == expected.len() && s.bytes().zip(expected.bytes()).fold(0u8, |a, (x, y)| a | (x ^ y)) == 0)
+    sigs.iter().any(|s| crate::ct_eq(s.as_bytes(), expected.as_bytes()))
 }
 
 fn backoff(base: i64, attempts: i64) -> i64 {

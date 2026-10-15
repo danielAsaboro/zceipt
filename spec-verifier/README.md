@@ -16,7 +16,9 @@ cd spec-verifier && python3 -m specverify ../examples/testnet/receipt.txt ../exa
 Everything a receipt claims except the Halo 2 proofs: it parses the raw transaction and
 recomputes its txid; decodes the receipt strictly; checks indices, the network, every
 spend-authorization signature, every disclosed output (all of §4.20.3, with the NU6.3 `rcm` for
-Ironwood), and every address proof's note, one-leaf anchor and fixed value commitment. For each
+Ironwood), every address proof's note, one-leaf anchor and fixed value commitment, and every
+source proof's anchor (rebuilt from the source transaction's output), fixed value commitment and
+opened output (format v4; the caller supplies the source transactions and checks their heights). For each
 proof it reports the exact public inputs the proof must verify against. It does not reimplement
 the Halo 2 verifier for the Orchard circuit; a receipt it accepts is "valid if the proofs verify
 against these public inputs".
@@ -28,6 +30,7 @@ against these public inputs".
 | Primitives against zcash-test-vectors (the protocol designers' own Python reference, independent of librustzcash) | map-to-curve 13/13, group hash 11/11, Sinsemilla 11/11, empty roots 33/33, Merkle paths, generators, note commitments 10/10, note recovery 10/10, ZIP 244 txids 10/10 |
 | ChaCha20-Poly1305 | RFC 8439 §2.8.2 |
 | v6 txid and Ironwood note recovery | the real testnet transaction `571de6e4…` recomputes, and its output opens to 0.01 TAZ, "Invoice 42: two coffees" |
+| Real testnet source-of-funds receipts (`examples/testnet/source`) | both decode as v4, name `2a2bd721…` action 0, the revealed one shows 0.125 TAZ; refused without the source transaction |
 | Shared conformance vectors (`conformance/vectors.json`) | 223/223 agree with the Rust verifier |
 | Signed adversarial corpus (`tests/corpus.json`, from the Rust test `differential_corpus`) | 224/224 agree; the 9 the Rust verifier rejects only on a Halo 2 proof get identical public inputs here |
 

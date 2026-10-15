@@ -249,6 +249,67 @@ impl Client {
         }
         self.call(reqwest::Method::POST, "/v1/webhook_endpoints", Some(b), None).await
     }
+    pub async fn list_webhook_endpoints(&self) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, "/v1/webhook_endpoints", None, None).await
+    }
+    pub async fn delete_webhook_endpoint(&self, id: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::DELETE, &format!("/v1/webhook_endpoints/{id}"), None, None).await
+    }
+    pub async fn resend_event(&self, id: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::POST, &format!("/v1/events/{id}/resend"), Some(json!({})), None).await
+    }
+    pub async fn list_deliveries(&self, limit: Option<u32>) -> Result<Value, Error> {
+        let qs = limit.map(|l| format!("?limit={l}")).unwrap_or_default();
+        self.call(reqwest::Method::GET, &format!("/v1/deliveries{qs}"), None, None).await
+    }
+    pub async fn get_test_clock(&self, id: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, &format!("/v1/test_clocks/{id}"), None, None).await
+    }
+    /// Lints a ZIP-321 payment link (`network`: mainnet, testnet or regtest).
+    pub async fn check_payment_link(&self, uri: &str, network: Option<&str>) -> Result<Value, Error> {
+        let mut b = json!({ "uri": uri });
+        if let Some(n) = network {
+            b["network"] = n.into();
+        }
+        self.call(reqwest::Method::POST, "/v1/payment_links/check", Some(b), None).await
+    }
+    pub async fn jwks(&self) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, "/.well-known/jwks.json", None, None).await
+    }
+    pub async fn sandbox_fixtures(&self) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, "/v1/sandbox/fixtures", None, None).await
+    }
+    pub async fn list_errors(&self) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, "/v1/errors", None, None).await
+    }
+    pub async fn health(&self) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, "/v1/health", None, None).await
+    }
+    /// The request's ZIP-321 payment URI as an SVG QR code.
+    pub async fn request_qr(&self, id: &str) -> Result<String, Error> {
+        let res = self.http.get(format!("{}/v1/requests/{id}/qr.svg", self.base)).bearer_auth(&self.key).send().await.map_err(Error::Connection)?;
+        let status = res.status().as_u16();
+        let text = res.text().await.map_err(Error::Connection)?;
+        if (200..300).contains(&status) {
+            Ok(text)
+        } else {
+            Err(Error::InvalidRequest { status, code: "request_not_found".into(), message: text, param: None })
+        }
+    }
+    /// Hosted pages' endpoints (no API key needed; a per-request client secret).
+    pub async fn public_get_request(&self, id: &str, secret: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, &format!("/v1/public/requests/{id}?secret={secret}"), None, None).await
+    }
+    pub async fn public_submit_receipt(&self, id: &str, receipt: &str, client_secret: Option<&str>) -> Result<Value, Error> {
+        let mut b = json!({ "receipt": receipt });
+        if let Some(s) = client_secret {
+            b["client_secret"] = s.into();
+        }
+        self.call(reqwest::Method::POST, &format!("/v1/public/requests/{id}/receipts"), Some(b), None).await
+    }
+    pub async fn public_campaign(&self, id: &str) -> Result<Value, Error> {
+        self.call(reqwest::Method::GET, &format!("/v1/public/campaigns/{id}"), None, None).await
+    }
     pub async fn list_events(&self, limit: Option<u32>) -> Result<Value, Error> {
         let qs = limit.map(|l| format!("?limit={l}")).unwrap_or_default();
         self.call(reqwest::Method::GET, &format!("/v1/events{qs}"), None, None).await

@@ -126,6 +126,10 @@ class _Requests(_Resource):
     def submit_receipt(self, id: str, *, receipt: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
 
+    def qr(self, id: str) -> str:
+        """The request's ZIP-321 payment URI as an SVG QR code."""
+        return self._c._text(f"/v1/requests/{urllib.parse.quote(id)}/qr.svg")
+
 
 class _Refunds(_Resource):
     def create(self, request_id: str, *, amount_zatoshis: Optional[int] = None, reason: Optional[str] = None,
@@ -151,6 +155,9 @@ class _Attestations(_Resource):
 
     def verify(self, attestation: str) -> Dict[str, Any]:
         return self._c._request("POST", "/v1/attestations/verify", {"attestation": attestation})
+
+    def jwks(self) -> Dict[str, Any]:
+        return self._c._request("GET", "/.well-known/jwks.json")
 
 
 class _TestClocks(_Resource):
@@ -179,6 +186,19 @@ class _SignIn(_Resource):
     def verify(self, sign_in: str) -> Dict[str, Any]:
         """Check a zsig1… sign-in once; returns the proven address."""
         return self._c._request("POST", "/v1/sign_in/verify", {"sign_in": sign_in})
+
+
+class _Public(_Resource):
+    """What hosted pay and campaign pages use: no API key, a per-request client secret."""
+    def get_request(self, id: str, secret: str) -> Dict[str, Any]:
+        return self._c._request("GET", f"/v1/public/requests/{urllib.parse.quote(id)}?secret={urllib.parse.quote(secret)}")
+
+    def submit_receipt(self, id: str, *, receipt: str, client_secret: Optional[str] = None) -> Dict[str, Any]:
+        body = {"receipt": receipt, **({"client_secret": client_secret} if client_secret else {})}
+        return self._c._request("POST", f"/v1/public/requests/{urllib.parse.quote(id)}/receipts", body)
+
+    def campaign(self, id: str) -> Dict[str, Any]:
+        return self._c._request("GET", f"/v1/public/campaigns/{urllib.parse.quote(id)}")
 
 
 class _WebhookEndpoints(_Resource):
@@ -211,6 +231,7 @@ class Receipts:
         self.livemode = api_key.startswith("rcpt_live_")
         self.requests = _Requests(self)
         self.refunds = _Refunds(self)
+        self.public = _Public(self)
         self.sign_in = _SignIn(self)
         self.test_clocks = _TestClocks(self)
         self.attestations = _Attestations(self)
@@ -222,6 +243,32 @@ class Receipts:
         body = {k: v for k, v in dict(receipt=receipt, expect_address=expect_address, min_zatoshis=min_zatoshis,
                                       challenge=challenge).items() if v is not None}
         return self._request("POST", "/v1/verify", body, idempotency_key)
+
+    def check_payment_link(self, uri: str, *, network: Optional[str] = None) -> Dict[str, Any]:
+        """Lint a ZIP-321 link before printing it."""
+        return self._request("POST", "/v1/payment_links/check", {"uri": uri, **({"network": network} if network else {})})
+
+    def list_deliveries(self, *, limit: Optional[int] = None) -> Dict[str, Any]:
+        return self._request("GET", "/v1/deliveries" + (f"?limit={limit}" if limit else ""))
+
+    def sandbox_fixtures(self) -> Dict[str, Any]:
+        return self._request("GET", "/v1/sandbox/fixtures")
+
+    def list_errors(self) -> Dict[str, Any]:
+        return self._request("GET", "/v1/errors")
+
+    def health(self) -> Dict[str, Any]:
+        return self._request("GET", "/v1/health")
+
+    def _text(self, path: str) -> str:
+        req = urllib.request.Request(self.base_url + path, headers={"Authorization": f"Bearer {self.api_key}"})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as res:
+                return res.read().decode()
+        except urllib.error.HTTPError as e:
+            text = e.read().decode()
+            e.close()
+            raise _error_for(e.code, json.loads(text) if text.startswith("{") else {"error": {"message": text}}) from None
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None,
                  idempotency_key: Optional[str] = None) -> Dict[str, Any]:

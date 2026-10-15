@@ -79,7 +79,22 @@ export class Receipts {
       submitReceipt: (id, params, opts) => r._request("POST", `/v1/requests/${encodeURIComponent(id)}/receipts`, params, opts),
       /** Iterate every request across pages: `for await (const r of receipts.requests.each())`. */
       each: (params = {}) => paginate((p) => r.requests.list(p), params),
+      /** The request's ZIP-321 payment URI as an SVG QR code (a string). */
+      qr: (id) => r._text(`/v1/requests/${encodeURIComponent(id)}/qr.svg`),
     };
+    /** What hosted pay and campaign pages use: no API key, a per-request client secret. */
+    this.public = {
+      getRequest: (id, secret) => r._request("GET", `/v1/public/requests/${encodeURIComponent(id)}?secret=${encodeURIComponent(secret)}`),
+      submitReceipt: (id, params) => r._request("POST", `/v1/public/requests/${encodeURIComponent(id)}/receipts`, params),
+      campaign: (id) => r._request("GET", `/v1/public/campaigns/${encodeURIComponent(id)}`),
+    };
+    this.paymentLinks = {
+      /** Lint a ZIP-321 link: `{ uri, network? }`. */
+      check: (params) => r._request("POST", "/v1/payment_links/check", typeof params === "string" ? { uri: params } : params),
+    };
+    this.deliveries = { list: (params = {}) => r._request("GET", `/v1/deliveries${qs(params)}`) };
+    this.sandbox = { fixtures: () => r._request("GET", "/v1/sandbox/fixtures") };
+    this.errors = { list: () => r._request("GET", "/v1/errors") };
     this.refunds = {
       /** Refund a payment to the payer's signed refund address: `{ amount_zatoshis?, reason?, payment_txid? }`. */
       create: (requestId, params = {}, opts) => r._request("POST", `/v1/requests/${encodeURIComponent(requestId)}/refunds`, params, opts),
@@ -91,6 +106,8 @@ export class Receipts {
       /** A signed minimal statement about a fulfilled request: `{ at_least_zatoshis?, before?, disclose? }`. */
       create: (requestId, params = {}) => r._request("POST", `/v1/requests/${encodeURIComponent(requestId)}/attestations`, params),
       verify: (attestation) => r._request("POST", "/v1/attestations/verify", { attestation }),
+      /** The server's attestation public keys (JWKS). */
+      jwks: () => r._request("GET", "/.well-known/jwks.json"),
     };
     this.testClocks = {
       /** Sandbox: a frozen time and block height. `{ frozen_time?, height? }` */
@@ -122,6 +139,17 @@ export class Receipts {
   verify(params, opts) {
     if (typeof params === "string") params = { receipt: params };
     return this._request("POST", "/v1/verify", params, opts);
+  }
+
+  /** Server health and networks. */
+  health() {
+    return this._request("GET", "/v1/health");
+  }
+
+  async _text(path) {
+    const res = await this._fetch(this.baseUrl + path, { headers: { authorization: `Bearer ${this.apiKey}` } });
+    if (!res.ok) throw errorFor(res.status, await res.json().catch(() => ({})));
+    return res.text();
   }
 
   async _request(method, path, body, opts = {}) {

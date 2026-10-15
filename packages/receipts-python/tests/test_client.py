@@ -79,3 +79,53 @@ class WebHelpers(unittest.TestCase):
         self.assertTrue(check_gate(c, payee=self.PAYEE, amount_zatoshis=1_000_000, request_id=rid, bind_to="alice").allow)
         self.assertFalse(check_gate(c, payee=self.PAYEE, amount_zatoshis=1_000_000, request_id=rid, bind_to="mallory").allow)
         self.assertFalse(check_gate(c, payee=self.PAYEE, amount_zatoshis=5_000_000, request_id=rid, bind_to="alice").allow)
+
+
+@unittest.skipUnless(URL and KEY, "needs RECEIPTS_URL and RECEIPTS_KEY")
+class Parity(unittest.TestCase):
+    """Calls every API operation through this SDK and checks the list against conformance/sdk-parity.json."""
+    PAYEE = WebHelpers.PAYEE
+
+    def test_every_operation(self):
+        table = {k for k in json.loads((EX.parent / "conformance" / "sdk-parity.json").read_text()) if not k.startswith("_")}
+        c, done = Receipts(KEY, base_url=URL), set()
+
+        def call(op, value):
+            done.add(op)
+            return value
+        call("health", c.health())
+        call("listErrors", c.list_errors())
+        call("listSandboxFixtures", c.sandbox_fixtures())
+        call("verify", c.verify("zrcpt_test_valid"))
+        call("checkPaymentLink", c.check_payment_link(f"zcash:{self.PAYEE}?amount=0.01"))
+        clock = call("createTestClock", c.test_clocks.create())
+        call("getTestClock", c.test_clocks.retrieve(clock["id"]))
+        req = call("createRequest", c.requests.create(payee=self.PAYEE, amount_zatoshis=1_000_000, test_clock=clock["id"]))
+        call("getRequest", c.requests.retrieve(req["id"]))
+        call("listRequests", c.requests.list(limit=2))
+        self.assertIn("<svg", call("requestQr", c.requests.qr(req["id"])))
+        call("publicGetRequest", c.public.get_request(req["id"], req["client_secret"]))
+        call("publicSubmitReceipt", c.public.submit_receipt(req["id"], receipt="zrcpt_test_refund_to", client_secret=req["client_secret"]))
+        call("advanceTestClock", c.test_clocks.advance(clock["id"], blocks=9))
+        call("reorgTestClock", c.test_clocks.reorg(clock["id"], depth=1))
+        rf = call("createRefund", c.refunds.create(req["id"], amount_zatoshis=1000))
+        call("getRefund", c.refunds.retrieve(rf["id"]))
+        call("submitRefundReceipt", c.refunds.submit_receipt(rf["id"], receipt="zrcpt_test_valid"))
+        other = c.requests.create(payee=self.PAYEE, amount_zatoshis=1_000_000)
+        call("submitReceipt", c.requests.submit_receipt(other["id"], receipt="zrcpt_test_valid"))
+        att = call("createAttestation", c.attestations.create(other["id"]))
+        call("verifyAttestation", c.attestations.verify(att["presentation"]))
+        call("jwks", c.attestations.jwks())
+        camp = c.requests.create(payee=self.PAYEE, kind="campaign")
+        call("publicCampaign", c.public.campaign(camp["id"]))
+        call("createSignInChallenge", c.sign_in.create_challenge(domain="parity.test"))
+        with self.assertRaises(InvalidRequestError):
+            c.sign_in.verify("zsig1AAAA")
+        done.add("verifySignIn")
+        ep = call("createWebhookEndpoint", c.webhook_endpoints.create(url="http://127.0.0.1:9/parity"))
+        call("listWebhookEndpoints", c.webhook_endpoints.list())
+        call("deleteWebhookEndpoint", c.webhook_endpoints.delete(ep["id"]))
+        ev = call("listEvents", c.events.list(limit=1))
+        call("resendEvent", c.events.resend(ev["data"][0]["id"]))
+        call("listDeliveries", c.list_deliveries(limit=1))
+        self.assertEqual(table - done, set())

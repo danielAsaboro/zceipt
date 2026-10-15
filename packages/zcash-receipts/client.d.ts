@@ -46,7 +46,18 @@ export class Receipts {
     list(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number; starting_after?: string }): Promise<List<ProofRequest>>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<ProofRequest>;
     each(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number }): AsyncIterable<ProofRequest>;
+    qr(id: string): Promise<string>;
   };
+  public: {
+    getRequest(id: string, secret: string): Promise<any>;
+    submitReceipt(id: string, params: { receipt: string; client_secret?: string }): Promise<any>;
+    campaign(id: string): Promise<any>;
+  };
+  paymentLinks: { check(params: string | { uri: string; network?: "mainnet" | "testnet" | "regtest" }): Promise<any> };
+  deliveries: { list(params?: { limit?: number }): Promise<List<any>> };
+  sandbox: { fixtures(): Promise<List<string>> };
+  errors: { list(): Promise<any> };
+  health(): Promise<{ ok: boolean; version: string; test_network: string; live_network: string }>;
   refunds: {
     create(requestId: string, params?: { amount_zatoshis?: number; reason?: string; payment_txid?: string }, opts?: RequestOptions): Promise<Refund>;
     retrieve(id: string): Promise<Refund>;
@@ -55,6 +66,7 @@ export class Receipts {
   attestations: {
     create(requestId: string, params?: { at_least_zatoshis?: number; before?: string; disclose?: ("txid" | "amount_zatoshis" | "paid_at" | "request" | "label")[] }): Promise<{ object: "attestation"; request: string; claims: object; presentation: string; disclosures: Record<string, string>; jwks_url: string }>;
     verify(attestation: string): Promise<{ object: "attestation_verification"; valid: true; claims: object }>;
+    jwks(): Promise<{ keys: object[] }>;
   };
   testClocks: {
     create(params?: { frozen_time?: number; height?: number }): Promise<TestClock>;

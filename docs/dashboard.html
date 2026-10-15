@@ -271,7 +271,7 @@ async function showRequest(id, into = "#rq-detail") {
     try {
       const x = await api("POST", `/v1/requests/${r.id}/attestations`, { at_least_zatoshis: min ? Math.round(Number(min) * 1e8) : undefined, before: day || undefined, disclose });
       q(`at-out-${r.id}`).innerHTML = `<div class="kv"><span class="k">States</span><span>paid at least ${zec(x.claims.paid_at_least_zatoshis)} on or before ${esc(x.claims.paid_on_or_before)}${x.claims.final ? ", final" : ""}</span></div>
-        <label>Attestation (hand this over)</label><pre style="white-space:pre-wrap;word-break:break-all">${esc(x.presentation)}</pre><div class="muted">Anyone can check it offline with <span class="mono">verifyAttestation()</span> and the keys at ${esc(x.jwks_url)}.</div>`;
+        <label>Attestation (hand this over)</label><pre style="white-space:pre-wrap;word-break:break-all">${esc(x.presentation)}</pre><div class="muted">Anyone can check it offline with <span class="mono">verifyAttestation(p, { issuer })</span>, naming this server; its keys are at ${esc(x.jwks_url)}.</div>`;
     } catch (e) { q(`at-out-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
   };
 }

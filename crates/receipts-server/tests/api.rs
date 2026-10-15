@@ -713,3 +713,32 @@ async fn second_qa_pass_regressions() {
         assert_eq!(s, StatusCode::BAD_REQUEST, "{d}");
     }
 }
+
+#[tokio::test]
+async fn built_in_verifier_and_landing_page() {
+    let (app, _, _) = app().await;
+    let get = |path: &'static str| {
+        let app = app.clone();
+        async move {
+            let res = app.oneshot(Request::builder().uri(path).body(Body::empty()).unwrap()).await.unwrap();
+            let ct = res.headers().get("content-type").map(|v| v.to_str().unwrap().to_string()).unwrap_or_default();
+            let status = res.status();
+            let bytes = res.into_body().collect().await.unwrap().to_bytes();
+            (status, ct, bytes.len(), String::from_utf8_lossy(&bytes[..bytes.len().min(8000)]).into_owned())
+        }
+    };
+    let (s, ct, _, body) = get("/").await;
+    assert!(s == StatusCode::OK && ct.starts_with("text/html") && body.contains("Prove one Zcash payment"), "{body}");
+    assert_eq!(get("/verify").await.0, StatusCode::PERMANENT_REDIRECT);
+    let (s, ct, _, _) = get("/verify/").await;
+    assert!(s == StatusCode::OK && ct.starts_with("text/html"));
+    let (s, ct, n, _) = get("/verify/zcash-receipts/pkg/receipts_wasm_bg.wasm").await;
+    assert!(s == StatusCode::OK && ct == "application/wasm" && n > 1_000_000);
+    assert_eq!(get("/verify/app.js").await.1, "text/javascript");
+    for bad in ["/verify/../Cargo.toml", "/verify/%2e%2e/x", "/verify/nope.js"] {
+        assert_eq!(get(bad).await.0, StatusCode::NOT_FOUND, "{bad}");
+    }
+    for doc in ["/docs/THREAT-MODEL.md", "/docs/COMPARISON.md", "/docs/ZIP311-TODOS.md", "/docs/guides/http-402.md"] {
+        assert_eq!(get(doc).await.0, StatusCode::OK, "{doc}");
+    }
+}

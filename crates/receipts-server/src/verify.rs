@@ -243,3 +243,31 @@ pub fn parse_display_txid(s: &str) -> Result<[u8; 32], ApiError> {
     b.reverse();
     Ok(b)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validity_levels() {
+        let (v, c) = levels(100, Some(109), 1, 1, Some("ab12cd"), Some("ab12cd"), 0);
+        assert_eq!((v, c["finality"].as_str(), c["confirmations"].as_u64(), c["challenge"].as_str()), ("valid", Some("final"), Some(10), Some("matched")));
+        let (v, c) = levels(100, Some(108), 1, 1, Some("ab12cd"), Some("ffffff"), 1);
+        assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str(), c["sender_address"].as_str()), ("valid_provisional", Some("provisional"), Some("mismatch"), Some("proven")));
+        let (v, c) = levels(100, None, 0, 1, None, None, 0);
+        assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str()), ("valid", Some("unknown"), Some("none")));
+        assert_eq!(levels(100, Some(100), 1, 1, Some("ab12cd"), None, 0).1["challenge"], "present");
+    }
+
+    #[test]
+    fn message_helpers() {
+        assert_eq!(challenge_of("Order 7\nchallenge:00aa11bb\nrefund-to:x"), Some("00aa11bb".into()));
+        assert_eq!(challenge_of("challenge:xyz"), None, "not hex");
+        assert_eq!(challenge_of("challenge:abc"), None, "too short");
+        assert_eq!(extract("https://x/#zrcpt1Abc_-9&h=12", "zrcpt1"), Some("zrcpt1Abc_-9".into()));
+        assert_eq!(extract("nothing here", "zrcpt1"), None);
+        let id = parse_display_txid("571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73").unwrap();
+        assert_eq!(display_txid(&id), "571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73");
+        assert!(parse_display_txid("zz").is_err());
+    }
+}

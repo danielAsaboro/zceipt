@@ -90,7 +90,7 @@ the shared secret, decrypts `encCiphertext`, re-derives `esk` from `rseed` and c
 `[esk] g_d = epk_j`. Binding of `NoteCommit` makes `(d, pk_d, v, ρ, ψ)` the note committed on chain;
 the `epk` and `esk` checks make the ciphertext the one the recipient's `ivk` opens. The memo is
 authenticated by the AEAD under that key. For an Ironwood output the lead byte is `0x03` and
-`rcm` is the ZIP 2005 derivation of "Sending Notes (Orchard)" (see `SPEC-AMBIGUITIES.md`, A6).
+`rcm` is the ZIP 2005 derivation of "Sending Notes (Orchard)" (see `SPEC-AMBIGUITIES.md`, A9).
 
 **Binding (3).** The signature covers the canonical encoding; decoding is strict (one encoding
 per receipt). Proof bytes are inside the signed message, so re-randomizing a Halo 2 proof (which
@@ -109,8 +109,10 @@ Until 2026-10-15 this repository took `cv` from the prover. A prover could then 
 value-0 note to their own address, skip the anchor check, and "prove" any address `A`, and sign
 in as anyone. `tests/roundtrip.rs::claiming_someone_elses_sender_address_is_refused` and
 `::sign_in_as_someone_elses_address_is_refused` construct both forgeries; they were accepted
-before the fix and are refused now, by the Rust verifier and, independently, by the spec
-verifier (`spec-verifier`, rule "cv_net is not ValueCommit_0(1)").
+before the fix and are refused now. A forgery that keeps its own `cv` is also refused by the spec
+verifier on its own (rule "cv_net is not ValueCommit_0(1)"); one that writes the expected `cv`
+fails the Halo 2 check, which the spec verifier does not run, and the two verifiers agree on the
+public inputs that check uses.
 
 ## Assumptions
 
@@ -124,4 +126,5 @@ verifier (`spec-verifier`, rule "cv_net is not ValueCommit_0(1)").
 
 `docs/TRACEABILITY.md` maps every requirement to the code and the test that checks it, in both
 verifiers. `docs/ASSURANCE.md` lists the evidence that does not come from us: published test
-vectors, the chain, a second implementation, mutation testing, fuzzing and a packet capture.
+vectors, the chain, a second implementation, mutation testing, fuzzing, Miri, and a recording of
+exactly what the chain server receives.

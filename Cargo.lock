@@ -2978,6 +2978,7 @@ dependencies = [
  "receipts-client",
  "receipts-core",
  "receipts-server",
+ "receipts-wallet",
  "reqwest",
  "rusqlite",
  "rustls",
@@ -3068,6 +3069,32 @@ dependencies = [
  "url",
  "zcash_address",
  "zcash_protocol",
+]
+
+[[package]]
+name = "receipts-wallet"
+version = "0.1.0"
+dependencies = [
+ "age",
+ "anyhow",
+ "bip0039",
+ "incrementalmerkletree",
+ "orchard",
+ "rand 0.10.3",
+ "receipts-chain",
+ "receipts-core",
+ "rusqlite",
+ "secrecy 0.8.0",
+ "serde",
+ "shardtree",
+ "toml 0.8.23",
+ "zcash_client_backend",
+ "zcash_client_sqlite",
+ "zcash_keys",
+ "zcash_note_encryption",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zip32",
 ]
 
 [[package]]

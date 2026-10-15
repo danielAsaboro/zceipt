@@ -1,4 +1,6 @@
-//! Reading a zcash-devtool wallet (keys.toml + data.sqlite) to build a receipt.
+//! Make receipts from a zcash-devtool wallet (keys.toml + data.sqlite): `create_receipt`,
+//! `sign_in`, `wallet_network`. Used by the `receipts` CLI and by the `zcash-devtool wallet
+//! receipt` command (see integrations/zcash-devtool).
 //!
 //! The mnemonic is decrypted in memory with the wallet's age identity, used to derive the
 //! account's Orchard spending key, and dropped. Nothing is written back to the wallet.
@@ -13,7 +15,9 @@ use orchard::{
     value::NoteValue,
     Note,
 };
-use crate::OsRng;
+/// `rand` 0.10 replaced the infallible `OsRng` with the fallible `SysRng`.
+#[allow(non_upper_case_globals)]
+const OsRng: rand::rand_core::UnwrapErr<rand::rngs::SysRng> = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
 use receipts_chain::net::{Heights, Net};
 use receipts_core::{Pool, Receipt, SpendWitness};
 use secrecy::ExposeSecret;

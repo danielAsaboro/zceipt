@@ -15,6 +15,7 @@ receipts-core = { path = "../receipts-core" }
 receipts-chain = { path = "../receipts-chain" }
 receipts-server = { path = "../receipts-server" }
 receipts-client = { path = "../receipts-client" }
+receipts-wallet = { path = "../receipts-wallet" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
 qrcode = { version = "0.14", default-features = false }

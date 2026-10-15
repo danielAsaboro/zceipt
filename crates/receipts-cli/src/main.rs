@@ -2,13 +2,10 @@
 
 mod demo;
 mod mcp;
-mod wallet;
+use receipts_wallet as wallet;
 
 use receipts_chain::{chain, net};
 
-/// `rand` 0.10 replaced the infallible `OsRng` with the fallible `SysRng`.
-#[allow(non_upper_case_globals)]
-pub(crate) const OsRng: rand::rand_core::UnwrapErr<rand::rngs::SysRng> = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
 
 use anyhow::{anyhow, bail, Context};
 use clap::{Parser, Subcommand};

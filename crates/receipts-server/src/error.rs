@@ -114,6 +114,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("request_expired", 409, "The proof request expired before a valid receipt arrived."),
     ("request_not_fulfilled", 409, "Only a fulfilled request can be attested."),
     ("attestation_overclaims", 400, "The attestation would state more than was paid, or an earlier date than the payment."),
+    ("payment_unconfirmed", 409, "A payment on the request left the chain in a reorg; wait until it is mined again."),
     ("attestation_invalid", 422, "The attestation's signature or one of its disclosures does not check out."),
     ("test_clock_not_found", 404, "No test clock with that id."),
     ("livemode_not_allowed", 400, "Test clocks exist only in test mode; use an rcpt_test_ key."),

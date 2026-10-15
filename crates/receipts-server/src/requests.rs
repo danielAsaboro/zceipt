@@ -196,8 +196,17 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
         if req.label.as_ref().is_some_and(|l| l.len() > 200) {
             return Err(ApiError::invalid("parameter_invalid", "label is longer than 200 characters").param("label"));
         }
-        if req.expires_in.is_some_and(|e| e <= 0) {
-            return Err(ApiError::invalid("parameter_invalid", "expires_in must be positive (seconds)").param("expires_in"));
+        if req.expires_in.is_some_and(|e| e <= 0 || e > 10 * 366 * 86_400) {
+            return Err(ApiError::invalid("parameter_invalid", "expires_in must be 1 second to 10 years").param("expires_in"));
+        }
+        // 21 million ZEC, the supply cap.
+        if req.amount_zatoshis.is_some_and(|a| a == 0 || a > 21_000_000 * 100_000_000) {
+            return Err(ApiError::invalid("parameter_invalid", "amount_zatoshis must be 1 to 2,100,000,000,000,000").param("amount_zatoshis"));
+        }
+        if let Some(m) = &req.metadata {
+            if m.len() > 50 || Value::Object(m.clone()).to_string().len() > 8_192 || m.keys().any(|k| k.len() > 40) {
+                return Err(ApiError::invalid("parameter_invalid", "metadata: at most 50 keys of up to 40 characters, 8 KB in all").param("metadata"));
+            }
         }
         let kind = req.kind.unwrap_or_else(|| "single".into());
         if !["single", "partial", "campaign"].contains(&kind.as_str()) {
@@ -319,6 +328,15 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
     let (received, fulfilled) = {
         let mut c = st.db.0.lock().unwrap();
         let tx = c.transaction()?;
+        // Re-read the request inside the transaction: another submission may have settled it
+        // (or added to it) while this one was being verified.
+        let (status_now, received_now): (String, i64) =
+            tx.query_row("SELECT status, received_zatoshis FROM requests WHERE id = ?1", [&r.id], |x| Ok((x.get(0)?, x.get(1)?)))?;
+        if status_now != "open" {
+            drop(tx);
+            drop(c);
+            return Err(ApiError::conflict("request_already_fulfilled", format!("{} was already {status_now}", r.id)));
+        }
         for (action, _) in &actions {
             let used: Option<String> = tx
                 .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, action], |x| x.get(0))
@@ -344,7 +362,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             "INSERT INTO request_payments (request_id, txid, zatoshis, mined_height, memo, sender_addresses, created, public_note, refund_address) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![r.id, v.txid, paid as i64, v.mined_height, memo, serde_json::to_string(&v.sender_addresses).unwrap(), now(), public_note, refund_address],
         )?;
-        let received = r.received + paid as i64;
+        let received = received_now + paid as i64;
         let fulfilled = match r.kind.as_str() {
             "campaign" => false,
             "partial" => r.amount.is_some_and(|a| received >= a),
@@ -353,7 +371,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         if fulfilled {
             tx.execute(
                 "UPDATE requests SET status = 'fulfilled', fulfilled_at = ?1, txid = ?2, paid_zatoshis = ?3, received_zatoshis = ?3, receipt = ?4, verification = ?5 WHERE id = ?6",
-                params![now(), v.txid, received, text, serde_json::to_string(&v).unwrap(), r.id],
+                params![r.clock_time.unwrap_or_else(now), v.txid, received, text, serde_json::to_string(&v).unwrap(), r.id],
             )?;
         } else {
             tx.execute("UPDATE requests SET received_zatoshis = ?1 WHERE id = ?2", params![received, r.id])?;

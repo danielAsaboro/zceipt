@@ -55,19 +55,32 @@ pub async fn worker(st: Shared) {
 }
 
 async fn tick(st: &Shared) -> anyhow::Result<()> {
-    let due: Vec<(i64, String, String, String, i64)> = {
+    let due: Vec<(i64, String, String, String, i64, String)> = {
         let c = st.db.0.lock().unwrap();
         let mut stmt = c.prepare(
-            "SELECT d.id, e.body, w.url, w.secret, d.attempts FROM deliveries d
+            "SELECT d.id, e.body, w.url, w.secret, d.attempts, w.mode FROM deliveries d
              JOIN events e ON e.id = d.event_id JOIN webhook_endpoints w ON w.id = d.endpoint_id
              WHERE d.status = 'pending' AND d.next_attempt_at <= ?1 AND w.disabled = 0 LIMIT 20",
         )?;
-        let rows = stmt.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?;
+        let rows = stmt.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
         rows.collect::<Result<_, _>>()?
     };
-    for (id, body, url, secret, attempts) in due {
-        let res = st
-            .http
+    for (id, body, url, secret, attempts, mode) in due {
+        // Live deliveries: resolve the host now and connect only to a public address, pinned
+        // so a DNS answer can't change between this check and the connection.
+        let client = if mode == "live" {
+            match pinned_public_client(&url).await {
+                Ok(c) => c,
+                Err(e) => {
+                    let c = st.db.0.lock().unwrap();
+                    c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
+                    continue;
+                }
+            }
+        } else {
+            st.http.clone()
+        };
+        let res = client
             .post(&url)
             .header("content-type", "application/json")
             .header("user-agent", "Receipts-Webhooks/1")
@@ -92,4 +105,22 @@ async fn tick(st: &Shared) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+async fn pinned_public_client(url: &str) -> Result<reqwest::Client, String> {
+    crate::check_live_webhook_url(url).map_err(|e| e.message)?;
+    let u = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
+    let host = u.host_str().ok_or("no host")?.to_string();
+    let port = u.port_or_known_default().unwrap_or(443);
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.trim_matches(|c| c == '[' || c == ']'), port)).await.map_err(|e| format!("DNS: {e}"))?.collect();
+    let addr = addrs.first().copied().ok_or("DNS: no address")?;
+    if let Some(bad) = addrs.iter().find(|a| !crate::is_public_ip(a.ip())) {
+        return Err(format!("refused: {host} resolves to a non-public address ({})", bad.ip()));
+    }
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
+        .resolve(&host, addr)
+        .build()
+        .map_err(|e| e.to_string())
 }

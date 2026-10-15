@@ -32,6 +32,7 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="request_expired"></a>`request_expired` | 409 | The proof request expired before a valid receipt arrived. |
 | <a id="request_not_fulfilled"></a>`request_not_fulfilled` | 409 | Only a fulfilled request can be attested. |
 | <a id="attestation_overclaims"></a>`attestation_overclaims` | 400 | The attestation would state more than was paid, or an earlier date than the payment. |
+| <a id="payment_unconfirmed"></a>`payment_unconfirmed` | 409 | A payment on the request left the chain in a reorg; wait until it is mined again. |
 | <a id="attestation_invalid"></a>`attestation_invalid` | 422 | The attestation's signature or one of its disclosures does not check out. |
 | <a id="test_clock_not_found"></a>`test_clock_not_found` | 404 | No test clock with that id. |
 | <a id="livemode_not_allowed"></a>`livemode_not_allowed` | 400 | Test clocks exist only in test mode; use an rcpt_test_ key. |

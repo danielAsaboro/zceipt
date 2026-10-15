@@ -479,7 +479,11 @@ async fn main() -> anyhow::Result<()> {
                     Ok(zcash_primitives::transaction::Transaction::read(&bytes[..], zcash_protocol::consensus::BranchId::for_height(&net, zcash_protocol::consensus::BlockHeight::from_u32(h)))?)
                 };
                 let tx1 = read(&raw1, height)?;
-                let tx2 = read(&std::fs::read_to_string(&second)?, second_height.unwrap_or(height))?;
+                let h2 = second_height.unwrap_or(height);
+                if h2 < height {
+                    bail!("--second-height {h2} is before the first transaction's block {height}; the second step can't be mined first");
+                }
+                let tx2 = read(&std::fs::read_to_string(&second)?, h2)?;
                 let d = receipts_chain::deposit::check(&receipt, &report.message, receipts_chain::deposit::network_type(net), &tx1, &tx2).map_err(|e| anyhow!(e))?;
                 print_deposit(&report, &d, json)?;
                 return Ok(());
@@ -730,7 +734,7 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
         Ok(res) => {
             let date = res.headers().get("date").and_then(|d| d.to_str().ok()).map(str::to_string);
             let health: serde_json::Value = res.json().await.unwrap_or_default();
-            line(Some(health["ok"] == true), "Receipts API", format!("{base_url} (version {}, test mode on {})", health["version"].as_str().unwrap_or("?"), health["test_network"].as_str().unwrap_or("?")));
+            line(Some(health["ok"] == true), "Receipts API", format!("{base_url} (version {}; test keys use {}, live keys {})", health["version"].as_str().unwrap_or("?"), health["test_network"].as_str().unwrap_or("?"), health["live_network"].as_str().unwrap_or("mainnet")));
             if let Some(d) = date.and_then(|d| httpdate_to_unix(&d)) {
                 let skew = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64 - d).abs();
                 line(Some(skew < 120), "clock", if skew < 120 { format!("within {skew} s of the API") } else { format!("{skew} s off the API; webhook signatures allow 300 s, fix your clock") });
@@ -747,7 +751,12 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
                 }
             }
         }
-        Err(_) => line(None, "Receipts API", format!("nothing at {base_url} (start one with `receipts serve`, or set RECEIPTS_URL)")),
+        // Unreachable is only a problem if you meant to use it (a key is set, or the URL was chosen).
+        Err(_) => line(
+            (api_key.is_some() || std::env::args().any(|a| a.starts_with("--base-url")) || std::env::var("RECEIPTS_URL").is_ok()).then_some(false),
+            "Receipts API",
+            format!("nothing at {base_url} (start one with `receipts serve`, or set RECEIPTS_URL)"),
+        ),
     }
     if let Some(w) = wallet {
         let keys = w.join("keys.toml");
@@ -757,7 +766,15 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
                 let netname = t.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"').to_string()).unwrap_or_else(|| "test".into());
                 let db = w.join("data.sqlite");
                 let synced: Option<u32> = rusqlite_height(&db);
-                line(Some(db.exists()), "wallet", format!("{} ({netname}), synced to {}", w.display(), synced.map(|h| h.to_string()).unwrap_or_else(|| "unknown height; run `zcash-devtool wallet sync`".into())));
+                let net = match netname.as_str() { "main" => Some(net::Net::Main), "test" => Some(net::Net::Test), _ => None };
+                let tip = match net { Some(n) => chain::chain_tip(n, None).await.ok(), None => None };
+                let behind = match (synced, tip) { (Some(s), Some(t)) => Some(t.saturating_sub(s)), _ => None };
+                let ok = db.exists() && synced.is_some() && behind.is_none_or(|b| b <= 10);
+                line(Some(ok), "wallet", match (synced, behind) {
+                    (None, _) => format!("{} ({netname}): sync height unknown; run `zcash-devtool wallet sync`", w.display()),
+                    (Some(s), Some(b)) if b > 10 => format!("{} ({netname}) is {b} blocks behind (at {s}); run `zcash-devtool wallet sync`", w.display()),
+                    (Some(s), _) => format!("{} ({netname}), synced to {s}", w.display()),
+                });
                 if t.contains("AGE-SECRET-KEY") {
                     line(Some(false), "wallet secrets", "keys.toml contains an age secret key; keep identities in a separate file".into());
                 }

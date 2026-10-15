@@ -207,6 +207,11 @@ pub async fn submit(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
         {
             let mut c = st2.db.0.lock().unwrap();
             let tx = c.transaction()?;
+            // Settled by a concurrent submission while this receipt was being verified?
+            let status_now: String = tx.query_row("SELECT status FROM refunds WHERE id = ?1", [&rf.id], |x| x.get(0))?;
+            if status_now != "pending" {
+                return Err(ApiError::conflict("refund_already_succeeded", format!("{} was already settled", rf.id)));
+            }
             for o in &outs {
                 let used: Option<String> = tx
                     .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, o.action], |x| x.get(0))

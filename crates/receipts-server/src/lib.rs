@@ -98,16 +98,23 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
             return ApiError::invalid("api_version_unsupported", format!("this server speaks Receipts-Version {API_VERSION}, not {v}")).into_response();
         }
     }
-    let key = req
+    // Rate-limit buckets: a valid API key (however it was sent), or, for the hosted pages'
+    // unauthenticated receipt submissions, the request id. Anything else is not counted here
+    // and is refused by authentication, so made-up headers can't open fresh buckets.
+    let raw_key = req
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .map(str::to_string)
-        .or_else(|| req.headers().get("x-api-key").and_then(|v| v.to_str().ok()).map(str::to_string));
-    // Hosted pages submit receipts without a key; each one costs a proof verification, so
-    // limit them per request id.
-    let key = key.or_else(|| {
-        (req.method() == axum::http::Method::POST && req.uri().path().starts_with("/v1/public/")).then(|| format!("public:{}", req.uri().path()))
+        .map(|v| v.strip_prefix("Bearer ").unwrap_or(v).trim().to_string())
+        .or_else(|| req.headers().get("x-api-key").and_then(|v| v.to_str().ok()).map(|v| v.trim().to_string()));
+    let valid_key = raw_key.filter(|k| matches!(st.db.mode_for_key(k), Ok(Some(_))));
+    let path = req.uri().path().to_string();
+    let key = valid_key.or_else(|| {
+        (req.method() == axum::http::Method::POST && path.starts_with("/v1/public/")).then(|| {
+            let decoded = percent_decode(&path);
+            let id = decoded.split('/').nth(4).unwrap_or("").to_string();
+            format!("public:{id}")
+        })
     });
     let mut remaining = None;
     if let Some(k) = key {
@@ -115,6 +122,9 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
         let t = now();
         let window = t - t % 60;
         let mut m = st.rate.lock().unwrap();
+        if m.len() > 10_000 {
+            m.retain(|_, (w, _)| *w == window);
+        }
         let e = m.entry(k).or_insert((window, 0));
         if e.0 != window {
             *e = (window, 0);
@@ -144,6 +154,24 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
 }
 
 pub type Shared = Arc<AppState>;
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -212,8 +240,26 @@ impl<T: serde::de::DeserializeOwned> axum::extract::FromRequest<Shared> for Body
         if let Some(kind) = receipts_core::tripwire::secret_kind(&raw) {
             return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zrcpt1… receipt.")));
         }
-        let v = serde_json::from_slice(if bytes.is_empty() { b"{}" } else { &bytes })
+        let value: Value = serde_json::from_slice(if bytes.is_empty() { b"{}" } else { &bytes })
             .map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
+        // Again on the decoded strings, so JSON escapes (\u0075view…) can't hide a key.
+        fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
+            match v {
+                Value::String(s) => out.push(s),
+                Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+                Value::Object(o) => o.iter().for_each(|(k, x)| {
+                    out.push(k);
+                    strings(x, out)
+                }),
+                _ => {}
+            }
+        }
+        let mut all = Vec::new();
+        strings(&value, &mut all);
+        if let Some(kind) = all.iter().find_map(|s| receipts_core::tripwire::secret_kind(s)) {
+            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zrcpt1… receipt.")));
+        }
+        let v = serde_json::from_value(value).map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
         Ok(Body(v, raw))
     }
 }
@@ -400,9 +446,49 @@ struct CreateEndpoint {
 
 const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.payment_reorged", "request.expired", "receipt.rejected", "refund.created", "refund.succeeded"];
 
+/// Whether `ip` is a public unicast address (not loopback, private, link-local, CGNAT,
+/// benchmarking, multicast, reserved, or an IPv6 form that embeds such an IPv4 address).
+pub(crate) fn is_public_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(v.is_private() || v.is_loopback() || v.is_link_local() || v.is_unspecified() || v.is_broadcast() || v.is_multicast() || v.is_documentation()
+                || o[0] == 0
+                || (o[0] == 100 && (o[1] & 0xc0) == 64)
+                || (o[0] == 198 && (o[1] & 0xfe) == 18)
+                || o[0] >= 240
+                || (o[0] == 192 && o[1] == 0 && o[2] == 0))
+        }
+        IpAddr::V6(v) => {
+            let s = v.segments();
+            if let Some(v4) = v.to_ipv4_mapped() {
+                return is_public_ip(IpAddr::V4(v4));
+            }
+            // IPv4-compatible (::a.b.c.d), NAT64 (64:ff9b::/96), 6to4 (2002::/16): check the embedded IPv4.
+            let embedded = |a: u16, b: u16| IpAddr::V4(std::net::Ipv4Addr::new((a >> 8) as u8, a as u8, (b >> 8) as u8, b as u8));
+            if s[..6] == [0, 0, 0, 0, 0, 0] {
+                return !v.is_unspecified() && !v.is_loopback() && is_public_ip(embedded(s[6], s[7]));
+            }
+            if s[0] == 0x64 && s[1] == 0xff9b {
+                return is_public_ip(embedded(s[6], s[7]));
+            }
+            if s[0] == 0x2002 {
+                return is_public_ip(embedded(s[1], s[2]));
+            }
+            !(v.is_loopback() || v.is_unspecified() || v.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00   // unique local
+                || (s[0] & 0xffc0) == 0xfe80   // link-local
+                || (s[0] & 0xffc0) == 0xfec0   // site-local (deprecated)
+                || s[0] == 0x2001 && s[1] == 0x0db8) // documentation
+        }
+    }
+}
+
 /// Live webhooks must go to a public HTTPS host: no localhost, private or link-local
-/// addresses (so a leaked live key can't make the server probe its own network).
-fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
+/// addresses (so a leaked live key can't make the server probe its own network). Checked
+/// when the endpoint is created and again, after DNS, before every delivery.
+pub(crate) fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
     let bad = |m: &str| Err(ApiError::invalid("webhook_url_not_allowed", m.to_string()).param("url"));
     let Ok(u) = reqwest::Url::parse(url) else { return bad("not a valid URL") };
     if u.scheme() != "https" {
@@ -411,28 +497,16 @@ fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
     match u.host() {
         None => bad("the URL has no host"),
         Some(url::Host::Domain(d)) => {
-            let d = d.to_ascii_lowercase();
-            if d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local") || d.ends_with(".internal") {
+            let d = d.trim_end_matches('.').to_ascii_lowercase();
+            let internal = ["localhost", "local", "internal", "localdomain", "home.arpa", "lan", "intranet", "corp"];
+            if d.is_empty() || internal.iter().any(|s| d == *s || d.ends_with(&format!(".{s}"))) {
                 bad("live webhooks must go to a public host")
             } else {
                 Ok(())
             }
         }
-        Some(url::Host::Ipv4(ip)) => {
-            if ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() || ip.is_broadcast() || ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64 {
-                bad("live webhooks must go to a public address")
-            } else {
-                Ok(())
-            }
-        }
-        Some(url::Host::Ipv6(ip)) => {
-            let s = ip.segments();
-            if ip.is_loopback() || ip.is_unspecified() || (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 || ip.to_ipv4_mapped().is_some() {
-                bad("live webhooks must go to a public address")
-            } else {
-                Ok(())
-            }
-        }
+        Some(url::Host::Ipv4(ip)) => if is_public_ip(ip.into()) { Ok(()) } else { bad("live webhooks must go to a public address") },
+        Some(url::Host::Ipv6(ip)) => if is_public_ip(ip.into()) { Ok(()) } else { bad("live webhooks must go to a public address") },
     }
 }
 
@@ -491,9 +565,18 @@ pub struct ListQuery {
 async fn list_events(State(st): State<Shared>, auth: Auth, Query(q): Query<ListQuery>) -> Result<Json<Value>, ApiError> {
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
     let c = st.db.0.lock().unwrap();
+    // Cursor: the rowid of `starting_after` (events are append-only, so rowid is their order).
+    let after: Option<i64> = match &q.starting_after {
+        Some(id) => Some(
+            c.query_row("SELECT rowid FROM events WHERE id = ?1 AND mode = ?2", params![id, auth.mode.as_str()], |r| r.get(0))
+                .optional()?
+                .ok_or_else(|| ApiError::invalid("parameter_invalid", "starting_after is not an event of this mode").param("starting_after"))?,
+        ),
+        None => None,
+    };
     let mut data: Vec<Value> = c
-        .prepare("SELECT body FROM events WHERE mode = ?1 ORDER BY created DESC, rowid DESC LIMIT ?2")?
-        .query_map(params![auth.mode.as_str(), limit + 1], |r| r.get::<_, String>(0))?
+        .prepare("SELECT body FROM events WHERE mode = ?1 AND (?3 IS NULL OR rowid < ?3) ORDER BY rowid DESC LIMIT ?2")?
+        .query_map(params![auth.mode.as_str(), limit + 1, after], |r| r.get::<_, String>(0))?
         .filter_map(|b| b.ok().and_then(|b| serde_json::from_str(&b).ok()))
         .collect();
     let has_more = data.len() > limit as usize;
@@ -690,7 +773,8 @@ pub async fn build(db_path: &str, config: Config) -> anyhow::Result<(Router, Vec
     let state = Arc::new(AppState {
         db,
         config,
-        http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build()?,
+        // Webhooks never follow redirects: a 3xx could otherwise point a delivery anywhere.
+        http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).redirect(reqwest::redirect::Policy::none()).build()?,
         rate: Default::default(),
     });
     tokio::spawn(webhooks::worker(state.clone()));

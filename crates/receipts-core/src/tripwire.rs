@@ -16,9 +16,13 @@ pub fn secret_kind(text: &str) -> Option<&'static str> {
         ("secret-extended-key-", "Sapling extended spending key"),
         ("AGE-SECRET-KEY-1", "age secret key (wallet seed encryption)"),
     ];
-    for token in text.split(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ',' || c == '=' || c == '&' || c == '?' || c == '#') {
+    // Tokens are runs of letters, digits and '-' (keys never contain anything else), compared
+    // case-insensitively: bech32 may be written in upper case.
+    for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
+        let lower = token.to_ascii_lowercase();
         for (p, kind) in PREFIXES {
-            if token.len() > p.len() + 20 && token.starts_with(p) {
+            let p = p.to_ascii_lowercase();
+            if lower.len() > p.len() + 20 && lower.starts_with(&p) {
                 return Some(kind);
             }
         }
@@ -53,15 +57,19 @@ fn is_bip39_word(w: &str) -> bool {
 fn looks_like_mnemonic(text: &str) -> bool {
     // Split on whitespace and JSON/URL punctuation, but not digits, so that addresses and
     // hex strings stay whole (and break the run) while "label":"abandon ability…" splits.
-    let words: Vec<&str> = text
-        .split(|c: char| c.is_whitespace() || "\"':,{}[]=&?#+".contains(c))
-        .filter(|w| !w.is_empty())
-        .collect();
+    // Words are runs of letters and digits; anything else (spaces, newlines, JSON escapes like
+    // "\n", hyphens, "1." numbering) separates them. Pure numbers don't break a run, so a
+    // numbered list "1. abandon 2. ability …" still counts.
+    let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).collect();
     let mut run = 0;
     let mut best = 0;
     for w in &words {
-        let w = w.trim_matches(|c: char| c == '.' || c == ';');
-        if (3..=8).contains(&w.len()) && w.chars().all(|c| c.is_ascii_lowercase()) && is_bip39_word(w) {
+        if w.chars().all(|c| c.is_ascii_digit()) && w.len() <= 2 {
+            continue;
+        }
+        let w = w.strip_prefix('n').filter(|rest| is_bip39_word(&rest.to_ascii_lowercase()) && !is_bip39_word(&w.to_ascii_lowercase())).unwrap_or(w);
+        let w = w.to_ascii_lowercase();
+        if (3..=8).contains(&w.len()) && w.chars().all(|c| c.is_ascii_lowercase()) && is_bip39_word(&w) {
             run += 1;
             best = best.max(run);
         } else {
@@ -84,6 +92,18 @@ mod tests {
         assert_eq!(secret_kind(r#"{"payee":"utest1x","label":"abandon ability able about above absent absorb abstract absurd abuse access accident"}"#), Some("seed phrase")); // privacy-lint: allow (test fixture)
         assert_eq!(secret_kind("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ"), Some("transparent private key (WIF)")); // privacy-lint: allow (test fixture)
         assert_eq!(secret_kind(&format!("AGE-SECRET-KEY-1{}", "Q".repeat(58))), Some("age secret key (wallet seed encryption)")); // privacy-lint: allow (test fixture)
+    }
+
+    #[test]
+    fn spots_disguised_secrets() {
+        let k = format!("uview1{}", "q".repeat(60)); // privacy-lint: allow (test fixture)
+        assert!(secret_kind(&k.to_ascii_uppercase()).is_some());
+        assert!(secret_kind(&format!("key:{k}")).is_some());
+        let words = "abandon ability able about above absent absorb abstract absurd abuse access accident"; // privacy-lint: allow (test fixture)
+        assert!(secret_kind(&words.replace(' ', "\\n")).is_some(), "JSON-escaped newlines");
+        assert!(secret_kind(&words.replace(' ', "-")).is_some(), "hyphens");
+        let numbered: String = words.split(' ').enumerate().map(|(i, w)| format!("{}.{w} ", i + 1)).collect();
+        assert!(secret_kind(&numbered).is_some(), "numbered");
     }
 
     #[test]

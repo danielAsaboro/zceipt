@@ -18,6 +18,8 @@ async function issue(claims, hidden) {
 
 test("attestations verify, reveal selectively, and reject tampering", async () => {
   const { jwt, disclosures, jwks } = await issue({ iss: "https://x", paid_at_least_zatoshis: 1000000, paid_on_or_before: "2026-10-14" }, { txid: "ab", label: "Grant" });
+  await assert.rejects(verifyAttestation(`${jwt}~`), /issuer/);
+  await assert.rejects(verifyAttestation(`${jwt}~`, { issuer: "https://other.example" }), /not https:\/\/other/);
   const plain = await verifyAttestation(`${jwt}~`, { jwks });
   assert.equal(plain.paid_at_least_zatoshis, 1000000);
   assert.deepEqual(plain.revealed, {});

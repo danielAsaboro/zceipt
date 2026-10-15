@@ -63,8 +63,11 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Cre
     let id = new_id("clock_");
     let t = req.frozen_time.unwrap_or_else(now);
     let h = req.height.unwrap_or(4_500_000);
-    if h < 1 {
-        return Err(ApiError::invalid("parameter_invalid", "height must be positive").param("height"));
+    if !(1..=100_000_000).contains(&h) {
+        return Err(ApiError::invalid("parameter_invalid", "height must be 1 to 100,000,000").param("height"));
+    }
+    if !(0..=32_503_680_000).contains(&t) {
+        return Err(ApiError::invalid("parameter_invalid", "frozen_time must be a unix time between 1970 and 3000").param("frozen_time"));
     }
     st.db.0.lock().unwrap().execute("INSERT INTO test_clocks (id, frozen_time, height, created) VALUES (?1,?2,?3,?4)", params![id, t, h, now()])?;
     Ok((StatusCode::CREATED, Json(clock_json(&st, &load(&st, &id)?))))
@@ -88,9 +91,12 @@ pub struct Advance {
 pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String>, Body(req, _): Body<Advance>) -> Result<Json<Value>, ApiError> {
     test_only(&auth)?;
     let blocks = req.blocks.unwrap_or(0);
+    if !(0..=1_000_000).contains(&blocks) {
+        return Err(ApiError::invalid("parameter_invalid", "blocks must be 0 to 1,000,000").param("blocks"));
+    }
     let seconds = req.seconds.unwrap_or(blocks * 75);
-    if seconds < 0 || blocks < 0 || (seconds == 0 && blocks == 0) {
-        return Err(ApiError::invalid("parameter_invalid", "advance by a positive number of seconds and/or blocks"));
+    if !(0..=10 * 366 * 86_400).contains(&seconds) || (seconds == 0 && blocks == 0) {
+        return Err(ApiError::invalid("parameter_invalid", "advance by up to 10 years and/or 1,000,000 blocks, and by something"));
     }
     let k = load(&st, &id)?;
     let (t, h) = (k.frozen_time + seconds, k.height + blocks);
@@ -154,6 +160,9 @@ pub async fn reorg(State(st): State<Shared>, auth: Auth, Path(id): Path<String>,
         return Err(ApiError::invalid("parameter_invalid", "depth must be 1..=100").param("depth"));
     }
     let k = load(&st, &id)?;
+    if depth >= k.height {
+        return Err(ApiError::invalid("parameter_invalid", format!("depth must be less than the clock's height ({})", k.height)).param("depth"));
+    }
     let new_tip = k.height - depth;
     st.db.0.lock().unwrap().execute("UPDATE test_clocks SET height = ?1 WHERE id = ?2", params![new_tip, id])?;
     let hit: Vec<String> = {

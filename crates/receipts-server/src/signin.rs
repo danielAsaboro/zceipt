@@ -50,7 +50,10 @@ fn challenge_json(id: &str, mode: &str, domain: &str, nonce: &str, created: i64,
 /// POST /v1/sign_in/challenges
 pub async fn create_challenge(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateChallenge>) -> Result<Json<Value>, ApiError> {
     let domain = req.domain.unwrap_or_else(|| host_of(&st.config.public_url));
-    if domain.is_empty() || domain.len() > 253 || !domain.chars().all(|c| c.is_ascii_alphanumeric() || ".-:".contains(c)) {
+    let host = domain.split(':').next().unwrap_or("");
+    let port_ok = domain.split(':').nth(1).is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit())) && domain.matches(':').count() <= 1;
+    let labels_ok = !host.is_empty() && host.split('.').all(|l| !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    if domain.len() > 253 || !port_ok || !labels_ok {
         return Err(ApiError::invalid("parameter_invalid", "domain must be a host name such as shop.example").param("domain"));
     }
     let id = new_id("sic_");

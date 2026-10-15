@@ -129,7 +129,19 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         |x| x.get(0),
     )?;
     let paid = (paid - refunded).max(0) as u64;
-    let floor = req.at_least_zatoshis.unwrap_or_else(|| r.amount.map(|a| a as u64).unwrap_or(paid / 100_000 * 100_000).min(paid));
+    // A payment a reorg dropped is not a payment yet.
+    let (unconfirmed, sandbox): (i64, i64) = st.db.0.lock().unwrap().query_row(
+        "SELECT COALESCE(SUM(mined_height IS NULL), 0), COALESCE(SUM(txid LIKE '5a4db0c5%'), 0) FROM request_payments WHERE request_id = ?1",
+        [&r.id],
+        |x| Ok((x.get(0)?, x.get(1)?)),
+    )?;
+    if unconfirmed > 0 {
+        return Err(ApiError::conflict("payment_unconfirmed", "a payment on this request left the chain in a reorg; attest once it is mined again"));
+    }
+    // Default floor: rounded down (to 0.01 ZEC, or 0.001 below that), so the exact amount
+    // stays hidden unless the holder reveals it.
+    let step = if paid >= 1_000_000 { 1_000_000 } else { 100_000 };
+    let floor = req.at_least_zatoshis.unwrap_or(paid / step * step);
     if floor > paid {
         return Err(ApiError::invalid("attestation_overclaims", format!("at_least_zatoshis is more than the {paid} zatoshis paid (net of refunds)")).param("at_least_zatoshis"));
     }
@@ -144,7 +156,9 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
             b.clone()
         }
     };
-    let disclose = req.disclose.unwrap_or_default();
+    let mut disclose = req.disclose.unwrap_or_default();
+    disclose.sort();
+    disclose.dedup();
     if let Some(bad) = disclose.iter().find(|d| !DISCLOSABLE.contains(&d.as_str())) {
         return Err(ApiError::invalid("parameter_invalid", format!("cannot disclose {bad}; one of {DISCLOSABLE:?}")).param("disclose"));
     }
@@ -166,6 +180,12 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         disclosures.insert(name.to_string(), d.into());
         digests.push(h);
     }
+    // Pad with decoys so the number of digests doesn't reveal which claims exist (a label or not).
+    while digests.len() < 8 {
+        let mut b = [0u8; 32];
+        getrandom::fill(&mut b).expect("OS RNG");
+        digests.push(B64.encode(b));
+    }
     digests.sort(); // order must not leak which claim is which
     let (kid, sk) = key(&st)?;
     let (_, today) = utc_date(now());
@@ -174,6 +194,9 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         "iat": today,
         "vct": VCT,
         "network": auth.mode.net(&st.config).name(),
+        "livemode": auth.mode == crate::Mode::Live,
+        // Paid with a sandbox fixture, not a real transaction.
+        "sandbox": sandbox > 0,
         "pool_proof": "zip311",
         "paid_at_least_zatoshis": floor,
         "paid_on_or_before": before,
@@ -190,7 +213,7 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         "object": "attestation",
         "livemode": auth.mode == crate::Mode::Live,
         "request": r.id,
-        "claims": { "paid_at_least_zatoshis": floor, "paid_on_or_before": before, "final": r.final_at.is_some(), "network": payload["network"] },
+        "claims": { "paid_at_least_zatoshis": floor, "paid_on_or_before": before, "final": r.final_at.is_some(), "network": payload["network"], "sandbox": sandbox > 0 },
         "presentation": presentation,
         "disclosures": disclosures,
         "jwks_url": format!("{}/.well-known/jwks.json", st.config.public_url.trim_end_matches('/')),

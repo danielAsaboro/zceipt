@@ -74,6 +74,10 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
     if uri.len() >= 6 && uri[..6].eq_ignore_ascii_case("zcash:") && !uri.starts_with("zcash:") {
         f.add("warning", "scheme_case", None, "the scheme should be lowercase `zcash:`; some wallets reject other cases".into());
     }
+    let b = uri.as_bytes();
+    if (0..b.len()).any(|i| b[i] == b'%' && !(i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit())) {
+        f.add("error", "bad_percent_encoding", None, "a `%` is not followed by two hex digits; wallets may reject or misread the link".into());
+    }
     let normalized = if uri.len() >= 6 && uri[..6].eq_ignore_ascii_case("zcash:") { format!("zcash:{}", &uri[6..]) } else { uri.to_string() };
     let req = match TransactionRequest::from_uri(&normalized) {
         Ok(r) => r,
@@ -85,6 +89,9 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
     let payments = req.payments();
     if payments.len() > 1 {
         f.add("warning", "multiple_payments", None, format!("{} payments in one URI; several wallets only support one", payments.len()));
+    }
+    if payments.len() > 50 {
+        f.add("error", "too_many_payments", None, format!("{} payments: more than a wallet can put in one transaction comfortably; split it", payments.len()));
     }
     let mut out = Vec::new();
     let mut networks = std::collections::BTreeSet::new();
@@ -169,6 +176,11 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
         }
     };
     let ok = !f.0.iter().any(|x| x["level"] == "error");
+    let total_findings = f.0.len();
+    if total_findings > 50 {
+        f.0.truncate(50);
+        f.0.push(json!({ "level": "info", "code": "findings_truncated", "payment": null, "message": format!("{} more findings not shown", total_findings - 50) }));
+    }
     json!({ "ok": ok, "uri_length": uri.len(), "payments": out, "total_zatoshis": total, "qr": qr, "findings": f.0 })
 }
 

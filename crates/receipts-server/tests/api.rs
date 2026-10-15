@@ -540,7 +540,9 @@ async fn attestations_subtract_refunds() {
     let (_, rf, _) = call(&app, "POST", &format!("/v1/requests/{id}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 500000 })), None).await;
     call(&app, "POST", &format!("/v1/refunds/{}/receipts", rf["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
     let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
-    assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1500000, "{a}");
+    assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1000000, "default floor: net 0.015 ZEC rounded down to 0.01: {a}");
+    let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 1500000 })), None).await;
+    assert_eq!((s, a["claims"]["paid_at_least_zatoshis"].as_i64()), (StatusCode::OK, Some(1500000)));
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 2000000 })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
 }
@@ -624,4 +626,90 @@ async fn test_clock_reorg_unconfirms_then_remines() {
     // A final payment is not affected by a reorg.
     let (_, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/reorg"), Some(&test), Some(json!({ "depth": 20 })), None).await;
     assert!(v["fired"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn concurrent_submissions_settle_once() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000000 })), None).await;
+    let id = r["id"].as_str().unwrap().to_string();
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let (app, test, id) = (app.clone(), test.clone(), id.clone());
+        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await.0 }));
+    }
+    let mut ok = 0;
+    for t in tasks {
+        if t.await.unwrap() == StatusCode::OK {
+            ok += 1;
+        }
+    }
+    assert_eq!(ok, 1, "exactly one submission may settle a single request");
+    let (_, req, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!(req["payments"].as_array().unwrap().len(), 1);
+
+    // Partial: every recorded payment counts.
+    let (_, p, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000000, "kind": "partial" })), None).await;
+    let pid = p["id"].as_str().unwrap().to_string();
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let (app, test, pid) = (app.clone(), test.clone(), pid.clone());
+        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{pid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_partial" })), None).await }));
+    }
+    for t in tasks {
+        t.await.unwrap();
+    }
+    let (_, p, _) = call(&app, "GET", &format!("/v1/requests/{pid}"), Some(&test), None, None).await;
+    let sum: i64 = p["payments"].as_array().unwrap().iter().map(|x| x["zatoshis"].as_i64().unwrap()).sum();
+    assert_eq!(p["received_zatoshis"].as_i64().unwrap(), sum, "{p}");
+}
+
+#[tokio::test]
+async fn second_qa_pass_regressions() {
+    let (app, test, live) = app().await;
+    // Made-up auth headers don't open fresh public buckets.
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign" })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let mut last = StatusCode::OK;
+    for i in 0..(receipts_server::PUBLIC_SUBMIT_LIMIT + 2) {
+        let path = if i % 2 == 0 { format!("/v1/public/requests/{id}/receipts") } else { format!("/v1/public/requests/%70{}/receipts", &id[1..]) };
+        let req = Request::builder().method("POST").uri(path).header("x-api-key", format!("junk{i}")).header("content-type", "application/json").body(Body::from(json!({ "receipt": "zrcpt1AAAA" }).to_string())).unwrap();
+        last = app.clone().oneshot(req).await.unwrap().status();
+    }
+    assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+    // More webhook guard cases.
+    for bad in ["https://localhost./h", "https://foo.localhost./h", "https://metadata.google.internal./x", "https://[::127.0.0.1]/", "https://[64:ff9b::7f00:1]/", "https://[2002:7f00:1::]/", "https://[fec0::1]/", "https://0.1.2.3/", "https://224.0.0.1/", "https://198.18.0.1/"] {
+        let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&live), Some(json!({ "url": bad })), None).await;
+        assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
+    }
+    // Input caps.
+    for body in [json!({ "payee": PAYEE, "amount_zatoshis": u64::MAX }), json!({ "payee": PAYEE, "expires_in": i64::MAX }), json!({ "payee": PAYEE, "metadata": (0..60).map(|i| (format!("k{i}"), json!(i))).collect::<serde_json::Map<_, _>>() })] {
+        let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(body.clone()), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
+    }
+    // Attestations: sandbox-marked, deduplicated disclosures.
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234567 })), None).await;
+    let rid = r["id"].as_str().unwrap();
+    call(&app, "POST", &format!("/v1/requests/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{rid}/attestations"), Some(&test), Some(json!({ "disclose": ["txid", "txid"] })), None).await;
+    assert_eq!(a["claims"]["sandbox"], true);
+    assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1000000, "default floor is rounded down");
+    let (s, _, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": a["presentation"] })), None).await;
+    assert_eq!(s, StatusCode::OK);
+    // Secrets hidden behind JSON escapes are still refused.
+    let escaped = format!("{{\"payee\":\"{PAYEE}\",\"label\":\"\\u0075view1{}\"}}", "q".repeat(60));
+    let req = Request::builder().method("POST").uri("/v1/requests").header("authorization", format!("Bearer {test}")).body(Body::from(escaped)).unwrap();
+    let res = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    // Events page with a cursor.
+    let (_, page1, _) = call(&app, "GET", "/v1/events?limit=2", Some(&test), None, None).await;
+    let last_id = page1["data"][1]["id"].as_str().unwrap();
+    let (_, page2, _) = call(&app, "GET", &format!("/v1/events?limit=2&starting_after={last_id}"), Some(&test), None, None).await;
+    assert_ne!(page2["data"][0]["id"], page1["data"][0]["id"]);
+    assert_ne!(page2["data"][0]["id"], page1["data"][1]["id"]);
+    // Sign-in domains must look like host names.
+    for d in [":::", "-", "a..b", "-x.com"] {
+        let (s, _, _) = call(&app, "POST", "/v1/sign_in/challenges", Some(&test), Some(json!({ "domain": d })), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{d}");
+    }
 }

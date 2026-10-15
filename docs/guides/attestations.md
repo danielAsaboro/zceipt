@@ -19,9 +19,10 @@ JWT format), signed with Ed25519 by your Receipts server, stating only:
 
 | claim | example |
 |---|---|
-| `paid_at_least_zatoshis` | a floor you choose, never more than was paid (`attestation_overclaims` otherwise) |
+| `paid_at_least_zatoshis` | a floor you choose, never more than was paid (`attestation_overclaims` otherwise); by default what was paid rounded down to 0.01 ZEC, so the exact amount stays hidden |
 | `paid_on_or_before` | a day you choose, never earlier than the payment's day |
 | `network`, `final` | testnet or mainnet, and whether the payment has 10 confirmations |
+| `livemode`, `sandbox` | whether a live key issued it, and whether it was paid with a sandbox fixture rather than a real transaction |
 | `net_of_refunds` | always true: refunds already paid back are subtracted before the floor is checked |
 
 The transaction id, the exact amount, the exact time, the request id and the label are in the
@@ -34,7 +35,8 @@ Verify without an account, in a browser or Node:
 
 ```js
 import { verifyAttestation } from "zcash-receipts";
-const facts = await verifyAttestation(presentation); // fetches <iss>/.well-known/jwks.json
+// Name the server you trust: anyone can sign a token and host keys of their own.
+const facts = await verifyAttestation(presentation, { issuer: "https://receipts.example.com" });
 facts.paid_at_least_zatoshis, facts.paid_on_or_before, facts.revealed.label
 ```
 
@@ -42,3 +44,7 @@ or with the API (`POST /v1/attestations/verify`). The public keys are at `/.well
 
 An attestation is the server's word about a receipt it verified, so trust it as much as you trust
 that server. For a claim nobody has to trust, share the receipt itself.
+
+The token always carries eight hidden-claim digests (real ones plus decoys), so it doesn't reveal
+which claims exist. A request whose payment a reorg dropped can't be attested
+(`payment_unconfirmed`) until it is mined again.

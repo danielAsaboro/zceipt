@@ -60,7 +60,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **Sign in with Zcash** | `POST /v1/sign_in/challenges` + `receipts sign-in`: prove control of a shielded address for one domain and one nonce, with no transaction. Phishing and replay are refused; `verifySignIn()` checks it offline |
 | **Conformance** | [105 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts that the Rust and npm verifiers both run, plus a decoder fuzz pass in `cargo test` |
 | **Sandbox** | `zrcpt_test_*` fixtures with a fixed outcome for every error path, so you can integrate with no wallet and no faucet, plus test clocks that fast-forward expiry and the 10-confirmation `request.final` event |
-| **Local dev tools** | `receipts listen --forward-to …` and `receipts trigger request.fulfilled`, like the Stripe CLI |
+| **Local dev tools** | `receipts doctor` (checks servers, API key, clock, wallet), `receipts listen --forward-to …` and `receipts trigger <any event>`, like the Stripe CLI |
 | **For AI agents** | `/llms.txt`, `/llms-full.txt`, every doc as Markdown, and `receipts mcp`, an MCP server with `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`, `refund_payment` and `check_payment_link` |
 | **Docs** | [quickstart](docs/QUICKSTART.md), [webhooks](docs/WEBHOOKS.md), [errors](docs/ERRORS.md), [sandbox](docs/SANDBOX.md), [SDKs](docs/SDKS.md), and recipes for [checkout](docs/guides/merchant-checkout.md), [exchange deposits](docs/guides/exchange-deposit.md), [payouts](docs/guides/grant-payouts.md), [refunds](docs/guides/refunds.md), [attestations](docs/guides/attestations.md) and [Sign in with Zcash](docs/guides/sign-in.md) |
 

@@ -4,6 +4,10 @@ Receipts lets the sender of a shielded Zcash payment prove that one payment happ
 (recipient, amount, memo) without revealing anything else about their wallet. You can be
 the one *asking* for proof (a shop, an exchange, a grant program) or the one *giving* it.
 
+Run `receipts doctor` first: it checks the lightwalletd servers, a running API and your
+`RECEIPTS_KEY`, your clock, an optional wallet (`-w`), and how fast this machine builds proof keys,
+and says what to fix.
+
 ## 1. Start the API (testnet)
 
 Needs Rust 1.89 or newer; `rust-toolchain.toml` pins 1.95, which rustup installs automatically.

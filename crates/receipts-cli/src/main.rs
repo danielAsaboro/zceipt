@@ -176,6 +176,20 @@ enum Cmd {
         #[arg(long = "event")]
         events: Vec<String>,
     },
+    /// Check your setup: lightwalletd servers, the Receipts API and key, the clock, a wallet,
+    /// and how fast this machine builds proofs. Prints what to fix.
+    Doctor {
+        /// Also check this zcash-devtool wallet directory.
+        #[arg(short, long)]
+        wallet: Option<PathBuf>,
+        #[arg(long, env = "RECEIPTS_KEY")]
+        api_key: Option<String>,
+        #[arg(long, env = "RECEIPTS_URL", default_value = "http://127.0.0.1:8723")]
+        base_url: String,
+        /// Skip the proof-building timing (about 2 seconds).
+        #[arg(long)]
+        quick: bool,
+    },
     /// Model Context Protocol server (stdio) so AI agents can verify receipts and manage
     /// proof requests through the Receipts API.
     Mcp {
@@ -574,6 +588,7 @@ async fn main() -> anyhow::Result<()> {
             }
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
+        Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());
             if json {
@@ -690,6 +705,98 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
         .await;
     eprintln!("Removed temporary endpoint {ep_id}.");
     Ok(())
+}
+
+async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: String, quick: bool) -> anyhow::Result<()> {
+    let mut problems = 0;
+    let mut line = |ok: Option<bool>, what: &str, detail: String| {
+        let mark = match ok { Some(true) => "ok  ", Some(false) => "FIX ", None => "--  " };
+        if ok == Some(false) {
+            problems += 1;
+        }
+        println!("{mark} {what:<22} {detail}");
+    };
+    println!("receipts {}", env!("CARGO_PKG_VERSION"));
+    for net in [net::Net::Main, net::Net::Test] {
+        let t0 = std::time::Instant::now();
+        match tokio::time::timeout(std::time::Duration::from_secs(15), chain::chain_tip(net, None)).await {
+            Ok(Ok(h)) => line(Some(true), &format!("lightwalletd {}", net.name()), format!("{} at height {h} ({} ms)", net.default_server(), t0.elapsed().as_millis())),
+            Ok(Err(e)) => line(Some(false), &format!("lightwalletd {}", net.name()), format!("{}: {e}. Pass -s host:port to use another server", net.default_server())),
+            Err(_) => line(Some(false), &format!("lightwalletd {}", net.name()), format!("{} did not answer in 15 s", net.default_server())),
+        }
+    }
+    let http = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build()?;
+    match http.get(format!("{}/v1/health", base_url.trim_end_matches('/'))).send().await {
+        Ok(res) => {
+            let date = res.headers().get("date").and_then(|d| d.to_str().ok()).map(str::to_string);
+            let health: serde_json::Value = res.json().await.unwrap_or_default();
+            line(Some(health["ok"] == true), "Receipts API", format!("{base_url} (version {}, test mode on {})", health["version"].as_str().unwrap_or("?"), health["test_network"].as_str().unwrap_or("?")));
+            if let Some(d) = date.and_then(|d| httpdate_to_unix(&d)) {
+                let skew = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64 - d).abs();
+                line(Some(skew < 120), "clock", if skew < 120 { format!("within {skew} s of the API") } else { format!("{skew} s off the API; webhook signatures allow 300 s, fix your clock") });
+            }
+            match &api_key {
+                None => line(None, "API key", "RECEIPTS_KEY not set (only needed for the API, listen, trigger and mcp)".into()),
+                Some(k) => {
+                    let r = http.get(format!("{}/v1/requests?limit=1", base_url.trim_end_matches('/'))).bearer_auth(k).send().await;
+                    match r {
+                        Ok(r) if r.status().is_success() => line(Some(true), "API key", format!("accepted ({} mode)", if k.starts_with("rcpt_live_") { "live" } else { "test" })),
+                        Ok(r) => line(Some(false), "API key", format!("refused ({}); use a key `receipts serve` printed", r.status())),
+                        Err(e) => line(Some(false), "API key", e.to_string()),
+                    }
+                }
+            }
+        }
+        Err(_) => line(None, "Receipts API", format!("nothing at {base_url} (start one with `receipts serve`, or set RECEIPTS_URL)")),
+    }
+    if let Some(w) = wallet {
+        let keys = w.join("keys.toml");
+        match std::fs::read_to_string(&keys) {
+            Err(_) => line(Some(false), "wallet", format!("{} not found; -w must be a zcash-devtool wallet directory", keys.display())),
+            Ok(t) => {
+                let netname = t.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"').to_string()).unwrap_or_else(|| "test".into());
+                let db = w.join("data.sqlite");
+                let synced: Option<u32> = rusqlite_height(&db);
+                line(Some(db.exists()), "wallet", format!("{} ({netname}), synced to {}", w.display(), synced.map(|h| h.to_string()).unwrap_or_else(|| "unknown height; run `zcash-devtool wallet sync`".into())));
+                if t.contains("AGE-SECRET-KEY") {
+                    line(Some(false), "wallet secrets", "keys.toml contains an age secret key; keep identities in a separate file".into());
+                }
+            }
+        }
+    }
+    if !quick {
+        let t0 = std::time::Instant::now();
+        let _ = tokio::task::spawn_blocking(receipts_core::verifying_key).await;
+        line(Some(true), "proof keys", format!("verifying key built in {} ms (proving takes a few seconds per receipt)", t0.elapsed().as_millis()));
+    }
+    println!();
+    if problems == 0 {
+        println!("All good.");
+        Ok(())
+    } else {
+        println!("{problems} thing(s) to fix above.");
+        std::process::exit(1);
+    }
+}
+
+/// Unix time from an HTTP `Date` header (`Thu, 15 Oct 2026 00:12:34 GMT`).
+fn httpdate_to_unix(s: &str) -> Option<i64> {
+    let p: Vec<&str> = s.split_whitespace().collect();
+    let [_, d, mon, y, hms, _] = p[..] else { return None };
+    let m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].iter().position(|x| *x == mon)? as i64 + 1;
+    let (d, y): (i64, i64) = (d.parse().ok()?, y.parse().ok()?);
+    let t: Vec<i64> = hms.split(':').map(|x| x.parse().ok()).collect::<Option<_>>()?;
+    let y2 = if m <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let days = era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468;
+    Some(days * 86_400 + t[0] * 3600 + t[1] * 60 + t[2])
+}
+
+fn rusqlite_height(db: &std::path::Path) -> Option<u32> {
+    let c = rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    c.query_row("SELECT MAX(height) FROM blocks", [], |r| r.get::<_, Option<u32>>(0)).ok().flatten()
 }
 
 fn print_deposit(report: &chain::Report, d: &receipts_chain::deposit::Deposit, json: bool) -> anyhow::Result<()> {

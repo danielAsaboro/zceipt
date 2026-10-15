@@ -19,6 +19,7 @@ Key facts for agents:
 - [OpenAPI](/openapi.yaml): machine-readable API
 
 ## Recipes
+- [Threat model: who learns what in every flow](/docs/THREAT-MODEL.md)
 - [Merchant checkout without a viewing key](/docs/guides/merchant-checkout.md)
 - [Clear a compliance hold on one deposit](/docs/guides/exchange-deposit.md)
 - [Prove a payout round with one link](/docs/guides/grant-payouts.md)

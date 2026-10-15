@@ -393,3 +393,25 @@ fn encodings_are_canonical() {
     let r = Receipt::from_text(x.trim()).unwrap();
     assert_eq!(Receipt::from_bytes(&r.to_bytes()).unwrap(), r);
 }
+
+#[test]
+fn disclosures_are_unlinkable_to_the_action_and_to_each_other() {
+    // The spend disclosure re-randomizes everything that could identify the spender: its rk and
+    // cv_net differ from the on-chain action's, and two receipts for the same spend share none.
+    let s = scenario(BundleVersion::ironwood_v3());
+    let a = make_receipt(&s, Pool::Ironwood, b"one");
+    let b = make_receipt(&s, Pool::Ironwood, b"one");
+    let action = &s.payment.actions()[s.spend_index];
+    let onchain_rk: [u8; 32] = action.rk().into();
+    let onchain_cv = action.cv_net().to_bytes();
+    for r in [&a, &b] {
+        let sp = &r.unsigned.spends[0];
+        assert_ne!(sp.rk, onchain_rk);
+        assert_ne!(sp.cv_net, onchain_cv);
+        // No output disclosure reveals a key beyond that one output's ock.
+        assert_eq!(r.unsigned.outputs.len(), 1);
+    }
+    assert_ne!(a.unsigned.spends[0].rk, b.unsigned.spends[0].rk);
+    assert_ne!(a.unsigned.spends[0].cv_net, b.unsigned.spends[0].cv_net);
+    assert_ne!(a.unsigned.spends[0].cmx, b.unsigned.spends[0].cmx);
+}

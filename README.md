@@ -118,6 +118,13 @@ receipts create -w <wallet_dir> -i <identity.age> --txid <txid> -m "Invoice 42"
 receipts verify '<link or zrcpt1…>' --expect-address <recipient u1…>
 ```
 
+Paying a shop's proof request is one command: it pays from the wallet, waits for the block,
+builds the receipt and submits it (or prints the link to send back):
+
+```bash
+receipts pay 'https://shop.example/pay/preq_…?secret=…' -w <wallet_dir> -i <identity.age>
+```
+
 ## One link for many payments
 
 ```bash

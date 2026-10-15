@@ -184,6 +184,31 @@ enum Cmd {
         #[arg(long)]
         no_wait: bool,
     },
+    /// Pay a proof request and answer it in one step: pays from your zcash-devtool wallet,
+    /// waits for the block, builds the receipt and hands it back. Takes the shop's hosted pay
+    /// link (`…/pay/<id>?secret=…`, submitted automatically) or a receipt link (`…?request=…`).
+    Pay {
+        /// The hosted pay link or receipt link the shop gave you.
+        link: String,
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
+        #[arg(short, long)]
+        wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// The zcash-devtool binary that sends the payment.
+        #[arg(long, default_value = "zcash-devtool")]
+        devtool: String,
+        /// lightwalletd server (host:port). Default: zec.rocks for the wallet's network.
+        #[arg(short, long)]
+        server: Option<String>,
+        /// Also sign this refund address into the receipt.
+        #[arg(long)]
+        refund_to: Option<String>,
+        /// Show what would be paid, then stop.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Check your setup: lightwalletd servers, the Receipts API and key, the clock, a wallet,
     /// and how fast this machine builds proofs. Prints what to fix.
     Doctor {
@@ -601,6 +626,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
         Cmd::Demo { no_wait } => demo::run(!no_wait).await?,
+        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run } => pay(link, wallet, identity, devtool, server, refund_to, dry_run).await?,
         Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());
@@ -717,6 +743,108 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
         .send()
         .await;
     eprintln!("Removed temporary endpoint {ep_id}.");
+    Ok(())
+}
+
+async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool) -> anyhow::Result<()> {
+    // What to pay: from the hosted page's public API, or from a receipt link's parameters.
+    let link = link.trim().to_string();
+    let (payee, amount, code, submit_to, receipt_link) = if let Some((base, rest)) = link.split_once("/pay/") {
+        let (id, query) = rest.split_once('?').unwrap_or((rest, ""));
+        let secret = query.split('&').find_map(|p| p.strip_prefix("secret=")).ok_or_else(|| anyhow!("the pay link has no secret"))?;
+        let info: serde_json::Value = reqwest::get(format!("{base}/v1/public/requests/{id}?secret={secret}")).await?.json().await?;
+        if info.get("error").is_some() {
+            bail!("the shop's server refused: {}", info["error"]["message"]);
+        }
+        if info["status"] != "open" {
+            bail!("that request is {}, nothing to pay", info["status"]);
+        }
+        let rl = info["receipt_link"].as_str().unwrap_or_default().to_string();
+        let r = parse_request(&rl)?;
+        let amount = info["remaining_zatoshis"].as_u64().or(info["amount_zatoshis"].as_u64()).ok_or_else(|| anyhow!("the request has no amount; pay it from your wallet and use `receipts create --request`"))?;
+        (info["payee"].as_str().unwrap_or_default().to_string(), amount, r.code, Some((base.to_string(), id.to_string(), secret.to_string())), rl)
+    } else {
+        let r = parse_request(&link)?;
+        let payee = r.to.clone().ok_or_else(|| anyhow!("the receipt link has no payee (to=)"))?;
+        if r.min == 0 {
+            bail!("the receipt link has no amount (min=); pay it from your wallet and use `receipts create --request`");
+        }
+        (payee, r.min, r.code, None, link.clone())
+    };
+    let check = receipts_core::preflight::check_payment_uri(&format!("zcash:{payee}?amount={}", chain::zec(amount)), None);
+    println!("Pay {} ZEC to {}…{} for request {code}", chain::zec(amount), &payee[..14.min(payee.len())], &payee[payee.len().saturating_sub(8)..]);
+    if check["ok"] != true || check["payments"][0]["receipt_provable"] != true {
+        bail!("that payee can't be proven with a receipt (needs an Orchard/Ironwood receiver)");
+    }
+    if dry_run {
+        return Ok(());
+    }
+    let srv = server.clone();
+    let devtool_run = |args: Vec<String>| {
+        let devtool = devtool.clone();
+        let wallet_dir = wallet_dir.clone();
+        let srv = srv.clone();
+        async move {
+            let mut cmd = tokio::process::Command::new(&devtool);
+            cmd.arg("wallet").arg("-w").arg(&wallet_dir).args(&args);
+            if let Some(s) = &srv {
+                cmd.arg("-s").arg(s);
+            }
+            let out = cmd.output().await.map_err(|e| anyhow!("running {devtool}: {e} (install zcash-devtool or pass --devtool)"))?;
+            anyhow::Ok(String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr))
+        }
+    };
+    eprintln!("Syncing the wallet…");
+    devtool_run(vec!["sync".into()]).await?;
+    eprintln!("Sending…");
+    let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), format!("Receipts request {code}")]).await?;
+    let txid = out.split_whitespace().filter(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).last().ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
+    eprintln!("Sent {txid}. Waiting for it to be mined…");
+    let net = {
+        let keys = std::fs::read_to_string(wallet_dir.join("keys.toml"))?;
+        match keys.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"')) {
+            Some("main") => net::Net::Main,
+            Some("regtest") => bail!("for regtest wallets, pay with zcash-devtool and use `receipts create --request`"),
+            _ => net::Net::Test,
+        }
+    };
+    let id = parse_txid(&txid)?;
+    let mut mined = false;
+    for _ in 0..120 {
+        if chain::fetch_mined_tx(net, server.as_deref(), id).await.is_ok() {
+            mined = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
+    if !mined {
+        bail!("{txid} is not mined after 20 minutes; run `receipts create --txid {txid} --request '{receipt_link}'` later");
+    }
+    devtool_run(vec!["sync".into()]).await?;
+    let mut msg = format!("challenge:{code}");
+    if let Some(a) = &refund_to {
+        msg.push_str(&format!("\nrefund-to:{a}"));
+    }
+    let (receipt, height) = wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None).await?;
+    let text = receipt.to_text();
+    match submit_to {
+        Some((base, rid, secret)) => {
+            let res = reqwest::Client::new().post(format!("{base}/v1/public/requests/{rid}/receipts")).json(&serde_json::json!({ "receipt": text, "client_secret": secret })).send().await?;
+            let ok = res.status().is_success();
+            let body: serde_json::Value = res.json().await.unwrap_or_default();
+            if ok {
+                println!("Paid and proven: request {rid} is {}.", body["status"].as_str().unwrap_or("updated"));
+            } else {
+                println!("The shop refused the receipt: {}", body["error"]["message"].as_str().unwrap_or("unknown error"));
+                println!("{text}");
+                std::process::exit(1);
+            }
+        }
+        None => {
+            println!("Paid. Send this receipt link back to the shop:");
+            println!("{}#{}&h={height}", receipt_link.split('#').next().unwrap_or(&receipt_link), text);
+        }
+    }
     Ok(())
 }
 

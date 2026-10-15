@@ -107,7 +107,17 @@ python3 scripts/wire/wire.py decode /tmp/wire
 
 ## 7. A fresh clone works
 
-FRESH_CLONE
+`git clone` of this branch into an empty directory, with a new target directory:
+
+- `python3 -m unittest discover -s spec-verifier/tests`: 14 tests pass, including the zcash-test-vectors
+  (copied into the repo) and all real testnet receipts offline;
+- `cargo install --locked --path crates/receipts-cli` built in 1 min 47 s (crates already in the
+  local cargo cache), then `receipts verify @examples/testnet/receipt.txt` and the sender-address
+  receipt verify against testnet, offline verification prints that mining was not checked, and
+  `receipts demo --no-wait` runs the whole tour (exit 0).
+
+The full workspace suite (`cargo test --workspace`) passes; so does the npm verifier on the 163
+conformance vectors (`node --test packages/zcash-receipts/test/conformance.test.js`).
 
 ## What this found
 

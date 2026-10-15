@@ -229,6 +229,10 @@ ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
 
 ## Tests and evidence
 
+The independent checks (second implementation, mutation testing, fuzzing, Miri, the wire
+recording, the chain) are collected in [docs/ASSURANCE.md](docs/ASSURANCE.md). The rest of
+this section is the product-level testing.
+
 `python3 scripts/soak.py --minutes 15` drives a fresh server with every kind of request, refunds,
 attestations, test-clock finality and reorgs, and a webhook receiver that checks every signature.
 Last run: 297k calls, 120.9k webhooks, 0 errors, memory flat at 53 MB. (It found two problems,
@@ -257,9 +261,9 @@ attestation and Sign in with Zcash (9 checks; needs Docker, lightwalletd and zca
 | Verified by the CLI against testnet lightwalletd, with `--expect-address` | `receipts verify … → VALID` |
 | Verified in the browser from the public testnet grpc-web server | VERIFIED in 9.3 s (zcash-testnet.chainsafe.dev) |
 | A proof request answered on testnet, and a replayed receipt rejected | [examples/testnet/request-answer-link.txt](examples/testnet/request-answer-link.txt) → REQUEST SATISFIED; the earlier receipt, which signs no challenge, → REQUEST NOT SATISFIED |
-| A receipt that also proves the sending address | [examples/testnet/receipt-with-sender-address.txt](examples/testnet/receipt-with-sender-address.txt): VALID, FROM shown as proven; a different wallet's address is refused |
+| A receipt that also proves the sending address | [examples/testnet/receipt-with-sender-address.txt](examples/testnet/receipt-with-sender-address.txt) (re-made 2026-10-15 after the address-proof fix): VALID, FROM shown as proven; a different wallet's address is refused, and so is the pre-fix receipt |
 | A batch of 3 testnet payments to 2 recipients, verified as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt): CLI `VALID batch`, total 0.022 ZEC; page shows all three |
-| A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,984 to 4,500,997, VALID; regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
+| A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,000 to 4,500,997 (the 1,000-block window, so the server doesn't learn the note's block), VALID; regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
 
 End to end on a private chain as well (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):
 

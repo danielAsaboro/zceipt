@@ -18,6 +18,17 @@ The receipt sits in the URL `#fragment`, which browsers never send to any server
 
 > Built for ZECATHON 2026, Core & Tooling track.
 
+**See it in one command** (no wallet, faucet or setup; about five seconds):
+
+```bash
+cargo install --locked --path crates/receipts-cli && receipts demo
+```
+
+It starts the API, dashboard and browser verifier on a free local port, then walks a shop
+through asking for a payment, receiving a receipt instead of a viewing key, finality, a refund
+and an accountant's attestation, and verifies a real testnet receipt offline. The server keeps
+running so you can open the printed dashboard and verifier links.
+
 ## Why
 
 Today, proving a shielded payment means sharing a viewing key, which exposes every past and
@@ -90,8 +101,12 @@ Requirements: Rust 1.89 or newer (`rust-toolchain.toml` pins 1.95; rustup instal
 ```bash
 cargo test --release -p receipts-core -p receipts-cli   # in-memory bundles + the committed regtest receipt
 cargo install --locked --path crates/receipts-cli    # puts `receipts` on your PATH
-./scripts/build-web.sh && python3 -m http.server -d web 5321
+receipts serve        # API + dashboard + the browser verifier at http://127.0.0.1:8723/verify/
 ```
+
+To rebuild the verifier page after changing the Rust or the page, run `./scripts/build-web.sh`
+(the server embeds the result when it's next built; `python3 -m http.server -d web 5321` also
+serves it on its own).
 
 Create a receipt for a payment you sent from a [zcash-devtool](https://github.com/zcash/zcash-devtool)
 wallet, at any time after sending. If the wallet has pruned the checkpoint at the

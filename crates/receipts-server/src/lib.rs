@@ -20,6 +20,7 @@ pub mod refunds;
 pub mod requests;
 pub mod sandbox;
 pub mod signin;
+pub mod verifier;
 pub mod verify;
 pub mod webhooks;
 
@@ -669,7 +670,7 @@ async fn root_page(State(st): State<Shared>) -> Html<String> {
 <body><h1>Receipts API</h1><p>ZIP 311 payment receipts for Zcash: proof requests, verification, webhooks, refunds, attestations and Sign in with Zcash. Test mode serves <strong>{net}</strong>.</p>
 <ul><li><a href="/dashboard">Dashboard</a>: paste the <code>rcpt_test_…</code> key printed at startup</li><li><a href="/docs">API reference</a> and <a href="/openapi.yaml">OpenAPI spec</a></li>
 <li><a href="/docs/QUICKSTART.md">Quickstart</a>, <a href="/llms.txt">llms.txt</a> for AI agents</li><li><a href="/v1/health">Health</a></li></ul>
-<p>The browser verifier (the page payers and payees open) is separate: <a href="{verifier}">{verifier}</a>.</p></body></html>"#,
+<p>The browser verifier (the page payers and payees open) is built in at <a href="/verify/">/verify/</a>; proof-request links point to <a href="{verifier}">{verifier}</a>.</p></body></html>"#,
         net = st.config.test_net.name(),
         verifier = st.config.verifier_url,
     ))
@@ -751,6 +752,9 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/events/{id}/resend", post(resend_event))
         .route("/openapi.yaml", get(openapi))
         .route("/", get(root_page))
+        .route("/verify", get(verifier::root))
+        .route("/verify/", get(verifier::index))
+        .route("/verify/{*path}", get(verifier::file))
         .route("/docs", get(docs_page))
         .route("/docs/{*name}", get(doc_md))
         .route("/llms.txt", get(llms_txt))

@@ -1,5 +1,6 @@
 //! `receipts`: create and verify Zcash payment receipts (ZIP 311) for Orchard and Ironwood.
 
+mod demo;
 mod mcp;
 mod wallet;
 
@@ -175,6 +176,13 @@ enum Cmd {
         /// Only these event types (default: all).
         #[arg(long = "event")]
         events: Vec<String>,
+    },
+    /// The whole product in one command: starts the API, dashboard and verifier on a free port
+    /// and walks through pay, prove, settle, refund and attest in the sandbox. No setup needed.
+    Demo {
+        /// Exit after the walkthrough instead of keeping the server running.
+        #[arg(long)]
+        no_wait: bool,
     },
     /// Check your setup: lightwalletd servers, the Receipts API and key, the clock, a wallet,
     /// and how fast this machine builds proofs. Prints what to fix.
@@ -592,6 +600,7 @@ async fn main() -> anyhow::Result<()> {
             }
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
+        Cmd::Demo { no_wait } => demo::run(!no_wait).await?,
         Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());

@@ -36,3 +36,8 @@ lto = "thin"
 [profile.test]
 opt-level = 3
 
+
+# Local patch: lets the verifier load precomputed commitment parameters instead of deriving
+# them (most of the verifying key's build time; see vendor/orchard/src/circuit.rs).
+[patch.crates-io]
+orchard = { path = "vendor/orchard" }

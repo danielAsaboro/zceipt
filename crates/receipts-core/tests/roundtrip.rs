@@ -370,3 +370,11 @@ fn sign_in_roundtrip_and_replay() {
     assert!(sign_in(pk, 1, "shop.example", "n", 0, &thief, addr, OsRng).is_err());
     assert!(SignIn::from_text(&text[..text.len() - 4]).is_none());
 }
+
+#[test]
+fn params_match_derivation() {
+    // The shipped parameters are exactly what deriving them gives.
+    let derived = receipts_core::verifying_key_slow().params_bytes();
+    assert_eq!(derived, receipts_core::verifying_key().params_bytes());
+    assert_eq!(derived.as_slice(), &include_bytes!("../src/orchard-params-k11.bin")[..]);
+}

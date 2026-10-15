@@ -187,6 +187,11 @@ trustworthy as the server; the receipt remains the trustless proof.
   onwards (`GetBlockRange`, compact blocks), until the root equals the transaction's anchor.
   Nothing needs to be cached at send time, which is ZIP 311's requirement. `--from-chain`
   forces this path.
+- **Precomputed parameters.** Verifiers load the circuit's commitment parameters (k = 11,
+  131 KB) from bytes shipped with the code instead of deriving them by hashing to the curve.
+  They are deterministic and a test checks them byte for byte against a fresh derivation. This
+  cuts the verifier's one-time setup from 7.7 s to 2.9 s in the browser (2.0 s to 0.8 s natively).
+  It needs a one-function patch to orchard (`VerifyingKey::build_with_params`, `vendor/orchard`).
 - **Circuit choice.** The disclosure proof always uses the post-NU6.3 circuit, including for
   pre-NU6.3 Orchard transactions. It is a new statement about an old note and is never
   verified by consensus, so it should use the secure circuit.

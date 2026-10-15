@@ -1,9 +1,13 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+ * Decodes a receipt without verifying it. Returns JSON.
  */
-export function secret_kind(text: string): string;
+export function inspect(receipt: string): string;
+/**
+ * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ */
+export function orchard_receiver_hex(ua: string): string;
 /**
  * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
  * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
@@ -11,30 +15,9 @@ export function secret_kind(text: string): string;
  */
 export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
 /**
- * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
- * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
- */
-export function open_batch(batch: string): string;
-/**
  * Builds the verifying key now (a few seconds), so `verify` is fast later.
  */
 export function warm_up(): void;
-/**
- * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
- * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
- * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
- * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
- */
-export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_height: number, tx2_raw: Uint8Array, tx2_height: number, regtest: boolean): string;
-/**
- * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
- * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
- */
-export function check_payment_uri(uri: string, network: string): string;
-/**
- * Decodes a receipt without verifying it. Returns JSON.
- */
-export function inspect(receipt: string): string;
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
@@ -42,9 +25,26 @@ export function inspect(receipt: string): string;
  */
 export function verify(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
 /**
- * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
  */
-export function orchard_receiver_hex(ua: string): string;
+export function secret_kind(text: string): string;
+/**
+ * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+ */
+export function open_batch(batch: string): string;
+/**
+ * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
+ * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
+ */
+export function check_payment_uri(uri: string, network: string): string;
+/**
+ * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
+ * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
+ * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
+ * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
+ */
+export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_height: number, tx2_raw: Uint8Array, tx2_height: number, regtest: boolean): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 

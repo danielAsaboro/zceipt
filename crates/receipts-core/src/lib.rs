@@ -607,7 +607,17 @@ pub fn proving_key() -> ProvingKey {
     ProvingKey::build(RECEIPT_CIRCUIT)
 }
 
-/// Verifying key for receipts. Building it takes a few seconds; cache it.
+/// The Orchard circuit's commitment parameters (k = 11), precomputed. They are deterministic
+/// (derived by hashing to the curve), and `params_match_derivation` checks these bytes against a
+/// fresh derivation, so shipping them changes nothing but speed.
+const ORCHARD_PARAMS_K11: &[u8] = include_bytes!("orchard-params-k11.bin");
+
+/// Verifying key for receipts. Uses the precomputed parameters (about 3x faster); cache it.
 pub fn verifying_key() -> VerifyingKey {
+    VerifyingKey::build_with_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT).unwrap_or_else(|_| VerifyingKey::build(RECEIPT_CIRCUIT))
+}
+
+/// The verifying key built the slow way, deriving every parameter (for checking the cache).
+pub fn verifying_key_slow() -> VerifyingKey {
     VerifyingKey::build(RECEIPT_CIRCUIT)
 }

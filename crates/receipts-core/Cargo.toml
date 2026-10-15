@@ -27,6 +27,7 @@ qrcode = { version = "0.14", default-features = false }
 serde_json = "1"
 
 [dev-dependencies]
+halo2_proofs = { version = "0.4", default-features = false }
 rand = { version = "0.10", features = ["std", "sys_rng"] }
 incrementalmerkletree = "0.9"
 shardtree = "0.8"

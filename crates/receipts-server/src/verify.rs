@@ -197,10 +197,18 @@ pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<
     let body = extract(text, "zrcptb1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcptb1… batch found").param("receipt"))?;
     let batch = ReceiptBatch::from_text(&body).map_err(|e| ApiError::invalid("receipt_malformed", e.to_string()).param("receipt"))?;
     let id = receipts_core::check_batch(&batch).map_err(|e| ApiError::verification("batch_invalid", e))?;
-    let mut results = Vec::new();
-    for r in &batch.receipts {
-        results.push(verify_parsed(net, server, r).await?);
+    // Fetch and verify the receipts concurrently (proof checks are bounded by verify_slots).
+    let mut set = tokio::task::JoinSet::new();
+    for (i, r) in batch.receipts.iter().cloned().enumerate() {
+        let server = server.map(str::to_string);
+        set.spawn(async move { (i, verify_parsed(net, server.as_deref(), &r).await) });
     }
+    let mut slots: Vec<Option<Verification>> = vec![None; batch.receipts.len()];
+    while let Some(done) = set.join_next().await {
+        let (i, v) = done.map_err(|e| ApiError::internal(e.to_string()))?;
+        slots[i] = Some(v?);
+    }
+    let results: Vec<Verification> = slots.into_iter().map(|v| v.expect("every task reports")).collect();
     let mut totals = serde_json::Map::new();
     for v in &results {
         for o in &v.outputs {

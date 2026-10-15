@@ -338,13 +338,17 @@ async function runBatch(batchText) {
   }
   const results = [];
   try {
-    for (const [i, r] of b.receipts.entries()) {
+    // Fetch every transaction at once; proofs are then checked one by one in the worker.
+    setStep("fetch", "busy", `fetching ${b.receipts.length} transactions`);
+    const txs = await Promise.all(b.receipts.map(async (r) => {
       const s = await quick("inspect", { receipt: r });
-      setStep("fetch", "busy", `transaction ${i + 1} of ${b.receipts.length}`);
       const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
-      const tx = await fetchRawTx(endpoint, s.txid);
+      return fetchRawTx(endpoint, s.txid);
+    }));
+    setStep("fetch", "done", `${txs.length} transactions fetched`);
+    for (const [i, r] of b.receipts.entries()) {
       setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
-      results.push(await call("verify", { receipt: r, rawTx: tx.raw, height: tx.height, regtest: regtest() }));
+      results.push(await call("verify", { receipt: r, rawTx: txs[i].raw, height: txs[i].height, regtest: regtest() }));
     }
     setStep("fetch", "done", `${results.length} transactions fetched`);
     setStep("verify", "done", `all ${results.length} proofs and signatures valid`);

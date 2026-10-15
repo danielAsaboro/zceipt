@@ -139,7 +139,8 @@ export async function verifyBatch(input, options = {}) {
   const { id, receipts } = JSON.parse(open_batch(text));
   const { rawTx, height, expectAddress, minZatoshis, ...rest } = options;
   const results = [];
-  for (const r of receipts) results.push(await verifyReceipt(r, rest));
+  // Fetches overlap; each proof is checked as its transaction arrives.
+  results.push(...(await Promise.all(receipts.map((r) => verifyReceipt(r, rest)))));
   const totals = {};
   for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
   return { id, results, totals };

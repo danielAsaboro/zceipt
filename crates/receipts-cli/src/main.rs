@@ -208,6 +208,9 @@ enum Cmd {
         /// Show what would be paid, then stop.
         #[arg(long)]
         dry_run: bool,
+        /// Already paid: skip sending and answer the request with this transaction.
+        #[arg(long)]
+        txid: Option<String>,
     },
     /// Check your setup: lightwalletd servers, the Receipts API and key, the clock, a wallet,
     /// and how fast this machine builds proofs. Prints what to fix.
@@ -626,7 +629,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
         Cmd::Demo { no_wait } => demo::run(!no_wait).await?,
-        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run } => pay(link, wallet, identity, devtool, server, refund_to, dry_run).await?,
+        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid } => pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid).await?,
         Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());
@@ -746,7 +749,8 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
     Ok(())
 }
 
-async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool) -> anyhow::Result<()> {
+#[allow(clippy::too_many_arguments)]
+async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool, paid_txid: Option<String>) -> anyhow::Result<()> {
     // What to pay: from the hosted page's public API, or from a receipt link's parameters.
     let link = link.trim().to_string();
     let (payee, amount, code, submit_to, receipt_link) = if let Some((base, rest)) = link.split_once("/pay/") {
@@ -794,12 +798,19 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
             anyhow::Ok(String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr))
         }
     };
-    eprintln!("Syncing the wallet…");
-    devtool_run(vec!["sync".into()]).await?;
-    eprintln!("Sending…");
-    let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), format!("Receipts request {code}")]).await?;
-    let txid = out.split_whitespace().filter(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).last().ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
-    eprintln!("Sent {txid}. Waiting for it to be mined…");
+    let txid = match paid_txid {
+        Some(t) => t,
+        None => {
+            eprintln!("Syncing the wallet…");
+            devtool_run(vec!["sync".into()]).await?;
+            eprintln!("Sending…");
+            let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), format!("Receipts request {code}")]).await?;
+            let txid = out.split_whitespace().filter(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).last().ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
+            eprintln!("Sent {txid}.");
+            txid
+        }
+    };
+    eprintln!("Waiting for {txid} to be mined…");
     let net = {
         let keys = std::fs::read_to_string(wallet_dir.join("keys.toml"))?;
         match keys.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"')) {
@@ -818,14 +829,25 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
     if !mined {
-        bail!("{txid} is not mined after 20 minutes; run `receipts create --txid {txid} --request '{receipt_link}'` later");
+        bail!("{txid} is not mined after 20 minutes; run this again later with --txid {txid}");
     }
-    devtool_run(vec!["sync".into()]).await?;
     let mut msg = format!("challenge:{code}");
     if let Some(a) = &refund_to {
         msg.push_str(&format!("\nrefund-to:{a}"));
     }
-    let (receipt, height) = wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None).await?;
+    // The wallet learns the block a little after the chain does: sync until it has it.
+    let mut attempt = 0;
+    let (receipt, height) = loop {
+        devtool_run(vec!["sync".into()]).await?;
+        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None).await {
+            Ok(x) => break x,
+            Err(e) if attempt < 12 && e.to_string().contains("not mined") => {
+                attempt += 1;
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+            Err(e) => return Err(e),
+        }
+    };
     let text = receipt.to_text();
     match submit_to {
         Some((base, rid, secret)) => {

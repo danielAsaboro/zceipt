@@ -1,13 +1,18 @@
 //! Binary encoding of receipts, and the `zrcpt1…` text form used in links.
 //!
 //! ```text
-//! unsigned := "ZRCT" | version:u8 = 1 | coin_type:u32le | pool:u8 | txid[32]
-//!             | msg_len:u16le | msg
+//! unsigned := "ZRCT" | version:u8 | coin_type:u32le | pool:u8 | [output_pool:u8 if v3]
+//!             | txid[32] | msg_len:u16le | msg
 //!             | n_outputs:u8 | { index:u32le | ock[32] }*
 //!             | n_spends:u8  | { index:u32le | cv_net[32] | rk[32] | cmx[32]
-//!                              | proof_len:u32le | proof }*
+//!                              | proof_len:u32le | proof | [addr_flag:u8 (0|1) | address proof if 1, v2/v3] }*
 //! receipt  := unsigned | { spend_auth_sig[64] } * n_spends
 //! ```
+//!
+//! Version 1: no address proofs. Version 2: at least one spend carries an address proof.
+//! Version 3: outputs in another pool than the spends. Decoding is strict and canonical: a
+//! receipt is accepted only if re-encoding it gives back exactly the same bytes, so one receipt
+//! has one encoding.
 //!
 //! The text form is `zrcpt1` followed by the unpadded base64url encoding of the receipt.
 
@@ -36,6 +41,10 @@ pub enum DecodeError {
     Truncated,
     #[error("unknown pool {0}")]
     UnknownPool(u8),
+    #[error("version 3 must name an output pool different from the spends' pool")]
+    SamePool,
+    #[error("not in canonical form (bad flag, or the wrong version for its contents)")]
+    NonCanonical,
     #[error("trailing bytes after the receipt")]
     TrailingBytes,
     #[error("field too large")]
@@ -135,7 +144,7 @@ impl UnsignedReceipt {
             let b = r.u8()?;
             let p = Pool::from_byte(b).ok_or(DecodeError::UnknownPool(b))?;
             if p == pool {
-                return Err(DecodeError::UnknownPool(b)); // v3 must name a different pool
+                return Err(DecodeError::SamePool);
             }
             Some(p)
         } else {
@@ -164,7 +173,11 @@ impl UnsignedReceipt {
                 return Err(DecodeError::TooLarge);
             }
             let proof = r.take(len)?.to_vec();
-            let address = if (version == VERSION_ADDR || version == VERSION_XPOOL) && r.u8()? == 1 {
+            let flag = if version == VERSION_ADDR || version == VERSION_XPOOL { r.u8()? } else { 0 };
+            if flag > 1 {
+                return Err(DecodeError::NonCanonical);
+            }
+            let address = if flag == 1 {
                 let address: [u8; 43] = r.take(43)?.try_into().unwrap();
                 let rho = r.arr32()?;
                 let rseed = r.arr32()?;
@@ -212,6 +225,12 @@ impl Receipt {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut r = Reader { buf: bytes };
         let unsigned = UnsignedReceipt::read(&mut r)?;
+        // Canonical: the signed encoding must be exactly the bytes we were given (rejects a v2
+        // with no address proof, or other re-labellings that would decode to the same receipt).
+        let consumed = bytes.len() - r.buf.len();
+        if unsigned.encode() != bytes[..consumed] {
+            return Err(DecodeError::NonCanonical);
+        }
         let mut spend_auth_sigs = Vec::with_capacity(unsigned.spends.len());
         for _ in 0..unsigned.spends.len() {
             spend_auth_sigs.push(r.take(64)?.try_into().unwrap());

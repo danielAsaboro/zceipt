@@ -21,9 +21,19 @@ import { webhooks } from "./client.js";
 const HEADER = "receipt-request";
 
 /** Core gate: decide from a request id (or none) whether to let a caller through. */
+// Each open-ended caller would otherwise mint a new proof request (an API call and a row) per
+// hit. The gate reuses the open request it already issued to the same caller for the same
+// route, and caps how many new ones it creates per minute in all (`maxNewPerMinute`).
+const issued = new Map(); // `${bind}|${route}` -> { id, at }
+let windowStart = 0, createdInWindow = 0;
+
 // A fulfilled request id is a bearer token: whoever presents it gets through. Pass `bindTo`
-// (a session or account id) to tie each request to the caller it was issued to.
-export async function checkGate({ receipts, payee, amountZatoshis, label, requestId, expiresIn = 3600, requireFinal = false, bindTo }) {
+// (a server-side session or account id, never a header the client sets) to tie it to one caller,
+// `route` to tie it to one resource (default: the label), and `maxAgeSeconds` to make access
+// expire. Refunds already paid back count against the price.
+export async function checkGate({ receipts, payee, amountZatoshis, label, route, requestId, expiresIn = 3600, requireFinal = false, bindTo, maxAgeSeconds, maxNewPerMinute = 30 }) {
+  const routeKey = String(route ?? label ?? "default");
+  const bind = bindTo == null ? null : String(bindTo);
   if (requestId) {
     let r;
     try {
@@ -31,15 +41,38 @@ export async function checkGate({ receipts, payee, amountZatoshis, label, reques
     } catch {
       r = null;
     }
-    // Only a request this gate could have made counts: same payee, at least the amount.
-    const bound = bindTo == null || r?.metadata?.gate_bind === String(bindTo);
-    if (r && bound && r.payee === payee && (r.amount_zatoshis ?? 0) >= amountZatoshis) {
-      if (r.status === "fulfilled" && (!requireFinal || r.final)) return { allow: true, request: r };
-      if (r.status === "open" || r.status === "fulfilled") return { allow: false, status: 402, body: challengeBody(r, requireFinal && r.status === "fulfilled" ? "paid; waiting for 10 confirmations" : "waiting for the receipt") };
+    const m = r?.metadata ?? {};
+    const refunded = (r?.refunds ?? []).filter((x) => x.status === "succeeded").reduce((s, x) => s + x.amount_zatoshis, 0);
+    const matches = r && r.kind === "single" && r.payee === payee && m.gate_route === routeKey && (bind == null || m.gate_bind === bind);
+    if (matches && (r.received_zatoshis ?? 0) - refunded >= amountZatoshis && r.status === "fulfilled") {
+      const fresh = maxAgeSeconds == null || (r.fulfillment?.fulfilled_at ?? 0) * 1000 > Date.now() - maxAgeSeconds * 1000;
+      if (fresh && (!requireFinal || r.final)) return { allow: true, request: r };
+      if (!fresh) return issue("access expired; pay again");
+      return { allow: false, status: 402, body: challengeBody(r, "paid; waiting for 10 confirmations") };
     }
+    if (matches && r.status === "open") return { allow: false, status: 402, body: challengeBody(r, "waiting for the receipt") };
   }
-  const r = await receipts.requests.create({ payee, amount_zatoshis: amountZatoshis, label, expires_in: expiresIn, metadata: bindTo == null ? undefined : { gate_bind: String(bindTo) } });
-  return { allow: false, status: 402, body: challengeBody(r, "payment required") };
+  return issue("payment required");
+
+  async function issue(state) {
+    const key = `${bind ?? "*"}|${routeKey}`;
+    const prev = issued.get(key);
+    if (prev && Date.now() - prev.at < Math.min(expiresIn, 600) * 1000) {
+      try {
+        const r = await receipts.requests.retrieve(prev.id);
+        if (r.status === "open") return { allow: false, status: 402, body: challengeBody(r, state) };
+      } catch {}
+    }
+    const now = Date.now();
+    if (now - windowStart > 60_000) { windowStart = now; createdInWindow = 0; }
+    if (++createdInWindow > maxNewPerMinute) {
+      return { allow: false, status: 429, body: { error: { type: "rate_limited", message: "too many new payment requests; retry in a minute" } }, retryAfter: Math.ceil((windowStart + 60_000 - now) / 1000) };
+    }
+    const r = await receipts.requests.create({ payee, amount_zatoshis: amountZatoshis, label, expires_in: expiresIn, metadata: { gate_route: routeKey, ...(bind == null ? {} : { gate_bind: bind }) } });
+    issued.set(key, { id: r.id, at: now });
+    if (issued.size > 10_000) issued.clear();
+    return { allow: false, status: 402, body: challengeBody(r, state) };
+  }
 }
 
 function challengeBody(r, state) {
@@ -65,7 +98,8 @@ export const receiptGate = {
           req.receiptRequest = g.request;
           return next();
         }
-        if (res.set) res.set("Link", `<${g.body.receipt_link}>; rel="payment"`);
+        if (res.set && g.body.receipt_link) res.set("Link", `<${g.body.receipt_link}>; rel="payment"`);
+        if (res.set && g.retryAfter) res.set("Retry-After", String(g.retryAfter));
         res.status(g.status).json(g.body);
       } catch (e) {
         next(e);
@@ -77,7 +111,10 @@ export const receiptGate = {
     const bindTo = typeof opts.bindTo === "function" ? opts.bindTo(request) : opts.bindTo;
     const g = await checkGate({ ...opts, bindTo, requestId: request.headers.get(HEADER) });
     if (g.allow) return null;
-    return new Response(JSON.stringify(g.body), { status: g.status, headers: { "content-type": "application/json", link: `<${g.body.receipt_link}>; rel="payment"` } });
+    const headers = { "content-type": "application/json" };
+    if (g.body.receipt_link) headers.link = `<${g.body.receipt_link}>; rel="payment"`;
+    if (g.retryAfter) headers["retry-after"] = String(g.retryAfter);
+    return new Response(JSON.stringify(g.body), { status: g.status, headers });
   },
 };
 

@@ -94,6 +94,10 @@ pool right after the spends' pool and always carries the per-spend address flag:
 unsigned := "ZRCT" | version:u8 = 3 | coin_type:u32le | pool:u8 | output_pool:u8 (≠ pool) | txid[32] | …
 ```
 
+Decoding is strict: the per-spend address flag is exactly 0 or 1, a version-2 receipt must carry
+at least one address proof, and a receipt is accepted only if re-encoding it reproduces its bytes,
+so every receipt has a single encoding and its signature covers those exact bytes.
+
 Spend proofs and signatures are checked against `pool`'s bundle (its anchor and nullifiers),
 outputs are opened in `output_pool`'s bundle with that pool's note-encryption domain. The
 signature covers both pool bytes, so a receipt can't be moved between bundles.

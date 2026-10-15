@@ -43,3 +43,21 @@ test("402 gate: pay, prove, get through; bound to its caller", { skip: !URL_ || 
   await receiptGate.express(opts)({ headers: { "receipt-request": body.request } }, res, () => (nexted = true));
   assert.equal(nexted, true);
 });
+
+test("402 gate: route-bound, reuses open requests, caps new ones, nets refunds", { skip: !URL_ || !KEY }, async () => {
+  const receipts = new Receipts(KEY, { baseUrl: URL_ });
+  const base = { receipts, payee: PAYEE, amountZatoshis: 1_000_000, bindTo: "bob" + Date.now() };
+  const a = await checkGate({ ...base, route: "/a" });
+  const again = await checkGate({ ...base, route: "/a" });
+  assert.equal(again.body.request, a.body.request, "the open request is reused, not re-created");
+  await receipts.requests.submitReceipt(a.body.request, { receipt: "zrcpt_test_refund_to" });
+  assert.equal((await checkGate({ ...base, route: "/a", requestId: a.body.request })).allow, true);
+  assert.equal((await checkGate({ ...base, route: "/b", requestId: a.body.request })).allow, false, "paid for /a, not /b");
+  assert.equal((await checkGate({ ...base, route: "/a", requestId: a.body.request, maxAgeSeconds: -1 })).allow, false, "expired access");
+  const rf = await receipts.refunds.create(a.body.request, { amount_zatoshis: 10 });
+  await receipts.refunds.submitReceipt(rf.id, { receipt: "zrcpt_test_valid" });
+  assert.equal((await checkGate({ ...base, route: "/a", requestId: a.body.request })).allow, false, "a refund takes it below the price");
+  let last;
+  for (let i = 0; i < 5; i++) last = await checkGate({ ...base, bindTo: `x${i}${Date.now()}`, route: "/c", maxNewPerMinute: 2 });
+  assert.equal(last.status, 429);
+});

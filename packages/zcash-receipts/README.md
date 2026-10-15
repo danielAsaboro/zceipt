@@ -57,6 +57,22 @@ import { Receipts, webhooks, VerificationError } from "zcash-receipts/client";
 
 See [docs/QUICKSTART.md](../../docs/QUICKSTART.md).
 
+## Server middleware: HTTP 402 and webhooks
+
+```js
+import { receiptGate, webhookHandler } from "zcash-receipts/middleware";
+app.get("/report", receiptGate.express({ receipts, payee, amountZatoshis: 1_000_000, route: "/report", bindTo: (req) => req.session.id }), handler);
+```
+
+Callers get 402 with a payment link until they answer it with a receipt. See
+[docs/guides/http-402.md](../../docs/guides/http-402.md).
+
+## Attestations and sign-in
+
+`verifyAttestation(token, { issuer })` checks a payment-fact attestation offline against the server
+you trust; `verifySignIn(zsig, { domain, nonce })` checks a Sign in with Zcash proof.
+`checkPaymentLink(uri)` lints a `zcash:` link.
+
 ## Tests
 
 `RECEIPTS_URL=http://127.0.0.1:8723 RECEIPTS_KEY=rcpt_test_… ` then run the test command. Without them, the API tests are skipped and only the offline tests run.

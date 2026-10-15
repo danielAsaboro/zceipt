@@ -10,8 +10,19 @@ prove, get in", without the server ever seeing the payer's wallet.
 3. The caller retries with `Receipt-Request: <id>` and gets through once the request is
    fulfilled (or final, with `requireFinal`).
 
-A fulfilled request id works like a bearer token, so pass `bindTo` (a session or account id):
-the gate stores it in the request's metadata and only lets that caller through.
+What a paid request unlocks:
+
+- **Who:** a fulfilled request id works like a bearer token, so pass `bindTo`: a server-side
+  session or account id (never a header the client sets, such as `X-Forwarded-For`). The gate
+  stores it in the request's metadata and only lets that caller through.
+- **What:** `route` (default: the label) is stored too; a request paid for `/a` doesn't open `/b`.
+- **For how long:** forever, unless you pass `maxAgeSeconds` (Python: `max_age_seconds`).
+- **How much:** at least the price, net of refunds already paid back.
+
+Abuse: a caller without a valid header gets the open request the gate already issued to it for
+that route (not a new one), and the gate creates at most `maxNewPerMinute` (default 30) new
+requests a minute in all, answering 429 beyond that, so anonymous traffic can't exhaust your API
+key's rate limit.
 
 ## Express
 

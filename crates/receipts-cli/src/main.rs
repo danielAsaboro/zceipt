@@ -211,6 +211,9 @@ enum Cmd {
         /// Already paid: skip sending and answer the request with this transaction.
         #[arg(long)]
         txid: Option<String>,
+        /// Pay without asking for confirmation.
+        #[arg(long)]
+        yes: bool,
     },
     /// Check your setup: lightwalletd servers, the Receipts API and key, the clock, a wallet,
     /// and how fast this machine builds proofs. Prints what to fix.
@@ -266,9 +269,9 @@ enum Cmd {
         /// lightwalletd for live mode (default: zec.rocks:443).
         #[arg(long)]
         live_lightwalletd: Option<String>,
-        /// Verifier page used in proof-request links.
-        #[arg(long, default_value = DEFAULT_LINK_BASE)]
-        verifier_url: String,
+        /// Verifier page used in proof-request links. Default: this server's own /verify/.
+        #[arg(long)]
+        verifier_url: Option<String>,
     },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
     Tx {
@@ -584,6 +587,7 @@ async fn main() -> anyhow::Result<()> {
                 "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
                 n => bail!("--test-network must be test or regtest, not {n}"),
             };
+            let verifier_url = verifier_url.unwrap_or_else(|| format!("http://{listen}/verify/"));
             let config = receipts_server::Config { test_lightwalletd, live_lightwalletd, public_url: format!("http://{listen}"), ..receipts_server::Config::new(test_net, verifier_url) };
             let (app, keys) = receipts_server::build(&db, config).await?;
             let listener = tokio::net::TcpListener::bind(&listen).await?;
@@ -629,7 +633,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
         Cmd::Demo { no_wait } => demo::run(!no_wait).await?,
-        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid } => pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid).await?,
+        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes } => pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes).await?,
         Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());
@@ -750,18 +754,29 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool, paid_txid: Option<String>) -> anyhow::Result<()> {
+async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool, paid_txid: Option<String>, yes: bool) -> anyhow::Result<()> {
     // What to pay: from the hosted page's public API, or from a receipt link's parameters.
     let link = link.trim().to_string();
-    let (payee, amount, code, submit_to, receipt_link) = if let Some((base, rest)) = link.split_once("/pay/") {
-        let (id, query) = rest.split_once('?').unwrap_or((rest, ""));
-        let secret = query.split('&').find_map(|p| p.strip_prefix("secret=")).ok_or_else(|| anyhow!("the pay link has no secret"))?;
+    let parsed = reqwest::Url::parse(&link).ok();
+    let hosted = parsed.as_ref().filter(|u| u.path().starts_with("/pay/") && u.path().len() > 5);
+    let host = parsed.as_ref().and_then(|u| u.host_str().map(|h| match u.port() { Some(p) => format!("{h}:{p}"), None => h.to_string() })).unwrap_or_else(|| "(no host)".into());
+    let (payee, amount, code, submit_to, receipt_link) = if let Some(u) = hosted {
+        let base = format!("{}://{}", u.scheme(), host);
+        let id = u.path()["/pay/".len()..].trim_end_matches('/').to_string();
+        if !id.starts_with("preq_") || !id[5..].chars().all(|c| c.is_ascii_hexdigit()) {
+            bail!("that doesn't look like a Receipts pay link");
+        }
+        let secret = u.query_pairs().find(|(k, _)| k == "secret").map(|(_, v)| v.into_owned()).ok_or_else(|| anyhow!("the pay link has no secret"))?;
+        let (base, id, secret) = (base.as_str(), id.as_str(), secret.as_str());
         let info: serde_json::Value = reqwest::get(format!("{base}/v1/public/requests/{id}?secret={secret}")).await?.json().await?;
         if info.get("error").is_some() {
             bail!("the shop's server refused: {}", info["error"]["message"]);
         }
         if info["status"] != "open" {
             bail!("that request is {}, nothing to pay", info["status"]);
+        }
+        if info["kind"] == "campaign" {
+            bail!("that's a campaign: choose your amount, pay it from your wallet, then `receipts create --request '<its receipt link>'`");
         }
         let rl = info["receipt_link"].as_str().unwrap_or_default().to_string();
         let r = parse_request(&rl)?;
@@ -776,12 +791,29 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         (payee, r.min, r.code, None, link.clone())
     };
     let check = receipts_core::preflight::check_payment_uri(&format!("zcash:{payee}?amount={}", chain::zec(amount)), None);
-    println!("Pay {} ZEC to {}…{} for request {code}", chain::zec(amount), &payee[..14.min(payee.len())], &payee[payee.len().saturating_sub(8)..]);
     if check["ok"] != true || check["payments"][0]["receipt_provable"] != true {
         bail!("that payee can't be proven with a receipt (needs an Orchard/Ironwood receiver)");
     }
+    let wallet_net = wallet::wallet_network(&wallet_dir)?;
+    let payee_net = check["payments"][0]["network"].as_str().unwrap_or("?");
+    if !(payee_net == wallet_net.name() || (payee_net == "testnet" && wallet_net.name() == "regtest")) {
+        bail!("the payee is a {payee_net} address but this wallet is for {}", wallet_net.name());
+    }
+    println!("Request {code} from {host}");
+    println!("  pay      {} ZEC", chain::zec(amount));
+    println!("  to       {payee}");
     if dry_run {
         return Ok(());
+    }
+    if !yes && paid_txid.is_none() {
+        use std::io::Write;
+        print!("Send this payment? [y/N] ");
+        std::io::stdout().flush()?;
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !matches!(answer.trim(), "y" | "Y" | "yes") {
+            bail!("not paid");
+        }
     }
     let srv = server.clone();
     let devtool_run = |args: Vec<String>| {
@@ -811,7 +843,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         }
     };
     eprintln!("Waiting for {txid} to be mined…");
-    let net = wallet::wallet_network(&wallet_dir)?;
+    let net = wallet_net;
     let id = parse_txid(&txid)?;
     let mut mined = false;
     for _ in 0..120 {

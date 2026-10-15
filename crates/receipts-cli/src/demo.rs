@@ -145,7 +145,7 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     let ok = api.verify_attestation(pres).await?;
     say(&format!("anyone can check it: valid {}", ok["valid"]));
 
-    step(6, "And a real receipt from the Zcash testnet, verified offline");
+    step(6, "And a real receipt from the Zcash testnet, verified offline (from the transaction's bytes)");
     let receipt = receipts_core::Receipt::from_text(REAL_RECEIPT.trim())?;
     let t0 = std::time::Instant::now();
     let report = receipts_chain::chain::verify_offline(&receipt, REAL_TX, REAL_HEIGHT, None)?;
@@ -153,16 +153,16 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     say(&format!("tx {}… block {}: {} paid, memo “{}”", &report.txid[..12], report.mined_height, o.zec.trim_end_matches('0'), o.memo.clone().unwrap_or_default()));
     say(&format!("Halo 2 spend proof and signature valid in {} ms; the sender's wallet stays private", t0.elapsed().as_millis()));
 
-    println!("\n\x1b[1mExplore\x1b[0m");
-    say(&format!("dashboard   {base}/dashboard   (paste key {key})"));
-    say(&format!("verifier    {base}/verify/#{}&h={REAL_HEIGHT}", REAL_RECEIPT.trim()[..24].to_string() + "…"));
-    say(&format!("            (the full link is printed below; it verifies the testnet receipt in your browser)"));
-    say(&format!("API docs    {base}/docs"));
-    println!("\n{base}/verify/#{}&h={REAL_HEIGHT}", REAL_RECEIPT.trim());
     if wait {
-        println!("\nThe server keeps running. Ctrl-C to stop (the demo database is deleted).");
+        println!("\n\x1b[1mExplore\x1b[0m (the server keeps running; Ctrl-C to stop and delete the demo database)");
+        say(&format!("dashboard   {base}/dashboard   (paste key {key})"));
+        say(&format!("API docs    {base}/docs"));
+        say("verifier    the link below checks the testnet receipt in your browser (it fetches that block from a public testnet server)");
+        println!("\n{base}/verify/#{}&h={REAL_HEIGHT}", REAL_RECEIPT.trim());
         let _ = tokio::signal::ctrl_c().await;
     }
-    let _ = std::fs::remove_file(&db);
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", db.display()));
+    }
     Ok(())
 }

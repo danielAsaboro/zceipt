@@ -2,25 +2,33 @@
 // A paid API in 40 lines: HTTP 402 until the caller proves a shielded payment with a receipt.
 //
 //   RECEIPTS_KEY=rcpt_test_… SHOP_ADDRESS=utest1… node examples/paid-api/server.mjs
-//   curl -i localhost:4343/report                       # 402 + payment_uri + receipt_link
-//   …pay, then `receipts create … --request '<receipt_link>'` (sandbox: submit zrcpt_test_valid)…
-//   curl -H 'Receipt-Request: preq_…' localhost:4343/report   # 200
+//   curl -iL -c jar -b jar localhost:4343/report                  # 402 + payment_uri + receipt_link
+//   …pay, then `receipts pay '<hosted_url>'` (sandbox: submit zrcpt_test_valid)…
+//   curl -b jar -H 'Receipt-Request: preq_…' localhost:4343/report  # 200
 //
 // The API never sees the payer's wallet, and a paid request id only works for the caller it
-// was issued to (here: the client's IP, for the demo; use a session or account id).
+// was issued to: here a random session cookie the server sets (in a real app, your session or
+// account id). Never bind to something the client sends, like X-Forwarded-For.
 
 import http from "node:http";
 import { Receipts } from "../../packages/zcash-receipts/client.js";
 import { receiptGate, webhookHandler } from "../../packages/zcash-receipts/middleware.js";
 
 const receipts = new Receipts(process.env.RECEIPTS_KEY, { baseUrl: process.env.RECEIPTS_URL || "http://127.0.0.1:8723" });
-const gate = { receipts, payee: process.env.SHOP_ADDRESS, amountZatoshis: 100_000, label: "One report", bindTo: (req) => req.headers.get("x-forwarded-for") || "local" };
+const session = (req) => /(?:^|;\s*)sid=([0-9a-f]{32})/.exec(req.headers.get("cookie") || "")?.[1];
+const gate = { receipts, payee: process.env.SHOP_ADDRESS, amountZatoshis: 100_000, label: "One report", route: "/report", bindTo: session };
 const PORT = Number(process.env.PORT || 4343);
 
 http
   .createServer(async (req, res) => {
     const request = new Request(`http://localhost${req.url}`, { method: req.method, headers: req.headers });
     if (req.url === "/report") {
+      if (!session(request)) {
+        // First visit: give the caller a session, then gate it.
+        res.setHeader("set-cookie", `sid=${crypto.randomUUID().replaceAll("-", "")}; HttpOnly; SameSite=Lax; Path=/`);
+        res.writeHead(303, { location: "/report" });
+        return res.end();
+      }
       const blocked = await receiptGate.fetch(request, gate);
       if (blocked) {
         res.writeHead(blocked.status, Object.fromEntries(blocked.headers));

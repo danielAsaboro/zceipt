@@ -534,7 +534,7 @@ components:
         valid: { const: true }
         livemode: { type: boolean }
         network: { type: string, enum: [mainnet, testnet, regtest] }
-        pool: { type: string, enum: [orchard, ironwood] }
+        pool: { type: string, enum: [orchard, ironwood, orchard_to_ironwood, ironwood_to_orchard], description: "The spends' pool, or spends_to_outputs for a cross-pool (format v3) receipt." }
         txid: { type: string }
         mined_height: { type: integer }
         message: { type: string }

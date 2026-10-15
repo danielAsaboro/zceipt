@@ -27,6 +27,12 @@ Errors are typed (`AuthenticationError`, `InvalidRequestError`, `VerificationErr
 `ConnectionError`) and carry `.code`, `.param` and `.status`. Retries and idempotency keys are
 automatic.
 
+## Web frameworks
+
+`zcash_receipts.web.check_gate(...)` puts any FastAPI, Django or Flask route behind
+"prove you paid" (HTTP 402), and `handle_webhook(...)` verifies and dispatches webhooks.
+See [docs/guides/http-402.md](../../docs/guides/http-402.md).
+
 ## Tests
 
 `RECEIPTS_URL=http://127.0.0.1:8723 RECEIPTS_KEY=rcpt_test_… ` then run the test command. Without them, the API tests are skipped and only the offline tests run.

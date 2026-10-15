@@ -378,3 +378,18 @@ fn params_match_derivation() {
     assert_eq!(derived, receipts_core::verifying_key().params_bytes());
     assert_eq!(derived.as_slice(), &include_bytes!("../src/orchard-params-k11.bin")[..]);
 }
+
+#[test]
+fn encodings_are_canonical() {
+    // The real testnet receipt (v1) relabelled as v2 with an "absent" flag byte decodes to the
+    // same receipt; strict decoding refuses it, so one receipt has exactly one encoding.
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/receipt.txt")).unwrap();
+    let mut b = URL_SAFE_NO_PAD.decode(text.trim().strip_prefix("zrcpt1").unwrap()).unwrap();
+    assert!(Receipt::from_bytes(&b).is_ok());
+    b[4] = 2;
+    assert!(Receipt::from_bytes(&b).is_err(), "v1 bytes labelled v2 must not decode");
+    let x = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/regtest-crosspool/receipt.txt")).unwrap();
+    let r = Receipt::from_text(x.trim()).unwrap();
+    assert_eq!(Receipt::from_bytes(&r.to_bytes()).unwrap(), r);
+}

@@ -14,3 +14,16 @@ All three API clients share the same design:
 - an automatic `Idempotency-Key` on every POST;
 - retries on network errors, 429 and 5xx;
 - cursor pagination (`each()` in JS and Python).
+
+## Server integrations
+
+- Node: `zcash-receipts/middleware` (Express and fetch-style servers: Next.js, Hono, Bun, Deno).
+- Python: `zcash_receipts.web` (FastAPI, Django, Flask).
+
+Both give an HTTP 402 receipt gate and a signed-webhook handler; see the
+[HTTP 402 guide](guides/http-402.md).
+
+## CLI for payers
+
+`receipts pay '<the shop's pay link>' -w <wallet> -i <key.age>` shows what it will pay, asks,
+pays from a zcash-devtool wallet, waits for the block and hands the receipt back.

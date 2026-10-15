@@ -1,7 +1,7 @@
 export interface Output { action: number; recipient: string; zatoshis: number; memo: string | null }
 export interface Verification {
   object: "verification"; valid: true; livemode: boolean; network: "mainnet" | "testnet" | "regtest";
-  pool: "orchard" | "ironwood"; txid: string; mined_height: number; message: string;
+  pool: "orchard" | "ironwood" | "orchard_to_ironwood" | "ironwood_to_orchard"; txid: string; mined_height: number; message: string;
   challenge: string | null; batch: { id: string; position: number; total: number } | null;
   sender_addresses: string[]; outputs: Output[]; paid_to_expected?: number;
 }

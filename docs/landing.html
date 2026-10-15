@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receipts · prove one Zcash payment</title>
+<style>
+  :root { --bg:#141311; --panel:#1c1b18; --text:#ece7dc; --dim:#a39d90; --line:#2e2c27; --accent:#e3b75f; --good:#5fbf8a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:56px 20px 80px; }
+  .eyebrow { font:600 12px ui-monospace, Menlo, monospace; letter-spacing:.2em; color:var(--dim); }
+  h1 { font-size:34px; line-height:1.15; margin:10px 0 14px; letter-spacing:-.01em; }
+  h2 { font-size:19px; margin:40px 0 10px; }
+  p { color:#d6d0c4; margin:0 0 12px; }
+  a { color:var(--accent); }
+  a:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .lead { font-size:18px; }
+  ol.steps { list-style:none; padding:0; margin:18px 0 0; display:grid; gap:12px; }
+  ol.steps li { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  ol.steps b { color:var(--text); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; margin-top:14px; }
+  .card { display:block; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; text-decoration:none; color:var(--text); min-height:44px; }
+  .card:hover { border-color:var(--dim); }
+  .card span { display:block; color:var(--dim); font-size:14px; }
+  table { width:100%; border-collapse:collapse; font-size:15px; margin-top:8px; }
+  td, th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; }
+  code, pre { font-family:ui-monospace, Menlo, monospace; font-size:14px; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; overflow-x:auto; }
+  .yes { color:var(--good); }
+  .foot { color:var(--dim); font-size:14px; margin-top:44px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">RECEIPTS · ZIP 311 FOR ORCHARD &amp; IRONWOOD</div>
+  <h1>Prove one Zcash payment. Reveal nothing else.</h1>
+  <p class="lead">Shielded Zcash payments are private, which is the point. But sometimes you need to prove one: a shop checking an order, a refund, an exchange clearing a deposit, an auditor. Today that usually means handing over a viewing key, which shows <em>every</em> payment, forever. Receipts shows just the one.</p>
+
+  <h2>How it works</h2>
+  <ol class="steps">
+    <li><b>1. Pay as usual</b> from a shielded wallet.</li>
+    <li><b>2. Make a receipt</b> for that one transaction. It shows who was paid, how much and the memo, and carries a zero-knowledge proof that you authorized the payment. Your address, balance and other payments stay hidden.</li>
+    <li><b>3. Share a link.</b> Anyone can check it in their browser, offline if they like. No account, no viewing key, nothing to trust but the math and the chain.</li>
+  </ol>
+
+  <h2>Try it</h2>
+  <div class="grid">
+    <a class="card" href="/verify/">Verifier<span>Check a receipt link in your browser</span></a>
+    <a class="card" href="/dashboard">Dashboard<span>Requests, refunds, webhooks; paste the test key from the server log</span></a>
+    <a class="card" href="/docs">API reference<span>Every endpoint, with examples</span></a>
+    <a class="card" href="/docs#QUICKSTART.md">Quickstart<span>From zero to a verified payment</span></a>
+  </div>
+  <p style="margin-top:14px">The whole flow in five seconds, no wallet needed: <code>receipts demo</code> (or <code>docker compose run --rm receipts demo --no-wait</code>).</p>
+
+  <h2>What each party learns</h2>
+  <table>
+    <tr><th></th><th>With a viewing key</th><th>With a receipt</th></tr>
+    <tr><td>The shop</td><td>Every incoming payment to the wallet, past and future</td><td class="yes">This one payment, and that you made it</td></tr>
+    <tr><td>Your address and balance</td><td>Exposed (full viewing key) or linkable</td><td class="yes">Hidden, unless you choose to prove your address</td></tr>
+    <tr><td>Proof in a dispute</td><td>Only the processor's records</td><td class="yes">The receipt itself, checkable by anyone</td></tr>
+  </table>
+  <p style="margin-top:10px">Details, with a test behind every claim: <a href="/docs#THREAT-MODEL.md">threat model</a> · <a href="/docs#COMPARISON.md">compared with viewing-key processors</a> · <a href="/docs#ZIP311-TODOS.md">how it fills ZIP 311's open items</a> · <a href="/docs#SPEC.md">spec</a>.</p>
+
+  <h2>For developers</h2>
+  <p>A REST API with proof requests, signed webhooks, refunds, attestations and Sign in with Zcash; SDKs for TypeScript, Python and Rust; a drop-in "prove you paid" (HTTP 402) gate for Express, Next.js, FastAPI and Django; and a sandbox with fixtures and test clocks.</p>
+  <pre>curl -s localhost:{port}/v1/verify -H "authorization: Bearer $RECEIPTS_KEY" \
+  -d '{"receipt":"zrcpt_test_valid"}'</pre>
+
+  <p class="foot">This server's test mode runs on <b>{net}</b>. Live keys use mainnet. <a href="/v1/health">Health</a> · <a href="/openapi.yaml">OpenAPI</a> · <a href="/llms.txt">llms.txt</a></p>
+</main>
+</body>
+</html>

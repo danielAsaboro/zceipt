@@ -24,6 +24,9 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    receipt that a verifier accepts, by editing, merging or truncating receipts they hold.
 4. **Sender address (optional).** For every spend that carries an address proof for `A`, the same
    `ask` (same `rk`) also controls `A`: `A = (d, [ivk] g_d)` for an `ivk` derived from that `ak`.
+2b. **Outputs without memo (optional).** For every opened output `j`, action `j` of the outputs'
+   bundle carries a note to `(d, pk_d)` with value `v` (no claim about the memo or about who can
+   decrypt it).
 5. **Source of funds (optional).** For every spend that carries a source proof naming output `k`
    of transaction `S`, the note spent by action `i` of `T` is the note whose commitment `S`
    published at output `k`; if the proof reveals a value `v`, that note carried exactly `v`.

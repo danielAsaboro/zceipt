@@ -527,6 +527,7 @@ components:
         recipient: { type: string, description: "Orchard-only unified address of the recipient" }
         zatoshis: { type: integer }
         memo: { type: [string, "null"] }
+        memo_withheld: { type: boolean, description: "Present and true when the sender disclosed this output without its memo (receipt format v5)" }
     Verification:
       type: object
       properties:

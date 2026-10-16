@@ -73,6 +73,10 @@ enum Cmd {
         /// With --prove-source, reveal the exact value of each spent note.
         #[arg(long, requires = "prove_source")]
         reveal_source_value: bool,
+        /// Disclose each output's recipient and amount but not its memo (the memo stays
+        /// encrypted; the receipt carries no key that opens it).
+        #[arg(long)]
+        withhold_memo: bool,
         /// For campaigns: a note you choose to show publicly (signed into the receipt).
         #[arg(long)]
         public_note: Option<String>,
@@ -384,7 +388,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, public_note, refund_to, tex_deposit, second_tx } => {
+        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
@@ -431,7 +435,7 @@ async fn main() -> anyhow::Result<()> {
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref(), prove_source).await?.0);
+                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?.0);
                 }
                 let batch = receipts_core::ReceiptBatch { receipts };
                 receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
@@ -445,7 +449,7 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
-            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source).await?;
+            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
@@ -831,7 +835,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let mut attempt = 0;
     let (receipt, height) = loop {
         devtool_run(vec!["sync".into()]).await?;
-        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, None).await {
+        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, None, false).await {
             Ok(x) => break x,
             Err(e) if attempt < 12 && e.to_string().contains("not mined") => {
                 attempt += 1;

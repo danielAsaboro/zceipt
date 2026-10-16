@@ -43,7 +43,7 @@ class Differential(unittest.TestCase):
                 sources[bytes.fromhex(corpus["source_txid"])] = {c["pool"]: bundle(corpus["source_bundles"][c["pool"]])}
             try:
                 got, err = v.verify_bundles(rc.decode(bytes.fromhex(c["receipt"])), tx, c["coin_type"], sources), None
-            except (v.Invalid, rc.DecodeError, ValueError) as e:
+            except (v.Invalid, rc.DecodeError, ValueError, IndexError) as e:
                 got, err = None, str(e)
             if rust["ok"]:
                 self.assertIsNotNone(got, f"{name}: Rust accepts, spec verifier says {err}")

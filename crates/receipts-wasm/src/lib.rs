@@ -33,6 +33,8 @@ struct Output {
     recipient: String,
     zatoshis: u64,
     memo: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    memo_withheld: bool,
 }
 
 #[derive(Serialize)]
@@ -267,7 +269,8 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
                     .map(|a| a.encode(&nt))
                     .unwrap_or_default(),
                 zatoshis: o.value,
-                memo: memo_text(&o.memo),
+                memo: if o.memo_withheld { None } else { memo_text(&o.memo) },
+                memo_withheld: o.memo_withheld,
             })
             .collect(),
     })?)

@@ -32,7 +32,7 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 | A6 | Apps ask users to paste their whole viewing key to show one thing (stream tips, dashboards) | [X: LiveZEC](https://x.com/LiveZEC/status/2106022681476829520) | related | done for payments |
 | A7 | No way to prove ownership of a shielded address | [zcash#1770](https://github.com/zcash/zcash/issues/1770) | related | done (address proofs, Sign in with Zcash) |
 | A8 | **Can't prove the *source* of a shielded payment** (marked as blocking ZIP 311) | [zcash#3828](https://github.com/zcash/zcash/issues/3828) | core | **new** (§3) |
-| A9 | Disclosure is all or nothing per output (reveal only the amount, or not the memo) | [zcash#2631](https://github.com/zcash/zcash/issues/2631) (blocking ZIP 311) | related | open (§4) |
+| A9 | Disclosure is all or nothing per output (reveal only the amount, or not the memo) | [zcash#2631](https://github.com/zcash/zcash/issues/2631) (blocking ZIP 311) | related | **new**: `--withhold-memo` discloses recipient and amount, not the memo (§3b) |
 | A10 | How viewing keys and payment disclosures interact is unspecified | [zips#327](https://github.com/zcash/zips/issues/327) | core | done ([CLAIM.md](CLAIM.md): a viewing key can't make a receipt) |
 | A11 | A "selected-payment receipts SDK" grant was turned down; the grants committee asked for receipts through ZIP 311 on Ironwood instead | [forum, Sep 2026](https://forum.zcashcommunity.com/t/grant-application-zcash-selected-payment-receipts-sdk/57729/4) | core | done (this is what Receipts is) |
 
@@ -168,17 +168,28 @@ zero-value output opened, so `v` is exact. No new circuit, no trusted list, no w
 | Check | Result |
 |---|---|
 | Unit and adversarial tests (`crates/receipts-core/tests/roundtrip.rs`) | Orchard and Ironwood round trips, hidden and revealed; a wrong source output, an unrelated output, a lie about the value (lower or higher), a hidden proof relabelled as revealed, a proof borrowed from another receipt, a dropped or edited claim: all refused. `a_zero_value_note_cannot_claim_any_source` builds a real forgery that satisfies the circuit and shows the fixed value commitment is what stops it |
-| Independent verifier (`spec-verifier`, Python, written from the spec) | Decodes v4 and checks everything but the Halo 2 proof; agrees with Rust on 224 signed adversarial cases, including 9 source-proof cases whose public inputs match exactly |
+| Independent verifier (`spec-verifier`, Python, written from the spec) | Decodes v4 and checks everything but the Halo 2 proof; agrees with Rust on 232 signed adversarial cases, including 9 source-proof cases whose public inputs match exactly |
 | Real testnet | Receipts for testnet tx `571de6e4…` prove its note came from `2a2bd721…` action 0 (hidden, and with the value 0.125 TAZ revealed); verified against the chain by the CLI and the browser verifier, offline by the Rust, JS and Python tests ([examples/testnet/source](../examples/testnet/source)) |
 | Private chain end to end (`scripts/e2e-regtest.sh`, 14/14) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
 | Everywhere a receipt is verified | CLI (online and offline with `--source-raw-tx`), API (`sources`, `checks.source_of_funds`), browser verifier and npm package (`sourceTxs`), devtool wallet command |
 | No leak | The wallet builds the proof from its own records and asks no server for `S`; verifiers fetch `S` by txid (documented in [THREAT-MODEL.md](THREAT-MODEL.md) §11) |
 
+## 3b. Outputs without their memo
+
+`receipts create --withhold-memo` (and the devtool's `wallet receipt --withhold-memo`) proves
+who was paid and how much but keeps the memo private. Memos carry invoice text, names and
+refund addresses that an accountant or a court doesn't need. The receipt opens each output's note
+commitment with `(ψ, rcm)` instead of `rseed`, so nothing in it decrypts the memo
+([SPEC.md](SPEC.md#outputs-without-their-memo-version-5)). Checked by: Orchard and Ironwood round
+trips, edits to value, recipient and opening refused (`opened_outputs_must_open_the_commitment`),
+the receipt contains neither an `ock` nor the note's `rseed`, a real testnet receipt
+([examples/testnet/memo-withheld](../examples/testnet/memo-withheld)), and the Python verifier
+recomputing each commitment independently (232 corpus cases, 251 conformance vectors agree).
+
 ## 4. Considered and not built (yet)
 
 | Idea | Pain | Why not now |
 |---|---|---|
-| Hide the memo, keep the rest (per-field disclosure) | A9 | Easy without new circuits (open the note without its memo), but the evidence is one 2017 design issue; no user asked. Next if someone does |
 | Prove an amount bracket ("at least X") without the exact amount | A9, X: [Pli](https://x.com/ZecPli/status/2102083749819334736) | Needs a range proof circuit; out of scope for a no-new-circuit design |
 | Signed payment requests | C5 | A signature by the payee's key doesn't stop an attacker who swaps in their own key; it needs an identity binding (domain or a pinned address). Worth a design, not a quick feature |
 | Reserve proofs (prove a balance) | D3 | Revealing nullifiers lets the verifier see when the notes are spent; Monero's reserve proofs have the same flaw. Needs a better construction |

@@ -82,6 +82,20 @@ pub struct OutputDisclosure {
     pub ock: [u8; 32],
 }
 
+/// An output disclosed by its note-commitment opening, without the memo (ZIP 311's per-field
+/// disclosure, zcash/zcash#2631). An `ock` would let the verifier decrypt the whole note,
+/// memo included; `(ψ, rcm)` instead of `rseed` binds the recipient and value to the on-chain
+/// `cmx` but gives no key to the ciphertext (`esk` derives from `rseed`, which stays secret).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedOutput {
+    pub index: u32,
+    /// Raw Orchard address of the recipient.
+    pub address: [u8; 43],
+    pub value: u64,
+    pub psi: [u8; 32],
+    pub rcm: [u8; 32],
+}
+
 /// A proof of spend authority over one action's spent note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpendDisclosure {
@@ -188,6 +202,8 @@ pub struct UnsignedReceipt {
     pub txid: [u8; 32],
     pub msg: Vec<u8>,
     pub outputs: Vec<OutputDisclosure>,
+    /// Outputs disclosed with their memo withheld (format v5): recipient and value only.
+    pub opened: Vec<OpenedOutput>,
     pub spends: Vec<SpendDisclosure>,
 }
 
@@ -248,7 +264,10 @@ pub struct VerifiedOutput {
     /// Raw Orchard address (43 bytes) of the recipient.
     pub recipient: [u8; 43],
     pub value: u64,
+    /// All zero when `memo_withheld`.
     pub memo: [u8; 512],
+    /// The sender disclosed this output without its memo.
+    pub memo_withheld: bool,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -299,6 +318,8 @@ pub enum Error {
     WrongSource(u32),
     #[error("a note of value zero has no provable source")]
     ZeroValueSource,
+    #[error("the opening for output {0} does not match its note commitment")]
+    BadOpening(u32),
 }
 
 /// The digest every spend-authorization signature covers:
@@ -653,18 +674,38 @@ pub fn create_cross<A: Authorization, V>(
     msg: &[u8],
     outputs: &[(usize, OutgoingViewingKey)],
     spends: &[SpendWitness],
+    rng: impl CryptoRng,
+) -> Result<Receipt, Error> {
+    create_cross_ext(pk, coin_type, pool, bundle, output_pool, output_bundle, txid, msg, outputs, &[], spends, rng)
+}
+
+/// Like `create_cross`, also disclosing the outputs in `withheld_memo` without their memos
+/// (recipient and value only, format v5).
+#[allow(clippy::too_many_arguments)]
+pub fn create_cross_ext<A: Authorization, V>(
+    pk: &ProvingKey,
+    coin_type: u32,
+    pool: Pool,
+    bundle: &Bundle<A, V>,
+    output_pool: Pool,
+    output_bundle: &Bundle<A, V>,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[(usize, OutgoingViewingKey)],
+    withheld_memo: &[(usize, OutgoingViewingKey)],
+    spends: &[SpendWitness],
     mut rng: impl CryptoRng,
 ) -> Result<Receipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);
     }
     // The encoding's length fields are u16 (message) and u8 (outputs, spends).
-    if msg.len() > u16::MAX as usize || outputs.len() > u8::MAX as usize || spends.len() > u8::MAX as usize {
+    if msg.len() > u16::MAX as usize || outputs.len() > u8::MAX as usize || withheld_memo.len() > u8::MAX as usize || spends.len() > u8::MAX as usize {
         return Err(Error::TooLarge);
     }
     let actions = bundle.actions();
     let out_actions = output_bundle.actions();
-    let out_idx: Vec<u32> = outputs.iter().map(|(i, _)| *i as u32).collect();
+    let out_idx: Vec<u32> = outputs.iter().chain(withheld_memo).map(|(i, _)| *i as u32).collect();
     let spend_idx: Vec<u32> = spends.iter().map(|s| s.index as u32).collect();
     check_indices(out_actions.len(), out_idx.iter())?;
     check_indices(actions.len(), spend_idx.iter())?;
@@ -679,6 +720,14 @@ pub fn create_cross<A: Authorization, V>(
             index: *i as u32,
             ock: ock.0,
         });
+    }
+    let mut opened = Vec::with_capacity(withheld_memo.len());
+    for (i, ovk) in withheld_memo {
+        let action = &out_actions[*i];
+        let ock = derive_ock(output_pool, ovk, action);
+        let (note, addr, _memo) = recover_with_ock(output_pool, &ock, action).ok_or(Error::WrongOvk(*i as u32))?;
+        let (psi, rcm) = note.commitment_opening();
+        opened.push(OpenedOutput { index: *i as u32, address: addr.to_raw_address_bytes(), value: note.value().inner(), psi, rcm });
     }
 
     // Spends: re-prove each spent note against the bundle's own anchor.
@@ -766,6 +815,7 @@ pub fn create_cross<A: Authorization, V>(
         txid,
         msg: msg.to_vec(),
         outputs: out_disclosures,
+        opened,
         spends: spend_disclosures,
     };
     let digest = signing_digest(&unsigned);
@@ -883,7 +933,7 @@ fn verify_cross<A: Authorization, V>(
     }
     let actions = bundle.actions();
     let out_actions = output_bundle.actions();
-    check_indices(out_actions.len(), u.outputs.iter().map(|o| &o.index))?;
+    check_indices(out_actions.len(), u.outputs.iter().map(|o| &o.index).chain(u.opened.iter().map(|o| &o.index)))?;
     check_indices(actions.len(), u.spends.iter().map(|s| &s.index))?;
 
     let digest = signing_digest(u);
@@ -928,8 +978,21 @@ fn verify_cross<A: Authorization, V>(
             recipient: addr.to_raw_address_bytes(),
             value: note.value().inner(),
             memo,
+            memo_withheld: false,
         });
     }
+    for o in &u.opened {
+        let action = &out_actions[o.index as usize];
+        let bad = || Error::BadOpening(o.index);
+        let addr = Option::<Address>::from(Address::from_raw_address_bytes(&o.address)).ok_or_else(bad)?;
+        // rho of an Orchard output is the nullifier of its action's spend.
+        let cmx = orchard::note::extracted_commitment_from_opening(&addr, NoteValue::from_raw(o.value), &action.rho(), &o.psi, &o.rcm).ok_or_else(bad)?;
+        if cmx.to_bytes() != action.cmx().to_bytes() {
+            return Err(bad());
+        }
+        outputs.push(VerifiedOutput { index: o.index, recipient: o.address, value: o.value, memo: [0; 512], memo_withheld: true });
+    }
+    outputs.sort_by_key(|o| o.index);
 
     Ok(VerifiedReceipt {
         coin_type: u.coin_type,

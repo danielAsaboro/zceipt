@@ -67,6 +67,16 @@ class Testnet(unittest.TestCase):
             with self.assertRaisesRegex(v.Invalid, "source transaction output is not available"):
                 v.verify(b, rd("tx.hex"), 1)
 
+    def test_memo_withheld(self):
+        """examples/testnet/memo-withheld: the 0.01 TAZ payment disclosed without its memo."""
+        d = os.path.join(EX, "memo-withheld")
+        b = receipt_bytes(os.path.join("memo-withheld", "receipt"))
+        self.assertEqual(rc.decode(b).version, 5)
+        rep = v.verify(b, bytes.fromhex(open(os.path.join(d, "tx.hex")).read().strip()), 1)
+        [o] = rep["outputs"]
+        self.assertEqual((o["value"], o["memo"], o["memo_withheld"]), (1_000_000, None, True))
+        self.assertNotIn(b"Invoice 42", b)
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

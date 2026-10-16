@@ -9,7 +9,7 @@
 //!    of its own network, which differs from the sign-in personalization and from the other
 //!    network's (so the same bytes hash differently in each domain).
 
-use receipts_core::{signing_digest, AddressProof, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
+use receipts_core::{signing_digest, AddressProof, OpenedOutput, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
 
 struct Rng(u64);
 impl Rng {
@@ -79,6 +79,12 @@ fn random_receipt(r: &mut Rng) -> Receipt {
         txid: r.bytes(),
         msg: r.vec(200),
         outputs: (0..r.below(4)).map(|_| OutputDisclosure { index: r.below(100) as u32, ock: r.bytes() }).collect(),
+        // Opened outputs only in some receipts, so v5 is exercised and every other version too.
+        opened: if r.below(3) == 0 {
+            (0..1 + r.below(3)).map(|_| OpenedOutput { index: r.below(100) as u32, address: r.bytes(), value: r.u64(), psi: r.bytes(), rcm: r.bytes() }).collect()
+        } else {
+            vec![]
+        },
         spends,
     };
     let sigs = (0..n_sp).map(|_| r.bytes::<64>()).collect();

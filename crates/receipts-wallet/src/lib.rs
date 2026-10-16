@@ -241,6 +241,7 @@ pub async fn create_receipt(
     server: Option<&str>,
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
+    withhold_memo: bool,
 ) -> anyhow::Result<(Receipt, u32)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let coin_type = net.coin_type();
@@ -390,7 +391,9 @@ pub async fn create_receipt(
     eprintln!("Building spend-authority proof(s)…");
     let pk = receipts_core::proving_key();
     let out_bundle = bundle_of(output_pool).ok_or_else(|| anyhow!("transaction has no {output_pool:?} bundle"))?;
-    Ok((receipts_core::create_cross(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, &selected, &spends, OsRng)?, mined))
+    // With `withhold_memo`, every disclosed output shows its recipient and value only.
+    let (with_memo, without): (&[_], &[_]) = if withhold_memo { (&[], &selected) } else { (&selected, &[]) };
+    Ok((receipts_core::create_cross_ext(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?, mined))
 }
 
 trait RecoverExt {

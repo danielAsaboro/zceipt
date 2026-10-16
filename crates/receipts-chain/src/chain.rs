@@ -124,6 +124,9 @@ pub struct ReportOutput {
     pub zatoshis: u64,
     pub zec: String,
     pub memo: Option<String>,
+    /// The sender disclosed this output without its memo.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub memo_withheld: bool,
 }
 
 impl Report {
@@ -163,6 +166,8 @@ impl Report {
             println!("  paid      {} ZEC to {}", o.zec, o.recipient);
             if let Some(m) = &o.memo {
                 println!("            memo: {m}");
+            } else if o.memo_withheld {
+                println!("            memo: withheld by the sender (not in the receipt)");
             }
         }
         if crate::deposit::deposit_claim(&self.message).is_some() {
@@ -372,7 +377,8 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
                 recipient_raw: o.recipient,
                 zatoshis: o.value,
                 zec: zec(o.value),
-                memo: memo_text(&o.memo),
+                memo: if o.memo_withheld { None } else { memo_text(&o.memo) },
+                memo_withheld: o.memo_withheld,
             })
             .collect(),
     })

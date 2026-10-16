@@ -88,8 +88,8 @@ addr_flag:u8 (0 or 1) | if 1: address[43] (d[11] | pk_d[32]) | rho[32] | rseed[3
                               | cv_net[32] (must be ValueCommit_0(1)) | cmx[32] | proof_len:u32le | proof
 ```
 
-Every `proof_len` is at most 65,536. The version is determined by the contents (4 if any spend
-has a source proof, else 3 if the outputs are in another pool, else 2 if any spend has an
+Every `proof_len` is at most 65,536. The version is determined by the contents (5 if any output
+is opened without its memo, else 4 if any spend has a source proof, else 3 if the outputs are in another pool, else 2 if any spend has an
 address proof, else 1); any other
 version byte for the same contents is rejected, as is a flag other than 0 or 1, and anything
 after the signatures.
@@ -164,6 +164,28 @@ does not verify in another (it is bound to that receipt's fresh `rk`).
 What it reveals: the link `S:k → T:i` and, if chosen, the note's value; through `S`'s public
 transparent inputs, whoever funded `S` in the clear. A wallet that keeps no copy of `S` uses the
 note's own commitment and asks no server for `S`; verifiers fetch `S` by txid.
+
+## Outputs without their memo (version 5)
+
+ZIP 311 leaves per-field disclosure open (zcash/zcash#2631). The `ock` of an output opens
+everything, memo included. A sender can instead disclose an output by the opening of its note
+commitment **without** `rseed`:
+
+```
+opened := index:u32le | address[43] (d | pk_d) | value:u64le | psi[32] | rcm[32]
+```
+
+The verifier takes `ρ = nf` of that action from the transaction and checks
+`Extract(NoteCommit_rcm(g_d, pk_d, v, ρ, ψ)) = cmx`. Binding of `NoteCommit` fixes the recipient
+and value. `esk = ToScalar(PRF^expand_rseed([4] ‖ ρ))` derives from `rseed`, which stays
+secret, so nothing in the receipt opens the ciphertext and the memo stays encrypted.
+(`ψ` and `rcm` also derive from `rseed`, but PRF^expand outputs for different domain bytes are
+independent.) The verifier does not learn that the recipient can decrypt the note, only what
+it commits to; a sender who wants that shown discloses the `ock` instead.
+
+Version 5 is version 4's layout plus, right after the outputs, `n_opened:u8 (≥ 1) | opened*`.
+It is used exactly when at least one output is opened; an index appears once across both lists.
+The signature covers the openings, so the recipient and value can't be edited.
 
 ## Batches
 

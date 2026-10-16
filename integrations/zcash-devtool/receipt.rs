@@ -44,6 +44,10 @@ pub(crate) struct Command {
     #[arg(long, requires = "prove_source")]
     reveal_source_value: bool,
 
+    /// Show the recipient and amount but keep the memo private
+    #[arg(long)]
+    withhold_memo: bool,
+
     /// lightwalletd host:port, used only if a Merkle path must be rebuilt from chain data
     #[arg(short, long)]
     server: Option<String>,
@@ -108,6 +112,7 @@ impl Command {
                 (true, false) => Some(receipts_wallet::SourceMode::HideValue),
                 (true, true) => Some(receipts_wallet::SourceMode::RevealValue),
             },
+            self.withhold_memo,
         )
         .await?;
         if let Some(r) = &request {

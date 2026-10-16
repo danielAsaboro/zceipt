@@ -612,6 +612,7 @@ fn claiming_someone_elses_sender_address_is_refused() {
         txid: TXID,
         msg: b"I am the merchant".to_vec(),
         outputs: vec![],
+        opened: vec![],
         spends: vec![receipts_core::SpendDisclosure {
             index: s.spend_index as u32,
             cv_net: cv_net.to_bytes(),
@@ -713,7 +714,7 @@ fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32, so
     match res {
         Ok(v) => serde_json::json!({
             "ok": true, "public_inputs": pis,
-            "outputs": v.outputs.iter().map(|o| serde_json::json!({"index": o.index, "recipient": hex(&o.recipient), "value": o.value, "memo": hex(&o.memo)})).collect::<Vec<_>>(),
+            "outputs": v.outputs.iter().map(|o| serde_json::json!({"index": o.index, "recipient": hex(&o.recipient), "value": o.value, "memo": (!o.memo_withheld).then(|| hex(&o.memo))})).collect::<Vec<_>>(),
             "proven_addresses": v.proven_addresses.iter().map(|(_, a)| hex(a)).collect::<Vec<_>>(),
             "sources": v.sources.iter().map(|x| serde_json::json!({"spend": x.spend, "index": x.index, "value": x.value})).collect::<Vec<_>>(),
         }),
@@ -761,7 +762,7 @@ fn differential_corpus() {
     let spend = honest_spend(&s, &s.payment, alpha);
     let base = receipts_core::UnsignedReceipt {
         coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: b"manual".to_vec(),
-        outputs: a.unsigned.outputs.clone(), spends: vec![spend.clone()],
+        outputs: a.unsigned.outputs.clone(), opened: vec![], spends: vec![spend.clone()],
     };
     add("manual/valid", Pool::Ironwood, &s.payment, &sign(base.clone(), &[&rsk]), COIN_TYPE_TESTNET);
     add("resigned/new-message", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { msg: b"challenge:00ff".to_vec(), ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
@@ -817,6 +818,18 @@ fn differential_corpus() {
     add("resigned/source-proof-from-another-receipt", Pool::Ironwood, &s.payment, &sign(with_src(revealed.unsigned.spends[0].source.clone().unwrap()), &[&rsk]), COIN_TYPE_TESTNET);
     let hidden_as_revealed = receipts_core::__source_proof_for_tests(&keys().0, Pool::Ironwood, s.spend_index as u32, &fvk, s.funding_note, &source_witness(&s, false), alpha, &orchard::primitives::redpallas::VerificationKey::from(&rsk), &mut { OsRng }).unwrap();
     add("resigned/source-hidden-relabelled-as-1", Pool::Ironwood, &s.payment, &sign(with_src(receipts_core::SourceProof { value: receipts_core::SourceValue::Revealed { value: 1, address: s.funding_note.recipient().to_raw_address_bytes(), rseed: *s.funding_note.rseed().as_bytes() }, ..hidden_as_revealed }), &[&rsk]), COIN_TYPE_TESTNET);
+    // Outputs disclosed without their memo.
+    let mw = receipt_memo_withheld(&s, Pool::Ironwood);
+    add("honest/memo-withheld", Pool::Ironwood, &s.payment, &mw, COIN_TYPE_TESTNET);
+    add("honest/memo-withheld-orchard", Pool::Orchard, &so.payment, &receipt_memo_withheld(&so, Pool::Orchard), COIN_TYPE_TESTNET);
+    let op = mw.unsigned.opened[0].clone();
+    let with_opened = |o: receipts_core::OpenedOutput| receipts_core::UnsignedReceipt { outputs: vec![], opened: vec![o], ..base.clone() };
+    add("manual/opened-valid", Pool::Ironwood, &s.payment, &sign(with_opened(op.clone()), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/opened-value-higher", Pool::Ironwood, &s.payment, &sign(with_opened(receipts_core::OpenedOutput { value: op.value + 1, ..op.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/opened-other-recipient", Pool::Ironwood, &s.payment, &sign(with_opened(receipts_core::OpenedOutput { address: fvk.address_at(0u32, Scope::External).to_raw_address_bytes(), ..op.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/opened-other-psi", Pool::Ironwood, &s.payment, &sign(with_opened(receipts_core::OpenedOutput { psi: [2; 32], ..op.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/opened-noncanonical-rcm", Pool::Ironwood, &s.payment, &sign(with_opened(receipts_core::OpenedOutput { rcm: [0xff; 32], ..op.clone() }), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/opened-and-ock-same-output", Pool::Ironwood, &s.payment, &sign(receipts_core::UnsignedReceipt { opened: vec![op.clone()], ..base.clone() }, &[&rsk]), COIN_TYPE_TESTNET);
     // Single-byte flips of an honest receipt, not re-signed.
     let bytes = a.to_bytes();
     for i in (0..bytes.len()).step_by(41).chain(bytes.len() - 64..bytes.len()).step_by(1) {
@@ -972,7 +985,7 @@ fn source_claims_are_bound_by_the_signature_and_the_proof() {
         receipts_core::__source_proof_for_tests(&keys().0, Pool::Ironwood, s.spend_index as u32, &fvk, s.funding_note, &source_witness(&s, reveal), alpha, &rk, &mut { OsRng }).unwrap()
     };
     let resign = |spend: receipts_core::SpendDisclosure| {
-        let unsigned = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs: vec![], spends: vec![spend] };
+        let unsigned = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs: vec![], opened: vec![], spends: vec![spend] };
         let digest = receipts_core::signing_digest(&unsigned);
         Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned }
     };
@@ -1062,7 +1075,7 @@ fn a_zero_value_note_cannot_claim_any_source() {
             Some(v) => receipts_core::SourceValue::Revealed { value: v, address: out.recipient().to_raw_address_bytes(), rseed: *out.rseed().as_bytes() },
         };
         honest.source = Some(receipts_core::SourceProof { txid: FUNDING_TXID, index: 0, value, proof: proof.as_ref().to_vec() });
-        let unsigned = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs: vec![], spends: vec![honest.clone()] };
+        let unsigned = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs: vec![], opened: vec![], spends: vec![honest.clone()] };
         let digest = receipts_core::signing_digest(&unsigned);
         let forged = Receipt::from_bytes(&Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned }.to_bytes()).unwrap();
         let res = receipts_core::verify_with_sources(&keys().1, &forged, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &lookup);
@@ -1084,4 +1097,112 @@ fn source_proofs_stay_unlinkable() {
     assert_ne!(sa.rk, tx_rk);
     // Hidden value: the encoding carries no value and no value commitment.
     assert_eq!(sa.source.as_ref().unwrap().revealed_value(), None);
+}
+
+// ---------- outputs disclosed without their memo (per-field disclosure) ----------
+
+fn receipt_memo_withheld(s: &Scenario, pool: Pool) -> Receipt {
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    receipts_core::create_cross_ext(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        pool,
+        &s.payment,
+        pool,
+        &s.payment,
+        TXID,
+        b"paid, memo withheld",
+        &[],
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None }],
+        OsRng,
+    )
+    .unwrap()
+}
+
+fn memo_withheld_roundtrip(version: BundleVersion, pool: Pool) {
+    let s = scenario(version);
+    let r = receipt_memo_withheld(&s, pool);
+    assert_eq!(r.to_bytes()[4], 5, "a receipt with a memo-withheld output is format v5");
+    let parsed = Receipt::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    let v = verify(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment).unwrap();
+    assert_eq!(v.outputs.len(), 1);
+    let o = &v.outputs[0];
+    assert!(o.memo_withheld);
+    assert_eq!(o.value, s.merchant_value);
+    assert_eq!(o.memo, [0; 512]);
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(o.recipient, merchant.to_raw_address_bytes());
+    // The receipt carries nothing that opens the memo: no ock and not the note's rseed (from
+    // which esk, and so the memo key, derive).
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let action = &s.payment.actions()[s.merchant_index];
+    let ovk = fvk.to_ovk(Scope::External);
+    let note = s.payment.recover_output_with_ovk(s.merchant_index, &ovk).map(|(n, _, _)| n).or_else(|| {
+        // Ironwood bundles need the Ironwood domain.
+        zcash_note_encryption::try_output_recovery_with_ovk(&IronwoodDomain::for_action(action), &ovk, action, action.cv_net(), &action.encrypted_note().out_ciphertext).map(|(n, _, _)| n)
+    });
+    let note = note.expect("sender recovers its own output");
+    let bytes = r.to_bytes();
+    assert!(!bytes.windows(32).any(|w| w == note.rseed().as_bytes()), "rseed must not be in the receipt");
+    assert!(r.unsigned.outputs.is_empty(), "no ock for the withheld output");
+    println!("{pool:?} memo-withheld receipt: {} bytes", bytes.len());
+    if let Ok(dir) = std::env::var("RECEIPT_FIXTURE_DIR") {
+        std::fs::write(format!("{dir}/{pool:?}-memo-withheld.receipt"), r.to_text()).unwrap();
+    }
+}
+
+#[test]
+fn ironwood_memo_withheld_roundtrip() {
+    memo_withheld_roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_memo_withheld_roundtrip() {
+    memo_withheld_roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+/// The signer can't change what an opened output says: a different value, recipient, or a
+/// different opening of the same commitment is refused, and an index can't be disclosed twice.
+#[test]
+fn opened_outputs_must_open_the_commitment() {
+    use ff::Field;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = receipt_memo_withheld(&s, Pool::Ironwood);
+    let o = good.unsigned.opened[0].clone();
+    let mut rng = OsRng;
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let spend = honest_spend(&s, &s.payment, alpha);
+    let sign = |opened: Vec<receipts_core::OpenedOutput>, outputs: Vec<receipts_core::OutputDisclosure>| {
+        let u = receipts_core::UnsignedReceipt { coin_type: COIN_TYPE_TESTNET, pool: Pool::Ironwood, output_pool: None, txid: TXID, msg: vec![], outputs, opened, spends: vec![spend.clone()] };
+        let d = receipts_core::signing_digest(&u);
+        Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &d)).into()], unsigned: u }
+    };
+    let check = |r: &Receipt| verify(&keys().1, r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+    let i = o.index;
+    assert!(check(&sign(vec![o.clone()], vec![])).is_ok());
+    for (what, bad) in [
+        ("value + 1", receipts_core::OpenedOutput { value: o.value + 1, ..o.clone() }),
+        ("value - 1", receipts_core::OpenedOutput { value: o.value - 1, ..o.clone() }),
+        ("another recipient", receipts_core::OpenedOutput { address: FullViewingKey::from(&s.sender_sk).address_at(0u32, Scope::External).to_raw_address_bytes(), ..o.clone() }),
+        ("another psi", receipts_core::OpenedOutput { psi: [1; 32], ..o.clone() }),
+        ("another rcm", receipts_core::OpenedOutput { rcm: [1; 32], ..o.clone() }),
+        ("non-canonical psi", receipts_core::OpenedOutput { psi: [0xff; 32], ..o.clone() }),
+        ("another output", receipts_core::OpenedOutput { index: (i + 1) % s.payment.actions().len() as u32, ..o.clone() }),
+    ] {
+        assert!(check(&sign(vec![bad], vec![])).is_err(), "{what} accepted");
+    }
+    // Disclosing the same output both ways, or twice opened, is refused.
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let full = make_receipt(&s, Pool::Ironwood, b"x");
+    assert_eq!(check(&sign(vec![o.clone()], full.unsigned.outputs.clone())).unwrap_err(), Error::DuplicateIndex(i));
+    assert_eq!(check(&sign(vec![o.clone(), o.clone()], vec![])).unwrap_err(), Error::DuplicateIndex(i));
+    let both = receipts_core::create_cross_ext(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[SpendWitness { index: s.spend_index, sk: s.sender_sk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None }], OsRng);
+    assert_eq!(both.unwrap_err(), Error::DuplicateIndex(i));
+    // Editing the opening without re-signing breaks the signature.
+    let mut edited = good.clone();
+    edited.unsigned.opened[0].value += 1;
+    assert!(check(&edited).is_err());
 }

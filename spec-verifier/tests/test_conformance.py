@@ -61,7 +61,8 @@ class Conformance(unittest.TestCase):
                 continue
             for i, o in enumerate(vec["expect"].get("outputs", [])):
                 self.assertEqual(got["outputs"][i]["value"], o["zatoshis"], vec["name"])
-                self.assertEqual(memo_text(got["outputs"][i]["memo"]), o["memo"], vec["name"])
+                m = got["outputs"][i]["memo"]
+                self.assertEqual(None if m is None else memo_text(m), o["memo"], vec["name"])
             for i, src in enumerate(vec["expect"].get("sources", [])):
                 self.assertEqual([s["source"]["value"] for s in got["spends"] if "source" in s][i], src["zatoshis"], vec["name"])
         self.assertEqual(disagreements, [], f"{len(disagreements)} of {len(vectors)} vectors disagree")

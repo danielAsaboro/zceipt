@@ -125,6 +125,13 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | lightwalletd (verifier side) | The source transaction ids, fetched by txid (the payment itself can still use the `h=` block hint) | `receipts-chain/src/chain.rs::fetch_sources` |
 | lightwalletd (wallet side) | Nothing new: the wallet reads the source from its own records, or uses the note's own commitment, without a request | `receipts-wallet/src/lib.rs::create_receipt` |
 
+## 11b. Memo withheld (`--withhold-memo`)
+
+| Party | Learns | Backed by |
+|---|---|---|
+| Verifier | The recipient and amount of each such output, from its note-commitment opening | `roundtrip.rs::ironwood_memo_withheld_roundtrip` |
+| Verifier | Not the memo: the receipt holds no `ock` and not `rseed` (from which `esk`, and so the memo key, derive) | same test (asserts both); [SPEC.md](SPEC.md#outputs-without-their-memo-version-5) |
+
 ## 12. Webhooks and the 402 gate
 
 | Party | Learns | Backed by |

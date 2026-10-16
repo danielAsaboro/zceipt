@@ -409,6 +409,14 @@ impl Note {
         self.commitment_inner().unwrap()
     }
 
+    /// Returns `(ψ, rcm)`: the parts of the commitment opening that `rseed` derives, without
+    /// `rseed` itself (which would also derive `esk` and so open the memo).
+    ///
+    /// Receipts patch: lets a sender disclose a note's recipient and value but withhold its memo.
+    pub fn commitment_opening(&self) -> ([u8; 32], [u8; 32]) {
+        (self.psi().to_repr(), self.rcm().0.to_repr())
+    }
+
     /// Derives the commitment to this note.
     ///
     /// This is the internal fallible API, used to check at construction time that the
@@ -587,3 +595,28 @@ mod tests {
         }
     }
 }
+
+/// Recomputes `cmx` from a note opening that gives `ψ` and `rcm` instead of `rseed`
+/// (see [`Note::commitment_opening`]). `None` if a field is not canonical or the commitment is ⊥.
+///
+/// Receipts patch, for disclosures that withhold the memo.
+pub fn extracted_commitment_from_opening(
+    recipient: &Address,
+    value: NoteValue,
+    rho: &Rho,
+    psi: &[u8; 32],
+    rcm: &[u8; 32],
+) -> Option<ExtractedNoteCommitment> {
+    let psi = Option::<pallas::Base>::from(pallas::Base::from_repr(*psi))?;
+    let rcm = Option::<pallas::Scalar>::from(pallas::Scalar::from_repr(*rcm))?;
+    let cm = NoteCommitment::derive(
+        recipient.g_d().to_bytes(),
+        recipient.pk_d().inner().to_bytes(),
+        value,
+        rho.0,
+        psi,
+        commitment::NoteCommitTrapdoor(rcm),
+    );
+    Option::<NoteCommitment>::from(cm).map(ExtractedNoteCommitment::from)
+}
+

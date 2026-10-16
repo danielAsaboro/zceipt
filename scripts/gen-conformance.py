@@ -23,6 +23,7 @@ cases = [
     ("regtest-orchard", ex("regtest-orchard/receipt.txt"), ex("regtest-orchard/tx.hex"), 212, True, [{"zatoshis": 42_000_000, "memo": "Invoice 7: Orchard espresso"}]),
     ("regtest-crosspool", ex("regtest-crosspool/receipt.txt"), ex("regtest-crosspool/tx.hex"), int(ex("regtest-crosspool/height")), True, None),
     ("testnet", ex("testnet/receipt.txt"), ex("testnet/tx.hex"), 4_500_997, False, [{"zatoshis": 1_000_000, "memo": "Invoice 42: two coffees"}]),
+    ("testnet-memo-withheld", ex("testnet/memo-withheld/receipt.txt"), ex("testnet/memo-withheld/tx.hex"), 4_500_997, False, [{"zatoshis": 1_000_000, "memo": None}]),
     ("testnet-sender-address", ex("testnet/receipt-with-sender-address.txt"), ex("testnet/sender-address-tx.hex"), 4_501_025, False, [{"zatoshis": 500_000, "memo": "Grant round 3: docs translation (Tolu)"}]),
 ]
 for name, r, tx, h, regtest, outs in cases:

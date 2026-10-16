@@ -36,7 +36,7 @@ More: [what users say is hard, and what we did](docs/PAIN-POINTS.md) · [threat 
 - **What a receipt proves, what it reveals, and why:** [docs/CLAIM.md](docs/CLAIM.md), with the
   security argument and its assumptions.
 - **A second verifier, written from the protocol specification** in Python with no shared code
-  ([spec-verifier](spec-verifier)), agrees with the Rust one on all 223 shared vectors and on 224
+  ([spec-verifier](spec-verifier)), agrees with the Rust one on all 251 shared vectors and on 232
   signed adversarial receipts; its primitives match the Zcash test vectors. Run it:
   `python3 -m unittest discover -s spec-verifier/tests`.
 - **Every requirement traced** to the code and the test that checks it, in both verifiers:
@@ -105,7 +105,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **Attestations** | `POST /v1/requests/{id}/attestations`: an Ed25519 SD-JWT stating only "paid at least X on or before day D"; txid, exact amount, time, request and label stay hidden unless revealed one by one; `verifyAttestation(p, { issuer })` checks it offline against the issuer you trust |
 | **Refunds** | the payer signs `refund-to:` into their receipt; `POST /v1/requests/{id}/refunds` returns a ZIP-321 link to that address, and a receipt for the refund settles it (`refund.created`, `refund.succeeded`) |
 | **Sign in with Zcash** | `POST /v1/sign_in/challenges` + `receipts sign-in`: prove control of a shielded address for one domain and one nonce, with no transaction. Phishing and replay are refused; `verifySignIn()` checks it offline |
-| **Conformance** | [223 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts, run by the Rust and npm verifiers and by an independent verifier written from the protocol spec in Python ([`spec-verifier`](spec-verifier)), plus a decoder fuzz pass in `cargo test` |
+| **Conformance** | [251 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts, run by the Rust and npm verifiers and by an independent verifier written from the protocol spec in Python ([`spec-verifier`](spec-verifier)), plus a decoder fuzz pass in `cargo test` |
 | **Sandbox** | `zrcpt_test_*` fixtures with a fixed outcome for every error path, so you can integrate with no wallet and no faucet, plus test clocks that fast-forward expiry and the 10-confirmation `request.final` event |
 | **Local dev tools** | `receipts doctor` (checks servers, API key, clock, wallet), `receipts listen --forward-to …` and `receipts trigger <any event>`, like the Stripe CLI |
 | **For AI agents** | `/llms.txt`, `/llms-full.txt`, every doc as Markdown, and `receipts mcp`, an MCP server with `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`, `refund_payment` and `check_payment_link` |
@@ -202,6 +202,12 @@ receipts verify @receipt.txt
   source    action 1 spent the note created by tx 5093e033… action 0 (height 530)
             that tx was funded in the clear: 0.30000000 ZEC from tmRyMkJH…
 ```
+
+## Optionally keep the memo private
+
+`--withhold-memo` proves who was paid and how much, and leaves the memo encrypted: the receipt
+carries the note's commitment opening without the seed the memo key derives from. Useful when
+the memo holds an invoice note or a refund address that the verifier doesn't need.
 
 ## Embed it in any site
 

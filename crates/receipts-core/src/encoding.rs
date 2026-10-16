@@ -8,6 +8,8 @@
 //!                              | proof_len:u32le | proof | [addr_flag:u8 (0|1) | address proof if 1, v2/v3]
 //!                              | [flags:u8 (bit 0 address, bit 1 source) | address proof if bit 0
 //!                                 | source proof if bit 1, v4] }*
+//! v5 adds, right after the outputs:
+//!             n_opened:u8 (≥ 1) | { index:u32le | address[43] | value:u64le | psi[32] | rcm[32] }*
 //! source   := txid[32] | index:u32le | value_flag:u8 (0|1)
 //!             | { cmx[32] if 0 | value:u64le (>= 1) | address[43] | rseed[32] if 1 }
 //!             | proof_len:u32le | proof
@@ -23,7 +25,7 @@
 //!
 //! The text form is `zrcpt1` followed by the unpadded base64url encoding of the receipt.
 
-use crate::{AddressProof, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
+use crate::{AddressProof, OpenedOutput, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
 const MAGIC: &[u8; 4] = b"ZRCT";
@@ -36,6 +38,9 @@ const VERSION_ADDR: u8 = 2;
 const VERSION_XPOOL: u8 = 3;
 /// Version 4: at least one spend proves where its note came from (a source proof).
 const VERSION_SOURCE: u8 = 4;
+/// Version 5: as version 4, plus outputs disclosed without their memo (an opened-outputs list
+/// after the outputs). Used exactly when there is at least one.
+const VERSION_OPENED: u8 = 5;
 /// Prefix of the text encoding.
 pub const TEXT_PREFIX: &str = "zrcpt1";
 const MAX_PROOF_LEN: usize = 1 << 16;
@@ -119,10 +124,13 @@ impl UnsignedReceipt {
     pub fn encode(&self) -> Vec<u8> {
         let mut v = Vec::new();
         let xpool = self.output_pool.filter(|p| *p != self.pool);
-        let with_source = self.spends.iter().any(|s| s.source.is_some());
+        let with_opened = !self.opened.is_empty();
+        let with_source = with_opened || self.spends.iter().any(|s| s.source.is_some());
         let with_addr = xpool.is_some() || self.spends.iter().any(|s| s.address.is_some());
         v.extend_from_slice(MAGIC);
-        v.push(if with_source {
+        v.push(if with_opened {
+            VERSION_OPENED
+        } else if with_source {
             VERSION_SOURCE
         } else if xpool.is_some() {
             VERSION_XPOOL
@@ -145,6 +153,16 @@ impl UnsignedReceipt {
         for o in &self.outputs {
             v.extend_from_slice(&o.index.to_le_bytes());
             v.extend_from_slice(&o.ock);
+        }
+        if with_opened {
+            v.push(self.opened.len() as u8);
+            for o in &self.opened {
+                v.extend_from_slice(&o.index.to_le_bytes());
+                v.extend_from_slice(&o.address);
+                v.extend_from_slice(&o.value.to_le_bytes());
+                v.extend_from_slice(&o.psi);
+                v.extend_from_slice(&o.rcm);
+            }
         }
         v.push(self.spends.len() as u8);
         for s in &self.spends {
@@ -196,7 +214,7 @@ impl UnsignedReceipt {
             return Err(DecodeError::BadMagic);
         }
         let version = r.u8()?;
-        if !(VERSION..=VERSION_SOURCE).contains(&version) {
+        if !(VERSION..=VERSION_OPENED).contains(&version) {
             return Err(DecodeError::UnsupportedVersion(version));
         }
         let coin_type = r.u32()?;
@@ -209,7 +227,7 @@ impl UnsignedReceipt {
                 return Err(DecodeError::SamePool);
             }
             Some(p)
-        } else if version == VERSION_SOURCE {
+        } else if version >= VERSION_SOURCE {
             let b = r.u8()?;
             let p = Pool::from_byte(b).ok_or(DecodeError::UnknownPool(b))?;
             (p != pool).then_some(p)
@@ -227,6 +245,15 @@ impl UnsignedReceipt {
                 ock: r.arr32()?,
             });
         }
+        let mut opened = Vec::new();
+        if version == VERSION_OPENED {
+            for _ in 0..r.u8()? {
+                let index = r.u32()?;
+                let address: [u8; 43] = r.take(43)?.try_into().unwrap();
+                let value = u64::from_le_bytes(r.take(8)?.try_into().unwrap());
+                opened.push(OpenedOutput { index, address, value, psi: r.arr32()?, rcm: r.arr32()? });
+            }
+        }
         let n_sp = r.u8()? as usize;
         let mut spends = Vec::with_capacity(n_sp);
         for _ in 0..n_sp {
@@ -240,7 +267,7 @@ impl UnsignedReceipt {
             }
             let proof = r.take(len)?.to_vec();
             let flag = if version >= VERSION_ADDR { r.u8()? } else { 0 };
-            let max_flag = if version == VERSION_SOURCE { 3 } else { 1 };
+            let max_flag = if version >= VERSION_SOURCE { 3 } else { 1 };
             if flag > max_flag {
                 return Err(DecodeError::NonCanonical);
             }
@@ -285,6 +312,7 @@ impl UnsignedReceipt {
             txid,
             msg,
             outputs,
+            opened,
             spends,
         })
     }

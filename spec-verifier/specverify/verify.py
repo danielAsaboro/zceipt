@@ -128,7 +128,7 @@ def verify_bundles(r: rc.Receipt, tx: dict, expected_coin_type: int, sources=Non
     out_bundle = tx.get(out_pool)
     if not spend_bundle or not spend_bundle["actions"] or not out_bundle or not out_bundle["actions"]:
         raise Invalid("the transaction has no bundle in the receipt's pool")
-    for items, bundle in ((r.outputs, out_bundle), (r.spends, spend_bundle)):
+    for items, bundle in ((r.outputs + r.opened, out_bundle), (r.spends, spend_bundle)):
         seen = set()
         for it in items:
             if it.index >= len(bundle["actions"]):
@@ -175,6 +175,25 @@ def verify_bundles(r: rc.Receipt, tx: dict, expected_coin_type: int, sources=Non
             raise Invalid(f"output {out.index} does not open with the disclosed key")
         report["outputs"].append({"index": out.index, "recipient": (note["d"] + note["pk_d"]).hex(),
                                   "value": note["value"], "memo": note["memo"].hex()})
+    for out in r.opened:
+        # NoteCommit from (g_d, pk_d, v, rho, psi) with the given rcm; rho is the action's nf.
+        act = out_bundle["actions"][out.index]
+        d, pk_d_repr = out.address[:11], out.address[11:]
+        try:
+            pl.decode_point(pk_d_repr)
+        except ValueError:
+            raise Invalid(f"opened output {out.index}: pk_d is not a valid non-zero point")
+        psi = _canonical_base(out.psi, f"opened output {out.index} psi")
+        rcm = int.from_bytes(out.rcm, "little")
+        if rcm >= pl.R:
+            raise Invalid(f"opened output {out.index}: rcm is not a canonical scalar")
+        rho = _canonical_base(act["nf"], "nullifier")
+        cm = o.note_commit(rcm, pl.repr_p(o.diversify_hash(d)), pk_d_repr, out.value, rho, psi)
+        if cm == "bot" or pl.extract_p(cm).to_bytes(32, "little") != act["cmx"]:
+            raise Invalid(f"opened output {out.index} does not match its note commitment")
+        report["outputs"].append({"index": out.index, "recipient": out.address.hex(), "value": out.value,
+                                  "memo": None, "memo_withheld": True})
+    report["outputs"].sort(key=lambda x: x["index"])
     return report
 
 

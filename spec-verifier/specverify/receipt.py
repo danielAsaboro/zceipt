@@ -2,7 +2,7 @@
 Sign in with Zcash), not from the Rust code.
 
 Canonical decoding: the version is determined by the contents (4 iff some spend carries a source
-proof, else 3 iff the outputs are in another pool than the spends, else 2 iff some spend carries an
+proof or 5 iff some output is opened without its memo, else 3 iff the outputs are in another pool than the spends, else 2 iff some spend carries an
 address proof, else 1), address flags are exactly 0 or 1 (v2/v3) and spend flags 0..3 (v4), a
 revealed source value is at least 1, nothing may follow the signatures. Any other byte string is
 rejected.
@@ -60,6 +60,16 @@ class Output:
 
 
 @dataclass
+class OpenedOutput:
+    """An output disclosed without its memo: recipient, value and the commitment opening (psi, rcm)."""
+    index: int
+    address: bytes
+    value: int
+    psi: bytes
+    rcm: bytes
+
+
+@dataclass
 class Receipt:
     version: int
     coin_type: int
@@ -71,6 +81,7 @@ class Receipt:
     spends: List[Spend]
     sigs: List[bytes] = field(default_factory=list)
     unsigned_bytes: bytes = b""
+    opened: List[OpenedOutput] = field(default_factory=list)
 
 
 class _R:
@@ -100,7 +111,7 @@ def decode(b: bytes) -> Receipt:
     if r.take(4) != b"ZRCT":
         raise DecodeError("bad magic")
     version = r.take(1)[0]
-    if version not in (1, 2, 3, 4):
+    if version not in (1, 2, 3, 4, 5):
         raise DecodeError(f"unsupported version {version}")
     coin_type = r.int(4)
     pb = r.take(1)[0]
@@ -114,7 +125,7 @@ def decode(b: bytes) -> Receipt:
         if ob == pb:
             raise DecodeError("version 3 needs two different pools")
         output_pool = POOLS[ob]
-    elif version == 4:
+    elif version in (4, 5):
         ob = r.take(1)[0]
         if ob not in POOLS:
             raise DecodeError("unknown output pool")
@@ -122,6 +133,9 @@ def decode(b: bytes) -> Receipt:
     txid = r.take(32)
     msg = r.take(r.int(2))
     outputs = [Output(r.int(4), r.take(32)) for _ in range(r.take(1)[0])]
+    opened = []
+    if version == 5:
+        opened = [OpenedOutput(r.int(4), r.take(43), r.int(8), r.take(32), r.take(32)) for _ in range(r.take(1)[0])]
     spends = []
     for _ in range(r.take(1)[0]):
         s = Spend(r.int(4), r.take(32), r.take(32), r.take(32), _proof(r))
@@ -131,7 +145,7 @@ def decode(b: bytes) -> Receipt:
                 raise DecodeError("non-canonical address flag")
             if flag:
                 s.address = AddressProof(r.take(43), r.take(32), r.take(32), r.take(32), r.take(32), r.take(32), _proof(r))
-        elif version == 4:
+        elif version in (4, 5):
             flag = r.take(1)[0]
             if flag > 3:
                 raise DecodeError("non-canonical spend flags")
@@ -155,10 +169,12 @@ def decode(b: bytes) -> Receipt:
         raise DecodeError("non-canonical: version 2 without an address proof")
     if version == 4 and not any(s.source for s in spends):
         raise DecodeError("non-canonical: version 4 without a source proof")
+    if version == 5 and not opened:
+        raise DecodeError("non-canonical: version 5 without an opened output")
     sigs = [r.take(64) for _ in spends]
     if r.i != len(b):
         raise DecodeError("trailing bytes")
-    return Receipt(version, coin_type, POOLS[pb], output_pool, txid, msg, outputs, spends, sigs, unsigned)
+    return Receipt(version, coin_type, POOLS[pb], output_pool, txid, msg, outputs, spends, sigs, unsigned, opened)
 
 
 def from_text(s: str) -> Receipt:

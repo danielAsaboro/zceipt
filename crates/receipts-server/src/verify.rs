@@ -32,6 +32,9 @@ pub struct Output {
     pub recipient_raw: [u8; 43],
     pub zatoshis: u64,
     pub memo: Option<String>,
+    /// The sender disclosed this output without its memo.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub memo_withheld: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -219,7 +222,8 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
                 recipient: chain::encode_orchard_receiver(net, o.recipient),
                 recipient_raw: o.recipient,
                 zatoshis: o.value,
-                memo: chain::memo_text(&o.memo),
+                memo: if o.memo_withheld { None } else { chain::memo_text(&o.memo) },
+                memo_withheld: o.memo_withheld,
             })
             .collect(),
     })

@@ -70,7 +70,7 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         batch: None,
         sender_addresses: vec![],
         sources: vec![],
-        outputs: vec![Output { action: 0, recipient, recipient_raw: raw, zatoshis: amount, memo: Some("sandbox fixture".into()) }],
+        outputs: vec![Output { action: 0, recipient, recipient_raw: raw, zatoshis: amount, memo: Some("sandbox fixture".into()), memo_withheld: false }],
         verdict: "valid",
         checks: serde_json::Value::Null,
         deposit: None,

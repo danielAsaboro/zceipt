@@ -93,6 +93,10 @@ same bytes, so the signed encoding is unique:
 cd crates/receipts-core && cargo +nightly fuzz run decode_receipt -- -max_total_time=900
 ```
 
+Source proofs (2026-10-16): the receipt decoder, seeded also with the four real v4 receipts
+(testnet and regtest source proofs), ran 12.7 million inputs in 10 minutes with no crash and no
+re-encoding mismatch.
+
 ## 5. Miri
 
 The decoders, encoders, batch checks and RedPallas signature verification run under Miri

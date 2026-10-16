@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -150,6 +150,33 @@ export async function verifyReceipt(input, options = {}) {
     if (paid === 0) throw new Error("no disclosed output paid the expected address");
     if (options.minZatoshis != null && paid < options.minZatoshis) throw new Error(`paid ${paid} zatoshis, less than ${options.minZatoshis}`);
     v.paidToExpected = paid;
+  }
+  return v;
+}
+
+/**
+ * Verifies an incoming receipt (`zrcin1…`): the RECIPIENT proves it was paid, for an accountant or
+ * a lender, without a viewing key. Options as for `verifyReceipt` (endpoint, rawTx, height,
+ * regtest, expectAddress). Resolves to `{ valid, kind: "incoming", recipient, outputs, … }`.
+ */
+export async function verifyIncoming(input, options = {}) {
+  await load();
+  const s = decodeURIComponent(String(input).trim());
+  const i = s.indexOf("zrcin1");
+  if (i < 0) throw new Error("no zrcin1 incoming receipt found");
+  const text = s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
+  const summary = JSON.parse(inspect_incoming(text));
+  let raw = options.rawTx, height = options.height;
+  if (raw == null) {
+    const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
+    const hint = options.height ?? heightHint(input);
+    ({ raw, height } = hint ? await fetchTransactionPrivately(endpoint, summary.txid, hint) : await fetchTransaction(endpoint, summary.txid));
+  } else if (typeof raw === "string") {
+    raw = hexToBytes(raw.trim());
+  }
+  const v = JSON.parse(verify_incoming(text, raw, Number(height), !!options.regtest));
+  if (options.expectAddress && orchard_receiver_hex(v.recipient) !== orchard_receiver_hex(options.expectAddress)) {
+    throw new Error("the receipt proves a different receiving address");
   }
   return v;
 }

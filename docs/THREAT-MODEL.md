@@ -132,6 +132,14 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Verifier | The recipient and amount of each such output, from its note-commitment opening | `roundtrip.rs::ironwood_memo_withheld_roundtrip` |
 | Verifier | Not the memo: the receipt holds no `ock` and not `rseed` (from which `esk`, and so the memo key, derive) | same test (asserts both); [SPEC.md](SPEC.md#outputs-without-their-memo-version-5) |
 
+## 11c. Incoming receipts (`receipts received`)
+
+| Party | Learns | Backed by |
+|---|---|---|
+| Verifier (an accountant, say) | The receiving address (proven controlled by the presenter), and the value and memo of each chosen output of one transaction | `roundtrip.rs::ironwood_incoming_roundtrip`; `examples/testnet/incoming` |
+| Verifier | Not: other payments to the wallet, its balance, or when it spends these notes (no nullifier in the receipt) | same test (asserts the nullifier is absent) |
+| The payer | Can't make one for the recipient: it knows `esk` but can't prove the address | `roundtrip.rs::only_the_recipient_can_prove_receipt` |
+
 ## 12. Webhooks and the 402 gate
 
 | Party | Learns | Backed by |

@@ -436,6 +436,43 @@ pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, addres
     Ok((s, receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes())))
 }
 
+/// Makes an incoming receipt: this wallet proves it received outputs of `txid` (all of them at
+/// one address, or the given action indices). Returns it and the transaction's block height.
+pub async fn create_incoming_receipt(wallet: &Path, identity: &Path, txid: [u8; 32], msg: &[u8], outputs: &[u32], pool: Option<Pool>, server: Option<&str>) -> anyhow::Result<(receipts_core::incoming::IncomingReceipt, u32)> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let db_path = wallet.join("data.sqlite");
+    let db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    // The wallet's own copy if it kept one; else the chain (the server then learns the txid).
+    let (tx, height) = match db.get_transaction(TxId::from_bytes(txid))? {
+        Some(tx) => {
+            let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            let h: Option<u32> = conn.query_row("SELECT mined_height FROM transactions WHERE txid = ?1", [txid.as_slice()], |r| r.get(0))?;
+            (tx, h.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?)
+        }
+        None => receipts_chain::chain::fetch_mined_tx(net, server, txid).await?,
+    };
+    let idx: Vec<usize> = outputs.iter().map(|&i| i as usize).collect();
+    let pk = receipts_core::proving_key();
+    let mut last = None;
+    for p in pool.map(|p| vec![p]).unwrap_or_else(|| vec![Pool::Ironwood, Pool::Orchard]) {
+        let b = match p {
+            Pool::Ironwood => tx.ironwood_bundle(),
+            Pool::Orchard => tx.orchard_bundle(),
+        };
+        let Some(b) = b else { continue };
+        match receipts_core::incoming::create_incoming(&pk, net.coin_type(), p, txid, b, msg, &sk, &idx, OsRng) {
+            Ok(r) => return Ok((r, height)),
+            Err(e) => last = Some(e),
+        }
+    }
+    match last {
+        Some(e) => bail!("this wallet did not receive the selected output(s) of that transaction: {e}"),
+        None => bail!("that transaction has no Orchard or Ironwood outputs"),
+    }
+}
+
 /// A shop's proof-request link: `…?request=<challenge>&to=<payee>&min=<zatoshis>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestLink {

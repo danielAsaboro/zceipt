@@ -60,6 +60,16 @@ vectors.append({"name": "pre-fix/receipt-with-sender-address", "type": "receipt"
 # A receipt checked against some other transaction.
 vectors.append({"name": "cross/regtest-receipt-testnet-tx", "type": "receipt", "receipt": cases[0][1], "raw_tx": cases[1][2], "height": 4_500_997, "regtest": True, "heights": "examples/regtest/heights.toml", "expect": {"valid": False}})
 
+# Incoming receipts (the recipient proves it was paid).
+import re as _re
+inc = _re.search(r"zrcin1[A-Za-z0-9_-]+", ex("testnet/incoming/receipt.txt")).group(0)
+ib = {"type": "incoming", "raw_tx": ex("testnet/incoming/tx.hex"), "height": 4_500_997, "regtest": False}
+vectors.append({"name": "incoming/valid", **ib, "receipt": inc, "expect": {"valid": True, "outputs": [{"zatoshis": 1_000_000, "memo": "Invoice 42: two coffees"}]}})
+for i in spread(inc, "zrcin1", 16):
+    vectors.append({"name": f"incoming/flip-{i}", **ib, "receipt": flip(inc, i), "expect": {"valid": False}})
+vectors.append({"name": "incoming/other-tx", **ib, "raw_tx": ex("testnet/sender-address-tx.hex"), "height": 4_501_025, "receipt": inc, "expect": {"valid": False}})
+vectors.append({"name": "incoming/truncated", **ib, "receipt": inc[:-20], "expect": {"valid": False}})
+
 s = ex("testnet/sign-in.txt")
 si = {"type": "sign_in", "domain": "kemis-coffee.test", "nonce": "example-nonce-0001"}
 vectors.append({"name": "sign-in/valid", **si, "sign_in": s, "expect": {"valid": True, "network": "testnet"}})

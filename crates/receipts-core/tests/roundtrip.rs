@@ -1206,3 +1206,92 @@ fn opened_outputs_must_open_the_commitment() {
     edited.unsigned.opened[0].value += 1;
     assert!(check(&edited).is_err());
 }
+
+// ---------- incoming receipts: the recipient proves it was paid ----------
+
+fn incoming(s: &Scenario, pool: Pool) -> receipts_core::incoming::IncomingReceipt {
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    receipts_core::incoming::create_incoming(&keys().0, COIN_TYPE_TESTNET, pool, TXID, &s.payment, b"challenge:ab12cd", &merchant_sk, &[s.merchant_index], OsRng).unwrap()
+}
+
+fn incoming_roundtrip(version: BundleVersion, pool: Pool) {
+    use receipts_core::incoming::{verify_incoming, IncomingReceipt};
+    let s = scenario(version);
+    let r = incoming(&s, pool);
+    let text = r.to_text();
+    assert!(text.starts_with("zrcin1"));
+    let parsed = IncomingReceipt::from_text(&text).unwrap();
+    assert_eq!(parsed, r);
+    let v = verify_incoming(&keys().1, &parsed, COIN_TYPE_TESTNET, TXID, &s.payment).unwrap();
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(v.recipient, merchant.to_raw_address_bytes());
+    assert_eq!(v.outputs.len(), 1);
+    assert_eq!(v.outputs[0].value, s.merchant_value);
+    assert_eq!(&v.outputs[0].memo[..10], b"Invoice 42");
+    assert_eq!(v.msg, b"challenge:ab12cd");
+    // With no indices, the wallet finds its own outputs.
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let auto = receipts_core::incoming::create_incoming(&keys().0, COIN_TYPE_TESTNET, pool, TXID, &s.payment, b"", &merchant_sk, &[], OsRng).unwrap();
+    assert_eq!(auto.outputs.iter().map(|o| o.index).collect::<Vec<_>>(), vec![s.merchant_index as u32]);
+    // No nullifier of the received note appears (its later spend stays unlinkable).
+    let n = decrypt(version, &s.payment, &FullViewingKey::from(&merchant_sk));
+    let nf = n.nullifier(&FullViewingKey::from(&merchant_sk)).to_bytes();
+    assert!(!r.to_bytes().windows(32).any(|w| w == nf), "the received note's nullifier is in the receipt");
+    println!("{pool:?} incoming receipt: {} bytes", r.to_bytes().len());
+}
+
+#[test]
+fn ironwood_incoming_roundtrip() {
+    incoming_roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_incoming_roundtrip() {
+    incoming_roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+/// Only the recipient can make one. The sender knows `esk` (its outgoing viewing key recovers
+/// it) but not the recipient's keys, so it can't prove the address; with its own address the
+/// output doesn't open. Edits, other outputs, other transactions and networks are refused.
+#[test]
+fn only_the_recipient_can_prove_receipt() {
+    use receipts_core::incoming::{create_incoming, verify_incoming, IncomingOutput, IncomingReceipt};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = incoming(&s, Pool::Ironwood);
+    let check = |r: &IncomingReceipt| verify_incoming(&keys().1, r, COIN_TYPE_TESTNET, TXID, &s.payment);
+    assert!(check(&good).is_ok());
+    // The sender's wallet can't find the output as received.
+    assert!(create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &s.sender_sk, &[s.merchant_index], OsRng).is_err());
+    // The sender, with the right esk, signing for its own address, is refused: the output
+    // doesn't open to that address.
+    use receipts_core::incoming::__sign_unchecked_for_tests as sign_for;
+    let sender_addr = FullViewingKey::from(&s.sender_sk).address_at(0u32, Scope::External);
+    let claim = sign_for(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, b"", &s.sender_sk, sender_addr, good.outputs.clone(), OsRng).unwrap();
+    assert_eq!(check(&claim).unwrap_err(), Error::BadOutputKey(s.merchant_index as u32), "the sender proved receipt of the merchant's payment");
+    // The recipient itself, validly signing wrong contents, is refused too.
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let merchant = FullViewingKey::from(&merchant_sk).address_at(3u32, Scope::External);
+    let resign = |outputs: Vec<IncomingOutput>| sign_for(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, b"", &merchant_sk, merchant, outputs, OsRng).unwrap();
+    let i = s.merchant_index as u32;
+    let e = good.outputs[0].esk;
+    assert!(check(&resign(vec![IncomingOutput { index: i, esk: e }])).is_ok());
+    let other = ((s.merchant_index + 1) % s.payment.actions().len()) as u32;
+    assert_eq!(check(&resign(vec![IncomingOutput { index: other, esk: e }])).unwrap_err(), Error::BadOutputKey(other));
+    let mut e2 = e;
+    e2[0] ^= 1;
+    assert_eq!(check(&resign(vec![IncomingOutput { index: i, esk: e2 }])).unwrap_err(), Error::BadOutputKey(i));
+    assert_eq!(check(&resign(vec![IncomingOutput { index: i, esk: e }; 2])).unwrap_err(), Error::DuplicateIndex(i));
+    assert_eq!(check(&resign(vec![IncomingOutput { index: 99, esk: e }])).unwrap_err(), Error::IndexOutOfRange(99));
+    assert!(check(&resign(vec![])).is_err(), "an empty incoming receipt proves nothing");
+    // Edits without the key break the signature.
+    let mut edited = good.clone();
+    edited.msg = b"challenge:000000".to_vec();
+    assert_eq!(check(&edited).unwrap_err(), Error::BadSignature(0));
+    assert!(verify_incoming(&keys().1, &good, COIN_TYPE_MAINNET, TXID, &s.payment).is_err());
+    assert!(verify_incoming(&keys().1, &good, COIN_TYPE_TESTNET, [0x11; 32], &s.payment).is_err());
+    // Canonical decoding: trailing bytes or a truncation don't decode.
+    let mut b = good.to_bytes();
+    b.push(0);
+    assert!(IncomingReceipt::from_bytes(&b).is_none());
+    assert!(IncomingReceipt::from_bytes(&good.to_bytes()[..100]).is_none());
+}

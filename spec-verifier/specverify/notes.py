@@ -16,7 +16,12 @@ def recover_with_ock(action, ock: bytes, lead_byte: int):
     op = aead.sym_decrypt(ock, action["out"])
     if op is None or len(op) != 64:
         return None
-    pk_d_repr, esk_bytes = op[:32], op[32:]
+    return recover_with_pkd_esk(action, op[:32], op[32:], lead_byte)
+
+
+def recover_with_pkd_esk(action, pk_d_repr: bytes, esk_bytes: bytes, lead_byte: int):
+    """The second half of 4.20.3: open an output given its recipient's pk_d and its esk (used by
+    incoming receipts, where the recipient discloses esk). Same return value as recover_with_ock."""
     esk = int.from_bytes(esk_bytes, "little")
     pk_d = pl.abst_p(pk_d_repr)
     if esk >= pl.R or pk_d == "bot":

@@ -77,6 +77,24 @@ class Testnet(unittest.TestCase):
         self.assertEqual((o["value"], o["memo"], o["memo_withheld"]), (1_000_000, None, True))
         self.assertNotIn(b"Invoice 42", b)
 
+    def test_incoming(self):
+        """examples/testnet/incoming: the merchant proves it received the 0.01 TAZ payment."""
+        d = os.path.join(EX, "incoming")
+        text = open(os.path.join(d, "receipt.txt")).read()
+        text = text[text.index("zrcin1"):].split()[0]
+        raw = bytes.fromhex(open(os.path.join(d, "tx.hex")).read().strip())
+        rep = v.verify_incoming(text, raw, 1)
+        [o] = rep["outputs"]
+        self.assertEqual(o["value"], 1_000_000)
+        self.assertEqual(bytes.fromhex(o["memo"]).rstrip(b"\0").decode(), "Invoice 42: two coffees")
+        with self.assertRaises(v.Invalid):
+            v.verify_incoming(text, raw, 133)
+        # A flipped signature byte is refused.
+        b = rc.b64decode(text[6:])
+        bad = "zrcin1" + rc.base64.urlsafe_b64encode(b[:-1] + bytes([b[-1] ^ 1])).decode().rstrip("=")
+        with self.assertRaises(v.Invalid):
+            v.verify_incoming(bad, raw, 1)
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

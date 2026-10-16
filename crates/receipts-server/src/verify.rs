@@ -229,6 +229,56 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
     })
 }
 
+/// Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid).
+pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_address: Option<&str>, challenge: Option<&str>) -> Result<serde_json::Value, ApiError> {
+    let body = extract(text, receipts_core::incoming::INCOMING_TEXT_PREFIX).ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcin1… receipt found").param("receipt"))?;
+    let r = receipts_core::incoming::IncomingReceipt::from_text(&body).ok_or_else(|| ApiError::invalid("receipt_malformed", "malformed incoming receipt").param("receipt"))?;
+    if (r.coin_type == COIN_TYPE_MAINNET) != (net == Net::Main) {
+        return Err(ApiError::invalid("receipt_network_mismatch", "this receipt is for another network than the key serves").param("receipt"));
+    }
+    let (tx, height) = chain::fetch_mined_tx(net, server, r.txid).await.map_err(|e| ApiError::verification("transaction_not_found", e.to_string()))?;
+    let bundle = match r.pool {
+        Pool::Orchard => tx.orchard_bundle().cloned(),
+        Pool::Ironwood => tx.ironwood_bundle().cloned(),
+    }
+    .ok_or_else(|| ApiError::verification("receipt_invalid", "the transaction has no bundle in the receipt's pool"))?;
+    let _permit = verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
+    let r2 = r.clone();
+    let v = tokio::task::spawn_blocking(move || receipts_core::incoming::verify_incoming(vk(), &r2, r2.coin_type, r2.txid, &bundle))
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?;
+    let message = String::from_utf8_lossy(&v.msg).into_owned();
+    if let Some(c) = challenge {
+        if challenge_of(&message).as_deref() != Some(c) {
+            return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this challenge"));
+        }
+    }
+    let recipient = chain::encode_orchard_receiver(net, v.recipient);
+    if let Some(want) = expect_address {
+        if chain::orchard_receiver_of(want).map_err(|e| ApiError::invalid("address_invalid", e.to_string()).param("expect_address"))? != v.recipient {
+            return Err(ApiError::verification("address_mismatch", "the receipt proves a different receiving address"));
+        }
+    }
+    let tip = chain::chain_tip(net, server).await.ok();
+    let (verdict, _) = levels(height, tip, v.outputs.len(), 0, challenge_of(&message).as_deref(), challenge, 1);
+    Ok(serde_json::json!({
+        "object": "incoming_verification",
+        "valid": true,
+        "verdict": verdict,
+        "livemode": net == Net::Main,
+        "network": net.name(),
+        "pool": if r.pool == Pool::Orchard { "orchard" } else { "ironwood" },
+        "txid": display_txid(&v.txid),
+        "mined_height": height,
+        "message": message,
+        "recipient": recipient,
+        "recipient_control": "proven",
+        "total_zatoshis": v.outputs.iter().map(|o| o.value).sum::<u64>(),
+        "outputs": v.outputs.iter().map(|o| serde_json::json!({ "action": o.index, "zatoshis": o.value, "memo": chain::memo_text(&o.memo) })).collect::<Vec<_>>(),
+    }))
+}
+
 /// Verifies a `zrcptb1…` batch: completeness first, then every receipt.
 pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<serde_json::Value, ApiError> {
     let body = extract(text, "zrcptb1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcptb1… batch found").param("receipt"))?;

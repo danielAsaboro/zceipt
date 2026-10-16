@@ -13,7 +13,7 @@ public inputs".
 import hashlib
 
 from . import orchard as o, pallas as pl, receipt as rc, tx as txmod
-from .notes import recover_with_ock
+from .notes import recover_with_ock, recover_with_pkd_esk
 
 LEAD_BYTE = {"orchard": 0x02, "ironwood": 0x03}
 
@@ -214,3 +214,41 @@ def verify_sign_in(text: str, expected_coin_type: int, domain: str, nonce: str):
     pi = check_address_proof(s.address, "ironwood")
     pi["rk"] = s.rk.hex()
     return {"address": s.address.address.hex(), "proof": "not checked", "public_inputs": pi}
+
+
+def verify_incoming(text: str, raw_tx: bytes, expected_coin_type: int):
+    """An incoming receipt: the recipient proves it was paid. Checks the signature, the address
+    proof (except its Halo 2 proof: public inputs returned), and opens each output with the
+    recipient's pk_d and the disclosed esk (4.20.3); every output must be to the proven address."""
+    r = rc.decode_incoming(text)
+    if r.coin_type != expected_coin_type:
+        raise Invalid("wrong network (coin type)")
+    tx = txmod.parse(raw_tx)
+    if txmod.txid(tx) != r.txid:
+        raise Invalid("the receipt is for another transaction")
+    bundle = tx.get(r.pool)
+    if not bundle or not bundle["actions"]:
+        raise Invalid("the transaction has no bundle in the receipt's pool")
+    if not r.outputs:
+        raise Invalid("no outputs")
+    try:
+        pl.decode_point(r.rk)
+    except ValueError:
+        raise Invalid("rk is not a valid non-zero point")
+    person = b"ZIP311Incomg" + r.coin_type.to_bytes(4, "little")
+    digest = hashlib.blake2b(r.unsigned_bytes, digest_size=32, person=person).digest()
+    if not o.redpallas_verify(r.rk, digest, r.sig):
+        raise Invalid("bad signature")
+    pi = check_address_proof(r.address, r.pool)
+    pi["rk"] = r.rk.hex()
+    pk_d = r.address.address[11:]
+    seen, outs = set(), []
+    for index, esk in r.outputs:
+        if index >= len(bundle["actions"]) or index in seen:
+            raise Invalid(f"output index {index} out of range or repeated")
+        seen.add(index)
+        note = recover_with_pkd_esk(bundle["actions"][index], pk_d, esk, LEAD_BYTE[r.pool])
+        if note is None or note["d"] != r.address.address[:11]:
+            raise Invalid(f"output {index} does not open to the proven address with the disclosed esk")
+        outs.append({"index": index, "value": note["value"], "memo": note["memo"].hex()})
+    return {"recipient": r.address.address.hex(), "outputs": outs, "address_proof": {"proof": "not checked", "public_inputs": pi}}

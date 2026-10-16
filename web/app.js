@@ -38,7 +38,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
@@ -412,6 +412,71 @@ async function runBatch(batchText) {
     </div>`;
 }
 
+// ---------- incoming receipts (the recipient proves it was paid) ----------
+function incomingFromHash() {
+  const h = decodeURIComponent(location.hash.slice(1));
+  const i = h.indexOf("zrcin1");
+  return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
+}
+
+async function runIncoming(text) {
+  $("#result").hidden = true;
+  $("#progress").hidden = false;
+  resetSteps();
+  let s;
+  try {
+    setStep("decode", "busy");
+    await local;
+    s = JSON.parse(inspect_incoming(text));
+    setStep("decode", "done", `incoming receipt: ${regtest() ? "regtest" : s.network}, ${s.pool} pool, ${(s.bytes / 1024).toFixed(1)} KB`);
+  } catch (e) {
+    setStep("decode", "fail", e.message);
+    return showError(`This is not a readable incoming receipt: ${e.message}`);
+  }
+  let tx;
+  try {
+    setStep("fetch", "busy");
+    const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
+    const hint = heightHint(location.hash);
+    tx = hint ? await fetchTransactionPrivately(endpoint, s.txid, hint) : await fetchRawTx(endpoint, s.txid);
+    fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint } : { mode: "txid", host: new URL(endpoint).host };
+    setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
+  } catch (e) {
+    setStep("fetch", "fail", e.message);
+    return showError(`Could not fetch the transaction: ${e.message}`);
+  }
+  try {
+    setStep("verify", "busy", "checking the address proof, signature and each output");
+    const v = await call("incoming", { receipt: text, rawTx: tx.raw, height: tx.height, regtest: regtest() });
+    setStep("verify", "done", "address proof, signature and outputs valid");
+    const rows = v.outputs.map((o) => `
+      <div class="line paid"><span class="k">RECEIVED</span><span class="v amount">${zec(o.zatoshis)} <small>ZEC</small></span></div>
+      ${o.memo ? `<div class="line"><span class="k">MEMO</span><span class="v memo">“${escapeHtml(o.memo)}”</span></div>` : ""}
+      <div class="dash"></div>`).join("");
+    $("#result").hidden = false;
+    $("#result").innerHTML = `
+      <div class="ticket">
+        <div class="head"><div class="brand">INCOMING</div><div class="sub">Zcash · ${v.network} · ${v.pool} pool</div></div>
+        <div class="dash"></div>
+        ${rows}
+        <div class="line"><span class="k">TO</span><span class="v mono addr" title="${v.recipient}">${short(v.recipient, 14)} <small>(proven)</small></span></div>
+        <div class="line"><span class="k">TX</span><span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span></div>
+        <div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>
+        ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message)}</span></div>` : ""}
+        <div class="dash"></div>
+        <div class="stamp good">VERIFIED</div>
+        <ul class="facts">
+          <li>Whoever made this receipt controls the TO address (zero-knowledge proof + signature), and these payments reached it.</li>
+          <li><strong>Not revealed:</strong> the recipient's balance, other payments, or when it spends these.</li>
+        </ul>
+        ${localBadge()}
+      </div>`;
+  } catch (e) {
+    setStep("verify", "fail", e.message);
+    showError(e.message);
+  }
+}
+
 function batchFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.indexOf("zrcptb1");
@@ -436,6 +501,13 @@ $("#verifyBtn").onclick = async () => {
     $("#paste").value = "";
     return showError(`That looks like a ${leak}. Never paste it anywhere: it reveals your whole wallet. It was cleared and not sent. Paste only the zrcpt1… receipt.`);
   }
+  const ii = t.indexOf("zrcin1");
+  if (ii >= 0) {
+    const it = t.slice(ii).replace(/[^A-Za-z0-9_-].*$/s, "");
+    const h = heightHint(t);
+    history.replaceState(null, "", "#" + it + (h ? `&h=${h}` : ""));
+    return runIncoming(it);
+  }
   const bi = t.indexOf("zrcptb1");
   if (bi >= 0) {
     const bt = t.slice(bi).replace(/[^A-Za-z0-9_-].*$/s, "");
@@ -450,6 +522,8 @@ $("#verifyBtn").onclick = async () => {
   run(r);
 };
 window.addEventListener("hashchange", () => {
+  const it = incomingFromHash();
+  if (it) return runIncoming(it);
   const bt = batchFromHash();
   if (bt) return runBatch(bt);
   const r = receiptFromHash();
@@ -459,6 +533,11 @@ window.addEventListener("hashchange", () => {
   }
 });
 
+const initialIncoming = incomingFromHash();
+if (initialIncoming) {
+  $("#paste").value = initialIncoming;
+  runIncoming(initialIncoming);
+}
 const initialBatch = batchFromHash();
 if (initialBatch) {
   $("#paste").value = initialBatch;

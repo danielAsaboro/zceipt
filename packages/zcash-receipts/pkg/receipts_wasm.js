@@ -127,6 +127,45 @@ export function open_batch(batch) {
     }
 }
 
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+/**
+ * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
+ * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
+ * message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
+ * @param {string} receipt
+ * @param {Uint8Array} raw_tx
+ * @param {number} height
+ * @param {boolean} regtest
+ * @returns {string}
+ */
+export function verify_incoming(receipt, raw_tx, height, regtest) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.verify_incoming(ptr0, len0, ptr1, len1, height, regtest);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
 /**
  * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
  * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
@@ -151,11 +190,30 @@ export function check_payment_uri(uri, network) {
     }
 }
 
-function passArray8ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 1, 1) >>> 0;
-    getUint8ArrayMemory0().set(arg, ptr / 1);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
+/**
+ * Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
+ * @param {string} receipt
+ * @returns {string}
+ */
+export function inspect_incoming(receipt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.inspect_incoming(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
 }
 
 function isLikeNone(x) {

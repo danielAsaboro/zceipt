@@ -472,3 +472,90 @@ pub async fn rebuild_witness(
         if witness.is_none() { "the note was not found at its recorded height" } else { "no block's tree root matched the transaction's anchor" }
     )
 }
+
+
+/// What a verified incoming receipt shows.
+#[derive(Serialize)]
+pub struct IncomingReport {
+    pub valid: bool,
+    pub kind: &'static str,
+    pub network: &'static str,
+    pub pool: &'static str,
+    pub txid: String,
+    pub mined_height: u32,
+    pub chain_checked: bool,
+    pub message: String,
+    /// The address the presenter proved it controls, which received every output below.
+    pub recipient: String,
+    pub outputs: Vec<ReportOutput>,
+}
+
+impl IncomingReport {
+    pub fn print(&self) {
+        println!("VALID incoming receipt (the recipient proves it was paid)");
+        println!("  network   {}", self.network);
+        if self.chain_checked {
+            println!("  tx        {} (mined at height {})", self.txid, self.mined_height);
+        } else {
+            println!("  tx        {} (height {} as given; not checked against the chain)", self.txid, self.mined_height);
+        }
+        println!("  pool      {}", self.pool);
+        if !self.message.is_empty() {
+            println!("  message   {}", self.message.replace('\n', "\n            "));
+        }
+        println!("  recipient {} (proven: the presenter controls this address)", self.recipient);
+        for o in &self.outputs {
+            println!("  received  {} ZEC", o.zec);
+            if let Some(m) = &o.memo {
+                println!("            memo: {m}");
+            }
+        }
+        println!("  nothing else about the recipient's wallet (balance, other payments, when it spends) is revealed");
+    }
+}
+
+fn incoming_report(r: &receipts_core::incoming::IncomingReceipt, net: Net, tx: &Transaction, height: u32) -> anyhow::Result<IncomingReport> {
+    static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
+    let vk = VK.get_or_init(receipts_core::verifying_key);
+    let bundle = match r.pool {
+        Pool::Orchard => tx.orchard_bundle(),
+        Pool::Ironwood => tx.ironwood_bundle(),
+    }
+    .ok_or_else(|| anyhow!("the transaction has no {:?} bundle", r.pool))?;
+    let v = receipts_core::incoming::verify_incoming(vk, r, r.coin_type, r.txid, bundle).map_err(|e| anyhow!("{e}"))?;
+    Ok(IncomingReport {
+        valid: true,
+        kind: "incoming",
+        network: net.name(),
+        pool: if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" },
+        txid: display_txid(&r.txid),
+        mined_height: height,
+        chain_checked: true,
+        message: String::from_utf8_lossy(&v.msg).into_owned(),
+        recipient: encode_orchard_receiver(net, v.recipient),
+        outputs: v
+            .outputs
+            .iter()
+            .map(|o| ReportOutput { action: o.index, recipient: encode_orchard_receiver(net, o.recipient), recipient_raw: o.recipient, zatoshis: o.value, zec: zec(o.value), memo: memo_text(&o.memo), memo_withheld: false })
+            .collect(),
+    })
+}
+
+/// Verifies an incoming receipt against the chain.
+pub async fn verify_incoming_against_chain(r: &receipts_core::incoming::IncomingReceipt, server: Option<&str>, regtest: Option<&std::path::Path>) -> anyhow::Result<IncomingReport> {
+    let net = net::for_receipt(r.coin_type, regtest)?;
+    let (tx, height) = fetch_mined_tx(net, server, r.txid).await?;
+    incoming_report(r, net, &tx, height)
+}
+
+/// Verifies an incoming receipt against a raw transaction (hex) at a known height, offline.
+pub fn verify_incoming_offline(r: &receipts_core::incoming::IncomingReceipt, raw_hex: &str, height: u32, regtest: Option<&std::path::Path>) -> anyhow::Result<IncomingReport> {
+    let net = net::for_receipt(r.coin_type, regtest)?;
+    let tx = read_tx(net, raw_hex, height)?;
+    if tx.txid().as_ref() != &r.txid {
+        bail!("that transaction is not the one this receipt is for");
+    }
+    let mut rep = incoming_report(r, net, &tx, height)?;
+    rep.chain_checked = false;
+    Ok(rep)
+}

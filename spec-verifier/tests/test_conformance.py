@@ -39,6 +39,12 @@ def run(vec):
         # caller enforces it, as the docstring of verify() says.
         sources = [bytes.fromhex(t["raw_tx"]) for t in vec.get("source_txs", []) if t["height"] <= vec["height"]]
         return v.verify(b, bytes.fromhex(vec["raw_tx"]), coin, sources)
+    if vec["type"] == "incoming":
+        text = vec["receipt"].strip()
+        b = rc.b64decode(text[6:]) if text.startswith("zrcin1") else b""
+        coin = int.from_bytes(b[5:9], "little") if len(b) >= 9 else 1
+        rep = v.verify_incoming(text, bytes.fromhex(vec["raw_tx"]), coin)
+        return {"outputs": [{"value": o["value"], "memo": o["memo"]} for o in rep["outputs"]]}
     if vec["type"] == "sign_in":
         si = rc.decode_sign_in(vec["sign_in"])
         return v.verify_sign_in(vec["sign_in"], si.coin_type, vec["domain"], vec["nonce"])

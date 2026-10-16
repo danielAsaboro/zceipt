@@ -70,7 +70,7 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 
 | # | Pain | Sources | Fit | Status |
 |---|---|---|---|---|
-| D1 | Nothing turns a viewing key into records an accountant or auditor recognises (52-like thread) | [forum](https://forum.zcashcommunity.com/t/is-anyone-actually-using-viewing-keys-for-business-accounting/56300) | related | done for payments sent (batches); ledgers are a viewing-key job |
+| D1 | Nothing turns a viewing key into records an accountant or auditor recognises (52-like thread) | [forum](https://forum.zcashcommunity.com/t/is-anyone-actually-using-viewing-keys-for-business-accounting/56300) | related | done for payments sent (batches); **new** for payments received (incoming receipts, §3c); full ledgers stay a viewing-key job |
 | D2 | Wallet tax exports are thin or missing; history wrong (change as income) | [forum](https://forum.zcashcommunity.com/t/exporting-transaction-history-to-json-csv-from-ufvk-seed/54662), [librustzcash#1304](https://github.com/zcash/librustzcash/issues/1304), [zwallet#160](https://github.com/hhanh00/zwallet/issues/160) | no | wallet history |
 | D3 | A DAO treasury couldn't produce repeatable proof of shielded reserves | [forum](https://forum.zcashcommunity.com/t/shielded-viewing-keys/54837) | related | open (reserve proofs reveal nullifiers; see §4) |
 | D4 | Donation campaigns publish viewing keys by hand for transparency | [forum: Venezuela](https://forum.zcashcommunity.com/t/zcash-for-venezuela/56445), [forum: ZOMG](https://forum.zcashcommunity.com/t/zomg-transparency-report-and-accounts/38949) | core | done (aggregate campaigns, public notes) |
@@ -186,6 +186,21 @@ the receipt contains neither an `ock` nor the note's `rseed`, a real testnet rec
 ([examples/testnet/memo-withheld](../examples/testnet/memo-withheld)), and the Python verifier
 recomputing each commitment independently (232 corpus cases, 251 conformance vectors agree).
 
+## 3c. Incoming receipts: the recipient proves it was paid
+
+`receipts received -w wallet -i key.age --txid <txid>` gives a merchant, freelancer or charity a
+`zrcin1…` link that proves it received chosen payments, for an accountant, a tax office or a
+lender, without an incoming viewing key. The receipt reveals each output's `esk` (which opens that
+output only) and proves, with the same address proof as Sign in with Zcash, that the presenter
+controls the receiving address, so the payer can't make one. No nullifier is revealed.
+
+Checked by: Orchard and Ironwood round trips; the payer refused even with the right `esk`;
+validly signed wrong outputs, wrong keys and duplicates refused
+(`only_the_recipient_can_prove_receipt`); a real testnet incoming receipt for the merchant of
+`571de6e4…` ([examples/testnet/incoming](../examples/testnet/incoming)) verified by the CLI, the
+API (`/v1/verify` returns an `incoming_verification`), the browser page, the npm package and the
+independent Python verifier, which opens the output itself; 19 conformance vectors.
+
 ## 4. Considered and not built (yet)
 
 | Idea | Pain | Why not now |
@@ -193,5 +208,4 @@ recomputing each commitment independently (232 corpus cases, 251 conformance vec
 | Prove an amount bracket ("at least X") without the exact amount | A9, X: [Pli](https://x.com/ZecPli/status/2102083749819334736) | Needs a range proof circuit; out of scope for a no-new-circuit design |
 | Signed payment requests | C5 | A signature by the payee's key doesn't stop an attacker who swaps in their own key; it needs an identity binding (domain or a pinned address). Worth a design, not a quick feature |
 | Reserve proofs (prove a balance) | D3 | Revealing nullifiers lets the verifier see when the notes are spent; Monero's reserve proofs have the same flaw. Needs a better construction |
-| Recipient-side income proofs | D1 | Proving receipt of an unspent note reveals its nullifier (same flaw). A note opening without ownership already exists elsewhere |
 | Multi-hop provenance (withdrawal → self-transfer → deposit) | B3 | Works today by giving one receipt per hop in a batch; a verifier view that draws the chain is a small follow-up |

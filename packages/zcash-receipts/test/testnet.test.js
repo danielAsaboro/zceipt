@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { verifyReceipt, inspectReceipt } from "../index.js";
+import { verifyReceipt, inspectReceipt, verifyIncoming } from "../index.js";
 
 const ex = (p) => new URL(`../../../examples/${p}`, import.meta.url);
 
@@ -94,4 +94,17 @@ test("source-of-funds receipts verify offline with their source transaction, and
     // A source mined after the payment can't be its source.
     await assert.rejects(verifyReceipt(receipt, { rawTx, height: 4500997, sourceTxs: [{ rawTx: src, height: 4500998 }] }), /not available/, name);
   }
+});
+
+test("incoming receipt (the recipient proves it was paid) verifies offline", async () => {
+  const receipt = await readFile(ex("testnet/incoming/receipt.txt"), "utf8");
+  const rawTx = await readFile(ex("testnet/incoming/tx.hex"), "utf8");
+  const merchant = (await readFile(ex("testnet/merchant.ua"), "utf8")).trim();
+  const v = await verifyIncoming(receipt, { rawTx, height: 4500997, expectAddress: merchant });
+  assert.equal(v.kind, "incoming");
+  assert.equal(v.outputs[0].zatoshis, 1_000_000);
+  assert.equal(v.outputs[0].memo, "Invoice 42: two coffees");
+  const i = receipt.indexOf("zrcin1") + 2000;
+  const bad = receipt.slice(0, i) + (receipt[i] === "A" ? "B" : "A") + receipt.slice(i + 1);
+  await assert.rejects(verifyIncoming(bad, { rawTx, height: 4500997 }));
 });

@@ -31,6 +31,12 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    of transaction `S`, the note spent by action `i` of `T` is the note whose commitment `S`
    published at output `k`; if the proof reveals a value `v`, that note carried exactly `v`.
 
+An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
+output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the
+signer's spend authority controls `A` (the address-proof argument (4) below, under a fresh `rk`).
+`tests/roundtrip.rs::only_the_recipient_can_prove_receipt` shows the sender, who knows every
+`esk`, can't make one, and that validly signed wrong contents are refused.
+
 It does **not** claim:
 
 - that `T` was mined: the verifier must establish that separately (the chain verifier fetches it

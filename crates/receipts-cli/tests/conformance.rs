@@ -18,6 +18,11 @@ fn run(v: &Value) -> Result<Value, String> {
             let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &sources, regtest).map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(&rep).unwrap())
         }
+        Some("incoming") => {
+            let r = receipts_core::incoming::IncomingReceipt::from_text(&s("receipt")).ok_or("malformed")?;
+            let rep = receipts_chain::chain::verify_incoming_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, None).map_err(|e| e.to_string())?;
+            Ok(serde_json::to_value(&rep).unwrap())
+        }
         Some("sign_in") => {
             let si = SignIn::from_text(&s("sign_in")).ok_or("malformed")?;
             let vk = vk();

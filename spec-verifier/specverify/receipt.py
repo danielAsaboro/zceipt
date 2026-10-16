@@ -246,3 +246,42 @@ def decode_sign_in(text: str) -> SignIn:
         m += len(part).to_bytes(4, "little") + part
     m += issued_at.to_bytes(8, "little") + rk + a.address + a.rho + a.rseed + a.nf + a.cv_net + a.cmx + a.proof
     return SignIn(coin_type, domain, nonce, issued_at, rk, a, sig, m)
+
+
+@dataclass
+class IncomingReceipt:
+    coin_type: int
+    pool: str
+    txid: bytes
+    msg: bytes
+    outputs: list  # [(index, esk)]
+    rk: bytes
+    address: AddressProof
+    sig: bytes
+    unsigned_bytes: bytes
+
+
+def decode_incoming(text: str) -> IncomingReceipt:
+    """zrcin1 + base64url of: "ZRCI" | 1 | coin_type u32 | pool u8 | txid | msg (u16 len) |
+    n u8 | {index u32 | esk[32]}* | rk[32] | address proof | sig[64] (docs/SPEC.md)."""
+    s = text.strip()
+    if not s.startswith("zrcin1"):
+        raise DecodeError("not a zrcin1 incoming receipt")
+    b = b64decode(s[6:])
+    r = _R(b)
+    if r.take(4) != b"ZRCI" or r.take(1)[0] != 1:
+        raise DecodeError("bad incoming magic or version")
+    coin_type = r.int(4)
+    pb = r.take(1)[0]
+    if pb not in POOLS:
+        raise DecodeError("unknown pool")
+    txid = r.take(32)
+    msg = r.take(r.int(2))
+    outputs = [(r.int(4), r.take(32)) for _ in range(r.take(1)[0])]
+    rk = r.take(32)
+    a = AddressProof(r.take(43), r.take(32), r.take(32), r.take(32), r.take(32), r.take(32), _proof(r))
+    unsigned = b[: r.i]
+    sig = r.take(64)
+    if r.i != len(b):
+        raise DecodeError("trailing bytes")
+    return IncomingReceipt(coin_type, POOLS[pb], txid, msg, outputs, rk, a, sig, unsigned)

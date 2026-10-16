@@ -203,6 +203,12 @@ receipts verify @receipt.txt
             that tx was funded in the clear: 0.30000000 ZEC from tmRyMkJH…
 ```
 
+## Prove you were paid (the recipient's side)
+
+`receipts received -w wallet -i key.age --txid <txid>` makes a `zrcin1…` link for an accountant,
+a tax office or a lender: these payments reached this address, and the presenter controls it.
+No incoming viewing key, no other payments, and the payer can't make one for you.
+
 ## Optionally keep the memo private
 
 `--withhold-memo` proves who was paid and how much, and leaves the memo encrypted: the receipt

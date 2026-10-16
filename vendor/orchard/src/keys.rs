@@ -889,7 +889,8 @@ impl ConstantTimeEq for EphemeralSecretKey {
 }
 
 impl EphemeralSecretKey {
-    pub(crate) fn from_bytes(bytes: &[u8; 32]) -> CtOption<Self> {
+    /// Receipts patch: public, for incoming-payment disclosures that reveal one output's `esk`.
+    pub fn from_bytes(bytes: &[u8; 32]) -> CtOption<Self> {
         NonZeroPallasScalar::from_bytes(bytes).map(EphemeralSecretKey)
     }
 

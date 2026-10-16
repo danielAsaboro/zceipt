@@ -187,6 +187,30 @@ Version 5 is version 4's layout plus, right after the outputs, `n_opened:u8 (≥
 It is used exactly when at least one output is opened; an index appears once across both lists.
 The signature covers the openings, so the recipient and value can't be edited.
 
+## Incoming receipts (`zrcin1`)
+
+A sender's receipt proves "I paid". An incoming receipt is the recipient's half: "I was paid
+this, at this address", for an accountant, a tax office or a lender, without an incoming
+viewing key (which would show every payment to the wallet).
+
+```
+incoming := "ZRCI" | version:u8 = 1 | coin_type:u32le | pool:u8 | txid[32] | msg_len:u16le | msg
+            | n:u8 | { index:u32le | esk[32] }* | rk[32] | address proof (as in v2) | sig[64]
+text     := "zrcin1" || base64url_nopad(incoming)
+digest   := BLAKE2b-256("ZIP311Incomg" || coinType_LE32, everything before sig)
+```
+
+- Each output is opened with the recipient's `pk_d` (from the proven address) and the disclosed
+  `esk`, by the second half of §4.20.3 ("Decryption using an Outgoing Viewing Key"): `epk = [esk] g_d`,
+  `K = KDF([esk] pk_d, epk)`, decrypt, re-derive `esk` from `rseed` (ZIP 212), check `cmx`. So the
+  value and memo are those committed on chain to that address. `esk` opens that output only.
+- The address proof is the same construction as a sender receipt's (one-leaf tree, value fixed by
+  `ValueCommit_0(1)`): `rk`'s spend authority controls the address. The sender also knows `esk`
+  (its OVK recovers it) but cannot prove the recipient's address, so only the recipient can make
+  one. Every output must be to the proven address.
+- No nullifier is revealed, so the verifier can't tell when the notes are spent.
+- Decoding is strict (re-encoding must give the same bytes).
+
 ## Batches
 
 ```

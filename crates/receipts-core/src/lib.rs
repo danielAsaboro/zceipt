@@ -38,6 +38,7 @@ use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBy
 
 mod encoding;
 pub mod deposit;
+pub mod incoming;
 pub mod preflight;
 pub mod signin;
 pub mod tripwire;

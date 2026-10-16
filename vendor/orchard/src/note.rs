@@ -409,6 +409,12 @@ impl Note {
         self.commitment_inner().unwrap()
     }
 
+    /// The canonical bytes of this note's ephemeral secret key `esk` (derived from `rseed` and
+    /// `ρ`). Receipts patch: a recipient reveals it to open exactly this output.
+    pub fn esk_bytes(&self) -> [u8; 32] {
+        self.esk().0.to_repr()
+    }
+
     /// Returns `(ψ, rcm)`: the parts of the commitment opening that `rseed` derives, without
     /// `rseed` itself (which would also derive `esk` and so open the memo).
     ///

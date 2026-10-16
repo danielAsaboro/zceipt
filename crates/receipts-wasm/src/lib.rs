@@ -351,3 +351,51 @@ pub fn check_tex_deposit(receipt: &str, tx1_raw: &[u8], tx1_height: u32, tx2_raw
     let d = receipts_core::deposit::check(&r, &msg, nt, &tx1, &tx2).map_err(|e| JsError::new(&e))?;
     Ok(d.to_json().to_string())
 }
+
+/// Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
+/// mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
+/// message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
+#[wasm_bindgen]
+pub fn verify_incoming(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let r = receipts_core::incoming::IncomingReceipt::from_text(receipt).ok_or_else(|| JsError::new("not a valid zrcin1… incoming receipt"))?;
+    let (net, mut nt, mut name) = net_of(r.coin_type)?;
+    if regtest {
+        nt = NetworkType::Regtest;
+        name = "regtest";
+    }
+    if height == 0 {
+        return Err(JsError::new("the transaction is not mined"));
+    }
+    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    if tx.txid().as_ref() != &r.txid {
+        return Err(JsError::new("the fetched transaction does not match the receipt's txid"));
+    }
+    let bundle = match r.pool {
+        Pool::Orchard => tx.orchard_bundle(),
+        Pool::Ironwood => tx.ironwood_bundle(),
+    }
+    .ok_or_else(|| JsError::new("the transaction has no bundle in the receipt's pool"))?;
+    let v = VK.with(|vk| receipts_core::incoming::verify_incoming(vk.get_or_init(receipts_core::verifying_key), &r, r.coin_type, r.txid, bundle)).map_err(|e| JsError::new(&e.to_string()))?;
+    let ua = |raw: [u8; 43]| unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))]).map(|a| a.encode(&nt)).unwrap_or_default();
+    Ok(serde_json::json!({
+        "valid": true,
+        "kind": "incoming",
+        "network": name,
+        "pool": pool_name(r.pool),
+        "txid": display_txid(&r.txid),
+        "mined_height": height,
+        "message": String::from_utf8_lossy(&v.msg),
+        "recipient": ua(v.recipient),
+        "outputs": v.outputs.iter().map(|o| serde_json::json!({ "action": o.index, "recipient": ua(o.recipient), "zatoshis": o.value, "memo": memo_text(&o.memo) })).collect::<Vec<_>>(),
+    })
+    .to_string())
+}
+
+/// Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
+#[wasm_bindgen]
+pub fn inspect_incoming(receipt: &str) -> Result<String, JsError> {
+    let r = receipts_core::incoming::IncomingReceipt::from_text(receipt).ok_or_else(|| JsError::new("not a valid zrcin1… incoming receipt"))?;
+    let (_, _, name) = net_of(r.coin_type)?;
+    Ok(serde_json::json!({ "network": name, "pool": pool_name(r.pool), "txid": display_txid(&r.txid), "message": String::from_utf8_lossy(&r.msg), "outputs": r.outputs.len(), "bytes": r.to_bytes().len(), "kind": "incoming" }).to_string())
+}

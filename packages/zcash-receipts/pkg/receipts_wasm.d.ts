@@ -6,10 +6,20 @@
  */
 export function open_batch(batch: string): string;
 /**
+ * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
+ * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
+ * message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
+ */
+export function verify_incoming(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
+/**
  * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
  * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
  */
 export function check_payment_uri(uri: string, network: string): string;
+/**
+ * Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
+ */
+export function inspect_incoming(receipt: string): string;
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
@@ -65,12 +75,14 @@ export interface InitOutput {
   readonly check_payment_uri: (a: number, b: number, c: number, d: number) => [number, number];
   readonly check_tex_deposit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
   readonly inspect: (a: number, b: number) => [number, number, number, number];
+  readonly inspect_incoming: (a: number, b: number) => [number, number, number, number];
   readonly open_batch: (a: number, b: number) => [number, number, number, number];
   readonly orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
   readonly secret_kind: (a: number, b: number) => [number, number];
   readonly source_txids: (a: number, b: number) => [number, number, number, number];
   readonly transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+  readonly verify_incoming: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

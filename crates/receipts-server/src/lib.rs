@@ -407,6 +407,8 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
         sandbox::resolve(&text, req.expect_address.as_deref(), req.min_zatoshis, req.challenge.as_deref())?
     } else if text.contains("zrcptb1") {
         return Ok(Json(verify::verify_batch(net, server.as_deref(), &text).await?));
+    } else if text.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) {
+        return Ok(Json(verify::verify_incoming(net, server.as_deref(), &text, req.expect_address.as_deref(), req.challenge.as_deref()).await?));
     } else {
         verify::verify_receipt(net, server.as_deref(), &text).await?
     };

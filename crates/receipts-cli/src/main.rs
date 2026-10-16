@@ -147,6 +147,38 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Prove you RECEIVED a payment (the recipient's side): for an accountant, a tax office or a
+    /// lender, without a viewing key. Shows the chosen outputs of one transaction to your
+    /// address and proves you control that address; nothing else about your wallet.
+    Received {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
+        #[arg(short, long)]
+        wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// The transaction that paid you.
+        #[arg(long)]
+        txid: String,
+        /// Message or challenge to bind in (for example the accountant's reference).
+        #[arg(short, long, default_value = "")]
+        msg: String,
+        /// Action indices to disclose. Default: every output this wallet received at one address.
+        #[arg(long = "output")]
+        outputs: Vec<u32>,
+        /// orchard or ironwood. Default: whichever holds your outputs.
+        #[arg(long)]
+        pool: Option<String>,
+        /// lightwalletd server, used only if the wallet kept no copy of the transaction.
+        #[arg(short, long)]
+        server: Option<String>,
+        /// Base URL of the verifier page for the shareable link.
+        #[arg(long, default_value = DEFAULT_LINK_BASE)]
+        link_base: String,
+        /// Write the receipt text to this file as well.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Sign in with Zcash: prove to a site that you control a shielded address, for its
     /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
     SignIn {
@@ -344,6 +376,16 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     Ok(())
 }
 
+fn read_incoming_arg(arg: &str) -> anyhow::Result<receipts_core::incoming::IncomingReceipt> {
+    let text = read_arg_text(arg)?;
+    if let Some(kind) = receipts_core::tripwire::secret_kind(&text) {
+        bail!("refusing: the input contains what looks like a {kind}. Never share it.");
+    }
+    let i = text.find(receipts_core::incoming::INCOMING_TEXT_PREFIX).ok_or_else(|| anyhow!("no zrcin1… receipt found"))?;
+    let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    receipts_core::incoming::IncomingReceipt::from_text(&body).ok_or_else(|| anyhow!("malformed incoming receipt"))
+}
+
 fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
     if let Some(kind) = receipts_core::tripwire::secret_kind(&read_arg_text(arg)?) {
         bail!("refusing: the input contains what looks like a {kind}. Never share it; a zrcpt1… receipt is all that's needed.");
@@ -471,6 +513,16 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server;");
             eprintln!("`h=` lets verifiers fetch the whole block, so the server never learns which transaction):");
             println!("{}#{}&h={}", link_base, text, mined_height);
+        }
+        Cmd::Verify { receipt, json, regtest, raw_tx: Some(raw), height: Some(height), .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
+            let r = read_incoming_arg(&receipt)?;
+            let rep = chain::verify_incoming_offline(&r, &std::fs::read_to_string(&raw)?, height, regtest.as_deref())?;
+            if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
+        }
+        Cmd::Verify { receipt, server, json, regtest, .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
+            let r = read_incoming_arg(&receipt)?;
+            let rep = chain::verify_incoming_against_chain(&r, server.as_deref(), regtest.as_deref()).await?;
+            if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height, source_raw_txs } => {
             let receipt = read_receipt_arg(&receipt)?;
@@ -632,6 +684,23 @@ async fn main() -> anyhow::Result<()> {
             if v["ok"] != true {
                 std::process::exit(1);
             }
+        }
+        Cmd::Received { wallet, identity, txid, msg, outputs, pool, server, link_base, out } => {
+            let pool = match pool.as_deref() {
+                None => None,
+                Some("ironwood") => Some(Pool::Ironwood),
+                Some("orchard") => Some(Pool::Orchard),
+                Some(other) => bail!("unknown pool {other}"),
+            };
+            let (r, height) = wallet::create_incoming_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, server.as_deref()).await?;
+            let text = r.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!("Incoming receipt for {}: {} output(s) you received, {} bytes.", receipts_core::display_txid(&r.txid), r.outputs.len(), r.to_bytes().len());
+            eprintln!("It shows the receiving address and these payments, and nothing else about your wallet.\n\nShare this link:");
+            println!("{}#{}&h={}", link_base, text, height);
         }
         Cmd::SignIn { wallet, identity, domain, nonce, address, submit, api_key } => {
             eprintln!("Proving control of an address for {domain}…");

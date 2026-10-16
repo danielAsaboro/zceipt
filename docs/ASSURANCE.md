@@ -68,6 +68,14 @@ share one build directory gave unreliable results and is not counted.)
 cargo mutants -p receipts-core -f crates/receipts-core/src/lib.rs -f crates/receipts-core/src/encoding.rs -f crates/receipts-core/src/signin.rs
 ```
 
+Source proofs (format v4, 2026-10-16): 67 mutants of the new code (`source_*`, `output_cmx`,
+`verify_cross`, the v4 encoder and decoder). First run: 49 caught, 12 unviable, **6 missed**:
+`source_proof_cmx` was only exercised by the differential corpus (now the verifier itself goes
+through it, so every source test covers it); the source proof's length cap had no exact-limit
+test (added to `tests/encoding_ub.rs::length_limits_are_exact`); and `|` → `^` on the v4 flags
+byte, an equivalent mutant (the two bits are disjoint). Re-run of the affected functions: 30
+mutants, 29 caught, 1 unviable, 0 missed.
+
 ## 4. Fuzzing
 
 `cargo fuzz` (libFuzzer, AddressSanitizer) on every decoder for 15 minutes each, seeded with the

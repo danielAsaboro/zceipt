@@ -65,21 +65,22 @@ fn txids_display_as_explorers_show_them() {
 /// `TooLarge`; batches hold 1..=256 receipts.
 #[test]
 fn length_limits_are_exact() {
-    use receipts_core::{AddressProof, DecodeError};
+    use receipts_core::{AddressProof, DecodeError, SourceProof, SourceValue};
     let base = Receipt::from_text(&body(RECEIPTS[0], "zrcpt1")).unwrap();
-    let with_proof = |n: usize, in_address: bool| {
+    // where: 0 = the spend proof, 1 = an address proof, 2 = a source proof
+    let with_proof = |n: usize, place: u8| {
         let mut r = base.clone();
-        if in_address {
-            let s = &mut r.unsigned.spends[0];
-            s.address = Some(AddressProof { address: [0; 43], rho: [0; 32], rseed: [0; 32], nf: [0; 32], cv_net: [0; 32], cmx: [0; 32], proof: vec![7; n] });
-        } else {
-            r.unsigned.spends[0].proof = vec![7; n];
+        let s = &mut r.unsigned.spends[0];
+        match place {
+            1 => s.address = Some(AddressProof { address: [0; 43], rho: [0; 32], rseed: [0; 32], nf: [0; 32], cv_net: [0; 32], cmx: [0; 32], proof: vec![7; n] }),
+            2 => s.source = Some(SourceProof { txid: [1; 32], index: 0, value: SourceValue::Hidden { cmx: [0; 32] }, proof: vec![7; n] }),
+            _ => s.proof = vec![7; n],
         }
         Receipt::from_bytes(&r.to_bytes())
     };
-    for in_address in [false, true] {
-        assert!(with_proof(1 << 16, in_address).is_ok());
-        assert_eq!(with_proof((1 << 16) + 1, in_address).unwrap_err(), DecodeError::TooLarge);
+    for place in [0, 1, 2] {
+        assert!(with_proof(1 << 16, place).is_ok());
+        assert_eq!(with_proof((1 << 16) + 1, place).unwrap_err(), DecodeError::TooLarge);
     }
     let batch = |n: usize| {
         let mut v = b"ZRCB\x01".to_vec();

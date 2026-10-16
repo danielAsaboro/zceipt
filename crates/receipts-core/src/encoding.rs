@@ -155,6 +155,7 @@ impl UnsignedReceipt {
             v.extend_from_slice(&(s.proof.len() as u32).to_le_bytes());
             v.extend_from_slice(&s.proof);
             if with_source {
+                // Bits 0 and 1 are disjoint, so `|`, `^` and `+` all give the same byte.
                 v.push(u8::from(s.address.is_some()) | (u8::from(s.source.is_some()) << 1));
                 if let Some(a) = &s.address {
                     encode_address(&mut v, a);

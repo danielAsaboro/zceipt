@@ -604,11 +604,9 @@ pub(crate) fn verify_source_proof(
     let anchor = source_proof_anchor(source_cmx).ok_or_else(bad)?;
     // Fixed by the verifier, never taken from the prover: this is what forces a non-zero value.
     let cv_net = source_proof_cv_net(s.revealed_value()).ok_or_else(bad)?;
-    let cmx = match &s.value {
-        SourceValue::Hidden { cmx } => Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(cmx)).ok_or_else(bad)?,
-        // The opened output carries 0, so the spent note carries exactly the revealed value.
-        SourceValue::Revealed { address, rseed, .. } => source_output_cmx(pool, nf, address, rseed).ok_or_else(bad)?,
-    };
+    // Revealed: the opened output carries 0, so the spent note carries exactly the revealed value.
+    let cmx = source_proof_cmx(pool, &nf.to_bytes(), s).ok_or_else(bad)?;
+    let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&cmx)).ok_or_else(bad)?;
     let instance = Instance::from_parts(anchor, cv_net, *nf, rk.clone(), cmx, Flags::ENABLED).ok_or_else(bad)?;
     Proof::new(s.proof.clone()).verify(vk, &[instance]).map_err(|_| bad())
 }

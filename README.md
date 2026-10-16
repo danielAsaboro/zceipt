@@ -36,7 +36,7 @@ More: [what users say is hard, and what we did](docs/PAIN-POINTS.md) · [threat 
 - **What a receipt proves, what it reveals, and why:** [docs/CLAIM.md](docs/CLAIM.md), with the
   security argument and its assumptions.
 - **A second verifier, written from the protocol specification** in Python with no shared code
-  ([spec-verifier](spec-verifier)), agrees with the Rust one on all 251 shared vectors and on 232
+  ([spec-verifier](spec-verifier)), agrees with the Rust one on all 270 shared vectors and on 232
   signed adversarial receipts; its primitives match the Zcash test vectors. Run it:
   `python3 -m unittest discover -s spec-verifier/tests`.
 - **Every requirement traced** to the code and the test that checks it, in both verifiers:
@@ -105,7 +105,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **Attestations** | `POST /v1/requests/{id}/attestations`: an Ed25519 SD-JWT stating only "paid at least X on or before day D"; txid, exact amount, time, request and label stay hidden unless revealed one by one; `verifyAttestation(p, { issuer })` checks it offline against the issuer you trust |
 | **Refunds** | the payer signs `refund-to:` into their receipt; `POST /v1/requests/{id}/refunds` returns a ZIP-321 link to that address, and a receipt for the refund settles it (`refund.created`, `refund.succeeded`) |
 | **Sign in with Zcash** | `POST /v1/sign_in/challenges` + `receipts sign-in`: prove control of a shielded address for one domain and one nonce, with no transaction. Phishing and replay are refused; `verifySignIn()` checks it offline |
-| **Conformance** | [251 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts, run by the Rust and npm verifiers and by an independent verifier written from the protocol spec in Python ([`spec-verifier`](spec-verifier)), plus a decoder fuzz pass in `cargo test` |
+| **Conformance** | [270 shared vectors](conformance/README.md) from real Orchard and Ironwood receipts, run by the Rust and npm verifiers and by an independent verifier written from the protocol spec in Python ([`spec-verifier`](spec-verifier)), plus a decoder fuzz pass in `cargo test` |
 | **Sandbox** | `zrcpt_test_*` fixtures with a fixed outcome for every error path, so you can integrate with no wallet and no faucet, plus test clocks that fast-forward expiry and the 10-confirmation `request.final` event |
 | **Local dev tools** | `receipts doctor` (checks servers, API key, clock, wallet), `receipts listen --forward-to …` and `receipts trigger <any event>`, like the Stripe CLI |
 | **For AI agents** | `/llms.txt`, `/llms-full.txt`, every doc as Markdown, and `receipts mcp`, an MCP server with `verify_receipt`, `create_proof_request`, `get_proof_request`, `submit_receipt`, `refund_payment` and `check_payment_link` |
@@ -196,6 +196,10 @@ withdrawal, the verifier sees the withdrawal address and amount that funded it. 
 (no new trusted setup, no list operator, no waiting period); see
 [SPEC.md](docs/SPEC.md#source-of-funds-version-4) and [CLAIM.md](docs/CLAIM.md).
 
+Several hops (a withdrawal, a self-transfer, then the deposit)? Give each txid: `--txid <hop>
+--txid <deposit> --prove-source` makes one batch, and verifiers print the chain back to the
+withdrawal.
+
 ```
 receipts create -w wallet -i key.age --txid <deposit txid> --prove-source
 receipts verify @receipt.txt
@@ -208,6 +212,14 @@ receipts verify @receipt.txt
 `receipts received -w wallet -i key.age --txid <txid>` makes a `zrcin1…` link for an accountant,
 a tax office or a lender: these payments reached this address, and the presenter controls it.
 No incoming viewing key, no other payments, and the payer can't make one for you.
+
+## Signed payment requests
+
+`receipts request -w wallet -i key.age --domain shop.example --amount 0.25 --memo "Order 42"` signs
+a `zreq1…` request with the payee address's key. `receipts pay 'zreq1…'` checks the signature,
+the expiry and that `https://shop.example/.well-known/zcash-receipts.json` lists the address, then
+pays and returns a receipt for the request code. Nobody can swap the address or change the amount
+in transit.
 
 ## Optionally keep the memo private
 

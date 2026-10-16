@@ -252,3 +252,26 @@ def verify_incoming(text: str, raw_tx: bytes, expected_coin_type: int):
             raise Invalid(f"output {index} does not open to the proven address with the disclosed esk")
         outs.append({"index": index, "value": note["value"], "memo": note["memo"].hex()})
     return {"recipient": r.address.address.hex(), "outputs": outs, "address_proof": {"proof": "not checked", "public_inputs": pi}}
+
+
+def verify_request(text: str, expected_coin_type: int, now: int):
+    """A signed payment request: signature by rk, and rk's key controls the payee (address proof,
+    Halo 2 proof not checked: public inputs returned). The caller checks the domain's
+    /.well-known/zcash-receipts.json lists the payee."""
+    r = rc.decode_request(text)
+    if r.coin_type != expected_coin_type:
+        raise Invalid("wrong network (coin type)")
+    try:
+        pl.decode_point(r.rk)
+    except ValueError:
+        raise Invalid("rk is not a valid non-zero point")
+    person = b"ZIP321Signed" + r.coin_type.to_bytes(4, "little")
+    digest = hashlib.blake2b(r.unsigned_bytes, digest_size=32, person=person).digest()
+    if not o.redpallas_verify(r.rk, digest, r.sig):
+        raise Invalid("bad signature")
+    pi = check_address_proof(r.address, "ironwood")
+    pi["rk"] = r.rk.hex()
+    if now > r.expires_at:
+        raise Invalid("expired")
+    return {"payee": r.address.address.hex(), "domain": r.domain, "amount": r.amount, "memo": r.memo, "code": r.code,
+            "address_proof": {"proof": "not checked", "public_inputs": pi}}

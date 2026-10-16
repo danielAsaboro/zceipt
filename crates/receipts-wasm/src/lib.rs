@@ -399,3 +399,24 @@ pub fn inspect_incoming(receipt: &str) -> Result<String, JsError> {
     let (_, _, name) = net_of(r.coin_type)?;
     Ok(serde_json::json!({ "network": name, "pool": pool_name(r.pool), "txid": display_txid(&r.txid), "message": String::from_utf8_lossy(&r.msg), "outputs": r.outputs.len(), "bytes": r.to_bytes().len(), "kind": "incoming" }).to_string())
 }
+
+/// Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
+/// controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
+/// memo, code, expires_at, network, well_known }`; the caller should still confirm that
+/// `well_known` (the domain's list of payees) contains `payee`.
+#[wasm_bindgen]
+pub fn verify_payment_request(request: &str, now: f64) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let r = receipts_core::payreq::PaymentRequest::from_text(request).ok_or_else(|| JsError::new("not a valid zreq1… signed payment request"))?;
+    let (_, nt, name) = net_of(r.coin_type)?;
+    let raw = VK.with(|vk| receipts_core::payreq::verify_request(vk.get_or_init(receipts_core::verifying_key), &r, r.coin_type, now as u64)).map_err(|e| JsError::new(&e.to_string()))?;
+    let payee = unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))]).map(|a| a.encode(&nt)).unwrap_or_default();
+    let host = r.domain.split(':').next().unwrap_or(&r.domain);
+    let scheme = if matches!(host, "localhost" | "127.0.0.1") { "http" } else { "https" };
+    Ok(serde_json::json!({
+        "payee": payee, "domain": r.domain, "amount_zatoshis": r.amount, "memo": r.memo, "code": r.code,
+        "expires_at": r.expires_at, "network": name,
+        "well_known": format!("{scheme}://{}/.well-known/zcash-receipts.json", r.domain),
+    })
+    .to_string())
+}

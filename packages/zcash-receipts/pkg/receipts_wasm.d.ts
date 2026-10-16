@@ -64,6 +64,13 @@ export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_heig
  */
 export function orchard_receiver_hex(ua: string): string;
 /**
+ * Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
+ * controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
+ * memo, code, expires_at, network, well_known }`; the caller should still confirm that
+ * `well_known` (the domain's list of payees) contains `payee`.
+ */
+export function verify_payment_request(request: string, now: number): string;
+/**
  * Decodes a receipt without verifying it. Returns JSON.
  */
 export function inspect(receipt: string): string;
@@ -83,6 +90,7 @@ export interface InitOutput {
   readonly transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly verify_incoming: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly verify_payment_request: (a: number, b: number, c: number) => [number, number, number, number];
   readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

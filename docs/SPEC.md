@@ -211,6 +211,30 @@ digest   := BLAKE2b-256("ZIP311Incomg" || coinType_LE32, everything before sig)
 - No nullifier is revealed, so the verifier can't tell when the notes are spent.
 - Decoding is strict (re-encoding must give the same bytes).
 
+## Signed payment requests (`zreq1`)
+
+ZIP 321 links say what to pay but not who asks (zcash/zips#611, #977). A signed request:
+
+```
+request := "ZREQ" | version:u8 = 1 | coin_type:u32le
+           | domain | memo | code      (each u16le length + UTF-8)
+           | amount:u64le (> 0) | expires_at:u64le (Unix seconds)
+           | rk[32] | address proof for the payee (as in v2) | sig[64]
+text    := "zreq1" || base64url_nopad(request)
+digest  := BLAKE2b-256("ZIP321Signed" || coinType_LE32, everything before sig)
+```
+
+The address proof shows `rk`'s spend authority controls the payee address; the signature by `rk`
+covers every field. The domain is a lowercase host (with an optional port), the memo at most 512
+bytes, the code 6 to 64 hex characters. A wallet:
+
+1. checks the signature, the address proof, the network and `now <= expires_at`;
+2. fetches `https://<domain>/.well-known/zcash-receipts.json` (`{"payees": ["u1…"]}`, no
+   redirects; plain http only for localhost) and requires a listed unified address with the
+   payee's Orchard receiver. An attacker who swaps in their own address must sign with their own
+   key, and the shop's domain doesn't list it;
+3. pays `amount` to the payee with `memo`, and makes a receipt that signs `challenge:<code>`.
+
 ## Batches
 
 ```

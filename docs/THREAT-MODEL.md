@@ -140,6 +140,14 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Verifier | Not: other payments to the wallet, its balance, or when it spends these notes (no nullifier in the receipt) | same test (asserts the nullifier is absent) |
 | The payer | Can't make one for the recipient: it knows `esk` but can't prove the address | `roundtrip.rs::only_the_recipient_can_prove_receipt` |
 
+## 11d. Signed payment requests (`receipts request`, `receipts pay 'zreq1…'`)
+
+| Party | Can / learns | Backed by |
+|---|---|---|
+| Someone who edits the request in transit (clipboard malware, a chat, an invoice) | Can't change the address, amount, memo, code, domain or expiry without the payee's key | `roundtrip.rs::signed_payment_requests`; `scripts/e2e-regtest.sh` ("an edited request is refused") |
+| An attacker who signs its own request for the shop's domain | Refused: the domain's `/.well-known/zcash-receipts.json` doesn't list its address | same; e2e "a request for an address the domain doesn't list is refused" |
+| The shop's domain | Learns that a wallet fetched its payee list (no wallet data is sent) | `receipts-cli/src/main.rs::domain_lists` |
+
 ## 12. Webhooks and the 402 gate
 
 | Party | Learns | Backed by |

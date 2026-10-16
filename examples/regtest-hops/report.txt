@@ -1,0 +1,13 @@
+VALID batch 4c57591cd9a09940: 2 payments, each proven by its sender
+  0.30000000 ZEC  tx 4366c749c782…  Deposit 100
+  total 0.30000000 ZEC to 1 recipient(s)
+  source of funds (proven hop by hop):
+    tx 4366c749c782… action 0 spent a note from tx 884fd9573215… output 0
+        tx 884fd9573215… action 0 spent a note from tx 83ff82271d94… output 2
+            tx 83ff82271d94… was funded in the clear: 0.50000000 ZEC from tmSMTtfmZuWBmUsd83o7N7hARoxPwBFG5QS
+        tx 884fd9573215… action 1 spent a note from tx 83ff82271d94… output 0
+            tx 83ff82271d94… was funded in the clear: 0.50000000 ZEC from tmSMTtfmZuWBmUsd83o7N7hARoxPwBFG5QS
+        tx 884fd9573215… action 2 spent a note from tx 83ff82271d94… output 3
+            tx 83ff82271d94… was funded in the clear: 0.50000000 ZEC from tmSMTtfmZuWBmUsd83o7N7hARoxPwBFG5QS
+        tx 884fd9573215… action 3 spent a note from tx 83ff82271d94… output 1
+            tx 83ff82271d94… was funded in the clear: 0.50000000 ZEC from tmSMTtfmZuWBmUsd83o7N7hARoxPwBFG5QS

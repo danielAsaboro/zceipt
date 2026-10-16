@@ -95,6 +95,21 @@ class Testnet(unittest.TestCase):
         with self.assertRaises(v.Invalid):
             v.verify_incoming(bad, raw, 1)
 
+    def test_signed_request(self):
+        """examples/testnet/request: a payment request signed by the testnet merchant's key."""
+        t = open(os.path.join(EX, "request", "request.txt")).read().strip()
+        r = v.verify_request(t, 1, 1_792_120_000)
+        self.assertEqual((r["domain"], r["amount"], r["memo"], r["code"]), ("kemis-coffee.test", 250_000, "Order 42: two coffees", "0c0ffee042"))
+        with self.assertRaisesRegex(v.Invalid, "expired"):
+            v.verify_request(t, 1, 10**12)
+        b = bytearray(rc.b64decode(t[5:]))
+        i = 9
+        for _ in range(3):
+            i += 2 + int.from_bytes(b[i:i + 2], "little")
+        b[i] ^= 1  # the amount
+        with self.assertRaisesRegex(v.Invalid, "bad signature"):
+            v.verify_request("zreq1" + rc.base64.urlsafe_b64encode(bytes(b)).decode().rstrip("="), 1, 1_792_120_000)
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

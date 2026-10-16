@@ -61,7 +61,7 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 | C2 | No standard refund, underpaid or expired states | [forum: order-pay](https://forum.zcashcommunity.com/t/grant-application-zec-order-pay-shielded-zec-checkout-refunds-and-creator-payouts-for-service-marketplaces/58168) | related | done (requests, refunds, finality) |
 | C3 | Refunds are slow because privacy makes failed payments hard to trace | [X: ZECBIT](https://x.com/NafterG/status/2103437968124018963) | core | done (signed `refund-to:`) |
 | C4 | Shielded receivers learn no return address; swap UIs make users type refund addresses by hand, unvalidated | [X](https://x.com/monaverse_nft/status/2101960445267472704), [zodl-android#1983](https://github.com/zodl-inc/zodl-android/issues/1983) | related | done |
-| C5 | Unsigned ZIP 321 requests: over/under/duplicate payments, no way to authenticate who is asking | [zips#611](https://github.com/zcash/zips/issues/611), [zips#977](https://github.com/zcash/zips/issues/977), [forum: ZecAuth](https://forum.zcashcommunity.com/t/zip-321-tells-a-wallet-what-to-pay-zecauth-adds-authenticated-privacy-aware-interaction/57553) | related | open (§4) |
+| C5 | Unsigned ZIP 321 requests: over/under/duplicate payments, no way to authenticate who is asking | [zips#611](https://github.com/zcash/zips/issues/611), [zips#977](https://github.com/zcash/zips/issues/977), [forum: ZecAuth](https://forum.zcashcommunity.com/t/zip-321-tells-a-wallet-what-to-pay-zecauth-adds-authenticated-privacy-aware-interaction/57553) | related | **new**: signed requests checked against the shop's domain (§3d) |
 | C6 | Multi-payment URIs can hide recipients the user then signs | [zodl-android#2217](https://github.com/zodl-inc/zodl-android/issues/2217) | related | done (`receipts check-link` warns; `receipts pay` shows the full address and amount) |
 | C7 | Strangers can't trade without someone paying first and hoping | [X: Aegis Gate](https://x.com/RaphElevator/status/2107193116650254665) | related | done for the proof half; escrow is out of scope |
 | C8 | Point-of-sale: 3 minutes to confirm a shielded payment pushes builders back to transparent | [forum: ROZO](https://forum.zcashcommunity.com/t/rozo-merchant-pos-fast-zcash-payments-for-merchants-irl-grant-application/56374) | no | block time |
@@ -170,7 +170,7 @@ zero-value output opened, so `v` is exact. No new circuit, no trusted list, no w
 | Unit and adversarial tests (`crates/receipts-core/tests/roundtrip.rs`) | Orchard and Ironwood round trips, hidden and revealed; a wrong source output, an unrelated output, a lie about the value (lower or higher), a hidden proof relabelled as revealed, a proof borrowed from another receipt, a dropped or edited claim: all refused. `a_zero_value_note_cannot_claim_any_source` builds a real forgery that satisfies the circuit and shows the fixed value commitment is what stops it |
 | Independent verifier (`spec-verifier`, Python, written from the spec) | Decodes v4 and checks everything but the Halo 2 proof; agrees with Rust on 232 signed adversarial cases, including 9 source-proof cases whose public inputs match exactly |
 | Real testnet | Receipts for testnet tx `571de6e4…` prove its note came from `2a2bd721…` action 0 (hidden, and with the value 0.125 TAZ revealed); verified against the chain by the CLI and the browser verifier, offline by the Rust, JS and Python tests ([examples/testnet/source](../examples/testnet/source)) |
-| Private chain end to end (`scripts/e2e-regtest.sh`, 14/14) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
+| Private chain end to end (`scripts/e2e-regtest.sh`, 22/22) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
 | Everywhere a receipt is verified | CLI (online and offline with `--source-raw-tx`), API (`sources`, `checks.source_of_funds`), browser verifier and npm package (`sourceTxs`), devtool wallet command |
 | No leak | The wallet builds the proof from its own records and asks no server for `S`; verifiers fetch `S` by txid (documented in [THREAT-MODEL.md](THREAT-MODEL.md) §11) |
 
@@ -184,7 +184,7 @@ commitment with `(ψ, rcm)` instead of `rseed`, so nothing in it decrypts the me
 trips, edits to value, recipient and opening refused (`opened_outputs_must_open_the_commitment`),
 the receipt contains neither an `ock` nor the note's `rseed`, a real testnet receipt
 ([examples/testnet/memo-withheld](../examples/testnet/memo-withheld)), and the Python verifier
-recomputing each commitment independently (232 corpus cases, 251 conformance vectors agree).
+recomputing each commitment independently (232 corpus cases, 270 conformance vectors agree).
 
 ## 3c. Incoming receipts: the recipient proves it was paid
 
@@ -201,11 +201,43 @@ validly signed wrong outputs, wrong keys and duplicates refused
 API (`/v1/verify` returns an `incoming_verification`), the browser page, the npm package and the
 independent Python verifier, which opens the output itself; 19 conformance vectors.
 
+## 3d. Signed payment requests
+
+`receipts request --domain shop.example --amount 0.25 --memo "Order 42"` signs a `zreq1…` request
+with the payee address's own key; the shop lists its address at
+`https://shop.example/.well-known/zcash-receipts.json`. `receipts pay 'zreq1…'` (and the
+verifier page's link checker) refuses an edited request, an expired one, or one for an address the
+domain doesn't list, then pays and makes a receipt that signs the request code. This is the
+BIP-70-style authentication merchants asked for in zips#611 and #977, with the domain's TLS in place
+of X.509 and the payee's spend authority in place of a merchant certificate.
+
+Checked by: `signed_payment_requests` (every field edit refused, a thief's own signed request
+refused by the domain check, malformed fields refused), the regtest end to end (shop signs,
+tampered and thief requests refused, payer pays, the receipt answers the code with the shop's
+memo), a testnet-signed example ([examples/testnet/request](../examples/testnet/request)) checked
+by the Python verifier, and the page's link checker.
+
+## 3e. Multi-hop source of funds
+
+Real wallets move money around before it reaches an exchange. `receipts create --txid <hop>
+--txid <payment> --prove-source` makes one batch link; `receipts verify` and the verifier page
+follow the proven links from the payment back to where the money entered the shielded pool in
+the clear:
+
+```
+source of funds (proven hop by hop):
+  tx 4366c749c782… action 0 spent a note from tx 884fd9573215… output 0
+      tx 884fd9573215… action 0 spent a note from tx 83ff82271d94… output 2
+          tx 83ff82271d94… was funded in the clear: 0.50000000 ZEC from tmSMTtfm…
+```
+
+Checked by the regtest end to end (withdrawal to a transparent address, shielding, a self-transfer
+of 0.45 ZEC, a 0.3 ZEC payment from the moved note; the batch proves every hop;
+[examples/regtest-hops](../examples/regtest-hops)).
+
 ## 4. Considered and not built (yet)
 
 | Idea | Pain | Why not now |
 |---|---|---|
 | Prove an amount bracket ("at least X") without the exact amount | A9, X: [Pli](https://x.com/ZecPli/status/2102083749819334736) | Needs a range proof circuit; out of scope for a no-new-circuit design |
-| Signed payment requests | C5 | A signature by the payee's key doesn't stop an attacker who swaps in their own key; it needs an identity binding (domain or a pinned address). Worth a design, not a quick feature |
-| Reserve proofs (prove a balance) | D3 | Revealing nullifiers lets the verifier see when the notes are spent; Monero's reserve proofs have the same flaw. Needs a better construction |
-| Multi-hop provenance (withdrawal → self-transfer → deposit) | B3 | Works today by giving one receipt per hop in a batch; a verifier view that draws the chain is a small follow-up |
+| Reserve proofs (prove a balance) | D3, C7 | A sound one is buildable with the same circuit (spend each note against a real past anchor, value fixed by the verifier), but showing the notes are *still unspent* needs the verifier to look up their nullifiers, and no lightwalletd or Zebra RPC indexes nullifiers: a verifier would scan every block since the note was made. It also hands the verifier the nullifiers, so it sees when the treasury spends (Monero's reserve proofs have the same flaw). Not shipped until a nullifier lookup exists; Tachyon's oblivious sync may change this |

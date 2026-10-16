@@ -261,7 +261,7 @@ pub fn verify_incoming<A: Authorization, V>(vk: &VerifyingKey, r: &IncomingRecei
             return Err(Error::DuplicateIndex(o.index));
         }
         let esk = Option::<EphemeralSecretKey>::from(EphemeralSecretKey::from_bytes(&o.esk)).ok_or(Error::BadOutputKey(o.index))?;
-        let pk_d = recipient.pk_d().clone();
+        let pk_d = *recipient.pk_d();
         let found = match r.pool {
             Pool::Orchard => try_output_recovery_with_pkd_esk(&OrchardDomain::for_action(a), pk_d, esk, a),
             Pool::Ironwood => try_output_recovery_with_pkd_esk(&IronwoodDomain::for_action(a), pk_d, esk, a),

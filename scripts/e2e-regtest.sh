@@ -25,13 +25,14 @@ bad() { FAIL+=("$1"); echo "  FAIL $1"; }
 cleanup() {
   [ -n "${MINER:-}" ] && kill "$MINER" 2>/dev/null || true
   [ -n "${API_PID:-}" ] && kill "$API_PID" 2>/dev/null || true
+  [ -n "${WK_PID:-}" ] && kill "$WK_PID" 2>/dev/null || true
   [ -n "${LWD_PID:-}" ] && kill "$LWD_PID" 2>/dev/null || true
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   if [ -z "${KEEP:-}" ] && [ ${#FAIL[@]} -eq 0 ]; then rm -rf "$WORK"; else echo "logs kept in $WORK"; fi
 }
 trap cleanup EXIT
 for t in docker "$D" "$LWD" "$R" jq curl nc; do command -v "$t" >/dev/null || { echo "missing: $t (set ZCASH_DEVTOOL, LIGHTWALLETD or RECEIPTS for ours)" >&2; exit 1; }; done
-for p in $RPC $GRPC $((GRPC + 100)) $API; do nc -z 127.0.0.1 "$p" 2>/dev/null && { echo "port $p is in use; set RPC/GRPC/API" >&2; exit 1; }; done
+for p in $RPC $GRPC $((GRPC + 100)) $((GRPC + 200)) $API; do nc -z 127.0.0.1 "$p" 2>/dev/null && { echo "port $p is in use; set RPC/GRPC/API" >&2; exit 1; }; done
 cd "$WORK"
 
 echo "== chain (NU6.3 at $NU63), work dir $WORK"
@@ -52,7 +53,20 @@ mine 10
 LWD_PID=$!
 for i in $(seq 1 30); do nc -z 127.0.0.1 "$GRPC" 2>/dev/null && break; sleep 1; done
 S="-s 127.0.0.1:$GRPC"
-for w in sender merchant; do "$D" wallet -w "./$w" init --name "$w" -i "./$w.age" -n regtest --activation-heights ./heights.toml --birthday "$(height)" $S > "init-$w.log" 2>&1 || { echo "wallet init failed:"; tail -3 "init-$w.log"; exit 1; }; done
+# Wallet init occasionally hangs right after lightwalletd starts: give each try 60 s, then retry.
+init_wallet() {
+  for try in 1 2 3; do
+    rm -rf "./$1" "./$1.age"
+    "$D" wallet -w "./$1" init --name "$1" -i "./$1.age" -n regtest --activation-heights ./heights.toml --birthday "$(height)" $S > "init-$1.log" 2>&1 &
+    local pid=$!
+    for i in $(seq 1 60); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; echo "  (wallet init for $1 hung; retrying)" >&2; continue; fi
+    wait "$pid" && return 0
+    sleep 2
+  done
+  echo "wallet init failed for $1:"; tail -3 "init-$1.log"; return 1
+}
+for w in sender merchant; do init_wallet "$w" || exit 1; done
 SENDER=$("$D" wallet -w ./sender list-addresses | sed -n 's/.*Default Address: //p')
 MERCHANT=$("$D" wallet -w ./merchant list-addresses | sed -n 's/.*Default Address: //p')
 sync() { "$D" wallet -w "./$1" sync $S >/dev/null 2>&1 || echo "  (sync of $1 failed; retrying later)" >&2; }
@@ -102,7 +116,7 @@ NONCE=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/sign_in/challenges" -d '{
 RECEIPTS_KEY=$KEY "$R" sign-in -w ./sender -i ./sender.age --domain e2e.test --nonce "$NONCE" --submit "http://127.0.0.1:$API" 2>/dev/null | jq -e .verified >/dev/null && ok "Sign in with Zcash as the payer" || bad "sign-in"
 
 echo "== Source of funds: an exchange withdrawal to a transparent address, shielded, then spent"
-for w in exchange customer; do "$D" wallet -w "./$w" init --name "$w" -i "./$w.age" -n regtest --activation-heights ./heights.toml --birthday "$(height)" $S > "init-$w.log" 2>&1 || { bad "wallet $w"; }; done
+for w in exchange customer; do init_wallet "$w" || bad "wallet $w"; done
 EXCHANGE=$("$D" wallet -w ./exchange list-addresses | sed -n 's/.*Default Address: //p')
 MN=$("$D" wallet -w ./customer display-mnemonic --enable -i ./customer.age 2>/dev/null | tail -1)
 CUST_T=$("$D" wallet derive-address --mnemonic "$MN" -n regtest | sed -n 's/^Transparent Address: //p'); MN=
@@ -128,7 +142,57 @@ jq -e '.sources[0].zatoshis > 0 and .sources[0].zatoshis <= .sources[0].net_into
   && ok "source proof with the note's exact value revealed ($(jq -r .sources[0].zec source-value-report.json) ZEC of the shielded $(jq -r .sources[0].net_into_shielded_zatoshis source-value-report.json) zats)" || { bad "source proof with value"; tail -3 source-value-report.json; }
 "$R" tx "$DEP" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex > source-deposit-tx.txt 2>/dev/null || true
 "$R" tx "$SH" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex > source-shield-tx.txt 2>/dev/null || true
-if [ -n "${EXPORT_SOURCE:-}" ]; then mkdir -p "$EXPORT_SOURCE"; cp source.txt source-value.txt source-report.json source-value-report.json source-deposit-tx.txt source-shield-tx.txt heights.toml "$EXPORT_SOURCE"/; fi
+
+echo "== Multi-hop source of funds: withdrawal -> shield -> self-transfer -> payment, one batch"
+init_wallet saver || bad "wallet saver"
+SAVER=$("$D" wallet -w ./saver list-addresses | sed -n 's/.*Default Address: //p')
+MN=$("$D" wallet -w ./saver display-mnemonic --enable -i ./saver.age 2>/dev/null | tail -1)
+SAVER_T=$("$D" wallet derive-address --mnemonic "$MN" -n regtest | sed -n 's/^Transparent Address: //p'); MN=
+sync exchange
+W2=$(send exchange "$SAVER_T" 50000000 "") || bad "withdrawal to saver"
+SH2=
+for i in $(seq 1 40); do
+  sync saver
+  SH2=$("$D" wallet -w ./saver shield -i ./saver.age $S 2>&1 | grep -oE '[0-9a-f]{64}' | tail -1 || true)
+  [ -n "$SH2" ] && break; sleep 3
+done
+HOP=$(send saver "$SAVER" 45000000 "move to savings") && ok "saver shielded ($SH2) and moved 0.45 ZEC to itself ($HOP)" || { bad "self-transfer"; HOP=none; }
+PAY2=$(send saver "$MERCHANT" 30000000 "Deposit 100") && ok "saver paid the merchant 0.3 ZEC from the moved note ($PAY2)" || { bad "second deposit"; PAY2=none; }
+sleep 8; sync saver
+for i in $(seq 1 10); do "$R" create -w ./saver -i ./saver.age --txid "$HOP" --txid "$PAY2" -m "Deposit 100" --prove-source -s "127.0.0.1:$GRPC" --out hops.txt > create-hops.log 2>&1 && break; sleep 4; sync saver; done
+"$R" verify @hops.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > hops-report.txt 2>&1 || true
+grep -q "tx ${PAY2:0:12}… action .* from tx ${HOP:0:12}…" hops-report.txt && grep -q "tx ${HOP:0:12}… action .* from tx ${SH2:0:12}…" hops-report.txt && grep -q "was funded in the clear: 0.50000000 ZEC from $SAVER_T" hops-report.txt \
+  && ok "the batch proves the chain: payment <- self-transfer <- shielding of 0.5 ZEC from $SAVER_T" || { bad "multi-hop provenance"; tail -8 hops-report.txt; tail -3 create-hops.log; }
+
+if [ -n "${EXPORT_SOURCE:-}" ]; then mkdir -p "$EXPORT_SOURCE"; cp source.txt source-value.txt source-report.json source-value-report.json hops.txt hops-report.txt source-deposit-tx.txt source-shield-tx.txt heights.toml "$EXPORT_SOURCE"/ 2>/dev/null || true; fi
+
+echo "== Signed payment request: the shop signs, its domain lists the address, the payer checks both"
+WK=$((GRPC + 200)); mkdir -p shop/.well-known
+printf '{"payees":["%s"]}' "$MERCHANT" > shop/.well-known/zcash-receipts.json
+python3 -m http.server "$WK" --bind 127.0.0.1 --directory shop > wk.log 2>&1 & WK_PID=$!
+for i in $(seq 1 20); do nc -z 127.0.0.1 "$WK" 2>/dev/null && break; sleep 0.5; done
+REQ1=$("$R" request -w ./merchant -i ./merchant.age --domain "127.0.0.1:$WK" --amount 0.07 --memo "Order 77" --code c0ffee77 --payee "$MERCHANT" 2>/dev/null) && ok "shop signed a payment request" || bad "sign request"
+# A thief's request (own key, own address) for the shop's domain is refused: the domain doesn't list it.
+init_wallet thief || bad "wallet thief"
+FAKE=$("$R" request -w ./thief -i ./thief.age --domain "127.0.0.1:$WK" --amount 0.07 --memo "Order 77" --code c0ffee77 2>/dev/null)
+"$R" pay "$FAKE" --dry-run -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" > fake.log 2>&1 && bad "a thief's request was accepted" || { grep -q "does not list" fake.log && ok "a request for an address the domain doesn't list is refused" || { bad "fake request: unexpected error"; tail -2 fake.log; }; }
+# An edited request (amount changed in transit) is refused.
+EDIT=$(python3 - "$REQ1" <<'PY'
+import sys, base64
+t = sys.argv[1].strip(); b = bytearray(base64.urlsafe_b64decode(t[5:] + "=" * (-len(t[5:]) % 4)))
+i = 9
+for _ in range(3):  # domain, memo, code: u16 length + bytes each; the amount follows
+    i += 2 + int.from_bytes(b[i:i + 2], "little")
+b[i] ^= 1
+print("zreq1" + base64.urlsafe_b64encode(bytes(b)).decode().rstrip("="))
+PY
+)
+"$R" pay "$EDIT" --dry-run -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" > edit.log 2>&1 && bad "an edited request was accepted" || ok "an edited request is refused ($(tail -1 edit.log | cut -c1-60))"
+"$R" pay "$REQ1" --yes -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" > pay-signed.log 2>&1 && ok "payer paid the signed request" || { bad "pay signed request"; tail -3 pay-signed.log; }
+SR=$(grep -o 'zrcpt1[A-Za-z0-9_-]*' pay-signed.log | tail -1)
+"$R" verify "$SR" --json --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" > signed-receipt.json 2>&1
+jq -e '.message == "challenge:c0ffee77" and .outputs[0].zatoshis == 7000000 and .outputs[0].memo == "Order 77"' signed-receipt.json >/dev/null && ok "the receipt answers request c0ffee77: 0.07 ZEC with the shop's memo" || { bad "signed request receipt"; tail -3 signed-receipt.json; }
+kill "$WK_PID" 2>/dev/null || true
 
 echo
 echo "${#PASS[@]} passed, ${#FAIL[@]} failed"

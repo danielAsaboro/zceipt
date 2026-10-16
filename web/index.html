@@ -134,7 +134,7 @@
       <div id="progress" hidden>
         <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>
         <div class="step" data-step="fetch"><span class="dot"></span><span>Fetch the transaction from the chain<span class="detail"></span></span></div>
-        <div class="step" data-step="verify"><span class="dot"></span><span>Check the sender's proof and open the payment<span class="detail"></span></span></div>
+        <div class="step" data-step="verify"><span class="dot"></span><span>Check the proof and open the payment<span class="detail"></span></span></div>
       </div>
 
       <details>
@@ -166,7 +166,7 @@
       <details class="request" id="linkPanel">
         <summary>Check a payment link before you print it</summary>
         <div class="grid">
-          <label class="hint" for="linkIn">A <code>zcash:</code> link, as you'd put in an invoice or QR code</label>
+          <label class="hint" for="linkIn">A <code>zcash:</code> link, as you'd put in an invoice or QR code, or a signed request (<code>zreq1…</code>) to check before paying</label>
           <input id="linkIn" placeholder="zcash:u1…?amount=0.01&amp;memo=…" spellcheck="false" autocomplete="off">
           <div class="actions"><button id="linkBtn">Check link</button></div>
           <div id="linkOut"></div>

@@ -1295,3 +1295,56 @@ fn only_the_recipient_can_prove_receipt() {
     assert!(IncomingReceipt::from_bytes(&b).is_none());
     assert!(IncomingReceipt::from_bytes(&good.to_bytes()[..100]).is_none());
 }
+
+// ---------- signed payment requests ----------
+
+#[test]
+fn signed_payment_requests() {
+    use receipts_core::payreq::{domain_lists_payee, sign_request, verify_request, PaymentRequest, RequestError};
+    let shop_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let payee = FullViewingKey::from(&shop_sk).address_at(3u32, Scope::External);
+    let now = 1_760_000_000;
+    let r = sign_request(&keys().0, COIN_TYPE_TESTNET, "Shop.Example", 250_000, "Order 42", "a1b2c3d4", now + 3600, &shop_sk, payee, OsRng).unwrap();
+    assert_eq!(r.domain, "shop.example");
+    let parsed = PaymentRequest::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    assert_eq!(verify_request(&keys().1, &parsed, COIN_TYPE_TESTNET, now).unwrap(), payee.to_raw_address_bytes());
+    // Expired, wrong network.
+    assert_eq!(verify_request(&keys().1, &r, COIN_TYPE_TESTNET, now + 3601).unwrap_err(), RequestError::Expired);
+    assert_eq!(verify_request(&keys().1, &r, COIN_TYPE_MAINNET, now).unwrap_err(), RequestError::Network);
+    // Any edit without the payee's key fails: amount, memo, code, domain, expiry, address.
+    type Edit = Box<dyn Fn(&mut PaymentRequest)>;
+    let edits: Vec<(&str, Edit)> = vec![
+        ("amount", Box::new(|r| r.amount += 1)),
+        ("memo", Box::new(|r| r.memo = "Order 43".into())),
+        ("code", Box::new(|r| r.code = "ffffffff".into())),
+        ("domain", Box::new(|r| r.domain = "evil.example".into())),
+        ("expiry", Box::new(|r| r.expires_at += 86_400)),
+        ("payee", Box::new(|r| r.address.address = FullViewingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap()).address_at(0u32, Scope::External).to_raw_address_bytes())),
+    ];
+    for (what, f) in edits {
+        let mut e = r.clone();
+        f(&mut e);
+        assert!(verify_request(&keys().1, &e, COIN_TYPE_TESTNET, now).is_err(), "edited {what} accepted");
+    }
+    // An attacker signing its own request for its own address is valid as a signature, but the
+    // shop's domain doesn't list that address.
+    let thief_sk = SpendingKey::from_bytes([3; 32]).unwrap();
+    let thief = FullViewingKey::from(&thief_sk).address_at(0u32, Scope::External);
+    let swapped = sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 250_000, "Order 42", "a1b2c3d4", now + 3600, &thief_sk, thief, OsRng).unwrap();
+    let thief_payee = verify_request(&keys().1, &swapped, COIN_TYPE_TESTNET, now).unwrap();
+    let listed = serde_json::json!({ "payees": ["ua-of-the-shop"] });
+    let resolve = |ua: &str| (ua == "ua-of-the-shop").then(|| payee.to_raw_address_bytes());
+    assert!(domain_lists_payee(&listed, &payee.to_raw_address_bytes(), resolve));
+    assert!(!domain_lists_payee(&listed, &thief_payee, resolve));
+    // Nobody can sign for an address it doesn't own.
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, "", "a1b2c3d4", now, &thief_sk, payee, OsRng).is_err());
+    // Malformed fields are refused when signing and decoding.
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 0, "", "a1b2c3d4", now, &shop_sk, payee, OsRng).is_err());
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, &"x".repeat(513), "a1b2c3d4", now, &shop_sk, payee, OsRng).is_err());
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, "", "not-hex!", now, &shop_sk, payee, OsRng).is_err());
+    let mut b = r.to_bytes();
+    b.push(0);
+    assert!(PaymentRequest::from_bytes(&b).is_none());
+    println!("signed request: {} bytes, {} chars", r.to_bytes().len(), r.to_text().len());
+}

@@ -285,3 +285,46 @@ def decode_incoming(text: str) -> IncomingReceipt:
     if r.i != len(b):
         raise DecodeError("trailing bytes")
     return IncomingReceipt(coin_type, POOLS[pb], txid, msg, outputs, rk, a, sig, unsigned)
+
+
+@dataclass
+class PaymentRequest:
+    coin_type: int
+    domain: str
+    memo: str
+    code: str
+    amount: int
+    expires_at: int
+    rk: bytes
+    address: AddressProof
+    sig: bytes
+    unsigned_bytes: bytes
+
+
+def decode_request(text: str) -> PaymentRequest:
+    """zreq1 + base64url of: "ZREQ" | 1 | coin_type u32 | domain, memo, code (u16 len + UTF-8 each)
+    | amount u64 | expires_at u64 | rk[32] | address proof | sig[64] (docs/SPEC.md)."""
+    s = text.strip()
+    if not s.startswith("zreq1"):
+        raise DecodeError("not a zreq1 payment request")
+    b = b64decode(s[5:])
+    r = _R(b)
+    if r.take(4) != b"ZREQ" or r.take(1)[0] != 1:
+        raise DecodeError("bad request magic or version")
+    coin_type = r.int(4)
+    try:
+        domain, memo, code = (r.take(r.int(2)).decode() for _ in range(3))
+    except UnicodeDecodeError:
+        raise DecodeError("a text field is not UTF-8")
+    amount, expires_at = r.int(8), r.int(8)
+    rk = r.take(32)
+    a = AddressProof(r.take(43), r.take(32), r.take(32), r.take(32), r.take(32), r.take(32), _proof(r))
+    unsigned = b[: r.i]
+    sig = r.take(64)
+    if r.i != len(b):
+        raise DecodeError("trailing bytes")
+    ok_domain = 0 < len(domain) <= 253 and all(c.islower() or c.isdigit() or c in ".-:" for c in domain) and domain.isascii()
+    ok_code = 6 <= len(code) <= 64 and all(c in "0123456789abcdefABCDEF" for c in code)
+    if not (ok_domain and ok_code and len(memo.encode()) <= 512 and amount > 0):
+        raise DecodeError("malformed request field")
+    return PaymentRequest(coin_type, domain, memo, code, amount, expires_at, rk, a, sig, unsigned)

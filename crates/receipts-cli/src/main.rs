@@ -179,6 +179,31 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Shops: sign a payment request (`zreq1…`) with your wallet's key, so payers' wallets can
+    /// check nobody changed the address, amount or memo, and that your domain lists the address.
+    Request {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// Your shop's domain; publish the address at https://<domain>/.well-known/zcash-receipts.json.
+        #[arg(long)]
+        domain: String,
+        /// Amount in ZEC, e.g. 0.25.
+        #[arg(long)]
+        amount: String,
+        #[arg(long, default_value = "")]
+        memo: String,
+        /// Request code (hex). Default: random. The payer's receipt signs `challenge:<code>`.
+        #[arg(long)]
+        code: Option<String>,
+        /// Valid for this many seconds.
+        #[arg(long, default_value_t = 86_400)]
+        expires_in: u64,
+        /// The address to be paid (an address of this wallet). Default: its default address.
+        #[arg(long)]
+        payee: Option<String>,
+    },
     /// Sign in with Zcash: prove to a site that you control a shielded address, for its
     /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
     SignIn {
@@ -373,7 +398,74 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     }
     let sum: u64 = totals.values().sum();
     println!("  total {} ZEC to {} recipient(s)", chain::zec(sum), totals.len());
+    for line in provenance_lines(&reports) {
+        println!("{line}");
+    }
     Ok(())
+}
+
+/// Multi-hop source of funds: when receipts in a batch prove sources that are other receipts'
+/// transactions, print each chain from the last payment back to where it was funded in the clear.
+fn provenance_lines(reports: &[chain::Report]) -> Vec<String> {
+    let by_txid: std::collections::BTreeMap<&str, &chain::Report> = reports.iter().map(|r| (r.txid.as_str(), r)).collect();
+    let used_as_source: std::collections::BTreeSet<&str> = reports.iter().flat_map(|r| r.sources.iter().map(|s| s.source_txid.as_str())).collect();
+    let mut out = Vec::new();
+    if reports.iter().all(|r| r.sources.is_empty()) {
+        return out;
+    }
+    out.push("  source of funds (proven hop by hop):".into());
+    fn walk(txid: &str, depth: usize, by: &std::collections::BTreeMap<&str, &chain::Report>, out: &mut Vec<String>, seen: &mut std::collections::BTreeSet<String>) {
+        let pad = "    ".repeat(depth + 1);
+        let Some(r) = by.get(txid) else { return };
+        if !seen.insert(txid.to_string()) {
+            return;
+        }
+        let unproven = r.proven_spend_actions.len().saturating_sub(r.sources.len());
+        for s in &r.sources {
+            let v = s.zec.as_ref().map(|z| format!(" ({z} ZEC)")).unwrap_or_default();
+            out.push(format!("{pad}tx {}… action {} spent a note{v} from tx {}… output {}", &r.txid[..12], s.spend_action, &s.source_txid[..12], s.source_action));
+            if by.contains_key(s.source_txid.as_str()) {
+                walk(&s.source_txid, depth + 1, by, out, seen);
+            } else if seen.insert(format!("funded:{}", s.source_txid)) {
+                let funded: Vec<String> = s.transparent_inputs.iter().filter_map(|t| Some(format!("{} ZEC from {}", chain::zec(t.zatoshis?), t.address.clone()?))).collect();
+                if funded.is_empty() {
+                    out.push(format!("{pad}    tx {}… was itself funded from shielded notes not shown", &s.source_txid[..12]));
+                } else {
+                    out.push(format!("{pad}    tx {}… was funded in the clear: {}", &s.source_txid[..12], funded.join(", ")));
+                }
+            }
+        }
+        if unproven > 0 {
+            out.push(format!("{pad}(plus {unproven} spend(s) of tx {}… whose source isn't shown)", &r.txid[..12]));
+        }
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for r in reports.iter().filter(|r| !used_as_source.contains(r.txid.as_str())) {
+        walk(&r.txid, 0, &by_txid, &mut out, &mut seen);
+    }
+    out
+}
+
+/// Parses a ZEC amount ("0.25") into zatoshis, exactly.
+fn parse_zec(s: &str) -> anyhow::Result<u64> {
+    let (whole, frac) = s.trim().split_once('.').unwrap_or((s.trim(), ""));
+    if whole.is_empty() && frac.is_empty() || frac.len() > 8 || !whole.chars().chain(frac.chars()).all(|c| c.is_ascii_digit()) {
+        bail!("amount must look like 0.25 (at most 8 decimals)");
+    }
+    let w: u64 = if whole.is_empty() { 0 } else { whole.parse()? };
+    let f: u64 = format!("{frac:0<8}").parse()?;
+    w.checked_mul(100_000_000).and_then(|x| x.checked_add(f)).ok_or_else(|| anyhow!("amount too large"))
+}
+
+/// Fetches `https://<domain>/.well-known/zcash-receipts.json` (plain http only for localhost)
+/// and says whether it lists `payee_raw`.
+async fn domain_lists(domain: &str, payee_raw: &[u8; 43]) -> anyhow::Result<bool> {
+    let host = domain.split(':').next().unwrap_or(domain);
+    let scheme = if matches!(host, "localhost" | "127.0.0.1") { "http" } else { "https" };
+    let url = format!("{scheme}://{domain}/.well-known/zcash-receipts.json");
+    let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(10)).build()?;
+    let doc: serde_json::Value = client.get(&url).send().await?.error_for_status()?.json().await?;
+    Ok(receipts_core::payreq::domain_lists_payee(&doc, payee_raw, |ua| chain::orchard_receiver_of(ua).ok()))
 }
 
 fn read_incoming_arg(arg: &str) -> anyhow::Result<receipts_core::incoming::IncomingReceipt> {
@@ -685,6 +777,17 @@ async fn main() -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
+        Cmd::Request { wallet, identity, domain, amount, memo, code, expires_in, payee } => {
+            let zats = parse_zec(&amount)?;
+            let code = code.unwrap_or_else(|| format!("{:016x}", rand::random::<u64>()));
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+            let (r, ua) = wallet::sign_payment_request(&wallet, &identity, &domain, zats, &memo, &code, now + expires_in, payee.as_deref())?;
+            eprintln!("Signed request {} for {} ZEC to {ua}, valid {}s.", r.code, chain::zec(zats), expires_in);
+            eprintln!("Publish this at https://{}/.well-known/zcash-receipts.json so wallets can check it:", r.domain);
+            eprintln!("{}", serde_json::json!({ "payees": [ua] }));
+            eprintln!("\nGive the payer this (they run `receipts pay '<it>'`):");
+            println!("{}", r.to_text());
+        }
         Cmd::Received { wallet, identity, txid, msg, outputs, pool, server, link_base, out } => {
             let pool = match pool.as_deref() {
                 None => None,
@@ -800,7 +903,27 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let parsed = reqwest::Url::parse(&link).ok();
     let hosted = parsed.as_ref().filter(|u| u.path().starts_with("/pay/") && u.path().len() > 5);
     let host = parsed.as_ref().and_then(|u| u.host_str().map(|h| match u.port() { Some(p) => format!("{h}:{p}"), None => h.to_string() })).unwrap_or_else(|| "(no host)".into());
-    let (payee, amount, code, submit_to, receipt_link) = if let Some(u) = hosted {
+    let signed = link.find(receipts_core::payreq::REQUEST_TEXT_PREFIX).map(|i| link[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect::<String>());
+    let mut memo_to_send: Option<String> = None;
+    let mut host = host;
+    let (payee, amount, code, submit_to, receipt_link) = if let Some(text) = signed {
+        let r = receipts_core::payreq::PaymentRequest::from_text(&text).ok_or_else(|| anyhow!("malformed signed request"))?;
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+        let wallet_net = wallet::wallet_network(&wallet_dir)?;
+        let raw = receipts_core::payreq::verify_request(&receipts_core::verifying_key(), &r, wallet_net.coin_type(), now).map_err(|e| anyhow!("refusing the request: {e}"))?;
+        let ua = chain::encode_orchard_receiver(wallet_net, raw);
+        match domain_lists(&r.domain, &raw).await {
+            Ok(true) => println!("Signed by the payee, and {} lists this address.", r.domain),
+            Ok(false) => bail!("refusing: {} does not list {ua} in its /.well-known/zcash-receipts.json; the request may have been tampered with", r.domain),
+            Err(e) => bail!("refusing: could not confirm that {} lists the payee ({e})", r.domain),
+        }
+        host = r.domain.clone();
+        memo_to_send = (!r.memo.is_empty()).then(|| r.memo.clone());
+        if !r.memo.is_empty() {
+            println!("  memo     {}", r.memo);
+        }
+        (ua, r.amount, r.code.clone(), None, DEFAULT_LINK_BASE.to_string())
+    } else if let Some(u) = hosted {
         let base = format!("{}://{}", u.scheme(), host);
         let id = u.path()["/pay/".len()..].trim_end_matches('/').to_string();
         if !id.starts_with("preq_") || !id[5..].chars().all(|c| c.is_ascii_hexdigit()) {
@@ -876,7 +999,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
             eprintln!("Syncing the wallet…");
             devtool_run(vec!["sync".into()]).await?;
             eprintln!("Sending…");
-            let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), format!("Receipts request {code}")]).await?;
+            let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), memo_to_send.clone().unwrap_or_else(|| format!("Receipts request {code}"))]).await?;
             let txid = out.split_whitespace().rfind(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
             eprintln!("Sent {txid}.");
             txid

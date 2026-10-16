@@ -473,6 +473,30 @@ pub async fn create_incoming_receipt(wallet: &Path, identity: &Path, txid: [u8; 
     }
 }
 
+/// Signs a payment request (`zreq1`) for `domain` with the wallet's key, for its default address
+/// (or `payee`, an address of this wallet). Returns the request and the payee address.
+#[allow(clippy::too_many_arguments)]
+pub fn sign_payment_request(wallet: &Path, identity: &Path, domain: &str, amount: u64, memo: &str, code: &str, expires_at: u64, payee: Option<&str>) -> anyhow::Result<(receipts_core::payreq::PaymentRequest, String)> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let addr = match payee {
+        None => fvk.address_at(0u32, Scope::External),
+        Some(ua) => {
+            let raw = receipts_chain::chain::orchard_receiver_of(ua)?;
+            let a = Option::<orchard::Address>::from(orchard::Address::from_raw_address_bytes(&raw)).ok_or_else(|| anyhow!("invalid Orchard receiver in {ua}"))?;
+            if fvk.scope_for_address(&a).is_none() {
+                bail!("{ua} is not an address of this wallet's account");
+            }
+            a
+        }
+    };
+    let r = receipts_core::payreq::sign_request(&receipts_core::proving_key(), net.coin_type(), domain, amount, memo, code, expires_at, &sk, addr, OsRng)
+        .map_err(|_| anyhow!("invalid request: the domain must be a host name, the amount above 0, the memo at most 512 bytes and the code 6-64 hex characters"))?;
+    Ok((r, receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes())))
+}
+
 /// A shop's proof-request link: `…?request=<challenge>&to=<payee>&min=<zatoshis>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestLink {

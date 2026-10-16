@@ -38,7 +38,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
@@ -354,6 +354,27 @@ async function run(receiptText) {
   }
 }
 
+// Multi-hop source of funds: a receipt whose proven source is another receipt's transaction.
+function provenanceHtml(results) {
+  if (!results.some((v) => (v.sources || []).length)) return "";
+  const byTx = new Map(results.map((v) => [v.txid, v]));
+  const used = new Set(results.flatMap((v) => (v.sources || []).map((s) => s.source_txid)));
+  const rows = [];
+  const walk = (v, depth, seen) => {
+    if (seen.has(v.txid)) return;
+    seen.add(v.txid);
+    for (const s of v.sources || []) {
+      rows.push(`<div class="line"><span class="k">${depth ? "" : "FUNDS"}</span><span class="v" style="padding-left:${depth * 12}px"><small>${short(v.txid, 6)} spent a note${s.zatoshis != null ? ` of ${zec(s.zatoshis)} ZEC` : ""} from ${short(s.source_txid, 6)}</small></span></div>`);
+      const next = byTx.get(s.source_txid);
+      if (next) walk(next, depth + 1, seen);
+      else rows.push(`<div class="line"><span class="k"></span><span class="v" style="padding-left:${(depth + 1) * 12}px"><small>${s.transparent_inputs.length ? `funded in the clear by ${short(s.source_txid, 6)}'s transparent inputs` : `${short(s.source_txid, 6)} was funded from shielded notes not shown`}</small></span></div>`);
+    }
+  };
+  const seen = new Set();
+  for (const v of results.filter((v) => !used.has(v.txid))) walk(v, 0, seen);
+  return `<div class="dash"></div>${rows.join("")}`;
+}
+
 async function runBatch(batchText) {
   $("#result").hidden = true;
   $("#progress").hidden = false;
@@ -377,9 +398,20 @@ async function runBatch(batchText) {
       return fetchRawTx(endpoint, s.txid);
     }));
     setStep("fetch", "done", `${txs.length} transactions fetched`);
+    await local;
     for (const [i, r] of b.receipts.entries()) {
       setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
-      results.push(await call("verify", { receipt: r, rawTx: txs[i].raw, height: txs[i].height, regtest: regtest() }));
+      // Receipts that prove their source of funds need the source transactions too.
+      const needed = JSON.parse(source_txids(r));
+      let sources;
+      if (needed.length) {
+        const s = await quick("inspect", { receipt: r });
+        const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
+        const stxs = await Promise.all(needed.map((id) => fetchRawTx(endpoint, id)));
+        sources = JSON.stringify(stxs.map((t) => ({ raw: bytesToHex(t.raw), height: t.height })));
+        if (fetchMode) fetchMode.sources = (fetchMode.sources || 0) + needed.length;
+      }
+      results.push(await call("verify", { receipt: r, rawTx: txs[i].raw, height: txs[i].height, regtest: regtest(), sources }));
     }
     setStep("fetch", "done", `${results.length} transactions fetched`);
     setStep("verify", "done", `all ${results.length} proofs and signatures valid`);
@@ -402,6 +434,7 @@ async function runBatch(batchText) {
       <div class="dash"></div>
       <div class="line paid"><span class="k">TOTAL</span><span class="v amount">${zec(total)} <small>ZEC</small></span></div>
       <div class="line"><span class="k">TO</span><span class="v">${recipients} recipient${recipients === 1 ? "" : "s"}</span></div>
+      ${provenanceHtml(results)}
       <div class="dash"></div>
       <div class="stamp good">VERIFIED</div>
       <ul class="facts">
@@ -446,7 +479,7 @@ async function runIncoming(text) {
     return showError(`Could not fetch the transaction: ${e.message}`);
   }
   try {
-    setStep("verify", "busy", "checking the address proof, signature and each output");
+    setStep("verify", "busy", "checking the recipient's address proof, signature and each output");
     const v = await call("incoming", { receipt: text, rawTx: tx.raw, height: tx.height, regtest: regtest() });
     setStep("verify", "done", "address proof, signature and outputs valid");
     const rows = v.outputs.map((o) => `
@@ -549,11 +582,38 @@ if (initial) {
   run(initial);
 }
 
+// ---------- signed payment requests (zreq1) ----------
+async function checkSignedRequest(text) {
+  const out = $("#linkOut");
+  try {
+    await local;
+    const r = JSON.parse(verify_payment_request(text, Date.now() / 1000));
+    let listed = null;
+    try {
+      const doc = await fetch(r.well_known, { redirect: "error" }).then((x) => x.json());
+      const want = orchard_receiver_hex(r.payee);
+      listed = (doc.payees || []).some((ua) => { try { return orchard_receiver_hex(ua) === want; } catch { return false; } });
+    } catch { /* the domain may not allow cross-origin reads; say so below */ }
+    const domainLine = listed === true ? `<strong>${escapeHtml(r.domain)}</strong> lists this address.`
+      : listed === false ? `<strong>Refuse it:</strong> ${escapeHtml(r.domain)} does not list this address.`
+      : `Confirm that <a href="${escapeHtml(r.well_known)}" target="_blank" rel="noreferrer noopener">${escapeHtml(r.domain)}'s list</a> contains this address before paying.`;
+    out.innerHTML = `<div class="reqbox" data-ok="${listed !== false}"><div class="reqhead">${listed === false ? "DO NOT PAY" : "SIGNED BY THE PAYEE"}</div><ul>
+      <li>Pay ${zec(r.amount_zatoshis)} ZEC to <span class="mono">${escapeHtml(short(r.payee, 14))}</span> (${escapeHtml(r.network)})</li>
+      ${r.memo ? `<li>Memo “${escapeHtml(r.memo)}”</li>` : ""}
+      <li>Request ${escapeHtml(r.code)}, valid until ${new Date(r.expires_at * 1000).toLocaleString()}</li>
+      <li>Nobody changed the address, amount or memo: the payee's own key signed them.</li>
+      <li>${domainLine}</li></ul></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="reqbox" data-ok="false"><div class="reqhead">DO NOT PAY</div><ul><li>${escapeHtml(e.message)}</li></ul></div>`;
+  }
+}
+
 // ---------- check a payment link ----------
 $("#linkBtn").onclick = async () => {
   await local;
   const uri = $("#linkIn").value.trim();
   if (!uri) return;
+  if (uri.includes("zreq1")) return checkSignedRequest(uri.slice(uri.indexOf("zreq1")).replace(/[^A-Za-z0-9_-].*$/s, ""));
   const v = JSON.parse(check_payment_uri(uri, regtest() ? "regtest" : ""));
   const pays = v.payments.map((p) =>
     `<li>${escapeHtml(p.network || "unknown network")} ${escapeHtml(p.address_kind)} address · ${p.amount_zatoshis != null ? zec(p.amount_zatoshis) + " ZEC" : "no amount"}${p.memo ? ` · memo “${escapeHtml(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : p.address_kind === "tex" ? "provable with a deposit receipt" : "<strong>not provable with a receipt</strong>"}</li>`).join("");

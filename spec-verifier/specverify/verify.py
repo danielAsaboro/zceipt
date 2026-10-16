@@ -275,3 +275,36 @@ def verify_request(text: str, expected_coin_type: int, now: int):
         raise Invalid("expired")
     return {"payee": r.address.address.hex(), "domain": r.domain, "amount": r.amount, "memo": r.memo, "code": r.code,
             "address_proof": {"proof": "not checked", "public_inputs": pi}}
+
+
+def verify_reserve(text: str, expected_coin_type: int, chain_anchor: bytes):
+    """Proof of funds: every note's signature, its fixed value commitment ValueCommit_0(v) (v >= 1)
+    and opened zero-value output, against the tree root the caller read from the chain. Halo 2
+    proofs are not checked (public inputs returned). The caller then checks the nullifiers are
+    unpublished."""
+    r = rc.decode_reserve(text)
+    if r.coin_type != expected_coin_type:
+        raise Invalid("wrong network (coin type)")
+    if r.anchor != chain_anchor:
+        raise Invalid("the anchor is not the chain's tree root at that height")
+    if not r.notes:
+        raise Invalid("no notes")
+    person = b"ZcashReserve" + r.coin_type.to_bytes(4, "little")
+    digest = hashlib.blake2b(r.unsigned_bytes, digest_size=32, person=person).digest()
+    seen, out = set(), []
+    for i, (n, sig) in enumerate(zip(r.notes, r.sigs)):
+        if n["nf"] in seen:
+            raise Invalid(f"note {i} repeated")
+        seen.add(n["nf"])
+        try:
+            pl.decode_point(n["rk"])
+        except ValueError:
+            raise Invalid(f"note {i}: rk is not a valid non-zero point")
+        if not o.redpallas_verify(n["rk"], digest, sig):
+            raise Invalid(f"note {i}: bad signature")
+        src = rc.SourceProof(b"", 0, n["value"], None, n["out_address"], n["out_rseed"], n["proof"])
+        pi = check_source_proof(src, r.pool, n["nf"], b"\0" * 32)  # opened output and fixed cv
+        pi["anchor"] = r.anchor.hex()
+        pi["rk"] = n["rk"].hex()
+        out.append({"value": n["value"], "nf": n["nf"].hex(), "proof": "not checked", "public_inputs": pi})
+    return {"total": sum(n["value"] for n in r.notes), "height": r.height, "notes": out}

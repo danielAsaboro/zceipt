@@ -328,3 +328,42 @@ def decode_request(text: str) -> PaymentRequest:
     if not (ok_domain and ok_code and len(memo.encode()) <= 512 and amount > 0):
         raise DecodeError("malformed request field")
     return PaymentRequest(coin_type, domain, memo, code, amount, expires_at, rk, a, sig, unsigned)
+
+
+@dataclass
+class ReserveProof:
+    coin_type: int
+    pool: str
+    height: int
+    anchor: bytes
+    msg: bytes
+    notes: list  # dicts: nf, value, rk, out_address, out_rseed, proof
+    sigs: list
+    unsigned_bytes: bytes
+
+
+def decode_reserve(text: str) -> ReserveProof:
+    """zrsv1 + base64url of: "ZRSV" | 1 | coin_type u32 | pool u8 | height u32 | anchor[32] |
+    msg (u16 len) | n u8 | {nf[32] | value u64 | rk[32] | out_address[43] | out_rseed[32] |
+    proof (u32 len)}* | sig[64]*n (docs/SPEC.md)."""
+    s = text.strip()
+    if not s.startswith("zrsv1"):
+        raise DecodeError("not a zrsv1 proof of funds")
+    b = b64decode(s[5:])
+    r = _R(b)
+    if r.take(4) != b"ZRSV" or r.take(1)[0] != 1:
+        raise DecodeError("bad proof-of-funds magic or version")
+    coin_type = r.int(4)
+    pb = r.take(1)[0]
+    if pb not in POOLS:
+        raise DecodeError("unknown pool")
+    height, anchor = r.int(4), r.take(32)
+    msg = r.take(r.int(2))
+    notes = []
+    for _ in range(r.take(1)[0]):
+        notes.append({"nf": r.take(32), "value": r.int(8), "rk": r.take(32), "out_address": r.take(43), "out_rseed": r.take(32), "proof": _proof(r)})
+    unsigned = b[: r.i]
+    sigs = [r.take(64) for _ in notes]
+    if r.i != len(b):
+        raise DecodeError("trailing bytes")
+    return ReserveProof(coin_type, POOLS[pb], height, anchor, msg, notes, sigs, unsigned)

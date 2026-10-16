@@ -152,3 +152,17 @@ fn source_of_funds_offline() {
         assert!(receipts_chain::chain::verify_offline_with_sources(&r, &rd("tx.hex"), 4_500_997, &[(rd("source-tx.hex"), 4_500_998)], None).is_err());
     }
 }
+
+/// The real testnet proof of funds (examples/testnet/reserve) against the tree root lightwalletd
+/// reported at its height: the proofs and signatures hold, and any other root is refused. (The
+/// "still unspent" half needs the chain; `receipts verify` does it.)
+#[test]
+fn proof_of_funds_testnet() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/reserve/");
+    let r = receipts_core::reserve::ReserveProof::from_text(&std::fs::read_to_string(format!("{dir}proof.txt")).unwrap()).unwrap();
+    let mut anchor = [0u8; 32];
+    hex::decode_to_slice(std::fs::read_to_string(format!("{dir}anchor.hex")).unwrap().trim(), &mut anchor).unwrap();
+    let v = receipts_core::reserve::verify_reserve(vk(), &r, receipts_core::COIN_TYPE_TESTNET, &anchor).unwrap();
+    assert_eq!(v.total, 9_690_000);
+    assert!(receipts_core::reserve::verify_reserve(vk(), &r, receipts_core::COIN_TYPE_TESTNET, &[0; 32]).is_err());
+}

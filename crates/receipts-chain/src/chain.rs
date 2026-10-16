@@ -559,3 +559,167 @@ pub fn verify_incoming_offline(r: &receipts_core::incoming::IncomingReceipt, raw
     rep.chain_checked = false;
     Ok(rep)
 }
+
+// ---------- proof of funds ----------
+
+/// The pool's activation height on `net` (Ironwood activates with NU6.3, Orchard with NU5).
+pub fn pool_activation(net: Net, pool: Pool) -> u32 {
+    use zcash_protocol::consensus::NetworkUpgrade;
+    let nu = match pool {
+        Pool::Orchard => NetworkUpgrade::Nu5,
+        Pool::Ironwood => NetworkUpgrade::Nu6_3,
+    };
+    net.activation_height(nu).map(u32::from).unwrap_or(1)
+}
+
+async fn block_hash(c: &mut CompactTxStreamerClient<Channel>, h: u32) -> Option<Vec<u8>> {
+    use zcash_client_backend::proto::service::BlockId;
+    c.get_block(BlockId { height: u64::from(h), hash: vec![] }).await.ok().map(|b| b.into_inner().hash)
+}
+
+/// Every nullifier `pool` published in blocks `from..=to`, read from compact blocks. Downloading
+/// the whole range tells the server nothing about which nullifiers the caller is looking for.
+/// Cached under `cache` (if given), so later checks only download new blocks.
+pub async fn published_nullifiers(net: Net, server: Option<&str>, pool: Pool, from: u32, to: u32, cache: Option<&std::path::Path>) -> anyhow::Result<std::collections::HashSet<[u8; 32]>> {
+    use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
+    let mut set = std::collections::HashSet::new();
+    let mut start = from;
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    // Cache layout: from u32 | upto u32 | hash of block `upto` (32) | nullifiers. It is reused only
+    // if the chain still has that block hash (same chain, no reorg below it).
+    if let Some(c) = cache {
+        if let Ok(bytes) = std::fs::read(c) {
+            if bytes.len() >= 40 && (bytes.len() - 40) % 32 == 0 {
+                let cached_from = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+                let upto = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+                let same_chain = block_hash(&mut client, upto).await.is_some_and(|h| h == bytes[8..40]);
+                if cached_from <= from && upto < to && same_chain {
+                    set.extend(bytes[40..].chunks(32).map(|c| <[u8; 32]>::try_from(c).unwrap()));
+                    start = upto + 1;
+                }
+            }
+        }
+    }
+    let pool_type = match pool {
+        Pool::Ironwood => PoolType::Ironwood,
+        Pool::Orchard => PoolType::Orchard,
+    };
+    let mut stream = client
+        .get_block_range(BlockRange {
+            start: Some(BlockId { height: u64::from(start), hash: vec![] }),
+            end: Some(BlockId { height: u64::from(to), hash: vec![] }),
+            pool_types: vec![pool_type as i32],
+        })
+        .await
+        .map_err(|e| anyhow!("block range: {}", e.message()))?
+        .into_inner();
+    let mut last = start.saturating_sub(1);
+    while let Some(block) = stream.message().await? {
+        for tx in &block.vtx {
+            let actions = match pool {
+                Pool::Ironwood => &tx.ironwood_actions,
+                Pool::Orchard => &tx.actions,
+            };
+            for a in actions {
+                if let Ok(nf) = <[u8; 32]>::try_from(a.nullifier.as_slice()) {
+                    set.insert(nf);
+                }
+            }
+        }
+        last = block.height as u32;
+    }
+    if last < to {
+        bail!("the server stopped at block {last}, before {to}");
+    }
+    // Cache up to 100 blocks below the tip (nullifiers above it stay in the set, which can only
+    // make a later check stricter, and those blocks are scanned again next time).
+    let upto = to.saturating_sub(100).max(from);
+    if let (Some(c), Some(hash)) = (cache, block_hash(&mut client, upto).await) {
+        let mut out = Vec::with_capacity(40 + set.len() * 32);
+        out.extend_from_slice(&from.to_le_bytes());
+        out.extend_from_slice(&upto.to_le_bytes());
+        let mut h = [0u8; 32];
+        h[..hash.len().min(32)].copy_from_slice(&hash[..hash.len().min(32)]);
+        out.extend_from_slice(&h);
+        for nf in &set {
+            out.extend_from_slice(nf);
+        }
+        if let Some(dir) = c.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(c, out);
+    }
+    Ok(set)
+}
+
+#[derive(Serialize)]
+pub struct ReserveReport {
+    pub valid: bool,
+    pub kind: &'static str,
+    pub network: &'static str,
+    pub pool: &'static str,
+    pub message: String,
+    pub notes: usize,
+    pub total_zatoshis: u64,
+    pub total_zec: String,
+    /// The block whose tree root the notes were proven against.
+    pub anchor_height: u32,
+    /// None of the notes is spent as of this block.
+    pub unspent_as_of: u32,
+    pub blocks_scanned: u32,
+}
+
+impl ReserveReport {
+    pub fn print(&self) {
+        println!("VALID proof of funds");
+        println!("  network   {}", self.network);
+        println!("  pool      {}", self.pool);
+        if !self.message.is_empty() {
+            println!("  message   {}", self.message.replace('\n', "\n            "));
+        }
+        println!("  holds     {} ZEC in {} note(s), all unspent as of block {}", self.total_zec, self.notes, self.unspent_as_of);
+        println!("  proven    against the {} tree at block {}; {} blocks of nullifiers scanned", self.pool, self.anchor_height, self.blocks_scanned);
+        println!("  revealed  each note's value and nullifier (so whoever holds this can see when they are spent); not the address or anything else");
+    }
+}
+
+/// Verifies a proof of funds against the chain: the anchor is the pool's real tree root at the
+/// proof's height, every proof and signature holds, and none of the notes' nullifiers has been
+/// published from the pool's activation up to the chain tip.
+pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReserveProof, server: Option<&str>, regtest: Option<&std::path::Path>, cache: Option<&std::path::Path>) -> anyhow::Result<ReserveReport> {
+    use zcash_client_backend::proto::service::BlockId;
+    let net = net::for_receipt(r.coin_type, regtest)?;
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    let ts = client
+        .get_tree_state(BlockId { height: u64::from(r.height), hash: vec![] })
+        .await
+        .map_err(|e| anyhow!("tree state at {}: {}", r.height, e.message()))?
+        .into_inner();
+    let tree = match r.pool {
+        Pool::Ironwood => ts.ironwood_tree()?,
+        Pool::Orchard => ts.orchard_tree()?,
+    };
+    let root = tree.root().to_bytes();
+    static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
+    let vk = VK.get_or_init(receipts_core::verifying_key);
+    let v = receipts_core::reserve::verify_reserve(vk, r, r.coin_type, &root).map_err(|e| anyhow!("{e}"))?;
+    let tip = chain_tip(net, server).await?;
+    let from = pool_activation(net, r.pool).max(1);
+    let spent = published_nullifiers(net, server, r.pool, from, tip, cache).await?;
+    if let Some(i) = v.nullifiers.iter().position(|nf| spent.contains(nf)) {
+        bail!("note {i} has been spent: its nullifier is on chain, so these funds are not held any more");
+    }
+    Ok(ReserveReport {
+        valid: true,
+        kind: "proof_of_funds",
+        network: net.name(),
+        pool: if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" },
+        message: String::from_utf8_lossy(&r.msg).into_owned(),
+        notes: r.notes.len(),
+        total_zatoshis: v.total,
+        total_zec: zec(v.total),
+        anchor_height: r.height,
+        unspent_as_of: tip,
+        blocks_scanned: tip.saturating_sub(from) + 1,
+    })
+}

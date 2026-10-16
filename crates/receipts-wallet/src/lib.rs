@@ -497,6 +497,73 @@ pub fn sign_payment_request(wallet: &Path, identity: &Path, domain: &str, amount
     Ok((r, receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes())))
 }
 
+/// Makes a proof of funds over this wallet's unspent notes in `pool`, proven against the tree root
+/// of its latest checkpoint. With `at_least`, uses the largest notes until that much is covered.
+pub fn create_reserve_proof(wallet: &Path, identity: &Path, pool: Pool, msg: &[u8], at_least: Option<u64>) -> anyhow::Result<receipts_core::reserve::ReserveProof> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let db_path = wallet.join("data.sqlite");
+    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let (notes_t, spends_t, cp_t) = match pool {
+        Pool::Ironwood => ("ironwood_received_notes", "ironwood_received_note_spends", "ironwood_tree_checkpoints"),
+        Pool::Orchard => ("orchard_received_notes", "orchard_received_note_spends", "orchard_tree_checkpoints"),
+    };
+    let fk = match pool {
+        Pool::Ironwood => "ironwood_received_note_id",
+        Pool::Orchard => "orchard_received_note_id",
+    };
+    // Mined notes with no mined spend. (The chain is the judge: a spent note fails verification.)
+    let sql = format!(
+        "SELECT rn.nf FROM {notes_t} rn JOIN transactions t ON t.id_tx = rn.transaction_id
+         WHERE t.mined_height IS NOT NULL AND rn.nf IS NOT NULL AND rn.value > 0 AND rn.id NOT IN (
+           SELECT s.{fk} FROM {spends_t} s JOIN transactions st ON st.id_tx = s.transaction_id WHERE st.mined_height IS NOT NULL)"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let nfs: Vec<Vec<u8>> = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let mut found = Vec::new();
+    for nf in nfs {
+        let nf: [u8; 32] = nf.try_into().map_err(|_| anyhow!("bad nullifier in wallet"))?;
+        if let Some(n) = find_spent_note(&conn, pool, &fvk, &nf)? {
+            found.push(n);
+        }
+    }
+    if found.is_empty() {
+        bail!("this wallet has no unspent {pool:?} notes (sync it first)");
+    }
+    found.sort_by_key(|n| std::cmp::Reverse(n.note.value().inner()));
+    if let Some(min) = at_least {
+        let mut sum = 0u64;
+        let k = found.iter().take_while(|n| { let before = sum; sum += n.note.value().inner(); before < min }).count();
+        if sum < min {
+            bail!("unspent notes total {}, less than the {} asked for", receipts_chain::chain::zec(sum), receipts_chain::chain::zec(min));
+        }
+        found.truncate(k);
+    }
+    let height: u32 = conn.query_row(&format!("SELECT max(checkpoint_id) FROM {cp_t}"), [], |r| r.get(0)).map_err(|_| anyhow!("the wallet has no tree checkpoint; sync it"))?;
+    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    type E = ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>;
+    let id = BlockHeight::from_u32(height);
+    let mut witnesses = Vec::with_capacity(found.len());
+    let mut anchor = None;
+    for n in &found {
+        let pos = Position::from(n.position);
+        let (root, path) = match pool {
+            Pool::Orchard => db.with_orchard_tree_mut::<_, _, E>(|t| Ok((t.root_at_checkpoint_id(&id)?, t.witness_at_checkpoint_id_caching(pos, &id)?)))?,
+            Pool::Ironwood => db
+                .with_ironwood_tree_mut::<_, _, E>(|t| Ok((t.root_at_checkpoint_id(&id)?, t.witness_at_checkpoint_id_caching(pos, &id)?)))?
+                .ok_or_else(|| anyhow!("the wallet has no Ironwood tree"))?,
+        };
+        let root = root.ok_or_else(|| anyhow!("no tree root at the wallet's checkpoint {height}"))?;
+        let path = path.ok_or_else(|| anyhow!("no witness for a note at checkpoint {height}; sync the wallet"))?;
+        anchor = Some(orchard::Anchor::from(root));
+        witnesses.push(receipts_core::reserve::ReserveWitness { note: n.note, merkle_path: orchard::tree::MerklePath::from(path) });
+    }
+    eprintln!("Proving {} note(s) against the {pool:?} tree at block {height}…", witnesses.len());
+    Ok(receipts_core::reserve::create_reserve(&receipts_core::proving_key(), net.coin_type(), pool, height, anchor.expect("at least one note"), msg, &sk, &witnesses, OsRng)?)
+}
+
 /// A shop's proof-request link: `…?request=<challenge>&to=<payee>&min=<zatoshis>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestLink {

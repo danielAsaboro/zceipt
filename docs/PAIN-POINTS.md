@@ -72,7 +72,7 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 |---|---|---|---|---|
 | D1 | Nothing turns a viewing key into records an accountant or auditor recognises (52-like thread) | [forum](https://forum.zcashcommunity.com/t/is-anyone-actually-using-viewing-keys-for-business-accounting/56300) | related | done for payments sent (batches); **new** for payments received (incoming receipts, §3c); full ledgers stay a viewing-key job |
 | D2 | Wallet tax exports are thin or missing; history wrong (change as income) | [forum](https://forum.zcashcommunity.com/t/exporting-transaction-history-to-json-csv-from-ufvk-seed/54662), [librustzcash#1304](https://github.com/zcash/librustzcash/issues/1304), [zwallet#160](https://github.com/hhanh00/zwallet/issues/160) | no | wallet history |
-| D3 | A DAO treasury couldn't produce repeatable proof of shielded reserves | [forum](https://forum.zcashcommunity.com/t/shielded-viewing-keys/54837) | related | open (reserve proofs reveal nullifiers; see §4) |
+| D3 | A DAO treasury couldn't produce repeatable proof of shielded reserves | [forum](https://forum.zcashcommunity.com/t/shielded-viewing-keys/54837) | related | **new**: proof of funds (§3f) |
 | D4 | Donation campaigns publish viewing keys by hand for transparency | [forum: Venezuela](https://forum.zcashcommunity.com/t/zcash-for-venezuela/56445), [forum: ZOMG](https://forum.zcashcommunity.com/t/zomg-transparency-report-and-accounts/38949) | core | done (aggregate campaigns, public notes) |
 | D5 | Grant and payroll proof for one transfer | [X: Zalary](https://x.com/UseZalary/status/2109338990109151660), [X: Obliq](https://x.com/IamAlikeX/status/2108080560811933808) | core | done (batches) |
 
@@ -170,7 +170,7 @@ zero-value output opened, so `v` is exact. No new circuit, no trusted list, no w
 | Unit and adversarial tests (`crates/receipts-core/tests/roundtrip.rs`) | Orchard and Ironwood round trips, hidden and revealed; a wrong source output, an unrelated output, a lie about the value (lower or higher), a hidden proof relabelled as revealed, a proof borrowed from another receipt, a dropped or edited claim: all refused. `a_zero_value_note_cannot_claim_any_source` builds a real forgery that satisfies the circuit and shows the fixed value commitment is what stops it |
 | Independent verifier (`spec-verifier`, Python, written from the spec) | Decodes v4 and checks everything but the Halo 2 proof; agrees with Rust on 232 signed adversarial cases, including 9 source-proof cases whose public inputs match exactly |
 | Real testnet | Receipts for testnet tx `571de6e4…` prove its note came from `2a2bd721…` action 0 (hidden, and with the value 0.125 TAZ revealed); verified against the chain by the CLI and the browser verifier, offline by the Rust, JS and Python tests ([examples/testnet/source](../examples/testnet/source)) |
-| Private chain end to end (`scripts/e2e-regtest.sh`, 22/22) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
+| Private chain end to end (`scripts/e2e-regtest.sh`, 24/24) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
 | Everywhere a receipt is verified | CLI (online and offline with `--source-raw-tx`), API (`sources`, `checks.source_of_funds`), browser verifier and npm package (`sourceTxs`), devtool wallet command |
 | No leak | The wallet builds the proof from its own records and asks no server for `S`; verifiers fetch `S` by txid (documented in [THREAT-MODEL.md](THREAT-MODEL.md) §11) |
 
@@ -235,9 +235,29 @@ Checked by the regtest end to end (withdrawal to a transparent address, shieldin
 of 0.45 ZEC, a 0.3 ZEC payment from the moved note; the batch proves every hop;
 [examples/regtest-hops](../examples/regtest-hops)).
 
+## 3f. Proof of funds
+
+`receipts reserve -w wallet -i key.age --at-least 0.05 -m "challenge:<nonce>"` proves the wallet
+holds at least that much in unspent shielded notes, for an OTC counterparty, an escrow, a lender
+or a treasury report, with no viewing key. Each note is proven against the pool's real tree root
+at a recent block with its exact value; the verifier downloads every nullifier the pool has
+published since it activated and checks none is the proof's, so the funds are unspent as of the
+tip. For Ironwood (where all new funds go) that is a few hundred thousand blocks: 45 seconds the
+first time on testnet over a public lightwalletd, 2.5 seconds after (cached against a block hash).
+Downloading everything tells the server nothing about which notes are checked.
+
+The price, stated on every report: the verifier learns the notes' nullifiers, so it can see when
+they are spent later. That is how "unspent" is checked at all (Monero's reserve proofs pay the
+same); a holder chooses whom to give one to.
+
+Checked by: `proof_of_funds` (values can't be overstated or understated even when re-signed by
+the holder, duplicates, another key, a zero-value note and a wrong root refused), a real testnet
+proof ([examples/testnet/reserve](../examples/testnet/reserve)) verified against the chain and
+by the independent Python verifier, and the regtest end to end, where the same proof is refused
+once the holder spends one of its notes.
+
 ## 4. Considered and not built (yet)
 
 | Idea | Pain | Why not now |
 |---|---|---|
 | Prove an amount bracket ("at least X") without the exact amount | A9, X: [Pli](https://x.com/ZecPli/status/2102083749819334736) | Needs a range proof circuit; out of scope for a no-new-circuit design |
-| Reserve proofs (prove a balance) | D3, C7 | A sound one is buildable with the same circuit (spend each note against a real past anchor, value fixed by the verifier), but showing the notes are *still unspent* needs the verifier to look up their nullifiers, and no lightwalletd or Zebra RPC indexes nullifiers: a verifier would scan every block since the note was made. It also hands the verifier the nullifiers, so it sees when the treasury spends (Monero's reserve proofs have the same flaw). Not shipped until a nullifier lookup exists; Tachyon's oblivious sync may change this |

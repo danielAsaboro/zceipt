@@ -40,6 +40,7 @@ mod encoding;
 pub mod deposit;
 pub mod incoming;
 pub mod payreq;
+pub mod reserve;
 pub mod preflight;
 pub mod signin;
 pub mod tripwire;
@@ -419,7 +420,7 @@ fn dummy_output(rho: Rho, version: orchard::note::NoteVersion, rng: &mut impl Cr
 }
 
 /// A note of `value` to a throwaway address with the given `rho`.
-fn note_to_throwaway(rho: Rho, value: NoteValue, version: orchard::note::NoteVersion, rng: &mut impl CryptoRng) -> Note {
+pub(crate) fn note_to_throwaway(rho: Rho, value: NoteValue, version: orchard::note::NoteVersion, rng: &mut impl CryptoRng) -> Note {
     let addr = loop {
         if let Some(sk) = Option::<SpendingKey>::from(SpendingKey::from_bytes(random_bytes(rng))) {
             break FullViewingKey::from(&sk).address_at(0u32, orchard::keys::Scope::External);
@@ -434,7 +435,7 @@ fn note_to_throwaway(rho: Rho, value: NoteValue, version: orchard::note::NoteVer
     }
 }
 
-fn zero_trapdoor() -> ValueCommitTrapdoor {
+pub(crate) fn zero_trapdoor() -> ValueCommitTrapdoor {
     Option::from(ValueCommitTrapdoor::from_bytes([0; 32])).expect("zero is a canonical scalar")
 }
 
@@ -547,7 +548,7 @@ pub fn source_proof_cmx(pool: Pool, nf: &[u8; 32], s: &SourceProof) -> Option<[u
 }
 
 /// The commitment of a revealed source proof's output: zero value to `address`, `rho = nf`.
-fn source_output_cmx(pool: Pool, nf: &orchard::note::Nullifier, address: &[u8; 43], rseed: &[u8; 32]) -> Option<ExtractedNoteCommitment> {
+pub(crate) fn source_output_cmx(pool: Pool, nf: &orchard::note::Nullifier, address: &[u8; 43], rseed: &[u8; 32]) -> Option<ExtractedNoteCommitment> {
     let address = Option::<Address>::from(Address::from_raw_address_bytes(address))?;
     let rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes()))?;
     let rseed = Option::<RandomSeed>::from(RandomSeed::from_bytes(*rseed, &rho))?;

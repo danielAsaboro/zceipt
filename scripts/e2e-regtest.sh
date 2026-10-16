@@ -164,6 +164,16 @@ for i in $(seq 1 10); do "$R" create -w ./saver -i ./saver.age --txid "$HOP" --t
 grep -q "tx ${PAY2:0:12}… action .* from tx ${HOP:0:12}…" hops-report.txt && grep -q "tx ${HOP:0:12}… action .* from tx ${SH2:0:12}…" hops-report.txt && grep -q "was funded in the clear: 0.50000000 ZEC from $SAVER_T" hops-report.txt \
   && ok "the batch proves the chain: payment <- self-transfer <- shielding of 0.5 ZEC from $SAVER_T" || { bad "multi-hop provenance"; tail -8 hops-report.txt; tail -3 create-hops.log; }
 
+echo "== Proof of funds: the saver proves what it holds; once it spends, the same proof is refused"
+sync saver
+"$R" reserve -w ./saver -i ./saver.age -m "challenge:otc-e2e" --out reserve.txt > reserve.log 2>&1 || { bad "proof of funds"; tail -3 reserve.log; }
+HELD=$(grep -o 'Proof of funds: [0-9.]* ZEC' reserve.log | grep -o '[0-9.]*')
+"$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-report.txt 2>&1 && grep -q "holds     $HELD ZEC" reserve-report.txt \
+  && ok "proof of funds: holds $HELD ZEC, unspent as of the tip (every Ironwood nullifier scanned)" || { bad "verify proof of funds"; tail -3 reserve-report.txt; }
+SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
+for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done
+grep -q "has been spent" reserve-after.txt && ok "after the saver spends, the same proof is refused (its nullifier is on chain)" || { bad "spent funds still proven"; tail -3 reserve-after.txt; }
+
 if [ -n "${EXPORT_SOURCE:-}" ]; then mkdir -p "$EXPORT_SOURCE"; cp source.txt source-value.txt source-report.json source-value-report.json hops.txt hops-report.txt source-deposit-tx.txt source-shield-tx.txt heights.toml "$EXPORT_SOURCE"/ 2>/dev/null || true; fi
 
 echo "== Signed payment request: the shop signs, its domain lists the address, the payer checks both"

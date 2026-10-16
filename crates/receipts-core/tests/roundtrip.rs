@@ -1427,3 +1427,51 @@ fn incoming_receipts_cover_one_address() {
     let v4 = verify_incoming(&keys().1, &only4, COIN_TYPE_TESTNET, TXID, &pay).unwrap();
     assert_eq!((v4.recipient, v4.outputs[0].value), (a4.to_raw_address_bytes(), 40_000));
 }
+
+// ---------- proof of funds ----------
+
+#[test]
+fn proof_of_funds() {
+    use receipts_core::reserve::{__resign_for_tests, create_reserve, verify_reserve, ReserveProof, ReserveWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    // The sender's funding note sits in a one-leaf tree; its root is the "chain" anchor here.
+    let anchor = s.funding_path.root(s.funding_note.commitment().into());
+    let w = || ReserveWitness { note: s.funding_note, merkle_path: s.funding_path.clone() };
+    let r = create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"challenge:0tc0ffer", &s.sender_sk, &[w()], OsRng).unwrap();
+    let parsed = ReserveProof::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    let chain = anchor.to_bytes();
+    let v = verify_reserve(&keys().1, &parsed, COIN_TYPE_TESTNET, &chain).unwrap();
+    assert_eq!(v.total, 100_000);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    assert_eq!(v.nullifiers, vec![s.funding_note.nullifier(&fvk).to_bytes()], "the note's real nullifier, so the chain can show it unspent");
+    // Another tree root (the chain says something else at that height) is refused.
+    assert_eq!(verify_reserve(&keys().1, &r, COIN_TYPE_TESTNET, &[1; 32]).unwrap_err(), Error::WrongAnchor);
+    assert!(verify_reserve(&keys().1, &r, COIN_TYPE_MAINNET, &chain).is_err());
+    // The holder can't overstate or understate a value, or prove the same note twice.
+    for lie in [99_999u64, 100_001, 1, 1_000_000] {
+        let mut e = r.clone();
+        e.notes[0].value = lie;
+        assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadSignature(0), "unsigned edit");
+        __resign_for_tests(&mut e, &mut { OsRng });
+        assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadProof(0), "value {lie} accepted");
+    }
+    assert_eq!(create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"", &s.sender_sk, &[w(), w()], OsRng).unwrap_err(), Error::DuplicateIndex(1));
+    let mut twice = r.clone();
+    twice.notes.push(twice.notes[0].clone());
+    twice.sigs.push(twice.sigs[0]);
+    __resign_for_tests(&mut twice, &mut { OsRng });
+    assert!(verify_reserve(&keys().1, &twice, COIN_TYPE_TESTNET, &chain).is_err());
+    // Someone else's key can't prove the note; a zero-value note proves nothing.
+    assert!(create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"", &SpendingKey::from_bytes([3; 32]).unwrap(), &[w()], OsRng).is_err());
+    let z = scenario_valued(BundleVersion::ironwood_v3(), 0, 0);
+    let za = z.funding_path.root(z.funding_note.commitment().into());
+    assert_eq!(create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1, za, b"", &z.sender_sk, &[ReserveWitness { note: z.funding_note, merkle_path: z.funding_path.clone() }], OsRng).unwrap_err(), Error::ZeroValueSource);
+    // A path to another root is refused at creation.
+    assert_eq!(create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1, za, b"", &s.sender_sk, &[w()], OsRng).unwrap_err(), Error::WrongAnchor);
+    // Strict decoding.
+    let mut b = r.to_bytes();
+    b.push(0);
+    assert!(ReserveProof::from_bytes(&b).is_none());
+    println!("proof of funds, one note: {} bytes", r.to_bytes().len());
+}

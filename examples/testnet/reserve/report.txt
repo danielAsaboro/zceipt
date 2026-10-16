@@ -1,0 +1,8 @@
+Checking the proofs and scanning the Ironwood pool's nullifiers (cached after the first run)…
+VALID proof of funds
+  network   testnet
+  pool      Ironwood
+  message   challenge:otc-desk-7f3a holding check
+  holds     0.09690000 ZEC in 1 note(s), all unspent as of block 4507676
+  proven    against the Ironwood tree at block 4507663; 373677 blocks of nullifiers scanned
+  revealed  each note's value and nullifier (so whoever holds this can see when they are spent); not the address or anything else

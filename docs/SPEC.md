@@ -235,6 +235,35 @@ bytes, the code 6 to 64 hex characters. A wallet:
    key, and the shop's domain doesn't list it;
 3. pays `amount` to the payee with `memo`, and makes a receipt that signs `challenge:<code>`.
 
+## Proof of funds (`zrsv1`)
+
+"I hold at least X in unspent shielded notes", without a viewing key.
+
+```
+proof := "ZRSV" | version:u8 = 1 | coin_type:u32le | pool:u8 | height:u32le | anchor[32]
+         | msg_len:u16le | msg | n:u8 | { nf[32] | value:u64le | rk[32] | out_address[43]
+         | out_rseed[32] | proof_len:u32le | proof }* | sig[64] * n
+text  := "zrsv1" || base64url_nopad(proof)
+digest := BLAKE2b-256("ZcashReserve" || coinType_LE32, everything before the signatures)
+```
+
+For each note: an Action proof spending it against `anchor`, with public inputs
+`(anchor, ValueCommit_0(value), nf, rk, cmx_out)`, where the verifier fixes the value commitment
+(value ≥ 1, so the anchor is enforced) and recomputes `cmx_out` from the opened zero-value output
+(`rho = nf`), so the note holds exactly `value`. Each note's `rk` signs the digest.
+
+The verifier (1) reads the pool's tree root after block `height` from the chain and requires it
+to equal `anchor`, so the notes existed then; (2) checks every proof and signature, with distinct
+nullifiers; (3) downloads every nullifier the pool has published from its activation (NU6.3 for
+Ironwood, NU5 for Orchard) to the tip and requires none to be one of the proof's: the notes are
+unspent as of the tip. Downloading every block's nullifiers, as a wallet sync does, tells the
+server nothing about which notes are checked; the nullifiers are cached keyed to a block hash, so
+the next check only scans new blocks.
+
+The verifier learns the values and the nullifiers, and so can see when these notes are spent
+later. That is inherent to proving them unspent (Monero's reserve proofs reveal key images for
+the same reason). Nothing else is revealed: no address, no other notes.
+
 ## Batches
 
 ```

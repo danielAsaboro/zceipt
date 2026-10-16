@@ -221,6 +221,14 @@ the expiry and that `https://shop.example/.well-known/zcash-receipts.json` lists
 pays and returns a receipt for the request code. Nobody can swap the address or change the amount
 in transit.
 
+## Prove you hold funds
+
+`receipts reserve -w wallet -i key.age --at-least 0.05 -m "challenge:<nonce>"` proves you hold at
+least that much in unspent shielded notes, for a counterparty, an escrow or a treasury report,
+without a viewing key. Verifiers check each note against the chain's tree root and scan every
+published nullifier to confirm they're unspent. They learn the notes' values and nullifiers (so
+they can see when you spend them), nothing else.
+
 ## Optionally keep the memo private
 
 `--withhold-memo` proves who was paid and how much, and leaves the memo encrypted: the receipt

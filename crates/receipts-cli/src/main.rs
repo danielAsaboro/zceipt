@@ -179,6 +179,26 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Proof of funds: prove you hold at least an amount in unspent shielded notes (for a
+    /// counterparty, an escrow, a lender or a treasury report), without a viewing key. Reveals
+    /// each note's value and nullifier (so the verifier can see when they are spent), nothing else.
+    Reserve {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// A challenge or purpose to bind in (e.g. the counterparty's nonce).
+        #[arg(short, long, default_value = "")]
+        msg: String,
+        /// Prove at least this many ZEC, using the fewest (largest) notes. Default: every unspent note.
+        #[arg(long)]
+        at_least: Option<String>,
+        /// orchard or ironwood (default ironwood, where new funds live).
+        #[arg(long, default_value = "ironwood")]
+        pool: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Shops: sign a payment request (`zreq1…`) with your wallet's key, so payers' wallets can
     /// check nobody changed the address, amount or memo, and that your domain lists the address.
     Request {
@@ -606,6 +626,18 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("`h=` lets verifiers fetch the whole block, so the server never learns which transaction):");
             println!("{}#{}&h={}", link_base, text, mined_height);
         }
+        Cmd::Verify { receipt, server, json, regtest, .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
+            let text = read_arg_text(&receipt)?;
+            let i = text.find(receipts_core::reserve::RESERVE_TEXT_PREFIX).unwrap();
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let r = receipts_core::reserve::ReserveProof::from_text(&body).ok_or_else(|| anyhow!("malformed proof of funds"))?;
+            // Nullifiers already downloaded are cached, so the next check only fetches new blocks.
+            let net = net::for_receipt(r.coin_type, regtest.as_deref())?;
+            let cache = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/receipts").join(format!("{}-{}-{}-nullifiers.bin", net.name(), if r.pool == Pool::Orchard { "orchard" } else { "ironwood" }, server.as_deref().unwrap_or("default").replace([':', '/'], "_"))));
+            eprintln!("Checking the proofs and scanning the {} pool's nullifiers (cached after the first run)…", if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" });
+            let rep = chain::verify_reserve_against_chain(&r, server.as_deref(), regtest.as_deref(), cache.as_deref()).await?;
+            if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
+        }
         Cmd::Verify { receipt, json, regtest, raw_tx: Some(raw), height: Some(height), .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
             let r = read_incoming_arg(&receipt)?;
             let rep = chain::verify_incoming_offline(&r, &std::fs::read_to_string(&raw)?, height, regtest.as_deref())?;
@@ -776,6 +808,23 @@ async fn main() -> anyhow::Result<()> {
             if v["ok"] != true {
                 std::process::exit(1);
             }
+        }
+        Cmd::Reserve { wallet, identity, msg, at_least, pool, out } => {
+            let pool = match pool.as_str() {
+                "ironwood" => Pool::Ironwood,
+                "orchard" => Pool::Orchard,
+                p => bail!("unknown pool {p}"),
+            };
+            let min = at_least.as_deref().map(parse_zec).transpose()?;
+            let r = wallet::create_reserve_proof(&wallet, &identity, pool, msg.as_bytes(), min)?;
+            let text = r.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!("Proof of funds: {} ZEC in {} note(s) at block {}, {} bytes.", chain::zec(r.total()), r.notes.len(), r.height, r.to_bytes().len());
+            eprintln!("It reveals each note's value and nullifier (the verifier can see when they are spent), nothing else.");
+            println!("{text}");
         }
         Cmd::Request { wallet, identity, domain, amount, memo, code, expires_in, payee } => {
             let zats = parse_zec(&amount)?;

@@ -148,6 +148,15 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | An attacker who signs its own request for the shop's domain | Refused: the domain's `/.well-known/zcash-receipts.json` doesn't list its address | same; e2e "a request for an address the domain doesn't list is refused" |
 | The shop's domain | Learns that a wallet fetched its payee list (no wallet data is sent) | `receipts-cli/src/main.rs::domain_lists` |
 
+## 11e. Proof of funds (`receipts reserve`)
+
+| Party | Learns | Backed by |
+|---|---|---|
+| Verifier | The total and each note's value; the notes' nullifiers, so it can see when they are spent later (inherent: it is how "unspent" is checked) | `roundtrip.rs::proof_of_funds`; `examples/testnet/reserve` |
+| Verifier | Not: the holder's address, other notes, history | same |
+| lightwalletd (verifier side) | Only that the verifier downloaded the pool's blocks (all of them since activation), not which nullifiers it looks for | `receipts-chain/src/chain.rs::published_nullifiers` |
+| Holder after spending | Can't keep using the proof: once a nullifier is on chain, verification fails | `scripts/e2e-regtest.sh` ("after the saver spends, the same proof is refused") |
+
 ## 12. Webhooks and the 402 gate
 
 | Party | Learns | Backed by |

@@ -110,6 +110,17 @@ class Testnet(unittest.TestCase):
         with self.assertRaisesRegex(v.Invalid, "bad signature"):
             v.verify_request("zreq1" + rc.base64.urlsafe_b64encode(bytes(b)).decode().rstrip("="), 1, 1_792_120_000)
 
+    def test_proof_of_funds(self):
+        """examples/testnet/reserve: a proof of funds over the sender's unspent Ironwood note, with
+        the tree root lightwalletd reported at that height (anchor.hex)."""
+        d = os.path.join(EX, "reserve")
+        t = open(os.path.join(d, "proof.txt")).read().strip()
+        anchor = bytes.fromhex(open(os.path.join(d, "anchor.hex")).read().strip())
+        rep = v.verify_reserve(t, 1, anchor)
+        self.assertEqual(rep["total"], 9_690_000)
+        with self.assertRaisesRegex(v.Invalid, "anchor"):
+            v.verify_reserve(t, 1, bytes(32))
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

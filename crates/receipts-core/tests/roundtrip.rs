@@ -537,6 +537,10 @@ fn oversized_receipts_are_refused_at_creation() {
     assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &outs[..255], &[w()], OsRng).unwrap_err(), Error::DuplicateIndex(s.merchant_index as u32));
     assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &spends[..255], OsRng).unwrap_err(), Error::DuplicateIndex(s.spend_index as u32));
     assert!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long[..65_535], &[], &[w()], OsRng).is_ok());
+    // The same limit for outputs disclosed without their memo.
+    let ext = |withheld: &[(usize, orchard::keys::OutgoingViewingKey)]| receipts_core::create_cross_ext(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"", &[], withheld, &[w()], OsRng);
+    assert_eq!(ext(&outs).unwrap_err(), Error::TooLarge);
+    assert_eq!(ext(&outs[..255]).unwrap_err(), Error::DuplicateIndex(s.merchant_index as u32));
 }
 
 #[test]
@@ -1339,7 +1343,18 @@ fn signed_payment_requests() {
     assert!(!domain_lists_payee(&listed, &thief_payee, resolve));
     // Nobody can sign for an address it doesn't own.
     assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, "", "a1b2c3d4", now, &thief_sk, payee, OsRng).is_err());
-    // Malformed fields are refused when signing and decoding.
+    // Malformed fields are refused when signing and decoding: each rule on its own.
+    let ok = |d: &str, m: &str, c: &str, a: u64| sign_request(&keys().0, COIN_TYPE_TESTNET, d, a, m, c, now, &shop_sk, payee, OsRng).is_ok();
+    assert!(ok("shop.example:8443", &"m".repeat(512), &"a".repeat(64), 1));
+    assert!(ok("shop.example", "", "abcdef", 1));
+    assert!(ok("kemis-coffee.test", "", "abcdef", 1), "hyphen in domain");
+    assert!(!ok("", "", "abcdef", 1), "empty domain");
+    assert!(!ok("shop example", "", "abcdef", 1), "space in domain");
+    assert!(!ok("shop.example/path", "", "abcdef", 1), "path in domain");
+    assert!(!ok(&"a".repeat(254), "", "abcdef", 1), "domain too long");
+    assert!(ok(&"a".repeat(253), "", "abcdef", 1));
+    assert!(!ok("shop.example", "", "abcde", 1), "code too short");
+    assert!(!ok("shop.example", "", &"a".repeat(65), 1), "code too long");
     assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 0, "", "a1b2c3d4", now, &shop_sk, payee, OsRng).is_err());
     assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, &"x".repeat(513), "a1b2c3d4", now, &shop_sk, payee, OsRng).is_err());
     assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, "", "not-hex!", now, &shop_sk, payee, OsRng).is_err());
@@ -1347,4 +1362,68 @@ fn signed_payment_requests() {
     b.push(0);
     assert!(PaymentRequest::from_bytes(&b).is_none());
     println!("signed request: {} bytes, {} chars", r.to_bytes().len(), r.to_text().len());
+}
+
+/// Exact limits for incoming receipts: message length and output count at creation, proof length
+/// when decoding.
+#[test]
+fn incoming_receipt_limits_are_exact() {
+    use receipts_core::incoming::{create_incoming, IncomingReceipt};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let mk = |msg: &[u8], idx: &[usize]| create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, msg, &sk, idx, OsRng);
+    let long = vec![b'x'; 65_536];
+    assert_eq!(mk(&long, &[s.merchant_index]).unwrap_err(), Error::TooLarge);
+    assert!(mk(&long[..65_535], &[s.merchant_index]).is_ok());
+    let many = vec![s.merchant_index; 256];
+    assert_eq!(mk(b"", &many).unwrap_err(), Error::TooLarge);
+    assert_eq!(mk(b"", &many[..255]).unwrap_err(), Error::DuplicateIndex(s.merchant_index as u32));
+    let good = mk(b"", &[s.merchant_index]).unwrap();
+    for (n, ok) in [(1usize << 16, true), ((1 << 16) + 1, false)] {
+        let mut r = good.clone();
+        r.address.proof = vec![7; n];
+        assert_eq!(IncomingReceipt::from_bytes(&r.to_bytes()).is_some(), ok, "proof of {n} bytes");
+    }
+}
+
+
+/// One incoming receipt proves one address: with outputs to two of the wallet's addresses in one
+/// transaction, the default picks the first address's outputs, and asking for both is refused.
+#[test]
+fn incoming_receipts_cover_one_address() {
+    use receipts_core::incoming::{create_incoming, verify_incoming};
+    let version = BundleVersion::ironwood_v3();
+    let mut rng = OsRng;
+    let pk = network_pk(version);
+    let sender_sk = SpendingKey::from_bytes([7; 32]).unwrap();
+    let sender_fvk = FullViewingKey::from(&sender_sk);
+    let shop_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let shop = FullViewingKey::from(&shop_sk);
+    let (a3, a4) = (shop.address_at(3u32, Scope::External), shop.address_at(4u32, Scope::External));
+    let empty: orchard::Anchor = MerkleHashOrchard::empty_root(32.into()).into();
+    let mut b = Builder::new(BundleType::DEFAULT, version, Flags::SPENDS_DISABLED, empty).unwrap();
+    b.add_output(None, sender_fvk.address_at(0u32, Scope::External), NoteValue::from_raw(100_000), [0u8; 512]).unwrap();
+    let (unauth, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
+    let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
+    let funding = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[]).unwrap();
+    let note = decrypt(version, &funding, &sender_fvk);
+    let (root, path) = single_leaf_witness(&note.commitment().into());
+    let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), root.into()).unwrap();
+    b.add_spend(sender_fvk.clone(), note, path).unwrap();
+    b.add_output(None, a3, NoteValue::from_raw(30_000), [0u8; 512]).unwrap();
+    b.add_output(None, a4, NoteValue::from_raw(40_000), [0u8; 512]).unwrap();
+    let (unauth, meta) = b.build::<i64>(&mut rng).unwrap().unwrap();
+    let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
+    let pay = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[SpendAuthorizingKey::from(&sender_sk)]).unwrap();
+    let (i3, i4) = (meta.output_action_index(0).unwrap(), meta.output_action_index(1).unwrap());
+    let auto = create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &pay, b"", &shop_sk, &[], OsRng).unwrap();
+    let v = verify_incoming(&keys().1, &auto, COIN_TYPE_TESTNET, TXID, &pay).unwrap();
+    assert_eq!(v.outputs.len(), 1, "one address per receipt");
+    let first = i3.min(i4);
+    assert_eq!(v.outputs[0].index as usize, first);
+    assert_eq!(v.recipient, if first == i3 { a3 } else { a4 }.to_raw_address_bytes());
+    assert_eq!(create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &pay, b"", &shop_sk, &[i3, i4], OsRng).unwrap_err(), Error::AddressNotOwned);
+    let only4 = create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &pay, b"", &shop_sk, &[i4], OsRng).unwrap();
+    let v4 = verify_incoming(&keys().1, &only4, COIN_TYPE_TESTNET, TXID, &pay).unwrap();
+    assert_eq!((v4.recipient, v4.outputs[0].value), (a4.to_raw_address_bytes(), 40_000));
 }

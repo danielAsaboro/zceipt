@@ -17,7 +17,7 @@
 //!
 //! No nullifier is revealed, so the verifier can't tell when the received notes are spent.
 
-use crate::{address_proof, pool_note_version, random_scalar, signing_personal, verify_address_proof, AddressProof, Error, Pool, VerifiedOutput};
+use crate::{address_proof, random_scalar, signing_personal, verify_address_proof, AddressProof, Error, Pool, VerifiedOutput};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use blake2b_simd::Params;
 use orchard::{
@@ -267,8 +267,9 @@ pub fn verify_incoming<A: Authorization, V>(vk: &VerifyingKey, r: &IncomingRecei
             Pool::Ironwood => try_output_recovery_with_pkd_esk(&IronwoodDomain::for_action(a), pk_d, esk, a),
         };
         let (note, to, memo) = found.ok_or(Error::BadOutputKey(o.index))?;
-        // Recovery checks the commitment for the address it was given; the note must be to it.
-        if to.to_raw_address_bytes() != r.address.address || note.version() != pool_note_version(r.pool) {
+        // Recovery rebuilds the note for the pk_d it was given and checks its commitment, so the
+        // note is to the proven address; checked again here explicitly.
+        if to.to_raw_address_bytes() != r.address.address {
             return Err(Error::BadOutputKey(o.index));
         }
         outputs.push(VerifiedOutput { index: o.index, recipient: r.address.address, value: note.value().inner(), memo, memo_withheld: false });

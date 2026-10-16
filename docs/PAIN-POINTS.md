@@ -9,8 +9,10 @@ response and how it was checked.
 Read in October 2026 from: the Zcash Community Forum (83 posts), GitHub issues across 15 Zcash
 repositories (92 issues), X/Twitter (about 30 searches, 31 posts kept), Hacker News, and the
 documentation, issues and forums of Bitcoin, Ethereum, Monero, Aleo, Penumbra, Namada and
-Midnight projects. Reddit refuses automated reading (its servers and the browser both blocked
-it), so Reddit is not covered. Every row links to what was read; the text is paraphrased.
+Midnight projects. Reddit blocks automated reading, so the Reddit rows (section F, about 90
+threads) come from Google's indexed titles and snippets of r/zec, r/Monero, r/CryptoCurrency,
+r/Coinbase and others, not from opening the threads. Every row links to what was read; the text
+is paraphrased.
 
 ## 1. The pain points
 
@@ -84,6 +86,28 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 | E4 | Same seed, different u1 address across wallets | [X](https://x.com/besiktaspokemon/status/2099643383408906574) |
 | E5 | NEAR Intents exits: holds, AML reversals, t-address reuse | [X: spirobel](https://x.com/spirobel/status/2110246706050912628) |
 | E6 | Memo download leaks txids to the server; memos off by default | [zwallet#38](https://github.com/hhanh00/zwallet/issues/38), [zingo-mobile#93](https://github.com/zingolabs/zingo-mobile/issues/93) |
+
+### F. Reddit (from Google's index of the threads)
+
+| # | Pain | Thread | Fit | Status |
+|---|---|---|---|---|
+| F1 | Coinbase won't withdraw ZEC to a shielded address; users must make a transparent one | [r/Coinbase](https://www.reddit.com/r/Coinbase/comments/lzu8ie/withdraw_zcash_to_shielded_addresses/) | related | **new** (source proof covers the shield-after-withdrawal path) |
+| F2 | Trouble sending ZEC from a Ledger to Coinbase; "is it only for shielded?" | [r/CryptoHelp](https://www.reddit.com/r/CryptoHelp/comments/1w8ua10/i_have_read_a_lot_stories_about_having_trouble/) | related | **new** |
+| F3 | Users want to buy on Coinbase then gain privacy, unsure whether the KYC on-ramp undoes it | [r/zec](https://www.reddit.com/r/zec/comments/1pg162y/how_effective_is_zcash_for_improving_privacy/), [r/zec](https://www.reddit.com/r/zec/comments/1oc1tuz/buying_from_coinbase/) | related | **new**: the link back to the withdrawal is now shown only to whom the user chooses |
+| F4 | Zodl forces shielding; can't send out from the transparent address | [r/zec](https://www.reddit.com/r/zec/comments/1s25i00/unshielding_zec_on_zodl_wallet_and_sending_back/) | no | wallet policy |
+| F5 | "Why do KYC exchanges allow ZEC?" — because privacy is optional and most use is transparent; optional privacy seen as a trap that erodes the shielded set | [r/Monero](https://www.reddit.com/r/Monero/comments/1o453e3/why_centralised_kyc_exchanges_allow_zec/), [r/zec](https://www.reddit.com/r/zec/comments/1oyz2bt/is_zcashs_privacy_model_a_trap_how_optional/), [r/zec](https://www.reddit.com/r/zec/comments/1ovs5ad/some_zcash_info_people_really_arent_talking_about/) | related | **new**: gives exchanges a way to accept shielded deposits instead of pushing users transparent |
+| F6 | Monero is adding view keys aimed at getting listed again | [r/Monero](https://www.reddit.com/r/Monero/comments/1v4ecbj/moneros_new_view_keys_will_allow_it_to_become/) | context | competitors move toward disclosure too |
+| F7 | Monero users rely on tx keys / payment proofs for disputes; a gateway (xmr-pay) lets merchants verify tx proofs serverless; wallets like Exodus don't expose them | [r/Monero](https://www.reddit.com/r/Monero/comments/1u3kl74/xmrpay_free_open_source_monero_payment_gateway/), [r/ExodusWallet](https://www.reddit.com/r/ExodusWallet/comments/rov4za/how_do_i_find_payment_proof_of_monero/), [r/monerosupport](https://www.reddit.com/r/monerosupport/comments/1lh38x5/mastering_monero_questions_regarding_proof_of/) | core | done: Receipts is the Zcash equivalent, with sender proof |
+| F8 | "Where one can prove payment was made if there is a dispute" raised against private money | [r/btc](https://www.reddit.com/r/btc/comments/1oexnp9/do_you_want_a_gps_tracker_on_the_cash_you/) | core | done |
+| F9 | Viewing keys pitched as the compliance answer ("hand one to an accountant") | [r/CryptoCurrencyFIRE](https://www.reddit.com/r/CryptoCurrencyFIRE/comments/1vg59ii/building_a_compliancefirst_protocol_for/), [r/zec](https://www.reddit.com/r/zec/comments/9vg294/zec_may_not_list_on_coinbase/) | core | done (a receipt instead of a key) |
+| F10 | The Orchard minting bug: "impossible to prove whether it was exploited" | [r/CryptoCurrency](https://www.reddit.com/r/CryptoCurrency/comments/1tyk1sd/zcash_bug_allowed_unlimited_minting_was_it/) | no | supply auditing, not payments |
+| F11 | Zodl/Zashi balance shows zero, sends fail, wallet resets; YWallet shows a balance it can't spend | [r/zec](https://www.reddit.com/r/zec/comments/1w5jmd6/my_zodl_balance_is_showing_zero_but_history_of/), [r/zec](https://www.reddit.com/r/zec/comments/1q9fya1/zashi_transactions_not_working/), [r/zec](https://www.reddit.com/r/zec/comments/1w7hgvb/zodl_wallet_random_reset_and_all_my_zcash_gone/), [r/zec](https://www.reddit.com/r/zec/comments/18rtk7n/ywallet_shows_zec_balance_in_z_u_address_but_i/) | no | wallet reliability |
+| F12 | Unified vs transparent addresses confuse users | [r/zec](https://www.reddit.com/r/zec/comments/1fw62gy/question_about_unified_addresses/), [r/zec](https://www.reddit.com/r/zec/comments/vksxvf/ua_addresses_and_shielded_funds/) | no | wallet UX |
+| F13 | Amount correlation and a small anonymity set break optional privacy | [r/Monero](https://www.reddit.com/r/Monero/comments/1ij2pup/optional_privacy_vs_full_privacy/), [r/zec](https://www.reddit.com/r/zec/comments/9ql7dn/psa_zcash_sapling_fullyshielded_transactions/) | no | see E1 |
+| F14 | Swaps make users paste a refund address by hand (and a QR adds a `solana:` prefix) | [r/zec](https://www.reddit.com/r/zec/comments/1x47ge9/for_people_who_hold_zec_on_solana_whats_your/) | related | done (signed, checked `refund-to:`) |
+
+Reddit agrees with the other sources: the exchange on-ramp and off-ramp is where privacy breaks,
+and Monero users already lean on per-payment proofs that Zcash lacked.
 
 What stands out: the loudest pain a payment-proof tool can address is **B (source of funds)**.
 It is the largest forum thread, it is why exchanges keep Zcash transparent, and it is the one

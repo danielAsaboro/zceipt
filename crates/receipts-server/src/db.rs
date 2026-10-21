@@ -152,6 +152,8 @@ impl Db {
             "snapshot_at INTEGER",
             "test_clock TEXT",
             "final_at INTEGER",
+            "source_policy TEXT",
+            "provenance TEXT",
         ] {
             let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
         }

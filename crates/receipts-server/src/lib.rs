@@ -18,6 +18,7 @@ pub mod db;
 pub mod error;
 pub mod refunds;
 pub mod requests;
+pub mod deposits;
 pub mod sandbox;
 pub mod signin;
 pub mod verifier;
@@ -738,6 +739,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/requests/{id}/receipts", post(submit_receipt))
         .route("/v1/requests/{id}/qr.svg", get(request_qr))
         .route("/v1/requests/{id}/refunds", post(refunds::create))
+        .route("/v1/requests/{id}/review", post(deposits::review))
         .route("/v1/requests/{id}/attestations", post(attestations::create))
         .route("/v1/attestations/verify", post(attestations::verify))
         .route("/.well-known/jwks.json", get(attestations::jwks))

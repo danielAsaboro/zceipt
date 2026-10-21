@@ -36,7 +36,9 @@
   td.mono, .mono { font-family:var(--mono); font-size:12px; word-break:break-all; }
   .pill { font-family:var(--mono); font-size:11px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); }
   .pill.open, .pill.pending { color:var(--warn); border-color:var(--warn); }
-  .pill.fulfilled, .pill.delivered { color:var(--good); border-color:var(--good); }
+  .pill.fulfilled, .pill.delivered, .pill.cleared { color:var(--good); border-color:var(--good); }
+  .pill.held_for_review, .pill.review { color:#e3b75f; border-color:#e3b75f; }
+  .pill.rejected { color:#e0796f; border-color:#e0796f; }
   .pill.expired, .pill.failed { color:var(--bad); border-color:var(--bad); }
   .pill.final, .pill.succeeded { color:var(--good); border-color:var(--good); }
   .kv { display:grid; grid-template-columns: max-content 1fr; gap:4px 12px; font-size:13px; margin-top:8px; }
@@ -83,6 +85,8 @@
         <label for="rq-kind">Kind</label>
         <select id="rq-kind"><option value="single">Single payment</option><option value="partial">Partial payments add up</option><option value="campaign">Campaign (public aggregate page)</option></select>
         <label for="rq-exp">Expires in (minutes, optional)</label><input id="rq-exp" inputmode="numeric" placeholder="60">
+        <label class="row" style="margin-top:8px"><input type="checkbox" id="rq-sof" style="width:auto"> Deposit: require proof of where the money came from</label>
+        <label for="rq-blocked">Screen against these transparent addresses (one per line, optional)</label><textarea id="rq-blocked" placeholder="t1…"></textarea>
         <label for="rq-clock">Test clock (sandbox, optional)</label><select id="rq-clock"><option value="">None: real time</option></select>
         <button class="primary" id="rq-create">Create request</button>
         <div id="rq-out"></div>
@@ -124,7 +128,7 @@
         <h2>Add endpoint</h2>
         <label for="we-url">URL</label><input id="we-url" placeholder="https://example.com/webhooks/receipts">
         <label for="we-events">Events</label>
-        <select id="we-events"><option value="*">All events</option><option>request.created</option><option>request.payment_received</option><option>request.fulfilled</option><option>request.final</option><option>request.payment_reorged</option><option>request.expired</option><option>receipt.rejected</option><option>refund.created</option><option>refund.succeeded</option></select>
+        <select id="we-events"><option value="*">All events</option><option>request.created</option><option>request.payment_received</option><option>request.fulfilled</option><option>request.held_for_review</option><option>request.rejected</option><option>request.final</option><option>request.payment_reorged</option><option>request.expired</option><option>receipt.rejected</option><option>refund.created</option><option>refund.succeeded</option></select>
         <button class="primary" id="we-create">Add endpoint</button>
         <div id="we-out"></div>
         <p class="muted">For local development: <span class="mono">receipts listen --forward-to http://localhost:3000/…</span></p>
@@ -232,6 +236,10 @@ async function showRequest(id, into = "#rq-detail") {
     ${pays ? `<label>Payments</label><table><thead><tr><th>Tx</th><th>Amount</th><th>Block</th><th>Refund address</th></tr></thead><tbody>${pays}</tbody></table>` : ""}
     ${v ? `<div class="kv"><span class="k">Verdict</span><span class="${v.verdict === "valid" ? "ok" : ""}">${esc(v.verdict || "valid")}</span>${v.checks ? Object.entries(v.checks).map(([k, x]) => `<span class="k">${esc(k.replace(/_/g, " "))}</span><span>${esc(typeof x === "object" && x ? x.level ?? JSON.stringify(x) : x)}</span>`).join("") : ""}</div>
       <details class="act"><summary>Full verification</summary><pre>${esc(JSON.stringify(v, null, 2))}</pre></details>` : ""}
+    ${r.source_of_funds ? `<label>Source of funds</label>${r.provenance ? `<div class="kv"><span class="k">Screening</span><span><span class="pill ${esc(r.provenance.status)}">${esc(r.provenance.status)}</span>${r.provenance.review ? ` <span class="muted">reviewed: ${esc(r.provenance.review.decision)}</span>` : ""}</span>
+      ${(r.provenance.funding || []).map((f) => `<span class="k">Funded by</span><span class="mono">${zec(f.zatoshis)} from ${esc(short(f.address, 10))} <span class="muted">(via ${esc(short(f.source_txid, 6))})</span></span>`).join("")}
+      ${(r.provenance.reasons || []).map((x) => `<span class="k">Why held</span><span>${esc(x)}</span>`).join("")}</div>` : `<p class="muted">Required: the payer's receipt must prove where the money came from; ${r.source_of_funds.screened_addresses} address(es) screened.</p>`}
+      ${r.status === "held_for_review" ? `<div class="row"><button class="primary" id="rv-ok-${r.id}">Accept and credit</button><button id="rv-no-${r.id}">Reject</button></div><div id="rv-out-${r.id}"></div>` : ""}` : ""}
     ${refunds ? `<label>Refunds</label><table><thead><tr><th>Refund</th><th>Amount</th><th>Status</th><th>Reason</th></tr></thead><tbody>${refunds}</tbody></table>` : ""}
     ${r.payments?.length ? `<details class="act"><summary>Refund</summary>
       <p class="muted">Goes to the refund address the payer signed into their receipt. Leave the amount empty to refund what's left.</p>
@@ -243,6 +251,13 @@ async function showRequest(id, into = "#rq-detail") {
       <div class="row muted" style="margin-top:6px">${["txid", "amount_zatoshis", "paid_at", "request", "label"].map((d) => `<label class="row" style="margin:0"><input type="checkbox" data-disc="${d}" style="width:auto"> reveal ${d.replace("_zatoshis", "")}</label>`).join("")}</div>
       <button class="primary" id="at-btn-${r.id}">Issue attestation</button><div id="at-out-${r.id}"></div></details>` : ""}
   </div>`;
+  for (const [bid, decision] of [[`rv-ok-${r.id}`, "accept"], [`rv-no-${r.id}`, "reject"]]) {
+    const b = q(bid);
+    if (b) b.onclick = async () => {
+      try { await api("POST", `/v1/requests/${r.id}/review`, { decision }); await loadRequests(); await showRequest(r.id, into); }
+      catch (e) { q(`rv-out-${r.id}`).innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
+    };
+  }
   const btn = q(`subbtn-${r.id}`);
   if (btn) btn.onclick = async () => {
     btn.disabled = true; btn.textContent = "Verifying…";
@@ -280,7 +295,8 @@ $("#rq-create").onclick = async () => {
   try {
     const exp = $("#rq-exp").value.trim();
     const r = await api("POST", "/v1/requests", { payee: $("#rq-payee").value.trim(), label: $("#rq-label").value.trim() || undefined, amount_zatoshis: amount ? Math.round(Number(amount) * 1e8) : undefined,
-      kind: $("#rq-kind").value, expires_in: exp ? Math.round(Number(exp) * 60) : undefined, test_clock: $("#rq-clock").value || undefined });
+      kind: $("#rq-kind").value, expires_in: exp ? Math.round(Number(exp) * 60) : undefined, test_clock: $("#rq-clock").value || undefined,
+      source_of_funds: $("#rq-sof").checked ? { required: true, blocked_addresses: $("#rq-blocked").value.split(/\s+/).filter(Boolean) } : undefined });
     await loadRequests(); await showRequest(r.id, "#rq-out");
   } catch (e) { $("#rq-out").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
 };

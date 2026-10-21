@@ -157,6 +157,14 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | lightwalletd (verifier side) | Only that the verifier downloaded the pool's blocks (all of them since activation), not which nullifiers it looks for | `receipts-chain/src/chain.rs::published_nullifiers` |
 | Holder after spending | Can't keep using the proof: once a nullifier is on chain, verification fails | `scripts/e2e-regtest.sh` ("after the saver spends, the same proof is refused") |
 
+## 11f. Deposit desks (`source_of_funds` requests)
+
+| Party | Learns | Backed by |
+|---|---|---|
+| Exchange | For each deposit: the source transactions of the spent notes and the transparent addresses and amounts that funded them, as with a transparent deposit; nothing else about the customer's wallet | `receipts-server/src/deposits.rs::evaluate`; e2e "deposit desk" |
+| Anyone with the pay link | That the request requires a source and how many addresses are screened, never the list | `api.rs::deposit_desk_policy` |
+| Customer | Whether the deposit was credited or held, and why (via the shop); a rejected deposit is refunded to the address they signed | e2e "the desk rejected it and refunds to the address the payer signed" |
+
 ## 12. Webhooks and the 402 gate
 
 | Party | Learns | Backed by |

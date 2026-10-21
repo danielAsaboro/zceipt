@@ -256,6 +256,31 @@ proof ([examples/testnet/reserve](../examples/testnet/reserve)) verified against
 by the independent Python verifier, and the regtest end to end, where the same proof is refused
 once the holder spends one of its notes.
 
+## 3g. Deposit desks: shielded deposits an exchange can accept
+
+The point of source-of-funds proofs is that an exchange can switch them on. A request created with
+`"source_of_funds": {"required": true, "blocked_addresses": [...]}` (API, or a checkbox on the
+dashboard) only accepts a receipt that proves where every spent note came from; `receipts pay`
+adds the proof by itself when the request asks. The desk's server then screens the transparent
+addresses that funded the money into the shielded pool against the exchange's own list:
+
+- all clear: the deposit is credited, with a provenance record (funding addresses, amounts,
+  source transactions) kept on the request;
+- a listed address, or funding the payer didn't show: `held_for_review`
+  (`request.held_for_review` webhook); the desk accepts or rejects it
+  (`POST /v1/requests/{id}/review`), and a rejected deposit is refunded to the address the payer
+  signed into the receipt.
+
+The exchange learns the link and the funding addresses, what it would learn from a transparent
+deposit, and nothing else about the customer's wallet. The customer stays shielded.
+
+Checked by: the regtest end to end (a trader withdraws to a transparent address and shields; a
+receipt without proof of source is refused with `source_of_funds_required`; with it, the deposit
+is credited and the funding address recorded; against a list holding that address, `receipts pay`
+attaches the proof on its own and the deposit is held; the desk rejects it and the refund goes to
+the trader's signed address; webhook events recorded) and `api.rs::deposit_desk_policy` (policy
+validation, the public view never shows the list, review only for held deposits).
+
 ## 4. Considered and not built (yet)
 
 | Idea | Pain | Why not now |

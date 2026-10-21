@@ -48,9 +48,12 @@ pub struct RequestRec {
     pub clock_time: Option<i64>,
     /// When the payment reached FINALITY_CONFIRMATIONS.
     pub final_at: Option<i64>,
+    /// Deposit desks: the source-of-funds policy (JSON) and the checked provenance (JSON).
+    pub source_policy: Option<String>,
+    pub provenance: Option<String>,
 }
 
-const COLS: &str = "id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification, received_zatoshis, client_secret, test_clock, (SELECT frozen_time FROM test_clocks WHERE test_clocks.id = requests.test_clock), final_at";
+const COLS: &str = "id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification, received_zatoshis, client_secret, test_clock, (SELECT frozen_time FROM test_clocks WHERE test_clocks.id = requests.test_clock), final_at, source_policy, provenance";
 
 fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RequestRec> {
     Ok(RequestRec {
@@ -74,6 +77,8 @@ fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RequestRec> {
         test_clock: r.get(17)?,
         clock_time: r.get(18)?,
         final_at: r.get(19)?,
+        source_policy: r.get(20)?,
+        provenance: r.get(21)?,
     })
 }
 
@@ -155,7 +160,9 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "expires_at": r.expires_at,
         "payment_uri": uri,
         "receipt_link": link,
-        "cli_command": format!("receipts create -w <wallet> -i <key.age> --txid <txid> --request '{link}'"),
+        "cli_command": format!("receipts create -w <wallet> -i <key.age> --txid <txid>{} --request '{link}'", if r.source_policy.is_some() { " --prove-source" } else { "" }),
+        "source_of_funds": crate::deposits::policy_summary(r.source_policy.as_deref()),
+        "provenance": r.provenance.as_deref().and_then(|p| serde_json::from_str::<Value>(p).ok()),
         "client_secret": r.client_secret,
         "hosted_url": hosted(st, &format!("/pay/{}?secret={secret}", r.id)),
         "public_url": (r.kind == "campaign").then(|| hosted(st, &format!("/c/{}", r.id))),
@@ -185,6 +192,8 @@ pub struct CreateRequest {
     public_min_contributions: Option<i64>,
     /// Sandbox only: run this request on a test clock (`POST /v1/test_clocks`).
     test_clock: Option<String>,
+    /// Deposit desks: require the payer to prove where the money came from, and screen it.
+    source_of_funds: Option<crate::deposits::SourcePolicy>,
 }
 
 pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateRequest>) -> Response {
@@ -218,6 +227,15 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
         if kind == "partial" && req.amount_zatoshis.is_none() {
             return Err(ApiError::invalid("parameter_missing", "a partial request needs amount_zatoshis").param("amount_zatoshis"));
         }
+        let policy_json = match &req.source_of_funds {
+            None => None,
+            Some(p) => {
+                if kind != "single" {
+                    return Err(ApiError::invalid("parameter_invalid", "source_of_funds works with single requests (one deposit, one proof)").param("source_of_funds"));
+                }
+                Some(crate::deposits::validate(mode.net(&st2.config), p)?)
+            }
+        };
         let clock_time = match &req.test_clock {
             None => None,
             Some(cid) => {
@@ -236,8 +254,8 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
         {
             let c = st2.db.0.lock().unwrap();
             c.execute(
-                "INSERT INTO requests (id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, client_secret, public_k, test_clock) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?11,?12,?13)",
-                params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret, req.public_min_contributions.unwrap_or(3), req.test_clock],
+                "INSERT INTO requests (id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, client_secret, public_k, test_clock, source_policy) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?11,?12,?13,?14)",
+                params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret, req.public_min_contributions.unwrap_or(3), req.test_clock, policy_json],
             )?;
         }
         let obj = to_json(&st2, &load(&st2, Some(mode), &id)?);
@@ -272,7 +290,7 @@ pub async fn get_request(State(st): State<Shared>, auth: Auth, Path(id): Path<St
 /// Verifies `text` against request `r` and records it. Shared by the API and the hosted page.
 pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str) -> Result<Value, ApiError> {
     match r.effective_status() {
-        "fulfilled" => return Err(ApiError::conflict("request_already_fulfilled", format!("{} was already fulfilled", r.id))),
+        "fulfilled" | "held_for_review" | "rejected" => return Err(ApiError::conflict("request_already_fulfilled", format!("{} was already {}", r.id, r.status))),
         "expired" => return Err(ApiError::conflict("request_expired", format!("{} expired", r.id))),
         _ => {}
     }
@@ -311,10 +329,15 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             return Err(ApiError::verification("insufficient_amount", format!("paid {paid} zatoshis, the request asks for {}", r.amount.unwrap())));
         }
         let actions: Vec<(u32, u64)> = outs.iter().map(|o| (o.action, o.zatoshis)).collect();
-        Ok((v, paid, actions))
+        // Deposit desks: the receipt must prove where every spent note came from; then screen it.
+        let provenance = match r.source_policy.as_deref() {
+            None => None,
+            Some(p) => Some(crate::deposits::evaluate(p, &v)?),
+        };
+        Ok((v, paid, actions, provenance))
     }
     .await;
-    let (v, paid, actions) = match checked {
+    let (v, paid, actions, provenance) = match checked {
         Ok(x) => x,
         Err(e) => {
             if e.kind == "verification_error" {
@@ -368,10 +391,12 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             "partial" => r.amount.is_some_and(|a| received >= a),
             _ => true,
         };
+        // A deposit whose funding failed screening is held for the desk's review, not credited.
+        let held = provenance.as_ref().is_some_and(|p| p["status"] != "cleared");
         if fulfilled {
             tx.execute(
-                "UPDATE requests SET status = 'fulfilled', fulfilled_at = ?1, txid = ?2, paid_zatoshis = ?3, received_zatoshis = ?3, receipt = ?4, verification = ?5 WHERE id = ?6",
-                params![r.clock_time.unwrap_or_else(now), v.txid, received, text, serde_json::to_string(&v).unwrap(), r.id],
+                "UPDATE requests SET status = ?7, fulfilled_at = ?1, txid = ?2, paid_zatoshis = ?3, received_zatoshis = ?3, receipt = ?4, verification = ?5, provenance = ?8 WHERE id = ?6",
+                params![r.clock_time.unwrap_or_else(now), v.txid, received, text, serde_json::to_string(&v).unwrap(), r.id, if held { "held_for_review" } else { "fulfilled" }, provenance.as_ref().map(|p| p.to_string())],
             )?;
         } else {
             tx.execute("UPDATE requests SET received_zatoshis = ?1 WHERE id = ?2", params![received, r.id])?;
@@ -382,6 +407,10 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
     let obj = to_json(st, &load(st, Some(mode), &r.id)?);
     if r.kind != "single" {
         emit(st, mode, "request.payment_received", json!({ "object": "payment", "request": r.id, "txid": v.txid, "zatoshis": paid, "received_zatoshis": received }))?;
+    }
+    if fulfilled && obj["status"] == "held_for_review" {
+        emit(st, mode, "request.held_for_review", obj.clone())?;
+        return Ok(obj);
     }
     if fulfilled {
         emit(st, mode, "request.fulfilled", obj.clone())?;
@@ -451,6 +480,7 @@ fn public_view(st: &AppState, r: &RequestRec) -> Value {
         "amount_zatoshis": r.amount, "received_zatoshis": r.received, "remaining_zatoshis": full["remaining_zatoshis"],
         "payment_uri": full["payment_uri"], "receipt_link": full["receipt_link"], "cli_command": full["cli_command"],
         "livemode": r.mode == "live", "expires_at": r.expires_at,
+        "source_of_funds": crate::deposits::policy_summary(r.source_policy.as_deref()),
     })
 }
 

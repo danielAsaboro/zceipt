@@ -221,6 +221,15 @@ the expiry and that `https://shop.example/.well-known/zcash-receipts.json` lists
 pays and returns a receipt for the request code. Nobody can swap the address or change the amount
 in transit.
 
+## Deposit desks: shielded deposits an exchange can accept
+
+Create a request with `"source_of_funds": {"required": true, "blocked_addresses": [...]}`. The
+customer pays from shielded funds with `receipts pay`, which proves where each spent note came
+from. The server screens the transparent addresses that funded it against your list: clear
+deposits are credited with a provenance record, listed or unexplained ones are held for review
+(`POST /v1/requests/{id}/review`), and rejected ones are refunded to the customer's signed
+address. You learn what a transparent deposit would show you; the customer stays shielded.
+
 ## Prove you hold funds
 
 `receipts reserve -w wallet -i key.age --at-least 0.05 -m "challenge:<nonce>"` proves you hold at

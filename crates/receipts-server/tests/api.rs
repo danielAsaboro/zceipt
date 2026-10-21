@@ -742,3 +742,38 @@ async fn built_in_verifier_and_landing_page() {
         assert_eq!(get(doc).await.0, StatusCode::OK, "{doc}");
     }
 }
+
+/// Deposit desks: policy validation, a receipt without source proofs refused with a clear code,
+/// review only for held deposits, and the public view says what's required (not the list).
+#[tokio::test]
+async fn deposit_desk_policy() {
+    let (app, test, _) = app().await;
+    let mk = |sof: Value, kind: &str| json!({ "payee": PAYEE, "amount_zatoshis": 10_000, "kind": kind, "source_of_funds": sof });
+    let (s, v, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["not-an-address"] }), "single")), None).await;
+    assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("source_of_funds")), "{v}");
+    let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs"] }), "single")), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "a mainnet address on a testnet key");
+    let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true }), "campaign")), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "campaigns can't require a source");
+    let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": false }), "single")), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["tmGys6dBuEGjch5LFnhdo5gpSa7jiNRWse6"] }), "single")), None).await;
+    assert_eq!(s, StatusCode::CREATED, "{r}");
+    assert_eq!(r["source_of_funds"], json!({ "required": true, "screened_addresses": 1 }));
+    assert!(r["cli_command"].as_str().unwrap().contains("--prove-source"));
+    let id = r["id"].as_str().unwrap();
+    let secret = r["client_secret"].as_str().unwrap();
+    let (_, p, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret={secret}"), None, None, None).await;
+    assert_eq!(p["source_of_funds"]["required"], true);
+    assert!(!p.to_string().contains("tmGys6"), "the public view must not show the screening list");
+    // A sandbox receipt proves no source: refused, and the request stays open.
+    let (s, e, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    assert_eq!((s, e["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("source_of_funds_required")), "{e}");
+    let (_, r2, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!(r2["status"], "open");
+    // Review is only for held deposits.
+    let (s, e, _) = call(&app, "POST", &format!("/v1/requests/{id}/review"), Some(&test), Some(json!({ "decision": "accept" })), None).await;
+    assert_eq!((s, e["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("not_held_for_review")));
+    let (s, _, _) = call(&app, "POST", &format!("/v1/requests/{id}/review"), Some(&test), Some(json!({ "decision": "maybe" })), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}

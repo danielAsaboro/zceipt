@@ -153,6 +153,23 @@ paths:
       security: []
       responses:
         "200": { description: JWK set (Ed25519) }
+  /v1/requests/{id}/review:
+    post:
+      summary: Accept or reject a deposit held for review (deposit desks)
+      description: "A request created with source_of_funds whose deposit's funding failed screening (a blocked address, or funding the payer didn't show) is held_for_review. accept credits it (status fulfilled, request.fulfilled); reject sets rejected (request.rejected), after which it can be refunded to the payer's signed refund address."
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [accept, reject] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "200": { description: The request after review }
+        "409": { description: "not_held_for_review" }
   /v1/requests/{id}/refunds:
     post:
       tags: [Proof requests]
@@ -335,6 +352,12 @@ paths:
                 metadata: { type: object, additionalProperties: true, description: "Your own key/values, e.g. order_id." }
                 expires_in: { type: integer, minimum: 1, description: "Seconds until the request expires." }
                 public_min_contributions: { type: integer, minimum: 1, maximum: 1000, default: 3, description: "Campaigns: contributions needed before the public page shows a total" }
+                source_of_funds:
+                  type: object
+                  description: "Deposit desks (single requests): only accept a receipt that proves where every spent note came from (receipts create --prove-source; receipts pay adds it), and screen the transparent addresses that funded it against blocked_addresses. Cleared: fulfilled. Otherwise: held_for_review until POST /v1/requests/{id}/review."
+                  properties:
+                    required: { const: true }
+                    blocked_addresses: { type: array, items: { type: string }, maxItems: 10000, description: "Transparent addresses of this network; never shown publicly" }
                 kind:
                   type: string
                   enum: [single, partial, campaign]
@@ -353,7 +376,7 @@ paths:
       operationId: listRequests
       summary: List proof requests, newest first
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [open, fulfilled, expired] } }
+        - { name: status, in: query, schema: { type: string, enum: [open, fulfilled, held_for_review, rejected, expired] } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
         - { name: starting_after, in: query, schema: { type: string }, description: "Cursor: the last id of the previous page." }
       responses:
@@ -384,6 +407,7 @@ paths:
       description: |
         Verifies the receipt, checks that it signs the request's challenge, paid the payee, and paid at least `amount_zatoshis`.
         On success the request becomes `fulfilled` and `request.fulfilled` is sent. On a verification failure `receipt.rejected` is sent and the request stays open.
+        If the request has `source_of_funds`, a receipt without a source proof for every spent note is refused (422 `source_of_funds_required`); a deposit whose funding fails screening becomes `held_for_review` (`request.held_for_review`).
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - { $ref: "#/components/parameters/IdempotencyKey" }
@@ -436,7 +460,7 @@ paths:
               required: [url]
               properties:
                 url: { type: string, format: uri }
-                events: { type: array, items: { type: string, enum: ["*", request.created, request.payment_received, request.fulfilled, request.expired, receipt.rejected] }, default: ["*"] }
+                events: { type: array, items: { type: string, enum: ["*", request.created, request.payment_received, request.fulfilled, request.held_for_review, request.rejected, request.expired, receipt.rejected] }, default: ["*"] }
       responses:
         "201":
           description: Created. `secret` is only returned here.
@@ -592,7 +616,17 @@ components:
         id: { type: string, examples: [preq_3f9a…] }
         object: { const: proof_request }
         livemode: { type: boolean }
-        status: { type: string, enum: [open, fulfilled, expired] }
+        status: { type: string, enum: [open, fulfilled, held_for_review, rejected, expired] }
+        source_of_funds: { type: [object, "null"], description: "The policy as created (owner view); the public view shows only required and screened_addresses" }
+        provenance:
+          type: [object, "null"]
+          description: "Deposit desks: the screening result for the accepted receipt"
+          properties:
+            status: { enum: [cleared, review] }
+            reasons: { type: array, items: { type: string } }
+            funding: { type: array, items: { type: object, properties: { address: { type: string }, zatoshis: { type: integer }, source_txid: { type: string } } } }
+            checked_at: { type: integer }
+            review: { type: object, properties: { decision: { enum: [accept, reject] }, note: { type: string }, at: { type: integer } } }
         challenge: { type: string }
         payee: { type: string }
         amount_zatoshis: { type: [integer, "null"] }

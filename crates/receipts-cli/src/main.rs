@@ -954,6 +954,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let host = parsed.as_ref().and_then(|u| u.host_str().map(|h| match u.port() { Some(p) => format!("{h}:{p}"), None => h.to_string() })).unwrap_or_else(|| "(no host)".into());
     let signed = link.find(receipts_core::payreq::REQUEST_TEXT_PREFIX).map(|i| link[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect::<String>());
     let mut memo_to_send: Option<String> = None;
+    let mut need_source = false;
     let mut host = host;
     let (payee, amount, code, submit_to, receipt_link) = if let Some(text) = signed {
         let r = receipts_core::payreq::PaymentRequest::from_text(&text).ok_or_else(|| anyhow!("malformed signed request"))?;
@@ -992,6 +993,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         }
         let rl = info["receipt_link"].as_str().unwrap_or_default().to_string();
         let r = parse_request(&rl)?;
+        need_source = info["source_of_funds"]["required"] == true;
         let amount = info["remaining_zatoshis"].as_u64().or(info["amount_zatoshis"].as_u64()).ok_or_else(|| anyhow!("the request has no amount; pay it from your wallet and use `receipts create --request`"))?;
         (info["payee"].as_str().unwrap_or_default().to_string(), amount, r.code, Some((base.to_string(), id.to_string(), secret.to_string())), rl)
     } else {
@@ -1014,6 +1016,10 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     println!("Request {code} from {host}");
     println!("  pay      {} ZEC", chain::zec(amount));
     println!("  to       {payee}");
+    if need_source {
+        println!("  source   this deposit asks where the money came from: the receipt will prove which earlier");
+        println!("           transaction created each note you spend, and nothing else about your wallet");
+    }
     if dry_run {
         return Ok(());
     }
@@ -1076,7 +1082,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let mut attempt = 0;
     let (receipt, height) = loop {
         devtool_run(vec!["sync".into()]).await?;
-        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, None, false).await {
+        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, need_source.then_some(wallet::SourceMode::HideValue), false).await {
             Ok(x) => break x,
             Err(e) if attempt < 12 && e.to_string().contains("not mined") => {
                 attempt += 1;
@@ -1092,7 +1098,10 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
             let ok = res.status().is_success();
             let body: serde_json::Value = res.json().await.unwrap_or_default();
             if ok {
-                println!("Paid and proven: request {rid} is {}.", body["status"].as_str().unwrap_or("updated"));
+                match body["status"].as_str() {
+                    Some("held_for_review") => println!("Paid and proven: request {rid} is held while the shop reviews where the funds came from."),
+                    s => println!("Paid and proven: request {rid} is {}.", s.unwrap_or("updated")),
+                }
             } else {
                 println!("The shop refused the receipt: {}", body["error"]["message"].as_str().unwrap_or("unknown error"));
                 println!("{text}");

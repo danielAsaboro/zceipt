@@ -204,6 +204,47 @@ SR=$(grep -o 'zrcpt1[A-Za-z0-9_-]*' pay-signed.log | tail -1)
 jq -e '.message == "challenge:c0ffee77" and .outputs[0].zatoshis == 7000000 and .outputs[0].memo == "Order 77"' signed-receipt.json >/dev/null && ok "the receipt answers request c0ffee77: 0.07 ZEC with the shop's memo" || { bad "signed request receipt"; tail -3 signed-receipt.json; }
 kill "$WK_PID" 2>/dev/null || true
 
+echo "== Deposit desk: an exchange accepts a shielded deposit with proof of where it came from"
+init_wallet trader || bad "wallet trader"
+TRADER=$("$D" wallet -w ./trader list-addresses | sed -n 's/.*Default Address: //p')
+MN=$("$D" wallet -w ./trader display-mnemonic --enable -i ./trader.age 2>/dev/null | tail -1)
+TRADER_T=$("$D" wallet derive-address --mnemonic "$MN" -n regtest | sed -n 's/^Transparent Address: //p'); MN=
+sync exchange
+send exchange "$TRADER_T" 40000000 "" > /dev/null || bad "withdrawal to trader"
+for i in $(seq 1 40); do
+  sync trader
+  TSH=$("$D" wallet -w ./trader shield -i ./trader.age $S 2>&1 | grep -oE '[0-9a-f]{64}' | tail -1 || true)
+  [ -n "$TSH" ] && break; sleep 3
+done
+[ -n "${TSH:-}" ] && ok "trader withdrew 0.4 ZEC to $TRADER_T and shielded it ($TSH)" || bad "trader shield"
+desk() { curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests" -d "{\"payee\":\"$MERCHANT\",\"amount_zatoshis\":$1,\"label\":\"deposit\",\"source_of_funds\":{\"required\":true,\"blocked_addresses\":[$2]}}"; }
+DQ=$(desk 5000000 ""); DID=$(echo "$DQ" | jq -r .id); DH=$(echo "$DQ" | jq -r .hosted_url)
+[ "$(echo "$DQ" | jq -r .source_of_funds.required)" = "true" ] && ok "desk created deposit request $DID that requires source of funds" || bad "desk request: $(echo "$DQ" | head -c 200)"
+# A receipt without source proofs is refused, with a message saying what to do.
+sync trader
+NOSRC=$(send trader "$MERCHANT" 5000000 "Deposit $DID") || bad "deposit payment"
+sleep 6; sync trader
+DL=$(echo "$DQ" | jq -r .receipt_link)
+for i in $(seq 1 10); do "$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" -s "127.0.0.1:$GRPC" --out nosrc.txt > nosrc.log 2>&1 && break; sleep 4; sync trader; done
+E1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zrcpt1[A-Za-z0-9_-]*' nosrc.txt)\"}" | jq -r .error.code)
+[ "$E1" = "source_of_funds_required" ] && ok "a deposit receipt without proof of source is refused (source_of_funds_required)" || bad "no-source receipt: $E1"
+"$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" --prove-source -s "127.0.0.1:$GRPC" --out withsrc.txt > withsrc.log 2>&1
+D1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zrcpt1[A-Za-z0-9_-]*' withsrc.txt)\"}")
+echo "$D1" > desk-cleared.json
+echo "$D1" | jq -e --arg t "$TRADER_T" '.status == "fulfilled" and .provenance.status == "cleared" and (.provenance.funding | map(.address) | index($t)) != null' >/dev/null \
+  && ok "with --prove-source the deposit is credited: funding screened and cleared ($TRADER_T)" || { bad "cleared deposit"; echo "$D1" | head -c 400; }
+# Screened against a list that holds the trader's address: receipts pay attaches the proof; the deposit is held.
+DQ2=$(desk 19000000 "\"$TRADER_T\""); DID2=$(echo "$DQ2" | jq -r .id); DH2=$(echo "$DQ2" | jq -r .hosted_url)
+"$R" pay "$DH2" --yes --refund-to "$TRADER" -w ./trader -i ./trader.age --devtool "$D" -s "127.0.0.1:$GRPC" > desk-pay.log 2>&1 || { bad "receipts pay (deposit)"; tail -3 desk-pay.log; }
+grep -q "held while the shop reviews" desk-pay.log && ok "receipts pay attached the proof by itself; the deposit is held: its funding address is on the desk's list" || { bad "held deposit"; tail -3 desk-pay.log; }
+H=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2")
+echo "$H" | jq -e '.status == "held_for_review" and .provenance.status == "review" and (.provenance.reasons | any(test("blocked address")))' >/dev/null && ok "the desk sees why: funded by a blocked address" || { bad "held reasons"; echo "$H" | head -c 400; }
+RJ=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2/review" -d '{"decision":"reject","note":"listed address"}' | jq -r .status)
+RF=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2/refunds" -d '{"reason":"deposit rejected"}' | jq -r .address)
+[ "$RJ" = "rejected" ] && [ "$RF" = "$TRADER" ] && ok "the desk rejected it and refunds to the address the payer signed" || bad "reject/refund: $RJ $RF"
+EV=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/events?limit=50" | jq -r '[.data[].type] | join(",")')
+echo "$EV" | grep -q "request.held_for_review" && echo "$EV" | grep -q "request.rejected" && ok "webhook events: request.held_for_review, request.rejected" || bad "events: $EV"
+
 echo
 echo "${#PASS[@]} passed, ${#FAIL[@]} failed"
 [ ${#FAIL[@]} -eq 0 ]

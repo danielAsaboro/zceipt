@@ -94,12 +94,27 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     println!("\x1b[1mReceipts demo\x1b[0m: a shop takes a shielded Zcash payment without ever seeing the customer's wallet.");
     println!("API, dashboard and browser verifier on {base} (testnet sandbox; throwaway database).");
 
+    step(1, "A real receipt from the Zcash testnet, checked against the transaction's bytes");
+    let receipt = receipts_core::Receipt::from_text(REAL_RECEIPT.trim())?;
+    let t0 = std::time::Instant::now();
+    let report = receipts_chain::chain::verify_offline(&receipt, REAL_TX, REAL_HEIGHT, None)?;
+    let o = &report.outputs[0];
+    say(&format!("tx {}… block {}: {} paid, memo “{}”", &report.txid[..12], report.mined_height, o.zec.trim_end_matches('0'), o.memo.clone().unwrap_or_default()));
+    say(&format!("Halo 2 spend proof and signature valid in {} ms; the sender's address, balance and other payments stay private", t0.elapsed().as_millis()));
+    let mut edited = receipt.clone();
+    if let Some(i) = edited.unsigned.msg.iter().position(|b| *b == b'2') {
+        edited.unsigned.msg[i] = b'3';
+    }
+    let refused = receipts_chain::chain::verify_offline(&edited, REAL_TX, REAL_HEIGHT, None).err().map(|e| e.to_string()).unwrap_or_else(|| "accepted (this is a bug)".into());
+    say(&format!("the same receipt with its note changed to “{}”: refused ({refused})", String::from_utf8_lossy(&edited.unsigned.msg)));
+    println!("\nThe rest of the tour runs a shop on the payment API with sandbox fixtures (no wallet or faucet needed).");
+
     let ep = api.create_webhook_endpoint(&hook_url, None).await?;
     *secret.lock().unwrap() = ep["secret"].as_str().unwrap_or_default().to_string();
     let clock = call(reqwest::Method::POST, "/v1/test_clocks".into(), Some(json!({}))).await?;
     let clock_id = clock["id"].as_str().unwrap_or_default().to_string();
 
-    step(1, "The shop asks for 0.01 ZEC");
+    step(2, "The shop asks for 0.01 ZEC");
     let req = api
         .create_request(&CreateRequest { payee: PAYEE.into(), amount_zatoshis: Some(1_000_000), label: Some("Kemi's Coffee, order 42".into()), test_clock: Some(clock_id.clone()), ..Default::default() })
         .await?;
@@ -116,7 +131,7 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     let check = call(reqwest::Method::POST, "/v1/payment_links/check".into(), Some(json!({ "uri": uri }))).await?;
     say(&format!("link checker: {} (testnet unified address, provable with a receipt)", if check["ok"] == true { "OK to print" } else { "problems" }));
 
-    step(2, "The customer pays and sends a receipt instead of a viewing key");
+    step(3, "The customer pays and sends a receipt instead of a viewing key");
     say("(sandbox: zrcpt_test_refund_to stands in for a real zrcpt1… receipt, which also signs a refund address)");
     let paid = api.submit_receipt(&id, "zrcpt_test_refund_to").await?;
     let v = &paid["fulfillment"]["verification"];
@@ -124,19 +139,19 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     say(&format!("verdict {} (1 confirmation; final at 10)", v["verdict"].as_str().unwrap_or("?")));
     say(&format!("shop backend got a signed webhook: request.fulfilled {}", if wait_for("request.fulfilled").await { "✓" } else { "(not yet)" }));
 
-    step(3, "Nine blocks later the payment is final");
+    step(4, "Nine blocks later the payment is final");
     let adv = call(reqwest::Method::POST, format!("/v1/test_clocks/{clock_id}/advance"), Some(json!({ "blocks": 9 }))).await?;
     say(&format!("test clock moved to block {}; fired: {}", adv["height"], adv["fired"].as_array().map(|a| a.iter().filter_map(|f| f["type"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()));
     say(&format!("webhook request.final {}", if wait_for("request.final").await { "✓" } else { "(not yet)" }));
 
-    step(4, "One coffee was cold: refund 0.004 ZEC to the address the customer signed");
+    step(5, "One coffee was cold: refund 0.004 ZEC to the address the customer signed");
     let rf = api.create_refund(&id, Some(400_000), Some("one coffee was cold")).await?;
     say(&format!("refund {} pays {}…", rf["id"].as_str().unwrap_or("?"), &rf["payment_uri"].as_str().unwrap_or("")[..40.min(rf["payment_uri"].as_str().unwrap_or("").len())]));
     let done = api.submit_refund_receipt(rf["id"].as_str().unwrap_or_default(), "zrcpt_test_valid").await?;
     say(&format!("the shop's own receipt for the refund settles it: {}", done["status"].as_str().unwrap_or("?")));
     say(&format!("webhook refund.succeeded {}", if wait_for("refund.succeeded").await { "✓" } else { "(not yet)" }));
 
-    step(5, "The accountant gets a signed fact, not the transaction");
+    step(6, "The accountant gets a signed fact, not the transaction");
     let att = api.create_attestation(&id, None, None, &[]).await?;
     let c = &att["claims"];
     say(&format!("states: paid at least {} on or before {} (net of refunds, final: {})", zec(c["paid_at_least_zatoshis"].as_u64().unwrap_or(0)), c["paid_on_or_before"].as_str().unwrap_or("?"), c["final"]));
@@ -145,13 +160,6 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     let ok = api.verify_attestation(pres).await?;
     say(&format!("anyone can check it: valid {}", ok["valid"]));
 
-    step(6, "And a real receipt from the Zcash testnet, verified offline (from the transaction's bytes)");
-    let receipt = receipts_core::Receipt::from_text(REAL_RECEIPT.trim())?;
-    let t0 = std::time::Instant::now();
-    let report = receipts_chain::chain::verify_offline(&receipt, REAL_TX, REAL_HEIGHT, None)?;
-    let o = &report.outputs[0];
-    say(&format!("tx {}… block {}: {} paid, memo “{}”", &report.txid[..12], report.mined_height, o.zec.trim_end_matches('0'), o.memo.clone().unwrap_or_default()));
-    say(&format!("Halo 2 spend proof and signature valid in {} ms; the sender's wallet stays private", t0.elapsed().as_millis()));
 
     if wait {
         println!("\n\x1b[1mExplore\x1b[0m (the server keeps running; Ctrl-C to stop and delete the demo database)");

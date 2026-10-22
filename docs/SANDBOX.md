@@ -7,9 +7,9 @@ like Stripe's test card numbers. They work in `POST /v1/verify` and
 | receipt | outcome |
 |---|---|
 | `zrcpt_test_valid` | valid: pays the expected payee the expected amount, and signs the request's challenge |
-| `zrcpt_test_wrong_payee` | 422 `wrong_payee` |
-| `zrcpt_test_insufficient_amount` | 422 `insufficient_amount` |
-| `zrcpt_test_challenge_mismatch` | 422 `challenge_mismatch` |
+| `zrcpt_test_wrong_payee` | 422 `wrong_payee` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
+| `zrcpt_test_insufficient_amount` | 422 `insufficient_amount` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
+| `zrcpt_test_challenge_mismatch` | 422 `challenge_mismatch` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
 | `zrcpt_test_invalid` | 422 `receipt_invalid` |
 | `zrcpt_test_not_mined` | 422 `transaction_not_mined` (retry later) |
 | `zrcpt_test_not_found` | 422 `transaction_not_found` |

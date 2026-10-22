@@ -166,7 +166,8 @@ the memo holds an invoice note or a refund address that the verifier doesn't nee
 ## Embed it in any site
 
 ```html
-<script type="module" src="/zcash-receipts/widget.js"></script>
+<!-- served by `receipts serve` at /verify/zcash-receipts/, or copy packages/zcash-receipts -->
+<script type="module" src="/verify/zcash-receipts/widget.js"></script>
 <zcash-receipt receipt="zrcpt1…" expect-address="u1…" min-zatoshis="1000000"></zcash-receipt>
 ```
 

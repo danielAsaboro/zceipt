@@ -34,7 +34,7 @@ const warmStart = performance.now();
 const warmed = call("warm")
   .then(() => {
     const el = document.querySelector("#warm");
-    if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s, one time)`; }
+    if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s)`; }
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
@@ -323,7 +323,7 @@ async function run(receiptText) {
     return showError(`Could not fetch the transaction: ${e.message}`);
   }
   try {
-    setStep("verify", "busy", document.querySelector("#warm")?.dataset.state === "ready" ? "checking the Halo 2 proof and signature" : "preparing the verifier (one time), then checking the proof and signature");
+    setStep("verify", "busy", document.querySelector("#warm")?.dataset.state === "ready" ? "checking the Halo 2 proof and signature" : "preparing the verifier, then checking the proof and signature");
     const t0 = performance.now();
     // Source proofs: fetch the earlier transactions the sender says the money came from.
     await local;

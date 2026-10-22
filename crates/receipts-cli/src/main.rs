@@ -830,7 +830,8 @@ async fn main() -> anyhow::Result<()> {
                 for f in v["findings"].as_array().into_iter().flatten() {
                     println!("{:7} {}: {}", f["level"].as_str().unwrap_or_default().to_uppercase(), f["code"].as_str().unwrap_or_default(), f["message"].as_str().unwrap_or_default());
                 }
-                println!("{}", if v["ok"] == true { "OK" } else { "PROBLEMS FOUND" });
+                let warned = v["findings"].as_array().is_some_and(|f| f.iter().any(|f| f["level"] == "warning"));
+                println!("{}", if v["ok"] != true { "PROBLEMS FOUND" } else if warned { "OK, WITH WARNINGS" } else { "OK" });
             }
             if v["ok"] != true {
                 std::process::exit(1);

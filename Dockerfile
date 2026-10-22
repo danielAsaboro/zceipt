@@ -1,10 +1,16 @@
+# syntax=docker/dockerfile:1
 # Receipts: API, dashboard and browser verifier in one image.
 #   docker compose up            → http://127.0.0.1:8723 (keys printed in the log)
 #   docker compose run --rm receipts demo
 FROM rust:1.95-bookworm AS build
 WORKDIR /src
 COPY . .
-RUN cargo build --release --locked -p receipts-cli && cp target/release/receipts /receipts
+# The cache mounts keep the registry, git checkouts and compiled dependencies between builds, so
+# only the first build compiles everything.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p receipts-cli && cp target/release/receipts /receipts
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* \

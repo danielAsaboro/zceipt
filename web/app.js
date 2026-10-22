@@ -421,14 +421,24 @@ async function runBatch(batchText) {
     setStep("fetch", "busy", `fetching ${b.receipts.length} transactions`);
     const txs = [];
     let host = "", set = 0;
-    for (const [i, r] of b.receipts.entries()) {
+    // Fetch in random order, all of them, before reporting any failure: the order and the point
+    // where fetching stops would otherwise tell the server which block is which receipt.
+    const order = [...b.receipts.keys()];
+    for (let k = order.length - 1; k > 0; k--) {
+      const j = crypto.getRandomValues(new Uint32Array(1))[0] % (k + 1);
+      [order[k], order[j]] = [order[j], order[k]];
+    }
+    const fetched = await Promise.allSettled(order.map(async (i) => {
+      const r = b.receipts[i];
       const s = await quick("inspect", { receipt: r });
       const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
       host = new URL(endpoint).host;
       const tx = useHints ? await fetchTransactionPrivately(endpoint, s.txid, hints[i]) : await fetchRawTx(endpoint, s.txid);
       set += tx.anonymitySet || 0;
-      txs.push(tx);
-    }
+      txs[i] = tx;
+    }));
+    const failed = fetched.find((f) => f.status === "rejected");
+    if (failed) throw failed.reason;
     fetchMode = useHints
       ? { mode: "batch-blocks", host, blocks: [...new Set(hints)], set }
       : { mode: "batch-txids", host, n: txs.length };

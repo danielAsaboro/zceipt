@@ -34,7 +34,7 @@ receipt**: a real payment ([`571de6e4…`](https://testnet.cipherscan.app/tx/571
 seconds depending on the machine; later checks take about a second.
 
 <p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 TAZ (testnet) with the memo Invoice 42: two coffees">
-<img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: the signature for action 0 is invalid"></p>
+<img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: changed after it was made"></p>
 
 A receipt is about 5 KB (a 7 KB link): almost all of it is the one Halo 2 proof per disclosed
 spend, which is what proves who paid. That is too big for a QR code, so share it as a link, a

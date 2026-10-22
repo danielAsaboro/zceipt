@@ -1502,3 +1502,37 @@ fn proof_of_funds() {
     assert!(ReserveProof::from_bytes(&b).is_none());
     println!("proof of funds, one note: {} bytes", r.to_bytes().len());
 }
+
+/// The prove step needs only the full viewing key; the signature can come from elsewhere (a
+/// hardware wallet holding `ask`), and a signature by the wrong key is caught before it ships.
+#[test]
+fn prepare_with_viewing_key_then_sign_elsewhere() {
+    use receipts_core::{prepare, ViewingSpendWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness {
+        index: s.spend_index,
+        fvk: fvk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: None,
+    };
+    let prepared = prepare(
+        &keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"Invoice 42",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[], &[witness], OsRng,
+    )
+    .unwrap();
+
+    // The "hardware wallet": sees only the digest and alpha, signs with ask.
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let digest = prepared.sighash();
+    let sig: [u8; 64] = (&ask.randomize(&prepared.alphas[0]).sign(OsRng, &digest)).into();
+    let receipt = prepared.clone().apply_signatures(vec![sig]).unwrap();
+    verify(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+
+    // Another wallet's key can't sign it.
+    let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
+    let bad: [u8; 64] = (&other.randomize(&prepared.alphas[0]).sign(OsRng, &digest)).into();
+    assert!(matches!(prepared.apply_signatures(vec![bad]), Err(Error::BadSignature(_))));
+}

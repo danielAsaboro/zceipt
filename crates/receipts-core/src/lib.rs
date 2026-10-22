@@ -24,7 +24,7 @@ use orchard::{
     builder::SpendInfo,
     bundle::{Authorization, Flags},
     circuit::{Circuit, Instance, OrchardCircuitVersion, ProvingKey, VerifyingKey},
-    keys::{FullViewingKey, OutgoingViewingKey, SpendAuthorizingKey, SpendingKey},
+    keys::{FullViewingKey, OutgoingViewingKey, SpendAuthorizingKey, SpendValidatingKey, SpendingKey},
     note::{ExtractedNoteCommitment, Note, RandomSeed, Rho},
     note_encryption::{IronwoodDomain, OrchardDomain},
     primitives::redpallas::{self, SpendAuth},
@@ -232,6 +232,71 @@ pub struct SpendWitness {
     pub prove_address: Option<Address>,
     /// Also prove which earlier transaction output created `note`.
     pub source: Option<SourceWitness>,
+}
+
+/// Like [`SpendWitness`], with the full viewing key instead of the spending key: everything
+/// [`prepare`] needs to make the proofs. The spend authorizing key is only needed to sign
+/// ([`PreparedReceipt::sign`]), which can happen on another device, such as a hardware wallet.
+pub struct ViewingSpendWitness {
+    pub index: usize,
+    pub fvk: FullViewingKey,
+    pub note: Note,
+    pub merkle_path: MerklePath,
+    pub prove_address: Option<Address>,
+    pub source: Option<SourceWitness>,
+}
+
+impl From<&SpendWitness> for ViewingSpendWitness {
+    fn from(w: &SpendWitness) -> Self {
+        ViewingSpendWitness {
+            index: w.index,
+            fvk: FullViewingKey::from(&w.sk),
+            note: w.note,
+            merkle_path: w.merkle_path.clone(),
+            prove_address: w.prove_address,
+            source: w.source.clone(),
+        }
+    }
+}
+
+/// A receipt with every proof made but not yet signed. The signer needs only [`Self::sighash`],
+/// each spend's randomizer `alpha` and its spend authorizing key, like a PCZT signer.
+#[derive(Clone, Debug)]
+pub struct PreparedReceipt {
+    pub unsigned: UnsignedReceipt,
+    /// One randomizer per spend, in spend order: sign with `ask.randomize(alpha)`.
+    pub alphas: Vec<pallas::Scalar>,
+}
+
+impl PreparedReceipt {
+    /// The digest every spend signs (`BLAKE2b-256("ZIP311Signed" || coinType, unsigned)`).
+    pub fn sighash(&self) -> [u8; 32] {
+        signing_digest(&self.unsigned)
+    }
+
+    /// Signs with the spend authorizing keys, one per spend, in spend order.
+    pub fn sign(self, asks: &[SpendAuthorizingKey], mut rng: impl CryptoRng) -> Result<Receipt, Error> {
+        if asks.len() != self.alphas.len() {
+            return Err(Error::SignatureCount);
+        }
+        let digest = self.sighash();
+        let sigs = asks.iter().zip(&self.alphas).map(|(ask, alpha)| (&ask.randomize(alpha).sign(&mut rng, &digest)).into()).collect();
+        self.apply_signatures(sigs)
+    }
+
+    /// Attaches signatures made elsewhere (a hardware wallet), checking each under its spend's
+    /// `rk`, so a wrong key or a wrong digest is caught here rather than by the verifier.
+    pub fn apply_signatures(self, sigs: Vec<[u8; 64]>) -> Result<Receipt, Error> {
+        if sigs.len() != self.unsigned.spends.len() {
+            return Err(Error::SignatureCount);
+        }
+        let digest = self.sighash();
+        for (s, sig) in self.unsigned.spends.iter().zip(&sigs) {
+            let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
+            rk.verify(&digest, &redpallas::Signature::<SpendAuth>::from(*sig)).map_err(|_| Error::BadSignature(s.index))?;
+        }
+        Ok(Receipt { unsigned: self.unsigned, spend_auth_sigs: sigs })
+    }
 }
 
 /// What a verifier learns from a valid receipt.
@@ -702,6 +767,29 @@ pub fn create_cross_ext<A: Authorization, V>(
     spends: &[SpendWitness],
     mut rng: impl CryptoRng,
 ) -> Result<Receipt, Error> {
+    let viewing: Vec<ViewingSpendWitness> = spends.iter().map(ViewingSpendWitness::from).collect();
+    let prepared = prepare(pk, coin_type, pool, bundle, output_pool, output_bundle, txid, msg, outputs, withheld_memo, &viewing, &mut rng)?;
+    let asks: Vec<SpendAuthorizingKey> = spends.iter().map(|w| SpendAuthorizingKey::from(&w.sk)).collect();
+    prepared.sign(&asks, rng)
+}
+
+/// Makes every proof of a receipt from viewing keys alone, leaving the signatures to
+/// [`PreparedReceipt::sign`] or an external signer ([`PreparedReceipt::apply_signatures`]).
+#[allow(clippy::too_many_arguments)]
+pub fn prepare<A: Authorization, V>(
+    pk: &ProvingKey,
+    coin_type: u32,
+    pool: Pool,
+    bundle: &Bundle<A, V>,
+    output_pool: Pool,
+    output_bundle: &Bundle<A, V>,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[(usize, OutgoingViewingKey)],
+    withheld_memo: &[(usize, OutgoingViewingKey)],
+    spends: &[ViewingSpendWitness],
+    mut rng: impl CryptoRng,
+) -> Result<PreparedReceipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);
     }
@@ -744,10 +832,10 @@ pub fn create_cross_ext<A: Authorization, V>(
 
     // Spends: re-prove each spent note against the bundle's own anchor.
     let mut spend_disclosures = Vec::with_capacity(spends.len());
-    let mut signing_keys = Vec::with_capacity(spends.len());
+    let mut alphas = Vec::with_capacity(spends.len());
     for w in spends {
         let action = &actions[w.index];
-        let fvk = FullViewingKey::from(&w.sk);
+        let fvk = w.fvk.clone();
         let nf_old = w.note.nullifier(&fvk);
         if &nf_old != action.nullifier() {
             return Err(Error::WrongNullifier(w.index as u32));
@@ -789,9 +877,7 @@ pub fn create_cross_ext<A: Authorization, V>(
             }
         };
         let cv_net = ValueCommitment::derive(w.note.value() - NoteValue::ZERO, rcv.clone());
-        let ask = SpendAuthorizingKey::from(&w.sk);
-        let rsk = ask.randomize(&alpha);
-        let rk = redpallas::VerificationKey::<SpendAuth>::from(&rsk);
+        let rk = SpendValidatingKey::from(fvk.clone()).randomize(&alpha);
         let cmx: ExtractedNoteCommitment = dummy.commitment().into();
 
         let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, RECEIPT_CIRCUIT)
@@ -817,7 +903,7 @@ pub fn create_cross_ext<A: Authorization, V>(
             address,
             source,
         });
-        signing_keys.push(rsk);
+        alphas.push(alpha);
     }
 
     let unsigned = UnsignedReceipt {
@@ -830,15 +916,7 @@ pub fn create_cross_ext<A: Authorization, V>(
         opened,
         spends: spend_disclosures,
     };
-    let digest = signing_digest(&unsigned);
-    let spend_auth_sigs = signing_keys
-        .iter()
-        .map(|rsk| (&rsk.sign(&mut rng, &digest)).into())
-        .collect();
-    Ok(Receipt {
-        unsigned,
-        spend_auth_sigs,
-    })
+    Ok(PreparedReceipt { unsigned, alphas })
 }
 
 /// Verifies `receipt` against `bundle`, the Orchard or Ironwood bundle of transaction

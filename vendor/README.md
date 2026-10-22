@@ -22,4 +22,8 @@ curl -sL https://static.crates.io/crates/orchard/orchard-0.16.0.crate | tar xz -
 diff -ru /tmp/orchard-0.16.0/src vendor/orchard/src     # shows exactly the patch above
 ```
 
-It is wired in through `[patch.crates-io]` in the workspace `Cargo.toml`.
+It is wired in through `[patch.crates-io]` in the workspace `Cargo.toml`, and used only by
+receipts-core's `orchard-ext` feature, which this workspace's binaries turn on. A wallet that
+depends on receipts-core without that feature builds on stock orchard 0.16 and gets receipts
+v1-v4, batches, source proofs, sign-in, payment requests and proof of funds;
+`scripts/check-stock-orchard.sh` checks it.

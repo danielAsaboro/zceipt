@@ -88,9 +88,12 @@ let link = receipt.to_text(); // "zip311r1…"
 let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool::Ironwood, txid, &bundle)?;
 ```
 
-- **Inside a wallet:** `crates/receipts-wallet` makes receipts from a zcash-devtool wallet
-  database, and `zcash-devtool wallet receipt --txid …` is a 137-line command on top of it
-  ([integrations/zcash-devtool](integrations/zcash-devtool)).
+- **Inside a wallet:** the proofs need only the full viewing key (`receipts_core::prepare`); the
+  spend authorizing key signs a 32-byte digest afterwards, so a hardware wallet can sign the way
+  it signs a PCZT (`PreparedReceipt::sighash`, `apply_signatures`). The core builds on stock
+  `orchard` 0.16 (`scripts/check-stock-orchard.sh`). `crates/receipts-wallet` makes receipts from
+  a zcash-devtool wallet database, and `zcash-devtool wallet receipt --txid …` is a 137-line
+  command on top of it ([integrations/zcash-devtool](integrations/zcash-devtool)).
 - **The spec:** [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md) is the normative core (encoding,
   creation, every verification rule, rationale) written as text for ZIP 311's Orchard `TODO`;
   [SPEC.md](docs/SPEC.md) adds the extensions. [ZIP311-TODOS.md](docs/ZIP311-TODOS.md) maps each
@@ -110,8 +113,9 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
 - **Bindings:** the browser verifier (WebAssembly, no server), an npm package and
   `<zcash-receipt>` web component, a CLI, and a REST API with SDKs for TypeScript, Python, Rust
   and Go.
-- **One small patch to `orchard` 0.16** (about 60 lines, no circuit change): precomputed
-  verifier parameters and a few accessors made public. See [vendor/README.md](vendor/README.md).
+- **An optional patch to `orchard` 0.16** (about 60 lines, no circuit change), behind the
+  `orchard-ext` feature: precomputed verifier parameters (3x faster key building), incoming
+  receipts and memo-withheld outputs. See [vendor/README.md](vendor/README.md).
 
 Sapling is out of scope: wallets now pay from Orchard and Ironwood, and ZIP 311 already
 specifies Sapling.

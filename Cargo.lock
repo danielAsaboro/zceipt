@@ -3030,6 +3030,7 @@ dependencies = [
  "qrcode",
  "rand 0.10.3",
  "rand_core 0.10.1",
+ "receipts-core",
  "serde_json",
  "shardtree",
  "thiserror 2.0.21",

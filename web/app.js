@@ -162,7 +162,7 @@ const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 // Shows the result panel; on a phone it moves above the form and scrolls into view, so a link
 // opens straight onto the payment.
 function revealResult() {
-  revealResult();
+  $("#result").hidden = false;
   document.body.classList.add("has-result");
   if (window.matchMedia("(max-width: 860px)").matches) $("#right")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }

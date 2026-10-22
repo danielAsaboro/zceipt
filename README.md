@@ -179,7 +179,7 @@ payment processors: [COMPARISON.md](docs/COMPARISON.md).
 | A batch of three payments as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt), total 0.022 ZEC |
 | Source of funds, memo withheld, incoming receipt, signed request, refund, TEX deposit | [examples/testnet](examples/testnet) and its README |
 
-`./scripts/check-all.sh` runs every check that needs no build in under a minute.
+`./scripts/check-all.sh` runs every check that needs no build, including the verifier page in headless Chrome, in about a minute.
 `./scripts/e2e-regtest.sh` replays the whole story on a private Zebra regtest chain (needs
 Docker, lightwalletd and zcash-devtool). Everything else runs with `cargo test --release`.
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Every check that needs no build, install or wallet, in about two minutes: the independent spec
 # verifier against the conformance vectors and adversarial corpus, the npm package's tests, and
-# (if a `receipts` binary is on PATH or in $RECEIPTS) the real and edited testnet receipts.
+# (if a `receipts` binary is on PATH or in $RECEIPTS) the real and edited testnet receipts, and the
+# verifier page in headless Chrome.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 echo "== spec verifier (Python, written from the protocol specification)"
@@ -19,3 +20,12 @@ if [ -n "$R" ]; then
 else
   echo "== CLI skipped (no receipts binary; cargo install --locked --path crates/receipts-cli)"
 fi
+echo "== browser: the verifier page in headless Chrome (skipped if Chrome isn't installed)"
+rm -rf web/zcash-receipts && mkdir -p web/zcash-receipts
+cp -R packages/zcash-receipts/{index.js,grpc.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
+P=$((5400 + RANDOM % 500))
+python3 -m http.server --bind 127.0.0.1 -d web "$P" >/dev/null 2>&1 &
+SERVER=$!
+trap 'kill $SERVER 2>/dev/null' EXIT
+sleep 1
+node scripts/browser-smoke.mjs "http://127.0.0.1:$P/"

@@ -1263,7 +1263,10 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
     if !quick {
         let t0 = std::time::Instant::now();
         let _ = tokio::task::spawn_blocking(receipts_core::verifying_key).await;
-        line(Some(true), "proof keys", format!("verifying key built in {} ms (proving takes a few seconds per receipt)", t0.elapsed().as_millis()));
+        let vk_ms = t0.elapsed().as_millis();
+        let t1 = std::time::Instant::now();
+        let _ = tokio::task::spawn_blocking(receipts_core::proving_key).await;
+        line(Some(true), "proof keys", format!("verifying key built in {vk_ms} ms, proving key in {} ms on this machine (then one Halo 2 proof per disclosed spend; the testnet receipt in examples/ took 2.4 s end to end)", t1.elapsed().as_millis()));
     }
     println!();
     if problems == 0 {

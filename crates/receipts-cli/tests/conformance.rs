@@ -29,6 +29,13 @@ fn run(v: &Value) -> Result<Value, String> {
             receipts_core::signin::verify_sign_in(vk, &si, si.coin_type, &s("domain"), &s("nonce")).map_err(|e| e.to_string())?;
             Ok(serde_json::json!({ "network": if si.coin_type == receipts_core::COIN_TYPE_MAINNET { "mainnet" } else { "testnet" } }))
         }
+        Some("expectation") => {
+            let r = Receipt::from_text(&s("receipt")).map_err(|e| e.to_string())?;
+            let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &[], None).map_err(|e| e.to_string())?;
+            let paid = receipts_chain::chain::paid_to_address(&rep, &s("expect_address"));
+            let satisfied = matches!(paid, Ok(p) if p > 0 && v["min_zatoshis"].as_u64().is_none_or(|m| p >= m));
+            Ok(serde_json::json!({ "satisfied": satisfied }))
+        }
         t => panic!("unknown vector type {t:?}"),
     }
 }
@@ -59,6 +66,9 @@ fn conformance_vectors() {
             for (i, s) in srcs.iter().enumerate() {
                 assert_eq!(r["sources"][i]["zatoshis"], s["zatoshis"], "{name}");
             }
+        }
+        if let (Ok(r), Some(want)) = (&got, v["expect"]["satisfied"].as_bool()) {
+            assert_eq!(r["satisfied"].as_bool(), Some(want), "{name}");
         }
         if let (Ok(r), Some(n)) = (&got, v["expect"]["network"].as_str()) {
             assert_eq!(r["network"], n, "{name}");

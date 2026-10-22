@@ -779,9 +779,9 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             if let Some(addr) = &expect_address {
-                let want = chain::orchard_receiver_on(report.network, addr)?;
-                // Outputs disclosed without their memo don't show the payee can receive the note.
-                if !report.outputs.iter().any(|o| o.recipient_raw == want && !o.memo_withheld) {
+                // The shared "was I paid" rule (network, memo-withheld outputs don't count).
+                if chain::paid_to_address(&report, addr)? == 0 {
+                    let want = chain::orchard_receiver_of(addr)?;
                     if report.outputs.iter().any(|o| o.recipient_raw == want) {
                         bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
                     }
@@ -822,9 +822,9 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             if let Some(addr) = &expect_address {
-                let want = chain::orchard_receiver_on(report.network, addr)?;
-                // Outputs disclosed without their memo don't show the payee can receive the note.
-                if !report.outputs.iter().any(|o| o.recipient_raw == want && !o.memo_withheld) {
+                // The shared "was I paid" rule (network, memo-withheld outputs don't count).
+                if chain::paid_to_address(&report, addr)? == 0 {
+                    let want = chain::orchard_receiver_of(addr)?;
                     if report.outputs.iter().any(|o| o.recipient_raw == want) {
                         bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
                     }

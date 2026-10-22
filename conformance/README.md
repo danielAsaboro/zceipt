@@ -1,14 +1,18 @@
 # Conformance vectors
 
-`vectors.json` holds 270 cases (230 receipts, 19 incoming receipts, 21 sign-ins; 12 of them
-valid) built from real receipts (an Orchard payment, an Ironwood payment and a cross-pool
+`vectors.json` holds 276 cases (230 receipts, 6 "was I paid" expectations, 19 incoming
+receipts, 21 sign-ins; 12 of them valid receipts) built from real receipts (an Orchard payment, an Ironwood payment and a cross-pool
 Orchard-to-Ironwood payment on regtest, source-of-funds receipts, and Ironwood payments on
 testnet), a real testnet incoming receipt and a real testnet "Sign in with Zcash". Each case says what any correct verifier must answer:
 
 - valid receipts, with the amounts and memos they must open to;
 - the same receipts with one character changed in 24 places (header, message, outputs, proof,
   signature), truncated, extended, mis-prefixed, or checked against the wrong transaction;
-- a valid sign-in, and the same sign-in for another domain, another nonce, or altered.
+- a valid sign-in, and the same sign-in for another domain, another nonce, or altered;
+- "was I paid" expectations: a valid receipt checked against an expected address and minimum,
+  including the wrong payee, a minimum one zatoshi too high, the same receiver as a mainnet
+  address, and an output disclosed without its memo. The Rust, npm and Python verifiers all run
+  them (`receipts_chain::chain::paid_to_address` is the Rust rule).
 
 Every valid receipt also carries `known_answers`, computed by the independent spec verifier
 (`spec-verifier/`, written from the protocol specification): the signing digest, each spend's

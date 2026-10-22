@@ -46,7 +46,7 @@ block that hides little, and the page says how many there were.
 
 **Check the cryptography in a minute**, with no Rust: `python3 -m unittest discover -s spec-verifier/tests`
 runs an independent verifier written from the protocol specification, which checks everything but
-the Halo 2 proofs and agrees with ours on all 270 conformance vectors and on a corpus of 232
+the Halo 2 proofs and agrees with ours on all 276 conformance vectors and on a corpus of 232
 receipts (192 with one byte flipped, 29 edited and re-signed or forged, 11 honest or hand-made; for the 9
 that only the Halo 2 check tells apart it derives the same public inputs).
 
@@ -112,11 +112,11 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   [SPEC.md](docs/SPEC.md) adds the extensions. [ZIP311-TODOS.md](docs/ZIP311-TODOS.md) maps each
   open item in ZIP 311 to what we chose, and [SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md)
   lists where the specs are silent.
-- **Conformance:** [270 vectors](conformance/README.md) from real Orchard and Ironwood receipts,
+- **Conformance:** [276 vectors](conformance/README.md) from real Orchard and Ironwood receipts,
   run by the native and WebAssembly builds and the npm package.
 - **A second verifier written from the protocol specification** in Python, with no shared code
   ([spec-verifier](spec-verifier)). It checks everything except the Halo 2 proof itself (it
-  rebuilds the proof's public inputs), agrees on all 270 vectors and on 232 adversarial
+  rebuilds the proof's public inputs), agrees on all 276 vectors and on 232 adversarial
   receipts (the 9 that only the Halo 2 check rejects get the same public inputs), and its
   primitives match the Zcash test vectors:
   `python3 -m unittest discover -s spec-verifier/tests`.

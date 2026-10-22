@@ -13,6 +13,17 @@ async function run(v) {
       const r = await verifyReceipt(v.receipt, { rawTx: v.raw_tx, height: v.height, regtest: v.regtest, sourceTxs });
       return { valid: r.valid === true, r };
     }
+    if (v.type === "expectation") {
+      // "Was I paid": verifyReceipt with the expectation must succeed exactly when it is satisfied.
+      const r = await verifyReceipt(v.receipt, { rawTx: v.raw_tx, height: v.height, regtest: v.regtest });
+      let satisfied = true;
+      try {
+        await verifyReceipt(v.receipt, { rawTx: v.raw_tx, height: v.height, regtest: v.regtest, expectAddress: v.expect_address, minZatoshis: v.min_zatoshis });
+      } catch {
+        satisfied = false;
+      }
+      return { valid: r.valid === true, r: { ...r, satisfied } };
+    }
     if (v.type === "incoming") {
       const r = await verifyIncoming(v.receipt, { rawTx: v.raw_tx, height: v.height, regtest: v.regtest });
       return { valid: r.valid === true, r };
@@ -32,6 +43,7 @@ test(`conformance: ${vectors.length} vectors`, async () => {
       assert.deepEqual(got.r.outputs.map((o) => ({ zatoshis: o.zatoshis, memo: o.memo })), v.expect.outputs, v.name);
     }
     if (v.expect.network) assert.equal(got.r.network, v.expect.network, v.name);
+    if (v.expect.satisfied != null) assert.equal(got.r.satisfied, v.expect.satisfied, v.name);
     if (v.expect.sources) assert.deepEqual(got.r.sources.map((s) => ({ zatoshis: s.zatoshis })), v.expect.sources, v.name);
   }
 });

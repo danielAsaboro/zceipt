@@ -80,6 +80,24 @@ for i in spread(s, "zsig1", 16):
 vectors.append({"name": "sign-in/truncated", **si, "sign_in": s[:-10], "expect": {"valid": False}})
 vectors.append({"name": "sign-in/pre-fix", **si, "sign_in": ex("testnet/pre-fix/sign-in.txt"), "expect": {"valid": False}})
 
+# "Was I paid" expectations: a valid receipt checked against an expected payee and minimum. Every
+# false acceptance found in review lived in this layer, so every verifier runs these too.
+merchant, sender, merchant_main = ex("testnet/merchant.ua"), ex("testnet/sender.ua"), ex("testnet/merchant-mainnet.ua")
+eb = {"type": "expectation", "raw_tx": ex("testnet/tx.hex"), "height": 4_500_997, "regtest": False}
+for name, receipt, addr, minz, ok in [
+    ("pays-merchant", ex("testnet/receipt.txt"), merchant, None, True),
+    ("pays-merchant-exact-minimum", ex("testnet/receipt.txt"), merchant, 1_000_000, True),
+    ("below-minimum", ex("testnet/receipt.txt"), merchant, 1_000_001, False),
+    ("wrong-payee", ex("testnet/receipt.txt"), sender, None, False),
+    ("mainnet-address-same-receiver", ex("testnet/receipt.txt"), merchant_main, None, False),
+    ("memo-withheld-output-does-not-count", ex("testnet/memo-withheld/receipt.txt"), merchant, None, False),
+]:
+    raw = ex("testnet/memo-withheld/tx.hex") if "memo-withheld" in name else eb["raw_tx"]
+    e = {"name": f"expect/{name}", **eb, "raw_tx": raw, "receipt": receipt, "expect_address": addr, "expect": {"valid": True, "satisfied": ok}}
+    if minz is not None:
+        e["min_zatoshis"] = minz
+    vectors.append(e)
+
 # Known answers for every valid receipt, computed by the independent spec verifier (written from
 # the protocol specification): the signing digest, each spend's proof public inputs and each
 # opened output. A new implementation can compare its intermediate values, not just yes/no.

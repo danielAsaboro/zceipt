@@ -330,6 +330,15 @@ pub fn orchard_receiver_on(network: &str, ua: &str) -> anyhow::Result<[u8; 43]> 
     orchard_receiver_of(ua)
 }
 
+/// What a verified receipt paid `ua`: the sum of its disclosed outputs to that address's Orchard
+/// receiver. The address must be on the receipt's network, and outputs disclosed without their
+/// memo don't count (they don't show the payee can receive the note). Every "was I paid" check
+/// in the CLI and the conformance vectors goes through this.
+pub fn paid_to_address(report: &Report, ua: &str) -> anyhow::Result<u64> {
+    let want = orchard_receiver_on(report.network, ua)?;
+    Ok(report.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum())
+}
+
 fn short_ua(ua: &str) -> String {
     if ua.len() > 16 { format!("{}…", &ua[..14]) } else { ua.to_string() }
 }
@@ -946,6 +955,8 @@ mod window_tests {
         let test_ua = include_str!("../../../examples/testnet/merchant.ua").trim();
         let raw = orchard_receiver_of(test_ua).unwrap();
         let main_ua = encode_orchard_receiver(crate::net::Net::Main, raw);
+        // The committed fixture the conformance vectors use is that same mainnet address.
+        assert_eq!(main_ua, include_str!("../../../examples/testnet/merchant-mainnet.ua").trim());
         assert_eq!(orchard_receiver_on("testnet", test_ua).unwrap(), raw);
         assert_eq!(orchard_receiver_on("mainnet", &main_ua).unwrap(), raw);
         assert!(orchard_receiver_on("testnet", &main_ua).is_err());

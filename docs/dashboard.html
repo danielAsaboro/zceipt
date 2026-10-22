@@ -375,7 +375,7 @@ $("#we-create").onclick = async () => {
 };
 
 // ---------- sandbox ----------
-const OUTCOMES = { zrcpt_test_valid: "valid", zrcpt_test_wrong_payee: "422 wrong_payee", zrcpt_test_insufficient_amount: "422 insufficient_amount", zrcpt_test_challenge_mismatch: "422 challenge_mismatch", zrcpt_test_invalid: "422 receipt_invalid", zrcpt_test_not_mined: "422 transaction_not_mined", zrcpt_test_not_found: "422 transaction_not_found", zrcpt_test_chain_unavailable: "502 chain_unavailable", zrcpt_test_partial: "valid; pays half of what is owed", zrcpt_test_same_payment: "valid once; then 409 payment_already_used", zrcpt_test_public_note: "valid; with a public campaign note", zrcpt_test_refund_to: "valid; the payer signed a refund address" };
+const OUTCOMES = { zrcpt_test_valid: "valid", zrcpt_test_wrong_payee: "422 wrong_payee", zrcpt_test_memo_withheld: "422 delivery_unproven", zrcpt_test_insufficient_amount: "422 insufficient_amount", zrcpt_test_challenge_mismatch: "422 challenge_mismatch", zrcpt_test_invalid: "422 receipt_invalid", zrcpt_test_not_mined: "422 transaction_not_mined", zrcpt_test_not_found: "422 transaction_not_found", zrcpt_test_chain_unavailable: "502 chain_unavailable", zrcpt_test_partial: "valid; pays half of what is owed", zrcpt_test_same_payment: "valid once; then 409 payment_already_used", zrcpt_test_public_note: "valid; with a public campaign note", zrcpt_test_refund_to: "valid; the payer signed a refund address" };
 async function loadSandbox() {
   const l = await (await fetch("/v1/sandbox/fixtures")).json();
   $("#sb-list").innerHTML = l.data.map((f) => `<tr style="cursor:pointer" data-fx="${f}"><td class="mono">${f}</td><td>${OUTCOMES[f] || ""}</td></tr>`).join("");

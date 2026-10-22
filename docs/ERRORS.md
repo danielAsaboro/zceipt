@@ -25,6 +25,7 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="challenge_mismatch"></a>`challenge_mismatch` | 422 | The receipt does not sign this proof request's challenge. |
 | <a id="wrong_payee"></a>`wrong_payee` | 422 | No disclosed output paid the request's payee. |
 | <a id="insufficient_amount"></a>`insufficient_amount` | 422 | The payee received less than the requested amount. |
+| <a id="delivery_unproven"></a>`delivery_unproven` | 422 | The payee's output was disclosed with its memo withheld (format v5), which proves the amount but not that the payee can receive the note. Disclose it with its memo. |
 | <a id="batch_invalid"></a>`batch_invalid` | 422 | A batch is incomplete, reordered or mixes batches. |
 | <a id="request_not_found"></a>`request_not_found` | 404 | No proof request with that id for this key's mode. |
 | <a id="request_already_fulfilled"></a>`request_already_fulfilled` | 409 | The proof request was already fulfilled. |

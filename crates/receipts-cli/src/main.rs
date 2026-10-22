@@ -513,6 +513,9 @@ fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
         None => bail!("no zrcpt1… receipt found in the input"),
     };
     let body: String = body.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+    if body.starts_with("zrcpt1eyJ") {
+        bail!("this is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it; see docs/RELATED-WORK.md");
+    }
     Ok(Receipt::from_text(&body)?)
 }
 
@@ -586,10 +589,13 @@ async fn main() -> anyhow::Result<()> {
                 let id = format!("{:016x}", rand::random::<u64>());
                 let n = txids.len();
                 let mut receipts = Vec::with_capacity(n);
+                let mut heights = Vec::with_capacity(n);
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    receipts.push(wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?.0);
+                    let (r, h) = wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
+                    receipts.push(r);
+                    heights.push(h.to_string());
                 }
                 let batch = receipts_core::ReceiptBatch { receipts };
                 receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
@@ -598,8 +604,8 @@ async fn main() -> anyhow::Result<()> {
                     std::fs::write(&out, &text)?;
                     eprintln!("wrote {}", out.display());
                 }
-                eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link:", batch.to_bytes().len());
-                println!("{}#{}", link_base, text);
+                eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link (`h=` lists each payment's block, so verifiers fetch whole blocks, not your transactions):", batch.to_bytes().len());
+                println!("{}#{}&h={}", link_base, text, heights.join(","));
                 return Ok(());
             }
             let txid = &txids[0];

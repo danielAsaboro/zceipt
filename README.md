@@ -283,8 +283,8 @@ ZIP 311's interactive mode ("a payment disclosure may be tied to a challenge").
   Undisclosed outputs, including change, stay sealed.
 - **What the chain server sees**, recorded byte for byte ([docs/ASSURANCE.md](docs/ASSURANCE.md)):
   verifying sends one request holding only the txid. Creating a receipt from chain data (when
-  the wallet pruned the note's witness) asks for the tree state and blocks from the start of the
-  1,000-block window the spent note was created in, not its exact block.
+  the wallet pruned the note's witness) asks for whole 1,000-block windows, from the one the
+  spent note was created in to the end of the payment's, so neither exact block is revealed.
 
 ## Tests and evidence
 
@@ -322,7 +322,7 @@ attestation and Sign in with Zcash (9 checks; needs Docker, lightwalletd and zca
 | A proof request answered on testnet, and a replayed receipt rejected | [examples/testnet/request-answer-link.txt](examples/testnet/request-answer-link.txt) → REQUEST SATISFIED; the earlier receipt, which signs no challenge, → REQUEST NOT SATISFIED |
 | A receipt that also proves the sending address | [examples/testnet/receipt-with-sender-address.txt](examples/testnet/receipt-with-sender-address.txt) (re-made 2026-10-15 after the address-proof fix): VALID, FROM shown as proven; a different wallet's address is refused, and so is the pre-fix receipt |
 | A batch of 3 testnet payments to 2 recipients, verified as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt): CLI `VALID batch`, total 0.022 ZEC; page shows all three |
-| A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,000 to 4,500,997 (the 1,000-block window, so the server doesn't learn the note's block), VALID; regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
+| A receipt with the Merkle path rebuilt from chain data only (`--from-chain`) | testnet: blocks 4,500,000 to 4,500,997, VALID (since Oct 22 the range runs to 4,500,999, the end of the window, so the payment's block isn't revealed either); regtest: a note 105 blocks old (past the wallet's 100-block pruning window), VALID |
 
 End to end on a private chain as well (Zebra 6.4.2 regtest, NU6.3 active, lightwalletd, zcash-devtool wallets):
 

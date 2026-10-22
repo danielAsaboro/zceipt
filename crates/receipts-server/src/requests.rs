@@ -320,8 +320,13 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         let mut v = v;
         v.checks["challenge"] = "matched".into();
         let want = receipts_chain::chain::orchard_receiver_of(&r.payee).map_err(|e| ApiError::internal(e.to_string()))?;
-        let outs: Vec<&verify::Output> = v.outputs.iter().filter(|o| o.recipient_raw == want).collect();
+        // Outputs disclosed with the memo withheld (format v5) prove the recipient and amount but
+        // not that the recipient's wallet can decrypt and spend the note, so they don't settle.
+        let outs: Vec<&verify::Output> = v.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).collect();
         let paid: u64 = outs.iter().map(|o| o.zatoshis).sum();
+        if paid == 0 && v.outputs.iter().any(|o| o.recipient_raw == want && o.memo_withheld) {
+            return Err(ApiError::verification("delivery_unproven", "the output to the payee was disclosed with its memo withheld, which doesn't show the note can be received; disclose it with its memo"));
+        }
         if paid == 0 {
             return Err(ApiError::verification("wrong_payee", "no disclosed output paid the request's payee"));
         }

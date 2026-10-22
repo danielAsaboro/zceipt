@@ -273,7 +273,11 @@ fn batch_roundtrip_and_checks() {
     use receipts_core::{check_batch, ReceiptBatch};
     let s = scenario(BundleVersion::ironwood_v3());
     let mk = |i: u16, n: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/{n}\nGrant round 3").as_bytes());
-    let batch = ReceiptBatch { receipts: vec![mk(1, 2), mk(2, 2)] };
+    // Two payments: the second receipt names another transaction (only the batch structure is
+    // checked here, not signatures).
+    let mut second = mk(2, 2);
+    second.unsigned.txid[0] ^= 1;
+    let batch = ReceiptBatch { receipts: vec![mk(1, 2), second] };
     let text = batch.to_text();
     assert!(text.starts_with("zrcptb1"));
     let parsed = ReceiptBatch::from_text(&text).unwrap();
@@ -286,6 +290,17 @@ fn batch_roundtrip_and_checks() {
     // Duplicating a position is detected.
     let dup = ReceiptBatch { receipts: vec![mk(1, 2), mk(1, 2)] };
     assert!(check_batch(&dup).is_err());
+}
+
+#[test]
+fn batch_refuses_one_output_counted_twice() {
+    use receipts_core::{check_batch, ReceiptBatch};
+    // Two receipts at different positions that disclose the same output of the same
+    // transaction: the batch total would count one payment twice.
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mk = |i: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/2").as_bytes());
+    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), mk(2)] }).unwrap_err();
+    assert!(err.contains("disclosed more than once"), "{err}");
 }
 
 #[test]

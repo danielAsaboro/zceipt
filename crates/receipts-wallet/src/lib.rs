@@ -313,7 +313,11 @@ pub async fn create_receipt(
                     let h = stored
                         .mined_height
                         .ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
-                    eprintln!("Rebuilding the note's Merkle path from chain data (blocks {}..{mined})…", receipts_chain::chain::witness_window_start(h));
+                    eprintln!(
+                        "Rebuilding the note's Merkle path from chain data (blocks {}..={}, whole 1,000-block windows)…",
+                        receipts_chain::chain::witness_window_start(h),
+                        receipts_chain::chain::witness_window_end(mined)
+                    );
                     receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
                 }
             };
@@ -611,9 +615,10 @@ pub async fn check_answers(receipt: &Receipt, req: &RequestLink, server: Option<
     let paid: u64 = match &req.to {
         Some(to) => {
             let want = receipts_chain::chain::orchard_receiver_of(to)?;
-            report.outputs.iter().filter(|o| o.recipient_raw == want).map(|o| o.zatoshis).sum()
+            // Memo-withheld outputs (v5) don't show the payee can receive the note: not counted.
+            report.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum()
         }
-        None => report.outputs.iter().map(|o| o.zatoshis).sum(),
+        None => report.outputs.iter().filter(|o| !o.memo_withheld).map(|o| o.zatoshis).sum(),
     };
     if req.to.is_some() && paid == 0 {
         bail!("this transaction paid nothing to the requested address");

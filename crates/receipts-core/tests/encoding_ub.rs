@@ -105,9 +105,12 @@ fn batch_positions_are_checked() {
     let batch = |msgs: &[&str]| {
         let receipts = msgs
             .iter()
-            .map(|m| {
+            .enumerate()
+            .map(|(i, m)| {
                 let mut r = base.clone();
                 r.unsigned.msg = m.as_bytes().to_vec();
+                // A different transaction per receipt, so only the positions are under test.
+                r.unsigned.txid[0] ^= i as u8;
                 r
             })
             .collect();

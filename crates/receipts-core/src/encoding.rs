@@ -438,12 +438,22 @@ pub fn batch_position(msg: &[u8]) -> Option<(String, u16, u16)> {
     Some((id.to_string(), i.parse().ok()?, n.parse().ok()?))
 }
 
-/// Checks that the batch is complete and consistent: one id, positions 1..=n each exactly once.
+/// Checks that the batch is complete and consistent: one id, positions 1..=n each exactly once,
+/// and no output disclosed twice (two receipts for the same output would count one payment
+/// twice in the batch total).
 pub fn check_batch(batch: &ReceiptBatch) -> Result<String, String> {
     let n = batch.receipts.len();
     let mut id = None;
     let mut seen = vec![false; n];
+    let mut outputs = std::collections::BTreeSet::new();
     for r in &batch.receipts {
+        let u = &r.unsigned;
+        let pool = u.output_pool.unwrap_or(u.pool) as u8;
+        for index in u.outputs.iter().map(|o| o.index).chain(u.opened.iter().map(|o| o.index)) {
+            if !outputs.insert((u.txid, pool, index)) {
+                return Err(format!("output {index} of transaction {} is disclosed more than once", crate::display_txid(&u.txid)));
+            }
+        }
         let (bid, i, total) = batch_position(&r.unsigned.msg).ok_or("a receipt in the batch has no batch position")?;
         if total as usize != n {
             return Err(format!("receipt says the batch has {total} payments, but it contains {n}"));

@@ -107,6 +107,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("challenge_mismatch", 422, "The receipt does not sign this proof request's challenge."),
     ("wrong_payee", 422, "No disclosed output paid the request's payee."),
     ("insufficient_amount", 422, "The payee received less than the requested amount."),
+    ("delivery_unproven", 422, "The payee's output was disclosed with its memo withheld (format v5), which proves the amount but not that the payee can receive the note. Disclose it with its memo."),
     ("batch_invalid", 422, "A batch is incomplete, reordered or mixes batches."),
     ("request_not_found", 404, "No proof request with that id for this key's mode."),
     ("request_already_fulfilled", 409, "The proof request was already fulfilled."),

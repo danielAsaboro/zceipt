@@ -399,6 +399,11 @@ pub fn witness_window_start(note_height: u32) -> u32 {
     ((note_height / WITNESS_WINDOW) * WITNESS_WINDOW).max(1)
 }
 
+/// The last block of the window holding `height`.
+pub fn witness_window_end(height: u32) -> u32 {
+    (height / WITNESS_WINDOW + 1) * WITNESS_WINDOW - 1
+}
+
 pub async fn rebuild_witness(
     net: Net,
     server: Option<&str>,
@@ -431,17 +436,31 @@ pub async fn rebuild_witness(
         Pool::Ironwood => PoolType::Ironwood,
         Pool::Orchard => PoolType::Orchard,
     };
+    // End at a window boundary too (or the tip), and read the whole range even after the path
+    // is found: ending at the payment's block, or hanging up there, would tell the server which
+    // block the payment is in.
+    let tip = client
+        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
+        .await
+        .map_err(|e| anyhow!("latest block: {}", e.message()))?
+        .into_inner()
+        .height as u32;
+    let end = witness_window_end(max_height).min(tip).max(max_height);
     let mut stream = client
         .get_block_range(BlockRange {
             start: Some(BlockId { height: u64::from(start), hash: vec![] }),
-            end: Some(BlockId { height: u64::from(max_height), hash: vec![] }),
+            end: Some(BlockId { height: u64::from(end), hash: vec![] }),
             pool_types: vec![pool_type as i32],
         })
         .await
         .map_err(|e| anyhow!("block range: {}", e.message()))?
         .into_inner();
+    let mut found: Option<orchard::tree::MerklePath> = None;
     let mut witness: Option<IncrementalWitness<MerkleHashOrchard, 32>> = None;
     while let Some(block) = stream.message().await? {
+        if found.is_some() || block.height > u64::from(max_height) {
+            continue;
+        }
         for tx in &block.vtx {
             let actions = match pool {
                 Pool::Ironwood => &tx.ironwood_actions,
@@ -463,9 +482,12 @@ pub async fn rebuild_witness(
         if let Some(w) = &witness {
             if w.root() == want_root {
                 let path = w.path().ok_or_else(|| anyhow!("no path"))?;
-                return Ok(orchard::tree::MerklePath::from(path));
+                found = Some(orchard::tree::MerklePath::from(path));
             }
         }
+    }
+    if let Some(path) = found {
+        return Ok(path);
     }
     bail!(
         "{}",
@@ -722,4 +744,20 @@ pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReservePro
         unspent_as_of: tip,
         blocks_scanned: tip.saturating_sub(from) + 1,
     })
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    #[test]
+    fn witness_windows_hide_the_payment_block() {
+        // The range asked for depends only on which 1,000-block windows the note and the
+        // payment fall in, never on their exact blocks.
+        assert_eq!(witness_window_start(4_500_983), 4_500_000);
+        assert_eq!(witness_window_end(4_500_997), 4_500_999);
+        assert_eq!(witness_window_end(4_500_000), 4_500_999);
+        assert_eq!(witness_window_end(4_500_999), 4_500_999);
+        assert_eq!(witness_window_start(5), 1);
+    }
 }

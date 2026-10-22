@@ -119,13 +119,17 @@ the sizes and timing below; this shows the content too. Decoded records are in
 |---|---|---|
 | `receipts verify @examples/testnet/receipt.txt` | one `GetTransaction` whose only field is the 32-byte txid | 254 |
 | `receipts create --from-chain` (before) | `GetTreeState(4,500,983)`, `GetBlockRange(4,500,984 → 4,500,997)`: the block the spent note was created in | 320 |
-| `receipts create --from-chain` (now) | `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,997)`: only the 1,000-block window | 320 |
+| `receipts create --from-chain` (recorded Oct 16) | `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,997)`: the start is the 1,000-block window, but the end is still the payment's block | 320 |
+| `receipts create --from-chain` (Oct 22 fix) | `GetLatestBlock`, `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,999)`, read to the end: whole windows only (unit test `witness_windows_hide_the_payment_block`) | |
 
 So verification reveals which transaction is being checked (the page's `h=` hint narrows that to
 a block), and nothing from the receipt: no message, key, amount or address. The second row was a
 real leak, found by this recording: rebuilding a pruned witness told the server where the
 sender's spent note was created. It now asks from the start of the 1,000-block window instead
-(about 0.5 MB more to download).
+(about 0.5 MB more to download). A judging pass on Oct 22 noticed the third row: the range still
+ended at the payment's own block, so the server learned that block. The range now ends at the end
+of the payment's window (or the tip), and the whole stream is read even after the path is found,
+so hanging up early can't reveal it either.
 
 ```bash
 python3 scripts/wire/wire.py proxy 19067 testnet.zec.rocks:443 /tmp/wire &

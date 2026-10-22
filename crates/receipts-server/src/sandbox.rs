@@ -40,6 +40,7 @@ pub const FIXTURES: &[&str] = &[
     "zrcpt_test_same_payment",
     "zrcpt_test_public_note",
     "zrcpt_test_refund_to",
+    "zrcpt_test_memo_withheld",
 ];
 
 /// The refund address `zrcpt_test_refund_to` signs (a testnet address).
@@ -94,6 +95,11 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
         }
         "zrcpt_test_same_payment" => {
             v.txid = "5a4db0c5000000000000000000000000000000000000000000000000000000aa".into();
+            Ok(v)
+        }
+        "zrcpt_test_memo_withheld" => {
+            v.outputs[0].memo = None;
+            v.outputs[0].memo_withheld = true;
             Ok(v)
         }
         "zrcpt_test_wrong_payee" => {

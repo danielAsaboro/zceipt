@@ -83,6 +83,7 @@ async fn proof_request_lifecycle_with_fixtures() {
     // Every failing fixture leaves the request open with the right code.
     for (fixture, code) in [
         ("zrcpt_test_wrong_payee", "wrong_payee"),
+        ("zrcpt_test_memo_withheld", "delivery_unproven"),
         ("zrcpt_test_insufficient_amount", "insufficient_amount"),
         ("zrcpt_test_challenge_mismatch", "challenge_mismatch"),
         ("zrcpt_test_not_mined", "transaction_not_mined"),
@@ -97,10 +98,10 @@ async fn proof_request_lifecycle_with_fixtures() {
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_already_fulfilled")));
 
-    // Events were recorded: created, 4 rejections, fulfilled.
+    // Events were recorded: created, 5 rejections, fulfilled.
     let (_, ev, _) = call(&app, "GET", "/v1/events?limit=100", Some(&test), None, None).await;
     let types: Vec<&str> = ev["data"].as_array().unwrap().iter().map(|e| e["type"].as_str().unwrap()).collect();
-    assert_eq!(types.iter().filter(|t| **t == "receipt.rejected").count(), 4);
+    assert_eq!(types.iter().filter(|t| **t == "receipt.rejected").count(), 5);
     assert!(types.contains(&"request.fulfilled") && types.contains(&"request.created"));
 
     // Fixtures are refused with live keys.

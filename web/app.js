@@ -168,6 +168,8 @@ function localBadge() {
   const sees =
     f.mode === "offline" ? "No server was contacted: you supplied the transaction."
     : f.mode === "block" ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and its ${f.set} shielded transactions, not which one you checked.`
+    : f.mode === "batch-blocks" ? `${escapeHtml(f.host)} saw requests for ${f.blocks.length} block${f.blocks.length > 1 ? "s" : ""} (${f.set} transactions in all), not which transactions are in the batch. It can tell the requests came from one visitor at one time.`
+    : f.mode === "batch-txids" ? `${escapeHtml(f.host)} saw the ids of all ${f.n} transactions you checked, together, so it can tell they belong to one batch. Links with <code>h=</code> block hints avoid this.`
     : `${escapeHtml(f.host || "The server")} saw which transaction you checked. Links with an <code>h=</code> block hint avoid this.`;
   const second = f.second ? " The deposit's second step (a public transparent transaction) was fetched by its id." : "";
   const sources = f.sources ? ` The source transaction${f.sources > 1 ? "s" : ""} the sender named (and the outputs that funded ${f.sources > 1 ? "them" : "it"}) were fetched by id, so the server saw those ids.` : "";
@@ -274,7 +276,12 @@ async function renderRequestChecks(v) {
   $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok}"><div class="reqhead">${ok ? "REQUEST SATISFIED" : "REQUEST NOT SATISFIED"}</div><ul>${rows.join("")}</ul></div>`;
 }
 
+// zreceipt (a separate project) also writes links as zrcpt1 + base64url, but of JSON. Say so
+// instead of failing with a decode error.
+const ZRECEIPT_NOTE = "This is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it. Open it with zreceipt's verifier. See docs/RELATED-WORK.md.";
+
 async function run(receiptText) {
+  if (receiptText.startsWith("zrcpt1eyJ")) return showError(ZRECEIPT_NOTE);
   $("#result").hidden = true;
   $("#progress").hidden = false;
   resetSteps();
@@ -390,14 +397,25 @@ async function runBatch(batchText) {
   }
   const results = [];
   try {
-    // Fetch every transaction at once; proofs are then checked one by one in the worker.
+    // With block hints (one per receipt), each transaction is fetched with others from its
+    // block, so the server learns which blocks were looked at, not which transactions.
+    const hints = batchHeightHints(location.hash);
+    const useHints = hints && hints.length === b.receipts.length;
     setStep("fetch", "busy", `fetching ${b.receipts.length} transactions`);
-    const txs = await Promise.all(b.receipts.map(async (r) => {
+    const txs = [];
+    let host = "", set = 0;
+    for (const [i, r] of b.receipts.entries()) {
       const s = await quick("inspect", { receipt: r });
       const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
-      return fetchRawTx(endpoint, s.txid);
-    }));
-    setStep("fetch", "done", `${txs.length} transactions fetched`);
+      host = new URL(endpoint).host;
+      const tx = useHints ? await fetchTransactionPrivately(endpoint, s.txid, hints[i]) : await fetchRawTx(endpoint, s.txid);
+      set += tx.anonymitySet || 0;
+      txs.push(tx);
+    }
+    fetchMode = useHints
+      ? { mode: "batch-blocks", host, blocks: [...new Set(hints)], set }
+      : { mode: "batch-txids", host, n: txs.length };
+    setStep("fetch", "done", useHints ? `${txs.length} blocks' transactions fetched (${set} in all)` : `${txs.length} transactions fetched by id`);
     await local;
     for (const [i, r] of b.receipts.entries()) {
       setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
@@ -439,10 +457,11 @@ async function runBatch(batchText) {
       <div class="stamp good">VERIFIED</div>
       <ul class="facts">
         <li>Every payment was proven by the wallet that sent it.</li>
-        <li>The batch is complete: each receipt signs its place in it, so nothing was dropped or added.</li>
+        <li>The batch is complete: each receipt signs its place in it, so nothing was dropped or added, and no payment is counted twice.</li>
         <li><strong>Not revealed:</strong> the treasury's address, balance, or any other transaction.</li>
       </ul>
-    </div>`;
+    </div>
+    ${localBadge()}`;
 }
 
 // ---------- incoming receipts (the recipient proves it was paid) ----------
@@ -513,7 +532,13 @@ async function runIncoming(text) {
 function batchFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
   const i = h.indexOf("zrcptb1");
-  return i >= 0 ? h.slice(i) : "";
+  return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
+}
+
+/** A batch link's block hints (`&h=12,40,41`), one per receipt in order, or null. */
+function batchHeightHints(input) {
+  const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(decodeURIComponent(String(input)));
+  return m ? m[1].split(",").map(Number) : null;
 }
 
 function receiptFromHash() {
@@ -544,7 +569,8 @@ $("#verifyBtn").onclick = async () => {
   const bi = t.indexOf("zrcptb1");
   if (bi >= 0) {
     const bt = t.slice(bi).replace(/[^A-Za-z0-9_-].*$/s, "");
-    history.replaceState(null, "", "#" + bt);
+    const hs = batchHeightHints(t);
+    history.replaceState(null, "", "#" + bt + (hs ? `&h=${hs.join(",")}` : ""));
     return runBatch(bt);
   }
   const i = t.indexOf("zrcpt1");

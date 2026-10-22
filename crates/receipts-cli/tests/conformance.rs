@@ -43,6 +43,7 @@ fn conformance_vectors() {
     let file: Value = serde_json::from_str(&std::fs::read_to_string(format!("{ROOT}/conformance/vectors.json")).unwrap()).unwrap();
     let vectors = file["vectors"].as_array().unwrap();
     assert!(vectors.len() > 50);
+    let mut checked_known_answers = 0;
     for v in vectors {
         let name = v["name"].as_str().unwrap();
         let got = run(v);
@@ -62,7 +63,18 @@ fn conformance_vectors() {
         if let (Ok(r), Some(n)) = (&got, v["expect"]["network"].as_str()) {
             assert_eq!(r["network"], n, "{name}");
         }
+        // Known answers from the independent spec verifier: the same signing digest.
+        if let Some(d) = v["known_answers"]["signing_digest"].as_str() {
+            let r = Receipt::from_text(v["receipt"].as_str().unwrap()).unwrap();
+            assert_eq!(hex::encode(receipts_core::signing_digest(&r.unsigned)), d, "{name}");
+            for (sp, ka) in r.unsigned.spends.iter().zip(v["known_answers"]["spends"].as_array().unwrap()) {
+                assert_eq!(ka["index"].as_u64(), Some(u64::from(sp.index)), "{name}");
+                assert_eq!(ka["public_inputs"]["cv_net"].as_str(), Some(hex::encode(sp.cv_net).as_str()), "{name}");
+            }
+            checked_known_answers += 1;
+        }
     }
+    assert!(checked_known_answers >= 10, "{checked_known_answers}");
 }
 
 /// Decoders must never panic, whatever the input: random bytes, and random mutations of real

@@ -10,6 +10,12 @@ testnet), a real testnet incoming receipt and a real testnet "Sign in with Zcash
   signature), truncated, extended, mis-prefixed, or checked against the wrong transaction;
 - a valid sign-in, and the same sign-in for another domain, another nonce, or altered.
 
+Every valid receipt also carries `known_answers`, computed by the independent spec verifier
+(`spec-verifier/`, written from the protocol specification): the signing digest, each spend's
+proof public inputs (anchor, `cv_net`, nullifier, `rk`, `cmx`, flags) and each opened output's
+raw recipient and value, so a new implementation can compare intermediate values, not only the
+final yes or no. The Rust test checks the digest and `cv_net` against them.
+
 Both verifiers in this repository run every vector: the Rust one
 (`cargo test -p receipts-cli --test conformance`) and the WebAssembly/npm one
 (`node --test packages/zcash-receipts/test/conformance.test.js`). A third-party verifier is

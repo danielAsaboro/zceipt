@@ -31,7 +31,10 @@ seconds depending on the machine; later checks take about a second.
 <p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 TAZ (testnet) with the memo Invoice 42: two coffees">
 <img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: the signature for action 0 is invalid"></p>
 
-The receipt stays in the URL `#fragment`, which browsers never send. The page fetches the payment
+A receipt is about 5 KB (a 7 KB link): almost all of it is the one Halo 2 proof per disclosed
+spend, which is what proves who paid. That is too big for a QR code, so share it as a link, a
+file or a message; it fits in a URL fragment. The receipt stays in the URL `#fragment`, which
+browsers never send. The page fetches the payment
 together with the other shielded transactions in its block (up to 64; this block has 10), so the
 chain server learns the block but not which transaction was checked.
 

@@ -20,6 +20,21 @@ use orchard::{
     value::NoteValue,
     Note,
 };
+static ACCOUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Chooses the ZIP 32 account (default 0) whose keys every function here derives. Notes are found
+/// by trial decryption with that account's keys, so a multi-account wallet works one account at
+/// a time.
+pub fn set_account(index: u32) -> anyhow::Result<()> {
+    zip32::AccountId::try_from(index).map_err(|_| anyhow!("account {index} is not a valid ZIP 32 account index"))?;
+    ACCOUNT.store(index, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+fn account() -> zip32::AccountId {
+    zip32::AccountId::try_from(ACCOUNT.load(std::sync::atomic::Ordering::Relaxed)).expect("checked by set_account")
+}
+
 /// `rand` 0.10 replaced the infallible `OsRng` with the fallible `SysRng`.
 #[allow(non_upper_case_globals)]
 const OsRng: rand::rand_core::UnwrapErr<rand::rngs::SysRng> = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
@@ -245,7 +260,7 @@ pub async fn create_receipt(
 ) -> anyhow::Result<(Receipt, u32)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let coin_type = net.coin_type();
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
@@ -421,7 +436,7 @@ impl<T: orchard::bundle::Authorization, V> RecoverExt for orchard::Bundle<T, V> 
 /// the diversifier).
 pub fn fresh_address(wallet: &Path, identity: &Path) -> anyhow::Result<String> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let fvk = FullViewingKey::from(usk.orchard());
     let mut index = [0u8; 11];
@@ -435,7 +450,7 @@ pub fn fresh_address(wallet: &Path, identity: &Path) -> anyhow::Result<String> {
 /// first Orchard address). No transaction is made and nothing is written to the wallet.
 pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, address: Option<&str>) -> anyhow::Result<(receipts_core::signin::SignIn, String)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
@@ -460,7 +475,7 @@ pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, addres
 /// one address, or the given action indices). Returns it and the transaction's block height.
 pub async fn create_incoming_receipt(wallet: &Path, identity: &Path, txid: [u8; 32], msg: &[u8], outputs: &[u32], pool: Option<Pool>, server: Option<&str>) -> anyhow::Result<(receipts_core::incoming::IncomingReceipt, u32)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
     let db_path = wallet.join("data.sqlite");
     let db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
@@ -498,7 +513,7 @@ pub async fn create_incoming_receipt(wallet: &Path, identity: &Path, txid: [u8; 
 #[allow(clippy::too_many_arguments)]
 pub fn sign_payment_request(wallet: &Path, identity: &Path, domain: &str, amount: u64, memo: &str, code: &str, expires_at: u64, payee: Option<&str>) -> anyhow::Result<(receipts_core::payreq::PaymentRequest, String)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
     let addr = match payee {
@@ -521,7 +536,7 @@ pub fn sign_payment_request(wallet: &Path, identity: &Path, domain: &str, amount
 /// of its latest checkpoint. With `at_least`, uses the largest notes until that much is covered.
 pub fn create_reserve_proof(wallet: &Path, identity: &Path, pool: Pool, msg: &[u8], at_least: Option<u64>) -> anyhow::Result<receipts_core::reserve::ReserveProof> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
     let db_path = wallet.join("data.sqlite");

@@ -168,7 +168,7 @@ echo "== Proof of funds: the saver proves what it holds; once it spends, the sam
 sync saver
 "$R" reserve -w ./saver -i ./saver.age -m "challenge:otc-e2e" --out reserve.txt > reserve.log 2>&1 || { bad "proof of funds"; tail -3 reserve.log; }
 HELD=$(grep -o 'Proof of funds: [0-9.]* ZEC' reserve.log | grep -o '[0-9.]*')
-"$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-report.txt 2>&1 && grep -q "holds     $HELD ZEC" reserve-report.txt \
+"$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-report.txt 2>&1 && grep -q "holds     $HELD TAZ" reserve-report.txt \
   && ok "proof of funds: holds $HELD ZEC, unspent as of the tip (every Ironwood nullifier scanned)" || { bad "verify proof of funds"; tail -3 reserve-report.txt; }
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done

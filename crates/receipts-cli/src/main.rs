@@ -22,6 +22,9 @@ const DEFAULT_LINK_BASE: &str = "http://127.0.0.1:8723/verify/";
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
+    /// ZIP 32 account of the zcash-devtool wallet to use (default 0).
+    #[arg(long, global = true, default_value_t = 0)]
+    account: u32,
 }
 
 #[derive(Subcommand)]
@@ -588,6 +591,7 @@ fn pool_name(p: Pool) -> &'static str {
 async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
+    receipts_wallet::set_account(cli.account)?;
     match cli.cmd {
         Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };

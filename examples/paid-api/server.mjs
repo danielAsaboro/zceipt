@@ -3,7 +3,7 @@
 //
 //   RECEIPTS_KEY=rcpt_test_… SHOP_ADDRESS=utest1… node examples/paid-api/server.mjs
 //   curl -iL -c jar -b jar localhost:4343/report                  # 402 + payment_uri + receipt_link
-//   …pay, then `receipts pay '<hosted_url>'` (sandbox: submit zrcpt_test_valid)…
+//   …pay, then `receipts pay '<hosted_url>'` (sandbox: submit zip311_test_valid)…
 //   curl -b jar -H 'Receipt-Request: preq_…' localhost:4343/report  # 200
 //
 // The API never sees the payer's wallet, and a paid request id only works for the caller it

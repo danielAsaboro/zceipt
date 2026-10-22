@@ -213,8 +213,9 @@ def decode_batch(b: bytes):
 def batch_position(msg: bytes):
     """(id, i, n) from a `batch:<id> <i>/<n>` FIRST line of msg (docs/SPEC.md), else None."""
     try:
-        first = msg.decode("utf-8").split("\n", 1)[0]
-        if first.endswith("\r"):  # "\r\n" ends a line too, as in Rust's str::lines
+        text = msg.decode("utf-8")
+        first = text.split("\n", 1)[0]
+        if "\n" in text and first.endswith("\r"):  # "\r\n" ends a line, as in Rust's str::lines
             first = first[:-1]
     except UnicodeDecodeError:
         return None
@@ -223,7 +224,8 @@ def batch_position(msg: bytes):
     # Strict grammar (as the Rust parser reads it): `batch:<id> <i>/<n>`, ASCII digits only, no
     # signs, spaces, underscores or non-ASCII digits that int() would otherwise accept.
     import re
-    m = re.fullmatch(r"batch:([^ ]+) ([0-9]{1,5})/([0-9]{1,5})", first)
+    num = r"(0|[1-9][0-9]{0,4})"  # canonical decimal, no leading zeros
+    m = re.fullmatch(r"batch:([^ ]+) " + num + "/" + num, first)
     if not m or int(m.group(2)) > 65535 or int(m.group(3)) > 65535:
         return None
     return m.group(1), int(m.group(2)), int(m.group(3))

@@ -8,6 +8,11 @@ the wallet ever made or received. A receipt replaces the key. It shows one trans
 recipient, amount and memo, and carries a zero-knowledge proof that the payer's spend authority
 made the payment. It says nothing about the payer's address, balance or other transactions.
 
+To our knowledge it is the first ZIP 311 implementation for Orchard and Ironwood that includes
+the spend-authority proof: output-only disclosures ([related work](docs/RELATED-WORK.md)) show
+what a transaction paid, which anyone holding a viewing key can do; a receipt shows the payer
+made it.
+
 Who needs this on Monday:
 - **a customer in a dispute** ("I paid you on Tuesday") or a support desk checking a claim;
 - **an exchange or compliance desk** asking where a shielded deposit came from;
@@ -40,8 +45,10 @@ block has 5), so the chain server learns the block but not which of them was che
 block that hides little, and the page says how many there were.
 
 **Check the cryptography in a minute**, with no Rust: `python3 -m unittest discover -s spec-verifier/tests`
-runs an independent verifier written from the protocol specification, which agrees with ours on
-all 270 conformance vectors and 232 signed adversarial receipts.
+runs an independent verifier written from the protocol specification, which checks everything but
+the Halo 2 proofs and agrees with ours on all 270 conformance vectors and on a corpus of 232
+receipts (192 with one byte flipped, 29 edited and re-signed or forged, 11 honest or hand-made; for the 9
+that only the Halo 2 check tells apart it derives the same public inputs).
 
 With Rust, `cargo install --locked --path crates/receipts-cli && receipts demo` verifies the same
 real receipt and refuses the edited one, then tours the payment API on sandbox fixtures. The
@@ -53,7 +60,7 @@ works too.
 | | Revealed | How it is checked |
 |---|---|---|
 | Recipient, amount and memo of each chosen output | yes | The output's `ock` opens the on-chain ciphertext; the note commitment must equal the on-chain `cmx` |
-| The payer's spend authority made the payment | yes | A fresh Halo 2 Action proof for the spent note (same anchor, same nullifier as on chain, fresh `rk` and `cv_net`) and a spend-authorization signature over the whole receipt |
+| The holder of the spend authority used in the payment made this receipt | yes | A fresh Halo 2 Action proof for the spent note (same anchor, same nullifier as on chain, fresh `rk` and `cv_net`) and a spend-authorization signature over the whole receipt |
 | A message (invoice number, verifier's challenge) | yes | Covered by the signature |
 | Payer's address, balance, other notes and transactions | no | Never included |
 | That the transaction was mined | on a lightwalletd server's word | The verifier fetches it from a lightwalletd server; `receipts verify --cross-check <server>` confirms the block with a second one |
@@ -93,8 +100,10 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
 ```
 
 - **Inside a wallet:** the proofs need only the full viewing key (`receipts_core::prepare`); the
-  spend authorizing key signs a 32-byte digest afterwards, so a hardware wallet can sign the way
-  it signs a PCZT (`PreparedReceipt::sighash`, `apply_signatures`). The core builds on stock
+  spend authorizing key signs afterwards, so the key can stay on a hardware wallet. The device is
+  given the unsigned receipt and the randomizers, never a digest: it computes the digest itself,
+  checks each `rk` against its key and shows what it signs (`receipts_core::sign_prepared` is the
+  reference signer). A device that signed digests handed to it could be made to authorize a spend. The core builds on stock
   `orchard` 0.16 (`scripts/check-stock-orchard.sh`). `crates/receipts-wallet` makes receipts from
   a zcash-devtool wallet database, and `zcash-devtool wallet receipt --txid …` is a 137-line
   command on top of it ([integrations/zcash-devtool](integrations/zcash-devtool)).
@@ -107,8 +116,9 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   run by the native and WebAssembly builds and the npm package.
 - **A second verifier written from the protocol specification** in Python, with no shared code
   ([spec-verifier](spec-verifier)). It checks everything except the Halo 2 proof itself (it
-  rebuilds the proof's public inputs), agrees on all 270 vectors and 232 signed adversarial
-  receipts, and its primitives match the Zcash test vectors:
+  rebuilds the proof's public inputs), agrees on all 270 vectors and on 232 adversarial
+  receipts (the 9 that only the Halo 2 check rejects get the same public inputs), and its
+  primitives match the Zcash test vectors:
   `python3 -m unittest discover -s spec-verifier/tests`.
 - **Assurance:** mutation testing, fuzzing of every decoder, Miri on the encoding, and a
   self-found forgery (address proofs trusted a prover-chosen value commitment), fixed, with the
@@ -169,7 +179,7 @@ payment processors: [COMPARISON.md](docs/COMPARISON.md).
 | A batch of three payments as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt), total 0.022 ZEC |
 | Source of funds, memo withheld, incoming receipt, signed request, refund, TEX deposit | [examples/testnet](examples/testnet) and its README |
 
-`./scripts/check-all.sh` runs every check that needs no build in about two minutes.
+`./scripts/check-all.sh` runs every check that needs no build in under a minute.
 `./scripts/e2e-regtest.sh` replays the whole story on a private Zebra regtest chain (needs
 Docker, lightwalletd and zcash-devtool). Everything else runs with `cargo test --release`.
 

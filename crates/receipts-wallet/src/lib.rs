@@ -466,7 +466,10 @@ pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, addres
     let fvk = FullViewingKey::from(&sk);
     let addr = match address {
         None => {
-            let h = blake2b_simd::Params::new().hash_length(32).personal(b"ReceiptsSignInDv").hash(domain.as_bytes());
+            // Normalized, so `Shop.Example`, `shop.example.` and `shop.example:443` are one site.
+            let site = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+            let site = site.strip_suffix(":443").unwrap_or(&site);
+            let h = blake2b_simd::Params::new().hash_length(32).personal(b"ReceiptsSignInDv").hash(site.as_bytes());
             let index: [u8; 11] = h.as_bytes()[..11].try_into().expect("11 bytes");
             fvk.address_at(orchard::keys::DiversifierIndex::from(index), Scope::External)
         }

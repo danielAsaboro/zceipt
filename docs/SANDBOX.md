@@ -6,26 +6,26 @@ like Stripe's test card numbers. They work in `POST /v1/verify` and
 
 | receipt | outcome |
 |---|---|
-| `zrcpt_test_valid` | valid: pays the expected payee the expected amount, and signs the request's challenge |
-| `zrcpt_test_wrong_payee` | 422 `wrong_payee` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
-| `zrcpt_test_insufficient_amount` | 422 `insufficient_amount` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
-| `zrcpt_test_challenge_mismatch` | 422 `challenge_mismatch` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
-| `zrcpt_test_invalid` | 422 `receipt_invalid` |
-| `zrcpt_test_not_mined` | 422 `transaction_not_mined` (retry later) |
-| `zrcpt_test_not_found` | 422 `transaction_not_found` |
-| `zrcpt_test_chain_unavailable` | 502 `chain_unavailable` (retryable) |
-| `zrcpt_test_partial` | valid; pays half of what's still owed (for `partial` requests and campaigns), so it never finishes a request alone: send `zrcpt_test_valid` to pay the rest |
-| `zrcpt_test_public_note` | valid; the contributor opted in to a public campaign note |
-| `zrcpt_test_refund_to` | valid; the payer signed a refund address, so `POST /v1/requests/{id}/refunds` works |
-| `zrcpt_test_memo_withheld` | 422 `delivery_unproven`: the payee's output was disclosed with its memo withheld (format v5), which doesn't show the payee can receive the note |
-| `zrcpt_test_same_payment` | valid, but always the same transaction: submit it to two requests to see `payment_already_used` |
+| `zip311_test_valid` | valid: pays the expected payee the expected amount, and signs the request's challenge |
+| `zip311_test_wrong_payee` | 422 `wrong_payee` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
+| `zip311_test_insufficient_amount` | 422 `insufficient_amount` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
+| `zip311_test_challenge_mismatch` | 422 `challenge_mismatch` when submitted to a request (with `/v1/verify`, only if you ask for that check; see below) |
+| `zip311_test_invalid` | 422 `receipt_invalid` |
+| `zip311_test_not_mined` | 422 `transaction_not_mined` (retry later) |
+| `zip311_test_not_found` | 422 `transaction_not_found` |
+| `zip311_test_chain_unavailable` | 502 `chain_unavailable` (retryable) |
+| `zip311_test_partial` | valid; pays half of what's still owed (for `partial` requests and campaigns), so it never finishes a request alone: send `zip311_test_valid` to pay the rest |
+| `zip311_test_public_note` | valid; the contributor opted in to a public campaign note |
+| `zip311_test_refund_to` | valid; the payer signed a refund address, so `POST /v1/requests/{id}/refunds` works |
+| `zip311_test_memo_withheld` | 422 `delivery_unproven`: the payee's output was disclosed with its memo withheld (format v5), which doesn't show the payee can receive the note |
+| `zip311_test_same_payment` | valid, but always the same transaction: submit it to two requests to see `payment_already_used` |
 
 `wrong_payee`, `insufficient_amount` and `challenge_mismatch` describe a check that fails.
 With `POST /v1/verify` they only fail if you ask for that check:
 
 ```bash
 curl -s 127.0.0.1:8723/v1/verify -H "Authorization: Bearer $RECEIPTS_KEY" -H 'content-type: application/json' \
-  -d '{"receipt":"zrcpt_test_wrong_payee","expect_address":"utest1…your address…"}'      # → 422 wrong_payee
+  -d '{"receipt":"zip311_test_wrong_payee","expect_address":"utest1…your address…"}'      # → 422 wrong_payee
 ```
 
 Submitted to a proof request (`POST /v1/requests/{id}/receipts`), they always fail, because

@@ -106,10 +106,10 @@ def one_loop():
     r = api("POST", "/v1/requests", body)
     if not r:
         return
-    fixture = {"single": "zrcpt_test_refund_to", "partial": "zrcpt_test_partial", "campaign": "zrcpt_test_public_note"}[kind]
+    fixture = {"single": "zip311_test_refund_to", "partial": "zip311_test_partial", "campaign": "zip311_test_public_note"}[kind]
     api("POST", f"/v1/requests/{r['id']}/receipts", {"receipt": fixture})
     if kind == "partial":
-        api("POST", f"/v1/requests/{r['id']}/receipts", {"receipt": "zrcpt_test_valid"})
+        api("POST", f"/v1/requests/{r['id']}/receipts", {"receipt": "zip311_test_valid"})
     api("POST", f"/v1/test_clocks/{clock['id']}/advance", {"blocks": random.choice([3, 9, 12])})
     if random.random() < 0.3:
         api("POST", f"/v1/test_clocks/{clock['id']}/reorg", {"depth": 2})
@@ -117,7 +117,7 @@ def one_loop():
     if kind == "single":
         rf = api("POST", f"/v1/requests/{r['id']}/refunds", {"amount_zatoshis": 1000})
         if rf:
-            api("POST", f"/v1/refunds/{rf['id']}/receipts", {"receipt": "zrcpt_test_valid"})
+            api("POST", f"/v1/refunds/{rf['id']}/receipts", {"receipt": "zip311_test_valid"})
         att = api("POST", f"/v1/requests/{r['id']}/attestations", {})
         if att:
             api("POST", "/v1/attestations/verify", {"attestation": att["presentation"]})

@@ -105,6 +105,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 |---|---|---|
 | The site | That the user controls an address, for this domain and nonce, once. By default the address is derived from the domain, so each site sees its own address and two sites can't link a user by it | `api.rs::sign_in_with_zcash`; `roundtrip.rs::sign_in_roundtrip_and_replay`; `receipts-wallet::sign_in` |
 | Another site (phishing, replay) | Can't reuse the proof: it signs the domain and a single-use nonce | same |
+| A phishing site relaying a real site's challenge | Could get the user to sign in to the real site, if the user signs for the domain the phisher names: the CLI takes `--domain` from the user, so a wallet must show the domain it signs for and match it to where the user is. The per-domain address is derived from the normalized domain (lower case, no trailing dot or `:443`) | `receipts-wallet::sign_in` |
 | Someone who knows your address | Can't sign in as you: the address proof's value commitment is fixed to `ValueCommit_0(1)`, so the circuit enforces that the proven note is yours (before 2026-10-15 it was not, and this was possible) | `roundtrip.rs::sign_in_as_someone_elses_address_is_refused`; conformance `sign-in/pre-fix` |
 | Onlooker | Nothing; no transaction is made | (no transaction) |
 
@@ -156,6 +157,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Verifier | The total and each note's value; the notes' nullifiers. That is forward linkability: whoever holds the proof sees the transaction that later spends those notes. It is how "unspent" is checked; move the notes to a fresh address after using a proof if that matters | `roundtrip.rs::proof_of_funds`; `examples/testnet/reserve` |
 | Verifier | Not: the holder's address, other notes, history | same |
 | lightwalletd (verifier side) | Only that the verifier downloaded the pool's blocks (all of them since activation), not which nullifiers it looks for | `receipts-chain/src/chain.rs::published_nullifiers` |
+| Colluding holders | Each note is proven under its own fresh `rk`, so the proof shows the notes are unspent and were known to their holders, not that one person holds them all: several holders can pool notes into one proof, or answer a challenge for someone else. Use it to show funds exist, not who owns them | by design |
 | Holder after spending | Can't keep using the proof: once a nullifier is on chain, verification fails | `scripts/e2e-regtest.sh` ("after the saver spends, the same proof is refused") |
 
 ## 11f. Deposit desks (`source_of_funds` requests)

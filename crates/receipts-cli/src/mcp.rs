@@ -18,7 +18,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "verify_receipt",
-            "description": "Verify a Zcash payment receipt (zip311r1…, a zip311b1… batch, or a link containing one) against the chain. Returns who was paid, how much, the memo, the block, and whether the sender proved spend authority. Optionally require a payee, a minimum amount and a challenge. With a test key, sandbox fixtures like zrcpt_test_valid work too.",
+            "description": "Verify a Zcash payment receipt (zip311r1…, a zip311b1… batch, or a link containing one) against the chain. Returns who was paid, how much, the memo, the block, and whether the sender proved spend authority. Optionally require a payee, a minimum amount and a challenge. With a test key, sandbox fixtures like zip311_test_valid work too.",
             "inputSchema": { "type": "object", "required": ["receipt"], "properties": {
                 "receipt": { "type": "string" },
                 "expect_address": { "type": "string", "description": "Unified address that must have been paid" },

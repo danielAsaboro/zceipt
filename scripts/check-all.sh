@@ -5,8 +5,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 echo "== spec verifier (Python, written from the protocol specification)"
+echo "   (it checks everything but the Halo 2 proofs; for the adversarial cases that only a Halo 2"
+echo "   proof tells apart, it confirms both verifiers derive the same public inputs)"
 python3 -m unittest discover -s spec-verifier/tests 2>&1 | tail -3
 echo "== npm package (WebAssembly verifier, conformance vectors, offline testnet receipts)"
+echo "   (the skipped tests call a running Receipts API: RECEIPTS_URL and RECEIPTS_KEY)"
 (cd packages/zcash-receipts && node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
 R=${RECEIPTS:-$(command -v receipts || true)}
 if [ -n "$R" ]; then

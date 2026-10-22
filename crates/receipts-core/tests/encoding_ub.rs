@@ -148,7 +148,7 @@ fn batch_positions_use_a_strict_grammar() {
     use receipts_core::batch_position;
     assert_eq!(batch_position(b"batch:ab 2/3\nnote"), Some(("ab".into(), 2, 3)));
     assert_eq!(batch_position(b"batch:ab 2/3\r\nnote"), Some(("ab".into(), 2, 3)));
-    for bad in [&b"batch:ab +2/3"[..], b"batch:ab 2 /3", b"batch:ab 0_2/3", b"batch: 2/3", b"batch:ab 2/3 ", "batch:ab ٢/3".as_bytes(), b"note\nbatch:ab 2/3", b"batch:ab 70000/70000"] {
+    for bad in [&b"batch:ab +2/3"[..], b"batch:ab 2 /3", b"batch:ab 0_2/3", b"batch: 2/3", b"batch:ab 2/3 ", "batch:ab ٢/3".as_bytes(), b"note\nbatch:ab 2/3", b"batch:ab 70000/70000", b"batch:ab 02/3", b"batch:ab 000001/2", b"batch:ab 1/2\r"] {
         assert_eq!(batch_position(bad), None, "{:?}", String::from_utf8_lossy(bad));
     }
 }

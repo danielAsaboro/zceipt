@@ -87,15 +87,16 @@ pub async fn fetch_mined_tx_in_block(
         .vtx
         .iter()
         .filter_map(|t| {
-            let shielded = !(t.actions.is_empty() && t.ironwood_actions.is_empty() && t.spends.is_empty() && t.outputs.is_empty());
+            // Only Orchard or Ironwood transactions can carry a receipt (Sapling-only ones can't).
+            let shielded = !(t.actions.is_empty() && t.ironwood_actions.is_empty());
             <[u8; 32]>::try_from(t.txid.as_slice()).ok().map(|id| (id, shielded && t.index != 0))
         })
         .collect();
     if !all.iter().any(|(id, _)| *id == txid) {
         bail!("transaction {} is not in block {height}", display_txid(&txid));
     }
-    // Only transactions that could carry a receipt are cover: shielded ones, not the coinbase or
-    // transparent-only ones. (If the server's compact data doesn't show ours as shielded, fall
+    // Only transactions that could carry a receipt are cover: ones with Orchard or Ironwood
+    // actions, not the coinbase, transparent-only or Sapling-only ones. (If the server's compact data doesn't show ours as shielded, fall
     // back to every transaction but the coinbase.)
     let mut ids: Vec<[u8; 32]> = all.iter().filter(|(_, s)| *s).map(|(id, _)| *id).collect();
     if !ids.contains(&txid) {
@@ -114,13 +115,14 @@ pub async fn fetch_mined_tx_in_block(
     let set = others.len();
     let mut mine = None;
     for t in others {
-        // Every transaction is fetched and checked the same way, so the requests look alike.
+        // Every transaction is fetched and checked the same way, and every one is fetched even if
+        // ours fails, so neither the requests nor where they stop point at ours.
         let fetched = fetch_mined_tx_with(&mut client, net, t).await;
         if t == txid {
-            mine = Some(fetched?);
+            mine = Some(fetched);
         }
     }
-    let (tx, h) = mine.expect("txid is in the set");
+    let (tx, h) = mine.expect("txid is in the set")?;
     if h != height {
         bail!("the server put transaction {} at block {h}, not {height}", display_txid(&txid));
     }

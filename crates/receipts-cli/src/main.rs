@@ -433,6 +433,24 @@ enum Cmd {
     },
 }
 
+/// How many receipts of any kind (receipt, batch, incoming receipt, proof of funds) the input holds.
+fn count_receipts(text: &str) -> usize {
+    [receipts_core::TEXT_PREFIX, receipts_core::BATCH_TEXT_PREFIX, receipts_core::incoming::INCOMING_TEXT_PREFIX, receipts_core::reserve::RESERVE_TEXT_PREFIX]
+        .iter()
+        .map(|p| text.matches(p).count())
+        .sum()
+}
+
+/// An incoming receipt proves one receiving address: with --expect-address it must be that one.
+fn check_incoming_recipient(rep: &chain::IncomingReport, expect: Option<&str>) -> anyhow::Result<()> {
+    if let Some(addr) = expect {
+        if chain::orchard_receiver_on(rep.network, addr)? != chain::orchard_receiver_of(&rep.recipient)? {
+            bail!("the receipt proves a different receiving address than {addr}");
+        }
+    }
+    Ok(())
+}
+
 /// The link to share: the verifier page (or the shop's request link, whose parameters are in the
 /// fragment) with the receipt and its block hint added to the fragment.
 fn answer_link(base: &str, text: &str, h: &str) -> String {
@@ -703,6 +721,13 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("`h=` lets verifiers fetch it among up to 64 shielded transactions of its block, so the server learns the block, not which one):");
             println!("{}", answer_link(&link_base, &text, &mined_height.to_string()));
         }
+        // One receipt per input, of any kind: an input holding two can't be routed past a check.
+        Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
+            bail!("the input holds more than one receipt; verify one at a time");
+        }
+        Cmd::Verify { receipt, expect_address: Some(_), .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
+            bail!("--expect-address doesn't apply to a proof of funds (it proves holdings, not a payment)");
+        }
         Cmd::Verify { receipt, server, json, regtest, .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::reserve::RESERVE_TEXT_PREFIX).unwrap();
@@ -715,14 +740,16 @@ async fn main() -> anyhow::Result<()> {
             let rep = chain::verify_reserve_against_chain(&r, server.as_deref(), regtest.as_deref(), cache.as_deref()).await?;
             if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
         }
-        Cmd::Verify { receipt, json, regtest, raw_tx: Some(raw), height: Some(height), .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, json, regtest, raw_tx: Some(raw), height: Some(height), expect_address, .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
             let r = read_incoming_arg(&receipt)?;
             let rep = chain::verify_incoming_offline(&r, &std::fs::read_to_string(&raw)?, height, regtest.as_deref())?;
+            check_incoming_recipient(&rep, expect_address.as_deref())?;
             if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
         }
-        Cmd::Verify { receipt, server, json, regtest, .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, json, regtest, expect_address, .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
             let r = read_incoming_arg(&receipt)?;
             let rep = chain::verify_incoming_against_chain(&r, server.as_deref(), regtest.as_deref()).await?;
+            check_incoming_recipient(&rep, expect_address.as_deref())?;
             if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height, source_raw_txs, .. } => {
@@ -1391,7 +1418,7 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
         "request.created" => {}
         // Sandbox payments are final at once, so this fires request.fulfilled then request.final.
         "request.fulfilled" | "request.final" => {
-            client.submit_receipt(&id, "zrcpt_test_valid").await?;
+            client.submit_receipt(&id, "zip311_test_valid").await?;
         }
         "request.payment_reorged" => {
             let clock = client.create_test_clock(None).await?;
@@ -1407,23 +1434,23 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
                 })
                 .await?;
             let rid = req["id"].as_str().unwrap_or_default().to_string();
-            client.submit_receipt(&rid, "zrcpt_test_valid").await?;
+            client.submit_receipt(&rid, "zip311_test_valid").await?;
             client.reorg_test_clock(&cid, 1).await?;
             eprintln!("Triggered {event} on {rid}");
             return Ok(());
         }
         "refund.created" | "refund.succeeded" => {
-            client.submit_receipt(&id, "zrcpt_test_refund_to").await?;
+            client.submit_receipt(&id, "zip311_test_refund_to").await?;
             let rf = client.create_refund(&id, None, Some("receipts trigger")).await?;
             if event == "refund.succeeded" {
-                client.submit_refund_receipt(rf["id"].as_str().unwrap_or_default(), "zrcpt_test_valid").await?;
+                client.submit_refund_receipt(rf["id"].as_str().unwrap_or_default(), "zip311_test_valid").await?;
             }
         }
         "receipt.rejected" => {
-            let _ = client.submit_receipt(&id, "zrcpt_test_wrong_payee").await;
+            let _ = client.submit_receipt(&id, "zip311_test_wrong_payee").await;
         }
         "request.payment_received" => {
-            client.submit_receipt(&id, "zrcpt_test_partial").await?;
+            client.submit_receipt(&id, "zip311_test_partial").await?;
         }
         "request.expired" => eprintln!("The request expires in 1 s; request.expired follows shortly."),
         _ => unreachable!(),

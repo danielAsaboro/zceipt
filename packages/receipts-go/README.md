@@ -7,7 +7,7 @@ are set).
 ```go
 c := receipts.New(os.Getenv("RECEIPTS_KEY"))
 req, err := c.CreateRequest(ctx, receipts.M{"payee": shopUA, "amount_zatoshis": 1_000_000})
-v, err := c.Verify(ctx, receipts.M{"receipt": "zrcpt_test_valid"})
+v, err := c.Verify(ctx, receipts.M{"receipt": "zip311_test_valid"})
 var apiErr *receipts.Error
 if errors.As(err, &apiErr) && apiErr.Code == "challenge_mismatch" { … }
 

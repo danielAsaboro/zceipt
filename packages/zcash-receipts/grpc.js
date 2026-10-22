@@ -154,7 +154,7 @@ export async function fetchBlockTxids(endpoint, height, { shieldedOnly = false }
     for (const [tf, tv] of parseFields(v)) {
       if (tf === 1) index = Number(tv);
       if (tf === 2) id = bytesToHex(Uint8Array.from(tv).reverse());
-      if (tf === 4 || tf === 5 || tf === 6 || tf === 9) shielded = true; // Sapling spends/outputs, Orchard and Ironwood actions
+      if (tf === 6 || tf === 9) shielded = true; // Orchard or Ironwood actions: only those can carry a receipt
     }
     if (id && (!shieldedOnly || (shielded && index !== 0))) ids.push(id);
   }

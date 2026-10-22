@@ -83,7 +83,7 @@ pub fn policy_summary(p: Option<&str>) -> Value {
 
 /// Checks a verified receipt against the policy. Errors if a spend lacks a source proof (the
 /// payer must resend); otherwise returns the provenance record, `cleared` or `review`.
-pub fn evaluate(policy: &str, v: &crate::verify::Verification) -> Result<Value, ApiError> {
+pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64) -> Result<Value, ApiError> {
     let p: Value = serde_json::from_str(policy).unwrap_or(json!({}));
     let blocked: std::collections::BTreeSet<&str> = p["blocked_addresses"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
     let spends = v.checks["spend_authority"]["actions"].as_u64().unwrap_or(0) as usize;
@@ -108,13 +108,8 @@ pub fn evaluate(policy: &str, v: &crate::verify::Verification) -> Result<Value, 
         }
         // Clean inputs alone don't explain the note: the clear funding must cover its value, or
         // the rest came from shielded notes the payer didn't show.
-        match s["zatoshis"].as_u64() {
-            None if !known.is_empty() => reasons.push(format!("the value of the note spent by action {action} is hidden, so the desk can't check its funding covers it (resend with --reveal-source-value; receipts pay does this for deposit desks)")),
-            Some(value) if s["net_into_shielded_zatoshis"].as_i64().unwrap_or(0) < value as i64 => reasons.push(format!(
-                "transaction {stx} moved {} zatoshis in from the clear, less than the {value}-zatoshi note spent by action {action}: the rest came from shielded notes the payer didn't show",
-                s["net_into_shielded_zatoshis"].as_i64().unwrap_or(0)
-            )),
-            _ => {}
+        if s["zatoshis"].as_u64().is_none() && !known.is_empty() {
+            reasons.push(format!("the value of the note spent by action {action} is hidden, so the desk can't check its funding covers it (resend with --reveal-source-value; receipts pay does this for deposit desks)"));
         }
         for i in known {
             let a = i["address"].as_str().unwrap_or_default();
@@ -123,6 +118,25 @@ pub fn evaluate(policy: &str, v: &crate::verify::Verification) -> Result<Value, 
             }
             funding.push(json!({ "address": a, "zatoshis": i["zatoshis"], "source_txid": s["source_txid"] }));
         }
+    }
+    // Coverage: notes from one source transaction can't together claim more than it moved in
+    // from the clear, and the screened notes must add up to what the deposit paid (a receipt can
+    // disclose a small screened spend next to large spends it doesn't show).
+    let mut per_source: std::collections::BTreeMap<String, (u64, i64)> = Default::default();
+    let mut screened = 0u64;
+    for s in &v.sources {
+        let Some(value) = s["zatoshis"].as_u64() else { continue };
+        let e = per_source.entry(s["source_txid"].as_str().unwrap_or("?").to_string()).or_insert((0, s["net_into_shielded_zatoshis"].as_i64().unwrap_or(0)));
+        e.0 += value;
+        screened += value;
+    }
+    for (stx, (claimed, moved_in)) in &per_source {
+        if (*claimed as i64) > *moved_in {
+            reasons.push(format!("transaction {stx} moved {moved_in} zatoshis in from the clear, less than the {claimed} zatoshis of notes it funded here: the rest came from shielded notes the payer didn't show"));
+        }
+    }
+    if screened < paid && reasons.is_empty() {
+        reasons.push(format!("the screened notes hold {screened} zatoshis, less than the {paid} zatoshis deposited: the rest came from spends the receipt doesn't show"));
     }
     reasons.dedup();
     Ok(json!({

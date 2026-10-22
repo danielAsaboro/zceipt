@@ -16,7 +16,7 @@ test("every API operation works through the JS SDK", { skip: !URL_ || !KEY }, as
   await call("health", r.health());
   await call("listErrors", r.errors.list());
   await call("listSandboxFixtures", r.sandbox.fixtures());
-  await call("verify", r.verify("zrcpt_test_valid"));
+  await call("verify", r.verify("zip311_test_valid"));
   await call("checkPaymentLink", r.paymentLinks.check(`zcash:${PAYEE}?amount=0.01`));
   const clock = await call("createTestClock", r.testClocks.create());
   await call("getTestClock", r.testClocks.retrieve(clock.id));
@@ -25,14 +25,14 @@ test("every API operation works through the JS SDK", { skip: !URL_ || !KEY }, as
   await call("listRequests", r.requests.list({ limit: 2 }));
   assert.match(await call("requestQr", r.requests.qr(req.id)), /<svg/);
   await call("publicGetRequest", r.public.getRequest(req.id, req.client_secret));
-  await call("publicSubmitReceipt", r.public.submitReceipt(req.id, { receipt: "zrcpt_test_refund_to", client_secret: req.client_secret }));
+  await call("publicSubmitReceipt", r.public.submitReceipt(req.id, { receipt: "zip311_test_refund_to", client_secret: req.client_secret }));
   await call("advanceTestClock", r.testClocks.advance(clock.id, { blocks: 9 }));
   await call("reorgTestClock", r.testClocks.reorg(clock.id, { depth: 1 }));
   const rf = await call("createRefund", r.refunds.create(req.id, { amount_zatoshis: 1000 }));
   await call("getRefund", r.refunds.retrieve(rf.id));
-  await call("submitRefundReceipt", r.refunds.submitReceipt(rf.id, { receipt: "zrcpt_test_valid" }));
+  await call("submitRefundReceipt", r.refunds.submitReceipt(rf.id, { receipt: "zip311_test_valid" }));
   const other = await r.requests.create({ payee: PAYEE, amount_zatoshis: 1_000_000 });
-  await call("submitReceipt", r.requests.submitReceipt(other.id, { receipt: "zrcpt_test_valid" }));
+  await call("submitReceipt", r.requests.submitReceipt(other.id, { receipt: "zip311_test_valid" }));
   await call("reviewDeposit", r.requests.review(other.id, { decision: "accept" }).catch((e) => assert.equal(e.code ?? e.body?.error?.code, "not_held_for_review")));
   const att = await call("createAttestation", r.attestations.create(other.id));
   await call("verifyAttestation", r.attestations.verify(att.presentation));

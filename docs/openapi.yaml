@@ -65,7 +65,7 @@ paths:
     get:
       tags: [Meta]
       operationId: listSandboxFixtures
-      summary: List the sandbox receipts (zrcpt_test_*) and their outcomes
+      summary: List the sandbox receipts (zip311_test_*) and their outcomes
       security: []
       responses:
         "200": { description: List of fixture names }

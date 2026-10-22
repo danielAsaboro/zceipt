@@ -43,7 +43,9 @@ A decoder MUST refuse a receipt that:
 1. does not start with `ZRCT`, has an unknown version, or a version that is not the lowest for
    its contents;
 2. has `pool` or `outputPool` other than 0 or 1, or `outputPool = pool` in version 3;
-3. has `proofLen > 65,536`, an `addrFlag` other than 0 or 1, fewer bytes than its lengths
+3. has `proofLen > 65,536`, an `addrFlag` other than 0 (1 introduces an address proof, an
+   extension in SPEC.md: a verifier that doesn't implement it, including its fixed `cv_net` rule,
+   MUST refuse such receipts), fewer bytes than its lengths
    declare, or any byte after the last signature;
 4. does not re-encode to exactly its own bytes. Every receipt therefore has one encoding, and the
    signatures cover exactly those bytes.
@@ -70,8 +72,10 @@ For each spend to disclose, at index `i` of the payment bundle, spending note `n
    transaction's `nf_i`) and whose output is a zero-value dummy note with `rho = nf_i`.
 2. Sample fresh `alpha` and `rcv`. `rk := SpendAuthSig.RandomizePublic(alpha, ak)`,
    `cvNet := ValueCommit_rcv(v(n) - 0)`, `cmx` := the dummy note's `x(cm)`.
-3. Prove the Action statement for the circuit in force at the payment's height with public inputs
-   `(rt, cvNet, nf_i, rk, cmx, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)`.
+3. Prove the Action statement under the post-NU6.3 Orchard circuit, whatever the payment's height
+   (earlier circuit versions MUST NOT be used: the pre-NU6.2 circuit is unsound), with public
+   inputs `(rt, cvNet, nf_i, rk, cmx, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)`
+   (SPEC.md writes the last flag as `disableCrossAddress = 0`; it is the same input).
 4. After all spends are proven and `unsigned` is encoded, sign `digest` with
    `rsk := SpendAuthSig.RandomizePrivate(alpha, ask)`, one signature per spend, in spend order.
 
@@ -92,7 +96,7 @@ Inputs: the receipt; the transaction `T` with id `txid*`, fetched or supplied; t
    1. `rk`, `cvNet` and `cmx` MUST be canonical encodings (`rk` and `cvNet` of Pallas points,
       `cmx` of a Pallas base field element), and `rk` MUST NOT be the identity.
    2. `SpendAuthSig.Validate(rk, digest, σ)` MUST hold.
-   3. The proof MUST verify for the Action circuit with public inputs
+   3. The proof MUST verify for the post-NU6.3 Action circuit with public inputs
       `(rt(B), cvNet, nf(B.actions[i]), rk, cmx, 1, 1, 1)`. The verifier MUST take the anchor and
       the nullifier from `T`, never from the receipt.
 6. For each output `(j, ock)`: run Orchard output recovery with `ock` on `B'.actions[j]`
@@ -102,6 +106,23 @@ Inputs: the receipt; the transaction `T` with id `txid*`, fetched or supplied; t
 7. The receipt is valid for `T`. Whether `T` was mined, and how deep, is established separately
    from the chain (a verifier SHOULD report the source it used and the confirmations), and a
    verifier that issued a challenge MUST check that `msg` carries it.
+
+## Signing domains
+
+Every signed format in this repository has its own BLAKE2b personalization (12 bytes, then
+`coinType` as 4 bytes little-endian), so no signature made for one can verify as another. The
+tags are this project's, not registered names; `ZIP321Signed` signs payment requests and is not
+defined by ZIP 321.
+
+| Format | Tag | Signed by |
+|---|---|---|
+| Receipt (`zip311r1`) | `ZIP311Signed` | the spend's randomized key `rk` |
+| Incoming receipt (`zrcin1`) | `ZIP311Incomg` | a fresh `rk` of the recipient |
+| Sign in with Zcash (`zsig1`) | `ZcashSignIn\0` | a fresh `rk` |
+| Payment request (`zreq1`) | `ZIP321Signed` | a fresh `rk` of the payee |
+| Proof of funds (`zrsv1`) | `ZcashReserve` | a fresh `rk` per note |
+
+`receipts-core/tests/properties.rs::all_signing_domains_are_distinct` checks the five are distinct.
 
 ## Rationale
 
@@ -127,6 +148,13 @@ Inputs: the receipt; the transaction `T` with id `txid*`, fetched or supplied; t
   verifier binds a receipt to a payee by checking the recipient it expects.
 - Inclusion rests on the chain source. A verifier SHOULD fetch by block (or from its own node)
   so the server does not learn the txid, and MAY cross-check a second server.
+- A signer that holds `ask` apart from the prover (a hardware wallet) MUST be given the unsigned
+  receipt and each spend's `alpha`, MUST compute `digest` itself with the `ZIP311Signed`
+  personalization, MUST check each spend's `rk = SpendAuthSig.RandomizePublic(alpha, ak)`, and
+  SHOULD display the txid, the disclosed outputs and `msg` before signing. It MUST NOT sign a
+  digest supplied by the host: that could be a transaction's sighash, and the signature would
+  authorize a real spend. `receipts_core::sign_prepared` is a reference signer that does these
+  checks.
 - Spend authority is proven for the signer's spend authorizing key. In a transaction several
   parties built (a PCZT), it is whoever holds that `ask` and knew each `ock`.
 

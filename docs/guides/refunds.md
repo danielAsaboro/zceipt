@@ -27,4 +27,4 @@ curl -s -X POST localhost:8723/v1/requests/$ID/refunds \
 
 SDKs: `receipts.refunds.create(id, {…})` and `receipts.refunds.submitReceipt(rf, { receipt })` (JS),
 `client.refunds.create(id, …)` (Python), `create_refund` / `submit_refund_receipt` (Rust).
-In the sandbox, pay with `zrcpt_test_refund_to`, then settle with `zrcpt_test_valid`.
+In the sandbox, pay with `zip311_test_refund_to`, then settle with `zip311_test_valid`.

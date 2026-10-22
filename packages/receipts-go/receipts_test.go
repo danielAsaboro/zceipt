@@ -49,7 +49,7 @@ func TestEveryOperation(t *testing.T) {
 	must("health")(c.Health(ctx))
 	must("listErrors")(c.ListErrors(ctx))
 	must("listSandboxFixtures")(c.SandboxFixtures(ctx))
-	must("verify")(c.Verify(ctx, M{"receipt": "zrcpt_test_valid"}))
+	must("verify")(c.Verify(ctx, M{"receipt": "zip311_test_valid"}))
 	must("checkPaymentLink")(c.CheckPaymentLink(ctx, M{"uri": "zcash:" + payee + "?amount=0.01"}))
 	clock := must("createTestClock")(c.CreateTestClock(ctx, M{}))
 	must("getTestClock")(c.GetTestClock(ctx, s(clock, "id")))
@@ -63,14 +63,14 @@ func TestEveryOperation(t *testing.T) {
 	}
 	done["requestQr"] = true
 	must("publicGetRequest")(c.PublicGetRequest(ctx, id, s(req, "client_secret")))
-	must("publicSubmitReceipt")(c.PublicSubmitReceipt(ctx, id, "zrcpt_test_refund_to", s(req, "client_secret")))
+	must("publicSubmitReceipt")(c.PublicSubmitReceipt(ctx, id, "zip311_test_refund_to", s(req, "client_secret")))
 	must("advanceTestClock")(c.AdvanceTestClock(ctx, s(clock, "id"), M{"blocks": 9}))
 	must("reorgTestClock")(c.ReorgTestClock(ctx, s(clock, "id"), 1))
 	rf := must("createRefund")(c.CreateRefund(ctx, id, M{"amount_zatoshis": 1000}))
 	must("getRefund")(c.GetRefund(ctx, s(rf, "id")))
-	must("submitRefundReceipt")(c.SubmitRefundReceipt(ctx, s(rf, "id"), "zrcpt_test_valid"))
+	must("submitRefundReceipt")(c.SubmitRefundReceipt(ctx, s(rf, "id"), "zip311_test_valid"))
 	other, _ := c.CreateRequest(ctx, M{"payee": payee, "amount_zatoshis": 1_000_000})
-	must("submitReceipt")(c.SubmitReceipt(ctx, s(other, "id"), "zrcpt_test_valid"))
+	must("submitReceipt")(c.SubmitReceipt(ctx, s(other, "id"), "zip311_test_valid"))
 	var reviewErr *Error
 	if _, err := c.ReviewDeposit(ctx, s(other, "id"), "accept", ""); !errors.As(err, &reviewErr) || reviewErr.Code != "not_held_for_review" {
 		t.Fatal("reviewDeposit", err)

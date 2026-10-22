@@ -49,7 +49,7 @@ test("refunds and sign-in route to the right endpoints", async () => {
   const fetch = async (url, init) => { calls.push([init.method, url, init.body]); return new Response(JSON.stringify({ ok: true }), { status: 200 }); };
   const r = new Receipts("rcpt_test_x", { baseUrl: "http://api", fetch });
   await r.refunds.create("preq_1", { amount_zatoshis: 5 });
-  await r.refunds.submitReceipt("rf_1", { receipt: "zrcpt_test_valid" });
+  await r.refunds.submitReceipt("rf_1", { receipt: "zip311_test_valid" });
   await r.signIn.createChallenge({ domain: "a.example" });
   await r.signIn.verify("zsig1abc");
   assert.deepEqual(calls.map((c) => c[1]), ["http://api/v1/requests/preq_1/refunds", "http://api/v1/refunds/rf_1/receipts", "http://api/v1/sign_in/challenges", "http://api/v1/sign_in/verify"]);

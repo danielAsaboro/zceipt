@@ -144,6 +144,7 @@ export async function verifyReceipt(input, options = {}) {
     const m = /(?:^|\n)challenge:([0-9a-f]{6,64})(?:\n|$)/.exec(v.message || "");
     if (!m || m[1] !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");
   }
+  if (options.minZatoshis != null && !options.expectAddress) throw new Error("minZatoshis needs expectAddress: the minimum is checked against what that address received");
   if (options.expectAddress) {
     const paid = paidTo([v], options.expectAddress);
     if (paid === 0) throw new Error("no disclosed output paid the expected address");

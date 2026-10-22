@@ -50,7 +50,7 @@ async fn every_operation() {
     op!("health", c.health());
     op!("listErrors", c.list_errors());
     op!("listSandboxFixtures", c.sandbox_fixtures());
-    op!("verify", c.verify(&VerifyParams { receipt: "zrcpt_test_valid".into(), ..Default::default() }));
+    op!("verify", c.verify(&VerifyParams { receipt: "zip311_test_valid".into(), ..Default::default() }));
     op!("checkPaymentLink", c.check_payment_link(&format!("zcash:{payee}?amount=0.01"), None));
     let clock = op!("createTestClock", c.create_test_clock(None));
     let cid = clock["id"].as_str().unwrap().to_string();
@@ -61,16 +61,16 @@ async fn every_operation() {
     op!("listRequests", c.list_requests(None, Some(2)));
     assert!(op!("requestQr", c.request_qr(&id)).contains("<svg"));
     op!("publicGetRequest", c.public_get_request(&id, &secret));
-    op!("publicSubmitReceipt", c.public_submit_receipt(&id, "zrcpt_test_refund_to", Some(&secret)));
+    op!("publicSubmitReceipt", c.public_submit_receipt(&id, "zip311_test_refund_to", Some(&secret)));
     op!("advanceTestClock", c.advance_test_clock(&cid, None, Some(9)));
     op!("reorgTestClock", c.reorg_test_clock(&cid, 1));
     let rf = op!("createRefund", c.create_refund(&id, Some(1000), None));
     let rid = rf["id"].as_str().unwrap().to_string();
     op!("getRefund", c.get_refund(&rid));
-    op!("submitRefundReceipt", c.submit_refund_receipt(&rid, "zrcpt_test_valid"));
+    op!("submitRefundReceipt", c.submit_refund_receipt(&rid, "zip311_test_valid"));
     let other = c.create_request(&CreateRequest { payee: payee.clone(), amount_zatoshis: Some(1_000_000), ..Default::default() }).await.unwrap();
     let oid = other["id"].as_str().unwrap().to_string();
-    op!("submitReceipt", c.submit_receipt(&oid, "zrcpt_test_valid"));
+    op!("submitReceipt", c.submit_receipt(&oid, "zip311_test_valid"));
     done.insert("reviewDeposit");
     assert_eq!(c.review_deposit(&oid, "accept", None).await.unwrap_err().code(), Some("not_held_for_review"));
     let att = op!("createAttestation", c.create_attestation(&oid, None, None, &[]));

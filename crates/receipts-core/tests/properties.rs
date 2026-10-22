@@ -251,3 +251,24 @@ fn receipts_and_sign_ins_are_domain_separated() {
     let want = Params::new().hash_length(32).personal(&personal(b"ZIP311Signed", rc.unsigned.coin_type)).hash(&enc);
     assert_eq!(&signing_digest(&rc.unsigned)[..], want.as_bytes());
 }
+
+/// Every signed format has its own BLAKE2b personalization, so a signature made for one can't
+/// verify as another (docs/ZIP311-ORCHARD.md, "Signing domains"). The tags are read from the source,
+/// so a new or renamed format can't silently reuse one.
+#[test]
+fn all_signing_domains_are_distinct() {
+    let src = [
+        include_str!("../src/lib.rs"),
+        include_str!("../src/incoming.rs"),
+        include_str!("../src/signin.rs"),
+        include_str!("../src/payreq.rs"),
+        include_str!("../src/reserve.rs"),
+    ]
+    .concat();
+    let mut tags: Vec<&str> = src.match_indices("signing_personal(b\"").map(|(i, m)| { let rest = &src[i + m.len()..]; &rest[..rest.find('"').unwrap()] }).collect();
+    assert_eq!(tags.len(), 5, "{tags:?}");
+    tags.sort();
+    tags.dedup();
+    assert_eq!(tags.len(), 5, "two formats share a signing domain: {tags:?}");
+    assert!(tags.iter().all(|t| t.replace("\\0", "\0").len() == 12), "{tags:?}");
+}

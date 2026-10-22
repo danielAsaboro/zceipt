@@ -27,7 +27,8 @@ On top of that, and not in the projects above:
 - **Outputs without their memo** (v5), **incoming receipts** made by the recipient, **signed
   payment requests**, **batches** and **proof of unspent funds**.
 - **A second, independent verifier** written in Python from the protocol specification, which
-  agrees with the Rust verifier on 270 conformance vectors and 232 signed adversarial receipts.
+  agrees with the Rust verifier on 270 conformance vectors and 232 adversarial receipts (it doesn't
+  check the Halo 2 proofs; for those cases it derives the same public inputs).
 - **Integration points:** a Rust library, a `zcash-devtool wallet receipt` command, a REST API
   with webhooks, SDKs for TypeScript, Python, Rust and Go, and a browser verifier.
 

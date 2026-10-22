@@ -437,7 +437,8 @@ pub fn batch_position(msg: &[u8]) -> Option<(String, u16, u16)> {
     let (id, pos) = line.split_once(' ')?;
     let (i, n) = pos.split_once('/')?;
     // Strict: a non-empty id, and ASCII digits only (u16::from_str would also take a leading `+`).
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    // Canonical decimal: no leading zeros, at most 5 digits (u16).
+    let digits = |s: &str| !s.is_empty() && s.len() <= 5 && s.bytes().all(|b| b.is_ascii_digit()) && (s == "0" || !s.starts_with('0'));
     if id.is_empty() || !digits(i) || !digits(n) {
         return None;
     }

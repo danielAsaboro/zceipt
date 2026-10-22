@@ -29,7 +29,7 @@
     body { min-height: 100vh; }
     a { color: inherit; }
     main { max-width: 1080px; margin: 0 auto; padding: 48px 20px 80px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: start; }
-    @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 28px; } }
+    @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 28px; } body.has-result #right { order: -1; } }
     h1 { font-size: clamp(32px, 4.4vw, 52px); line-height: 1.04; letter-spacing: -0.02em; margin: 0 0 18px; font-weight: 650; }
     h1 em { font-style: normal; color: var(--paper); background: linear-gradient(transparent 62%, #3a352c 62%); }
     .lede { color: var(--text-2); font-size: 17px; line-height: 1.55; margin: 0 0 28px; max-width: 34em; }
@@ -74,12 +74,14 @@
     .line { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 4px 0; align-items: baseline; }
     .line .k { color: var(--ink-2); font-size: 12px; letter-spacing: 0.1em; }
     .line .v { word-break: break-all; }
+    .line .v.memo, .line .v.text { word-break: normal; overflow-wrap: anywhere; }
     .line .amount { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
     .line .amount small { font-size: 13px; font-weight: 600; }
     .line .memo { font-family: var(--sans); font-style: italic; }
     .stamp { display: inline-block; border: 3px solid currentColor; border-radius: 6px; padding: 4px 12px; font-weight: 900; letter-spacing: 0.24em; transform: rotate(-4deg); font-size: 18px; }
     .stamp.good { color: var(--good); }
     .stamp.bad { color: var(--bad); }
+    .stamp.warn { color: #8a6100; }
     .facts { margin: 16px 0 0; padding-left: 18px; font-family: var(--sans); font-size: 13px; line-height: 1.5; color: #2f2c27; }
     .facts li { margin: 4px 0; }
     .local { margin: 14px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--good) 40%, transparent); border-radius: 8px; font-family: var(--sans); font-size: 12.5px; line-height: 1.5; color: #2f2c27; background: color-mix(in srgb, var(--good) 7%, transparent); }
@@ -123,7 +125,7 @@
     <section>
       <div class="eyebrow">Receipts · ZIP 311 for Orchard &amp; Ironwood</div>
       <h1>Prove one Zcash payment. <em>Reveal nothing else.</em></h1>
-      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. Verification runs entirely in this browser.</p>
+      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. The proof is checked in this browser; only the public transaction is fetched.</p>
 
       <label class="hint" for="paste">Receipt or link</label>
       <textarea id="paste" placeholder="zip311r1…" spellcheck="false"></textarea>
@@ -196,7 +198,7 @@ receipts verify 'https://…#zip311r1…'</div>
       <div id="result" hidden></div>
       <div class="placeholder" id="empty">
         <div class="big">RECEIPT</div>
-        Open a receipt link, or paste one on the left.<br>The verified payment prints here.
+        Open a receipt link, or paste one.<br>The verified payment prints here.
       </div>
     </section>
   </main>

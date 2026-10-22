@@ -159,12 +159,29 @@ function resetSteps() {
 const short = (s, n = 10) => (s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 
-function showError(msg) {
-  $("#result").hidden = false;
+// Shows the result panel; on a phone it moves above the form and scrolls into view, so a link
+// opens straight onto the payment.
+function revealResult() {
+  revealResult();
+  document.body.classList.add("has-result");
+  if (window.matchMedia("(max-width: 860px)").matches) $("#right")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Three different failures, said differently: the link is incomplete or isn't a receipt; the
+// chain couldn't be reached; the receipt was altered or forged.
+function showError(msg, kind = "notice") {
+  revealResult();
+  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID" }[kind];
+  const plain = {
+    forged: "This receipt was changed after it was made, or it was never made by the wallet that paid. Don't rely on it.",
+    unreadable: "The link may be cut off (some apps shorten long links), or what was pasted isn't a receipt. Ask for the whole link, or the receipt as a file.",
+    network: "The receipt wasn't checked: the chain server couldn't be reached or doesn't have the transaction yet. Try again in a minute, or pick another server in Settings.",
+    notice: "",
+  }[kind];
   $("#result").innerHTML = `
-    <div class="ticket invalid">
-      <div class="stamp bad">NOT VALID</div>
-      <p class="why">${escapeHtml(msg)}</p>
+    <div class="ticket invalid" data-kind="${kind}">
+      <div class="stamp ${kind === "network" ? "warn" : "bad"}">${head}</div>
+      ${plain ? `<p class="why">${escapeHtml(plain)}</p><p class="fine">Detail: ${escapeHtml(msg)}</p>` : `<p class="why">${escapeHtml(msg)}</p>`}
       <p class="fine">A receipt is only valid if the sender's proof, signature and the on-chain transaction all agree.</p>
     </div>`;
 }
@@ -209,7 +226,7 @@ function render(v, net) {
       <div class="dash"></div>`
     )
     .join("");
-  $("#result").hidden = false;
+  revealResult();
   $("#result").innerHTML = `
     <div class="ticket">
       <div class="head">
@@ -227,7 +244,7 @@ function render(v, net) {
       ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ${UNIT} note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
       ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ${UNIT} from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
       ${s.transparent_inputs.length ? "" : `<div class="line"><span class="k"></span><span class="v"><small>that transaction was itself funded from shielded notes (not shown)</small></span></div>`}`).join("")}
-      ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message.split("\n").filter((l) => !/^(tex-deposit|second-tx):/.test(l)).join("\n"))}</span></div>` : ""}
+      ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v text">${escapeHtml(v.message.split("\n").filter((l) => !/^(tex-deposit|second-tx):/.test(l)).join("\n"))}</span></div>` : ""}
       ${v.deposit ? `<div class="dash"></div>
       <div class="line paid"><span class="k">DEPOSIT</span><span class="v amount">${zec(v.deposit.deposit_zatoshis)} <small>${UNIT}</small></span></div>
       <div class="line"><span class="k">EXCHANGE</span><span class="v mono addr" title="${v.deposit.tex_address}">${short(v.deposit.tex_address, 14)}</span></div>
@@ -240,6 +257,7 @@ function render(v, net) {
         ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from the transaction on chain.</li>` : ""}
         ${(v.sources || []).length ? `<li>The sender proved where the spent money came from (FUNDS above): only that link, read from the chain.</li>` : ""}
         ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>The sender also proved they control the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
+        ${challengeIn(v.message) ? "" : `<li><strong>Check before relying on it:</strong> the sender chose which outputs to show, and anyone holding this receipt can show it. Check the recipient below is you, or ask for a receipt that answers your own request.</li>`}
       </ul>
       ${localBadge()}
       <div id="reqChecks"></div>
@@ -308,7 +326,7 @@ async function run(receiptText) {
     setStep("decode", "done", `${regtest() ? "regtest" : summary.network}, ${summary.pool} pool, ${(summary.bytes / 1024).toFixed(1)} KB`);
   } catch (e) {
     setStep("decode", "fail", e.message);
-    return showError(`This is not a readable receipt: ${e.message}`);
+    return showError(e.message, "unreadable");
   }
   let tx;
   try {
@@ -336,7 +354,7 @@ async function run(receiptText) {
     }
   } catch (e) {
     setStep("fetch", "fail", e.message);
-    return showError(`Could not fetch the transaction: ${e.message}`);
+    return showError(`Could not fetch the transaction: ${e.message}`, "network");
   }
   try {
     setStep("verify", "busy", document.querySelector("#warm")?.dataset.state === "ready" ? "checking the Halo 2 proof and signature" : "preparing the verifier, then checking the proof and signature");
@@ -374,7 +392,7 @@ async function run(receiptText) {
     render(v, summary.network);
   } catch (e) {
     setStep("verify", "fail", e.message);
-    showError(e.message);
+    showError(e.message, "forged");
   }
 }
 
@@ -469,7 +487,7 @@ async function runBatch(batchText) {
   const total = lines.reduce((s, l) => s + l.o.zatoshis, 0);
   const recipients = new Set(lines.map((l) => l.o.recipient)).size;
   const note = (results[0].message || "").split("\n").filter((l) => !l.startsWith("batch:")).join(" ");
-  $("#result").hidden = false;
+  revealResult();
   $("#result").innerHTML = `
     <div class="ticket">
       <div class="head"><div class="brand">RECEIPT</div><div class="sub">Zcash · ${results[0].network} · ${results.length} payments</div></div>
@@ -511,7 +529,7 @@ async function runIncoming(text) {
     setStep("decode", "done", `incoming receipt: ${regtest() ? "regtest" : s.network}, ${s.pool} pool, ${(s.bytes / 1024).toFixed(1)} KB`);
   } catch (e) {
     setStep("decode", "fail", e.message);
-    return showError(`This is not a readable incoming receipt: ${e.message}`);
+    return showError(e.message, "unreadable");
   }
   let tx;
   try {
@@ -523,7 +541,7 @@ async function runIncoming(text) {
     setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
   } catch (e) {
     setStep("fetch", "fail", e.message);
-    return showError(`Could not fetch the transaction: ${e.message}`);
+    return showError(`Could not fetch the transaction: ${e.message}`, "network");
   }
   try {
     setStep("verify", "busy", "checking the recipient's address proof, signature and each output");
@@ -534,7 +552,7 @@ async function runIncoming(text) {
       <div class="line paid"><span class="k">RECEIVED</span><span class="v amount">${zec(o.zatoshis)} <small>${UNIT}</small></span></div>
       ${o.memo ? `<div class="line"><span class="k">MEMO</span><span class="v memo">“${escapeHtml(o.memo)}”</span></div>` : ""}
       <div class="dash"></div>`).join("");
-    $("#result").hidden = false;
+    revealResult();
     $("#result").innerHTML = `
       <div class="ticket">
         <div class="head"><div class="brand">INCOMING</div><div class="sub">Zcash · ${v.network} · ${v.pool} pool</div></div>
@@ -543,7 +561,7 @@ async function runIncoming(text) {
         <div class="line"><span class="k">TO</span><span class="v mono addr" title="${v.recipient}">${short(v.recipient, 14)} <small>(proven)</small></span></div>
         <div class="line"><span class="k">TX</span><span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span></div>
         <div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>
-        ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message)}</span></div>` : ""}
+        ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v text">${escapeHtml(v.message)}</span></div>` : ""}
         <div class="dash"></div>
         <div class="stamp good">VERIFIED</div>
         <ul class="facts">
@@ -551,10 +569,11 @@ async function runIncoming(text) {
           <li><strong>Not revealed:</strong> the recipient's balance, other payments, or when it spends these.</li>
         </ul>
         ${localBadge()}
+        ${requestFromUrl() ? `<div class="reqbox" data-ok="false"><div class="reqhead">REQUEST NOT SATISFIED</div><ul><li data-ok="false">✗ This is an incoming receipt (the recipient proving it was paid). It doesn't answer a payment request: ask the payer for a receipt made with the request link.</li></ul></div>` : ""}
       </div>`;
   } catch (e) {
     setStep("verify", "fail", e.message);
-    showError(e.message);
+    showError(e.message, "forged");
   }
 }
 
@@ -592,6 +611,9 @@ for (const [id, text] of [["#sampleReal", SAMPLE_REAL], ["#sampleEdited", SAMPLE
 
 $("#verifyBtn").onclick = async () => {
   const t = $("#paste").value.trim();
+  // A new attempt: clear the previous run's steps so they can't contradict this one.
+  resetSteps();
+  $("#progress").hidden = true;
   await local;
   const leak = secret_kind(t);
   if (leak) {

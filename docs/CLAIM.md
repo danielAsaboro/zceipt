@@ -22,8 +22,8 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    bytes, `txid`, the message `msg` (e.g. a verifier's challenge), every disclosed output and
    every spend disclosure. No-one without one of those `ask` values can produce a different
    receipt that a verifier accepts, by editing, merging or truncating receipts they hold.
-4. **Sender address (optional).** For every spend that carries an address proof for `A`, the same
-   `ask` (same `rk`) also controls `A`: `A = (d, [ivk] g_d)` for an `ivk` derived from that `ak`.
+4. **Sender address (optional).** For every spend that carries an address proof for `A`, the
+   holder of the spend authorizing key behind that spend's `rk` also controls `A`: `A = (d, [ivk] g_d)` for an `ivk` derived from that `ak`.
 5. **Outputs without memo (optional).** For every opened output `j`, action `j` of the outputs'
    bundle carries a note to `(d, pk_d)` with value `v` (no claim about the memo or about who can
    decrypt it).

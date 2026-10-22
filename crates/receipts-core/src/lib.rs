@@ -259,28 +259,31 @@ impl From<&SpendWitness> for ViewingSpendWitness {
     }
 }
 
-/// A receipt with every proof made but not yet signed. The signer needs only [`Self::sighash`],
-/// each spend's randomizer `alpha` and its spend authorizing key, like a PCZT signer.
-#[derive(Clone, Debug)]
+/// A receipt with every proof made but not yet signed. A separate signer (a hardware wallet) is
+/// given the unsigned receipt and the randomizers ([`Self::unsigned`], [`Self::alphas`]) and signs
+/// with [`sign_prepared`], which computes the digest itself and checks each `rk`: a signer that
+/// signed whatever digest the host handed it, with the same `ask`, could be made to authorize a
+/// transaction. The randomizers link the receipt to its spends, so treat them as secret.
+#[derive(Clone)]
 pub struct PreparedReceipt {
-    pub unsigned: UnsignedReceipt,
-    /// One randomizer per spend, in spend order: sign with `ask.randomize(alpha)`.
-    pub alphas: Vec<pallas::Scalar>,
+    unsigned: UnsignedReceipt,
+    alphas: Vec<pallas::Scalar>,
 }
 
 impl PreparedReceipt {
-    /// The digest every spend signs (`BLAKE2b-256("ZIP311Signed" || coinType, unsigned)`).
-    pub fn sighash(&self) -> [u8; 32] {
-        signing_digest(&self.unsigned)
+    /// The unsigned receipt, to show the user and give the signer.
+    pub fn unsigned(&self) -> &UnsignedReceipt {
+        &self.unsigned
     }
 
-    /// Signs with the spend authorizing keys, one per spend, in spend order.
-    pub fn sign(self, asks: &[SpendAuthorizingKey], mut rng: impl CryptoRng) -> Result<Receipt, Error> {
-        if asks.len() != self.alphas.len() {
-            return Err(Error::SignatureCount);
-        }
-        let digest = self.sighash();
-        let sigs = asks.iter().zip(&self.alphas).map(|(ask, alpha)| (&ask.randomize(alpha).sign(&mut rng, &digest)).into()).collect();
+    /// One randomizer per spend, in spend order, for the signer.
+    pub fn alphas(&self) -> &[pallas::Scalar] {
+        &self.alphas
+    }
+
+    /// Signs here with the spend authorizing keys, one per spend, in spend order.
+    pub fn sign(self, asks: &[SpendAuthorizingKey], rng: impl CryptoRng) -> Result<Receipt, Error> {
+        let sigs = sign_prepared(&self.unsigned, &self.alphas, asks, rng)?;
         self.apply_signatures(sigs)
     }
 
@@ -290,13 +293,34 @@ impl PreparedReceipt {
         if sigs.len() != self.unsigned.spends.len() {
             return Err(Error::SignatureCount);
         }
-        let digest = self.sighash();
+        let digest = signing_digest(&self.unsigned);
         for (s, sig) in self.unsigned.spends.iter().zip(&sigs) {
             let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
             rk.verify(&digest, &redpallas::Signature::<SpendAuth>::from(*sig)).map_err(|_| Error::BadSignature(s.index))?;
         }
         Ok(Receipt { unsigned: self.unsigned, spend_auth_sigs: sigs })
     }
+}
+
+/// The reference signer for a prepared receipt: computes the receipt digest itself from
+/// `unsigned` (never takes a digest from the caller), checks that every spend's `rk` is
+/// `ak` randomized by its `alpha` (so it only signs for keys it holds, as the receipt says), and
+/// signs. A hardware wallet should do the same, after showing the txid, outputs and message.
+pub fn sign_prepared(unsigned: &UnsignedReceipt, alphas: &[pallas::Scalar], asks: &[SpendAuthorizingKey], mut rng: impl CryptoRng) -> Result<Vec<[u8; 64]>, Error> {
+    if asks.len() != unsigned.spends.len() || alphas.len() != unsigned.spends.len() {
+        return Err(Error::SignatureCount);
+    }
+    let digest = signing_digest(unsigned);
+    let mut sigs = Vec::with_capacity(asks.len());
+    for ((s, ask), alpha) in unsigned.spends.iter().zip(asks).zip(alphas) {
+        let rsk = ask.randomize(alpha);
+        let rk: [u8; 32] = (&redpallas::VerificationKey::<SpendAuth>::from(&rsk)).into();
+        if rk != s.rk {
+            return Err(Error::BadSignature(s.index));
+        }
+        sigs.push((&rsk.sign(&mut rng, &digest)).into());
+    }
+    Ok(sigs)
 }
 
 /// What a verifier learns from a valid receipt.

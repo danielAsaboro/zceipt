@@ -30,7 +30,7 @@ test("402 gate: pay, prove, get through; bound to its caller", { skip: !URL_ || 
   const again = await receiptGate.fetch(new Request("http://shop/report.pdf", { headers: { "receipt-request": body.request } }), opts);
   assert.equal(again.status, 402);
   assert.equal((await again.json()).request, body.request);
-  await receipts.requests.submitReceipt(body.request, { receipt: "zrcpt_test_valid" });
+  await receipts.requests.submitReceipt(body.request, { receipt: "zip311_test_valid" });
   assert.equal(await receiptGate.fetch(new Request("http://shop/report.pdf", { headers: { "receipt-request": body.request } }), opts), null);
   // Someone else presenting alice's paid request id doesn't get in.
   const mallory = await checkGate({ ...opts, bindTo: "mallory", requestId: body.request });
@@ -50,12 +50,12 @@ test("402 gate: route-bound, reuses open requests, caps new ones, nets refunds",
   const a = await checkGate({ ...base, route: "/a" });
   const again = await checkGate({ ...base, route: "/a" });
   assert.equal(again.body.request, a.body.request, "the open request is reused, not re-created");
-  await receipts.requests.submitReceipt(a.body.request, { receipt: "zrcpt_test_refund_to" });
+  await receipts.requests.submitReceipt(a.body.request, { receipt: "zip311_test_refund_to" });
   assert.equal((await checkGate({ ...base, route: "/a", requestId: a.body.request })).allow, true);
   assert.equal((await checkGate({ ...base, route: "/b", requestId: a.body.request })).allow, false, "paid for /a, not /b");
   assert.equal((await checkGate({ ...base, route: "/a", requestId: a.body.request, maxAgeSeconds: -1 })).allow, false, "expired access");
   const rf = await receipts.refunds.create(a.body.request, { amount_zatoshis: 10 });
-  await receipts.refunds.submitReceipt(rf.id, { receipt: "zrcpt_test_valid" });
+  await receipts.refunds.submitReceipt(rf.id, { receipt: "zip311_test_valid" });
   assert.equal((await checkGate({ ...base, route: "/a", requestId: a.body.request })).allow, false, "a refund takes it below the price");
   let last;
   for (let i = 0; i < 5; i++) last = await checkGate({ ...base, bindTo: `x${i}${Date.now()}`, route: "/c", maxNewPerMinute: 2 });

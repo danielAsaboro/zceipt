@@ -30,10 +30,10 @@ export RECEIPTS_KEY=rcpt_test_…
 
 ```bash
 curl -s 127.0.0.1:8723/v1/verify -H "Authorization: Bearer $RECEIPTS_KEY" \
-  -H 'content-type: application/json' -d '{"receipt":"zrcpt_test_valid"}'
+  -H 'content-type: application/json' -d '{"receipt":"zip311_test_valid"}'
 ```
 
-Every error path has a fixture (`zrcpt_test_wrong_payee`, `zrcpt_test_not_mined`, …).
+Every error path has a fixture (`zip311_test_wrong_payee`, `zip311_test_not_mined`, …).
 See [SANDBOX.md](SANDBOX.md).
 
 ## 3. Ask for proof of a payment

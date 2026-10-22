@@ -16,7 +16,7 @@ open http://localhost:4242
    sends a signed `request.fulfilled` webhook, which the shop verifies with
    `webhooks.constructEvent` and uses to mark the order paid.
 
-To try it with no wallet, paste `zrcpt_test_valid` as the receipt (test keys only).
+To try it with no wallet, paste `zip311_test_valid` as the receipt (test keys only).
 
 Verified on the public testnet: order `KCZR49U` (2 flat whites, 0.01 ZEC) was paid by
 transaction `571de6e4…9e0e73`. The customer's wallet answered the order's request, and the

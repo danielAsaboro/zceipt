@@ -82,20 +82,20 @@ async fn proof_request_lifecycle_with_fixtures() {
 
     // Every failing fixture leaves the request open with the right code.
     for (fixture, code) in [
-        ("zrcpt_test_wrong_payee", "wrong_payee"),
-        ("zrcpt_test_memo_withheld", "delivery_unproven"),
-        ("zrcpt_test_insufficient_amount", "insufficient_amount"),
-        ("zrcpt_test_challenge_mismatch", "challenge_mismatch"),
-        ("zrcpt_test_not_mined", "transaction_not_mined"),
+        ("zip311_test_wrong_payee", "wrong_payee"),
+        ("zip311_test_memo_withheld", "delivery_unproven"),
+        ("zip311_test_insufficient_amount", "insufficient_amount"),
+        ("zip311_test_challenge_mismatch", "challenge_mismatch"),
+        ("zip311_test_not_mined", "transaction_not_mined"),
     ] {
         let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": fixture })), None).await;
         assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some(code)), "{fixture}");
     }
-    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!(v["status"], "fulfilled");
     assert_eq!(v["fulfillment"]["paid_zatoshis"], 500000);
-    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_already_fulfilled")));
 
     // Events were recorded: created, 5 rejections, fulfilled.
@@ -105,7 +105,7 @@ async fn proof_request_lifecycle_with_fixtures() {
     assert!(types.contains(&"request.fulfilled") && types.contains(&"request.created"));
 
     // Fixtures are refused with live keys.
-    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&live), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&live), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("receipt_network_mismatch")));
 }
 
@@ -164,7 +164,7 @@ async fn webhooks_are_signed_and_delivered() {
     let (_, ep, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": url, "events": ["request.fulfilled"] })), None).await;
     let secret = ep["secret"].as_str().unwrap().to_string();
     let (_, req, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
-    call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     wait_for(|| !seen.lock().unwrap().is_empty()).await;
     let (sig, body) = seen.lock().unwrap()[0].clone();
     assert!(receipts_server::webhooks::verify_signature(&secret, &sig, &body, 300), "signature must verify with the endpoint secret");
@@ -200,7 +200,7 @@ async fn expired_requests_refuse_receipts() {
     tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
     let (_, r, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
     assert_eq!(r["status"], "expired");
-    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_expired")));
     let (_, l, _) = call(&app, "GET", "/v1/requests?status=expired", Some(&test), None, None).await;
     assert!(l["data"].as_array().unwrap().iter().any(|x| x["id"] == id));
@@ -230,9 +230,9 @@ async fn one_payment_settles_one_request() {
     let (app, test, _) = app().await;
     let (_, a, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
     let (_, b, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
-    let (s, _, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", a["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_same_payment" })), None).await;
+    let (s, _, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", a["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_same_payment" })), None).await;
     assert_eq!(s, StatusCode::OK);
-    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", b["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_same_payment" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", b["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_same_payment" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("payment_already_used")));
 }
 
@@ -241,12 +241,12 @@ async fn partial_payments_add_up() {
     let (app, test, _) = app().await;
     let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "kind": "partial" })), None).await;
     let id = r["id"].as_str().unwrap();
-    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_partial" })), None).await;
+    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_partial" })), None).await;
     assert_eq!((v["status"].as_str(), v["received_zatoshis"].as_i64(), v["remaining_zatoshis"].as_i64()), (Some("open"), Some(500), Some(500)));
     assert!(v["payment_uri"].as_str().unwrap().contains("amount=0.000005"), "the payment URI asks only for what is still owed");
-    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_partial" })), None).await;
+    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_partial" })), None).await;
     assert_eq!(v["received_zatoshis"], 750);
-    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (_, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!(v["status"], "fulfilled");
     assert_eq!(v["payments"].as_array().unwrap().len(), 3);
     let (_, ev, _) = call(&app, "GET", "/v1/events?limit=50", Some(&test), None, None).await;
@@ -266,9 +266,9 @@ async fn hosted_pay_page_needs_the_client_secret() {
     let (s, v, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret={secret}"), None, None, None).await;
     assert_eq!(s, StatusCode::OK);
     assert!(v.get("metadata").is_none() && v.get("client_secret").is_none(), "payers never see merchant metadata");
-    let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": "nope", "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": "nope", "receipt": "zip311_test_valid" })), None).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
-    let (s, v, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, v["status"].as_str()), (StatusCode::OK, Some("fulfilled")));
 }
 
@@ -284,13 +284,13 @@ async fn campaigns_publish_aggregates_only() {
         let id = id.to_string();
         async move { call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": fixture })), None).await.0 }
     };
-    assert_eq!(pay("zrcpt_test_partial").await, StatusCode::OK);
-    assert_eq!(pay("zrcpt_test_public_note").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_public_note").await, StatusCode::OK);
     // Below k = 3: nothing is published.
     let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
     assert_eq!(c["tally"]["visible"], false);
     assert!(c["tally"]["received_zatoshis_rounded"].is_null() && c["tally"]["contributions"].is_null());
-    assert_eq!(pay("zrcpt_test_partial").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
     let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
     let t = &c["tally"];
     assert_eq!(t["visible"], true);
@@ -312,9 +312,9 @@ async fn campaign_numbers_update_in_batches() {
     let (app, test, _) = app().await; // default: refresh every 600 s
     let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign", "public_min_contributions": 1 })), None).await;
     let id = r["id"].as_str().unwrap();
-    call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     let (_, a, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
-    call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     let (_, b, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
     assert_eq!(a["tally"]["contributions"], 1);
     assert_eq!(b["tally"]["contributions"], 1, "a new contribution doesn't show until the next batch");
@@ -399,14 +399,14 @@ async fn refunds_go_to_the_signed_address_and_need_proof() {
     let id1 = r1["id"].as_str().unwrap();
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id1}/refunds"), Some(&test), Some(json!({})), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("refund_not_possible")));
-    call(&app, "POST", &format!("/v1/requests/{id1}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{id1}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id1}/refunds"), Some(&test), Some(json!({})), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("refund_address_missing")));
 
     // The payer signed refund-to: the merchant can refund part, then the rest, never more.
     let (_, r2, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 300000 })), None).await;
     let id2 = r2["id"].as_str().unwrap();
-    let (s, paid, _) = call(&app, "POST", &format!("/v1/requests/{id2}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_refund_to" })), None).await;
+    let (s, paid, _) = call(&app, "POST", &format!("/v1/requests/{id2}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_refund_to" })), None).await;
     assert_eq!(s, StatusCode::OK, "{paid}");
     assert_eq!(paid["payments"][0]["refund_address"].as_str(), Some(refund_to));
     let (s, rf, _) = call(&app, "POST", &format!("/v1/requests/{id2}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 100000, "reason": "one coffee was cold" })), Some("rf1")).await;
@@ -418,13 +418,13 @@ async fn refunds_go_to_the_signed_address_and_need_proof() {
 
     // Settling needs a receipt that signs the refund's challenge and pays the refund address.
     let rid = rf["id"].as_str().unwrap();
-    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_challenge_mismatch" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_challenge_mismatch" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("challenge_mismatch")));
-    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_insufficient_amount" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_insufficient_amount" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("insufficient_amount")));
-    let (s, done, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, done, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, done["status"].as_str()), (StatusCode::OK, Some("succeeded")), "{done}");
-    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("refund_already_succeeded")));
 
     // The rest of the payment is still refundable; the request lists both refunds.
@@ -451,7 +451,7 @@ async fn test_clocks_drive_expiry_and_finality() {
     let (_, b, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "test_clock": cid })), None).await;
     assert_eq!(a["created"], 1_800_000_000);
     let (a_id, b_id) = (a["id"].as_str().unwrap(), b["id"].as_str().unwrap());
-    let (_, paid, _) = call(&app, "POST", &format!("/v1/requests/{b_id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (_, paid, _) = call(&app, "POST", &format!("/v1/requests/{b_id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((paid["status"].as_str(), paid["final"].as_bool()), (Some("fulfilled"), Some(false)), "{paid}");
     assert_eq!(paid["payments"][0]["mined_height"], 100);
 
@@ -496,7 +496,7 @@ async fn attestations_state_minimal_facts_and_disclose_selectively() {
     let id = r["id"].as_str().unwrap();
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_not_fulfilled")));
-    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
 
     let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 1000000 })), None).await;
     assert_eq!(s, StatusCode::OK, "{a}");
@@ -540,9 +540,9 @@ async fn attestations_subtract_refunds() {
     let (app, test, _) = app().await;
     let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 2000000 })), None).await;
     let id = r["id"].as_str().unwrap();
-    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_refund_to" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_refund_to" })), None).await;
     let (_, rf, _) = call(&app, "POST", &format!("/v1/requests/{id}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 500000 })), None).await;
-    call(&app, "POST", &format!("/v1/refunds/{}/receipts", rf["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/refunds/{}/receipts", rf["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
     assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1000000, "default floor: net 0.015 ZEC rounded down to 0.01: {a}");
     let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 1500000 })), None).await;
@@ -571,7 +571,7 @@ async fn pagination_never_repeats_requests_created_in_the_same_second() {
         after = page["data"].as_array().unwrap().last().map(|r| r["id"].as_str().unwrap().to_string());
     }
     assert_eq!(seen.len(), 13);
-    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": "zrcpt_test_valid", "min_zatoshis": 5 })), None).await;
+    let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": "zip311_test_valid", "min_zatoshis": 5 })), None).await;
     assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("expect_address")));
 }
 
@@ -610,7 +610,7 @@ async fn test_clock_reorg_unconfirms_then_remines() {
     let cid = clock["id"].as_str().unwrap();
     let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "test_clock": cid })), None).await;
     let id = r["id"].as_str().unwrap();
-    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 3 })), None).await;
     // Roll back past the payment's block.
     let (s, v, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/reorg"), Some(&test), Some(json!({ "depth": 4 })), None).await;
@@ -640,7 +640,7 @@ async fn concurrent_submissions_settle_once() {
     let mut tasks = Vec::new();
     for _ in 0..8 {
         let (app, test, id) = (app.clone(), test.clone(), id.clone());
-        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await.0 }));
+        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await.0 }));
     }
     let mut ok = 0;
     for t in tasks {
@@ -658,7 +658,7 @@ async fn concurrent_submissions_settle_once() {
     let mut tasks = Vec::new();
     for _ in 0..8 {
         let (app, test, pid) = (app.clone(), test.clone(), pid.clone());
-        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{pid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_partial" })), None).await }));
+        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{pid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_partial" })), None).await }));
     }
     for t in tasks {
         t.await.unwrap();
@@ -694,7 +694,7 @@ async fn second_qa_pass_regressions() {
     // Attestations: sandbox-marked, deduplicated disclosures.
     let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234567 })), None).await;
     let rid = r["id"].as_str().unwrap();
-    call(&app, "POST", &format!("/v1/requests/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{rid}/attestations"), Some(&test), Some(json!({ "disclose": ["txid", "txid"] })), None).await;
     assert_eq!(a["claims"]["sandbox"], true);
     assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1000000, "default floor is rounded down");
@@ -771,7 +771,7 @@ async fn deposit_desk_policy() {
     assert_eq!(p["source_of_funds"]["required"], true);
     assert!(!p.to_string().contains("tmGys6"), "the public view must not show the screening list");
     // A sandbox receipt proves no source: refused, and the request stays open.
-    let (s, e, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zrcpt_test_valid" })), None).await;
+    let (s, e, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, e["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("source_of_funds_required")), "{e}");
     let (_, r2, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
     assert_eq!(r2["status"], "open");

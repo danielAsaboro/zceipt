@@ -1524,15 +1524,18 @@ fn prepare_with_viewing_key_then_sign_elsewhere() {
     )
     .unwrap();
 
-    // The "hardware wallet": sees only the digest and alpha, signs with ask.
+    // The "hardware wallet": given the unsigned receipt and the randomizers, it computes the
+    // digest itself and checks each rk before signing.
     let ask = SpendAuthorizingKey::from(&s.sender_sk);
-    let digest = prepared.sighash();
-    let sig: [u8; 64] = (&ask.randomize(&prepared.alphas[0]).sign(OsRng, &digest)).into();
-    let receipt = prepared.clone().apply_signatures(vec![sig]).unwrap();
+    let sigs = receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], OsRng).unwrap();
+    let receipt = prepared.clone().apply_signatures(sigs).unwrap();
     verify(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
 
-    // Another wallet's key can't sign it.
+    // Another wallet's key: the signer refuses (its rk doesn't match), and a signature made with
+    // it anyway is refused when attached.
     let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
-    let bad: [u8; 64] = (&other.randomize(&prepared.alphas[0]).sign(OsRng, &digest)).into();
+    assert!(matches!(receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[other.clone()], OsRng), Err(Error::BadSignature(_))));
+    let digest = receipts_core::signing_digest(prepared.unsigned());
+    let bad: [u8; 64] = (&other.randomize(&prepared.alphas()[0]).sign(OsRng, &digest)).into();
     assert!(matches!(prepared.apply_signatures(vec![bad]), Err(Error::BadSignature(_))));
 }

@@ -17,6 +17,7 @@
   "reorgTestClock":        {"js": "testClocks.reorg",           "py": "test_clocks.reorg",            "rust": "reorg_test_clock", "go": "ReorgTestClock"},
   "createSignInChallenge": {"js": "signIn.createChallenge",     "py": "sign_in.create_challenge",     "rust": "create_sign_in_challenge", "go": "CreateSignInChallenge"},
   "verifySignIn":          {"js": "signIn.verify",              "py": "sign_in.verify",               "rust": "verify_sign_in", "go": "VerifySignIn"},
+  "reviewDeposit":         {"js": "requests.review",            "py": "requests.review",              "rust": "review_deposit", "go": "ReviewDeposit"},
   "createRequest":         {"js": "requests.create",            "py": "requests.create",              "rust": "create_request", "go": "CreateRequest"},
   "listRequests":          {"js": "requests.list",              "py": "requests.list",                "rust": "list_requests", "go": "ListRequests"},
   "getRequest":            {"js": "requests.retrieve",          "py": "requests.retrieve",            "rust": "get_request", "go": "GetRequest"},

@@ -33,6 +33,7 @@ test("every API operation works through the JS SDK", { skip: !URL_ || !KEY }, as
   await call("submitRefundReceipt", r.refunds.submitReceipt(rf.id, { receipt: "zrcpt_test_valid" }));
   const other = await r.requests.create({ payee: PAYEE, amount_zatoshis: 1_000_000 });
   await call("submitReceipt", r.requests.submitReceipt(other.id, { receipt: "zrcpt_test_valid" }));
+  await call("reviewDeposit", r.requests.review(other.id, { decision: "accept" }).catch((e) => assert.equal(e.code ?? e.body?.error?.code, "not_held_for_review")));
   const att = await call("createAttestation", r.attestations.create(other.id));
   await call("verifyAttestation", r.attestations.verify(att.presentation));
   await call("jwks", r.attestations.jwks());

@@ -111,6 +111,7 @@ pub const ERROR_CODES: &[(&str, u16, &str)] = &[
     ("batch_invalid", 422, "A batch is incomplete, reordered or mixes batches."),
     ("request_not_found", 404, "No proof request with that id for this key's mode."),
     ("request_already_fulfilled", 409, "The proof request was already fulfilled."),
+    ("not_held_for_review", 409, "Only a deposit held for review can be accepted or rejected."),
     ("payment_already_used", 409, "This payment (transaction output) already counted towards a request. One payment can settle only one request."),
     ("request_expired", 409, "The proof request expired before a valid receipt arrived."),
     ("request_not_fulfilled", 409, "Only a fulfilled request can be attested."),

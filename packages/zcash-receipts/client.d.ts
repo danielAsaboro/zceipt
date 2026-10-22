@@ -50,10 +50,11 @@ export class Receipts {
   readonly livemode: boolean;
   verify(params: string | { receipt: string; expect_address?: string; min_zatoshis?: number; challenge?: string }, opts?: RequestOptions): Promise<Verification | BatchVerification>;
   requests: {
-    create(params: { payee: string; amount_zatoshis?: number; label?: string; metadata?: Record<string, unknown>; expires_in?: number; kind?: "single" | "partial" | "campaign"; test_clock?: string }, opts?: RequestOptions): Promise<ProofRequest>;
+    create(params: { payee: string; amount_zatoshis?: number; label?: string; metadata?: Record<string, unknown>; expires_in?: number; kind?: "single" | "partial" | "campaign"; test_clock?: string; source_of_funds?: { required: true; blocked_addresses?: string[] } }, opts?: RequestOptions): Promise<ProofRequest>;
     retrieve(id: string): Promise<ProofRequest>;
-    list(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number; starting_after?: string }): Promise<List<ProofRequest>>;
+    list(params?: { status?: "open" | "fulfilled" | "held_for_review" | "rejected" | "expired"; limit?: number; starting_after?: string }): Promise<List<ProofRequest>>;
     submitReceipt(id: string, params: { receipt: string }, opts?: RequestOptions): Promise<ProofRequest>;
+    review(id: string, params: { decision: "accept" | "reject"; note?: string }, opts?: RequestOptions): Promise<ProofRequest>;
     each(params?: { status?: "open" | "fulfilled" | "expired"; limit?: number }): AsyncIterable<ProofRequest>;
     qr(id: string): Promise<string>;
   };

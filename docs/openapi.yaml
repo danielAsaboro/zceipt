@@ -155,6 +155,7 @@ paths:
         "200": { description: JWK set (Ed25519) }
   /v1/requests/{id}/review:
     post:
+      operationId: reviewDeposit
       summary: Accept or reject a deposit held for review (deposit desks)
       description: "A request created with source_of_funds whose deposit's funding failed screening (a blocked address, or funding the payer didn't show) is held_for_review. accept credits it (status fulfilled, request.fulfilled); reject sets rejected (request.rejected), after which it can be refunded to the payer's signed refund address."
       parameters: [{ name: id, in: path, required: true, schema: { type: string } }]

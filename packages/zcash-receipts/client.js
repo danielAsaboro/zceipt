@@ -77,6 +77,8 @@ export class Receipts {
       list: (params = {}) => r._request("GET", `/v1/requests${qs(params)}`),
       /** Submit the payer's receipt. Resolves to the fulfilled ProofRequest, or throws VerificationError. */
       submitReceipt: (id, params, opts) => r._request("POST", `/v1/requests/${encodeURIComponent(id)}/receipts`, params, opts),
+      /** Deposit desks: accept or reject a deposit held for review, `{ decision: "accept" | "reject", note }`. */
+      review: (id, params, opts) => r._request("POST", `/v1/requests/${encodeURIComponent(id)}/review`, params, opts),
       /** Iterate every request across pages: `for await (const r of receipts.requests.each())`. */
       each: (params = {}) => paginate((p) => r.requests.list(p), params),
       /** The request's ZIP-321 payment URI as an SVG QR code (a string). */

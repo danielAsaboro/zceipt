@@ -71,6 +71,8 @@ async fn every_operation() {
     let other = c.create_request(&CreateRequest { payee: payee.clone(), amount_zatoshis: Some(1_000_000), ..Default::default() }).await.unwrap();
     let oid = other["id"].as_str().unwrap().to_string();
     op!("submitReceipt", c.submit_receipt(&oid, "zrcpt_test_valid"));
+    done.insert("reviewDeposit");
+    assert_eq!(c.review_deposit(&oid, "accept", None).await.unwrap_err().code(), Some("not_held_for_review"));
     let att = op!("createAttestation", c.create_attestation(&oid, None, None, &[]));
     op!("verifyAttestation", c.verify_attestation(att["presentation"].as_str().unwrap()));
     op!("jwks", c.jwks());

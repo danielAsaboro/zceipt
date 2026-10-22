@@ -5,7 +5,7 @@ import pathlib
 import time
 import unittest
 
-from zcash_receipts import (AuthenticationError, InvalidRequestError, Receipts, VerificationError,
+from zcash_receipts import (AuthenticationError, ReceiptsError, InvalidRequestError, Receipts, VerificationError,
                             WebhookSignatureError, construct_event, sign_payload)
 
 URL, KEY = os.environ.get("RECEIPTS_URL"), os.environ.get("RECEIPTS_KEY")
@@ -113,6 +113,10 @@ class Parity(unittest.TestCase):
         call("submitRefundReceipt", c.refunds.submit_receipt(rf["id"], receipt="zrcpt_test_valid"))
         other = c.requests.create(payee=self.PAYEE, amount_zatoshis=1_000_000)
         call("submitReceipt", c.requests.submit_receipt(other["id"], receipt="zrcpt_test_valid"))
+        with self.assertRaises(ReceiptsError) as cm:
+            c.requests.review(other["id"], decision="accept")
+        self.assertEqual(cm.exception.code, "not_held_for_review")
+        done.add("reviewDeposit")
         att = call("createAttestation", c.attestations.create(other["id"]))
         call("verifyAttestation", c.attestations.verify(att["presentation"]))
         call("jwks", c.attestations.jwks())

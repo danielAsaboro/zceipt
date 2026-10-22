@@ -62,6 +62,9 @@ pub struct CreateRequest {
     /// Sandbox: run the request on this test clock.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub test_clock: Option<String>,
+    /// Deposit desks: `{"required": true, "blocked_addresses": [...]}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_of_funds: Option<Value>,
 }
 
 #[derive(Serialize, Default, Clone)]
@@ -179,6 +182,14 @@ impl Client {
     }
     pub async fn submit_receipt(&self, id: &str, receipt: &str) -> Result<Value, Error> {
         self.call(reqwest::Method::POST, &format!("/v1/requests/{id}/receipts"), Some(json!({ "receipt": receipt })), None).await
+    }
+    /// Deposit desks: accept or reject a deposit held for review (`decision`: "accept" or "reject").
+    pub async fn review_deposit(&self, id: &str, decision: &str, note: Option<&str>) -> Result<Value, Error> {
+        let mut b = json!({ "decision": decision });
+        if let Some(n) = note {
+            b["note"] = n.into();
+        }
+        self.call(reqwest::Method::POST, &format!("/v1/requests/{id}/review"), Some(b), None).await
     }
     /// Refund a payment to the address the payer signed into their receipt (`--refund-to`).
     /// `amount_zatoshis: None` refunds what is left of the latest such payment.

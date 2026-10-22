@@ -191,6 +191,16 @@ func (c *Client) SubmitReceipt(ctx context.Context, id, receipt string) (M, erro
 	return c.do(ctx, "POST", "/v1/requests/"+esc(id)+"/receipts", M{"receipt": receipt})
 }
 
+// ReviewDeposit accepts or rejects a deposit held for review (deposit desks); decision is
+// "accept" or "reject".
+func (c *Client) ReviewDeposit(ctx context.Context, id, decision, note string) (M, error) {
+	b := M{"decision": decision}
+	if note != "" {
+		b["note"] = note
+	}
+	return c.do(ctx, "POST", "/v1/requests/"+esc(id)+"/review", b)
+}
+
 // RequestQR returns the request's ZIP-321 payment URI as an SVG QR code.
 func (c *Client) RequestQR(ctx context.Context, id string) (string, error) {
 	b, err := c.raw(ctx, "GET", "/v1/requests/"+esc(id)+"/qr.svg", nil)

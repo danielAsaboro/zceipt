@@ -29,6 +29,7 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="batch_invalid"></a>`batch_invalid` | 422 | A batch is incomplete, reordered or mixes batches. |
 | <a id="request_not_found"></a>`request_not_found` | 404 | No proof request with that id for this key's mode. |
 | <a id="request_already_fulfilled"></a>`request_already_fulfilled` | 409 | The proof request was already fulfilled. |
+| <a id="not_held_for_review"></a>`not_held_for_review` | 409 | Only a deposit held for review can be accepted or rejected. |
 | <a id="payment_already_used"></a>`payment_already_used` | 409 | This payment (transaction output) already counted towards a request. One payment can settle only one request. |
 | <a id="request_expired"></a>`request_expired` | 409 | The proof request expired before a valid receipt arrived. |
 | <a id="request_not_fulfilled"></a>`request_not_fulfilled` | 409 | Only a fulfilled request can be attested. |

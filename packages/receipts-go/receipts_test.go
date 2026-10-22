@@ -71,6 +71,11 @@ func TestEveryOperation(t *testing.T) {
 	must("submitRefundReceipt")(c.SubmitRefundReceipt(ctx, s(rf, "id"), "zrcpt_test_valid"))
 	other, _ := c.CreateRequest(ctx, M{"payee": payee, "amount_zatoshis": 1_000_000})
 	must("submitReceipt")(c.SubmitReceipt(ctx, s(other, "id"), "zrcpt_test_valid"))
+	var reviewErr *Error
+	if _, err := c.ReviewDeposit(ctx, s(other, "id"), "accept", ""); !errors.As(err, &reviewErr) || reviewErr.Code != "not_held_for_review" {
+		t.Fatal("reviewDeposit", err)
+	}
+	done["reviewDeposit"] = true
 	att := must("createAttestation")(c.CreateAttestation(ctx, s(other, "id"), M{}))
 	must("verifyAttestation")(c.VerifyAttestation(ctx, s(att, "presentation")))
 	must("jwks")(c.JWKS(ctx))

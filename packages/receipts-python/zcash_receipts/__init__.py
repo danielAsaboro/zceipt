@@ -98,11 +98,13 @@ class _Requests(_Resource):
     def create(self, *, payee: str, amount_zatoshis: Optional[int] = None, label: Optional[str] = None,
                metadata: Optional[Dict[str, Any]] = None, expires_in: Optional[int] = None,
                kind: Optional[str] = None, test_clock: Optional[str] = None,
+               source_of_funds: Optional[Dict[str, Any]] = None,
                idempotency_key: Optional[str] = None) -> Dict[str, Any]:
-        """kind: "single" (default), "partial" (receipts add up) or "campaign" (public tally)."""
+        """kind: "single" (default), "partial" (receipts add up) or "campaign" (public tally).
+        source_of_funds: a deposit desk, {"required": True, "blocked_addresses": [...]}."""
         body = {k: v for k, v in dict(payee=payee, amount_zatoshis=amount_zatoshis, label=label,
                                       metadata=metadata, expires_in=expires_in, kind=kind,
-                                      test_clock=test_clock).items() if v is not None}
+                                      test_clock=test_clock, source_of_funds=source_of_funds).items() if v is not None}
         return self._c._request("POST", "/v1/requests", body, idempotency_key)
 
     def retrieve(self, id: str) -> Dict[str, Any]:
@@ -125,6 +127,11 @@ class _Requests(_Resource):
 
     def submit_receipt(self, id: str, *, receipt: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
+
+    def review(self, id: str, *, decision: str, note: Optional[str] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
+        """Deposit desks: accept or reject a deposit held for review (decision "accept" or "reject")."""
+        body = {k: v for k, v in dict(decision=decision, note=note).items() if v is not None}
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id)}/review", body, idempotency_key)
 
     def qr(self, id: str) -> str:
         """The request's ZIP-321 payment URI as an SVG QR code."""

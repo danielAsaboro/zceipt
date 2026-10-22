@@ -7,7 +7,8 @@
 //   import { receiptGate, webhookHandler } from "zcash-receipts/middleware";
 //
 //   const receipts = new Receipts(process.env.RECEIPTS_KEY);
-//   app.get("/report.pdf", receiptGate.express({ receipts, payee: SHOP_UA, amountZatoshis: 1_000_000 }), sendReport);
+//   app.get("/report.pdf", receiptGate.express({ receipts, payee: SHOP_UA, amountZatoshis: 1_000_000,
+//     bindTo: (req) => req.session.userId }), sendReport);
 //   app.post("/webhooks/receipts", express.raw({ type: "application/json" }),
 //     webhookHandler.express({ secret: process.env.RECEIPTS_WHSEC, on: { "request.fulfilled": (e) => markPaid(e) } }));
 //
@@ -22,16 +23,18 @@ const HEADER = "receipt-request";
 
 /** Core gate: decide from a request id (or none) whether to let a caller through. */
 // Each open-ended caller would otherwise mint a new proof request (an API call and a row) per
-// hit. The gate reuses the open request it already issued to the same caller for the same
-// route, and caps how many new ones it creates per minute in all (`maxNewPerMinute`).
+// hit. With `bindTo`, the gate reuses the open request it already issued to the same caller for
+// the same route; without it, every caller gets its own request (sharing one would let everyone
+// who was handed its id through once anyone pays it). New requests are capped per minute in all
+// (`maxNewPerMinute`).
 const issued = new Map(); // `${bind}|${route}` -> { id, at }
 let windowStart = 0, createdInWindow = 0;
 
 // A fulfilled request id is a bearer token: whoever presents it gets through. Pass `bindTo`
 // (a server-side session or account id, never a header the client sets) to tie it to one caller,
-// `route` to tie it to one resource (default: the label), and `maxAgeSeconds` to make access
-// expire. Refunds already paid back count against the price.
-export async function checkGate({ receipts, payee, amountZatoshis, label, route, requestId, expiresIn = 3600, requireFinal = false, bindTo, maxAgeSeconds, maxNewPerMinute = 30 }) {
+// `route` to tie it to one resource (default: the label), and `maxAgeSeconds` (default a day) to
+// make access expire. Refunds already paid back count against the price.
+export async function checkGate({ receipts, payee, amountZatoshis, label, route, requestId, expiresIn = 3600, requireFinal = false, bindTo, maxAgeSeconds = 86_400, maxNewPerMinute = 30 }) {
   const routeKey = String(route ?? label ?? "default");
   const bind = bindTo == null ? null : String(bindTo);
   if (requestId) {
@@ -56,7 +59,7 @@ export async function checkGate({ receipts, payee, amountZatoshis, label, route,
 
   async function issue(state) {
     const key = `${bind ?? "*"}|${routeKey}`;
-    const prev = issued.get(key);
+    const prev = bind == null ? null : issued.get(key);
     if (prev && Date.now() - prev.at < Math.min(expiresIn, 600) * 1000) {
       try {
         const r = await receipts.requests.retrieve(prev.id);
@@ -69,7 +72,7 @@ export async function checkGate({ receipts, payee, amountZatoshis, label, route,
       return { allow: false, status: 429, body: { error: { type: "rate_limited", message: "too many new payment requests; retry in a minute" } }, retryAfter: Math.ceil((windowStart + 60_000 - now) / 1000) };
     }
     const r = await receipts.requests.create({ payee, amount_zatoshis: amountZatoshis, label, expires_in: expiresIn, metadata: { gate_route: routeKey, ...(bind == null ? {} : { gate_bind: bind }) } });
-    issued.set(key, { id: r.id, at: now });
+    if (bind != null) issued.set(key, { id: r.id, at: now });
     if (issued.size > 10_000) issued.clear();
     return { allow: false, status: 402, body: challengeBody(r, state) };
   }

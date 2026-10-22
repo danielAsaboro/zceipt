@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const address_network: (a: number, b: number) => [number, number, number, number];
 export const check_payment_uri: (a: number, b: number, c: number, d: number) => [number, number];
 export const check_tex_deposit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
 export const inspect: (a: number, b: number) => [number, number, number, number];

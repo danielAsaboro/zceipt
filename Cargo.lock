@@ -3080,6 +3080,7 @@ dependencies = [
  "age",
  "anyhow",
  "bip0039",
+ "blake2b_simd",
  "incrementalmerkletree",
  "orchard",
  "rand 0.10.3",

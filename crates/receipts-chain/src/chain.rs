@@ -83,9 +83,26 @@ pub async fn fetch_mined_tx_in_block(
         .await
         .map_err(|e| anyhow!("block {height}: {}", e.message()))?
         .into_inner();
-    let ids: Vec<[u8; 32]> = block.vtx.iter().filter_map(|t| <[u8; 32]>::try_from(t.txid.as_slice()).ok()).collect();
-    if !ids.contains(&txid) {
+    let all: Vec<([u8; 32], bool)> = block
+        .vtx
+        .iter()
+        .filter_map(|t| {
+            let shielded = !(t.actions.is_empty() && t.ironwood_actions.is_empty() && t.spends.is_empty() && t.outputs.is_empty());
+            <[u8; 32]>::try_from(t.txid.as_slice()).ok().map(|id| (id, shielded && t.index != 0))
+        })
+        .collect();
+    if !all.iter().any(|(id, _)| *id == txid) {
         bail!("transaction {} is not in block {height}", display_txid(&txid));
+    }
+    // Only transactions that could carry a receipt are cover: shielded ones, not the coinbase or
+    // transparent-only ones. (If the server's compact data doesn't show ours as shielded, fall
+    // back to every transaction but the coinbase.)
+    let mut ids: Vec<[u8; 32]> = all.iter().filter(|(_, s)| *s).map(|(id, _)| *id).collect();
+    if !ids.contains(&txid) {
+        ids = block.vtx.iter().filter(|t| t.index != 0).filter_map(|t| <[u8; 32]>::try_from(t.txid.as_slice()).ok()).collect();
+        if !ids.contains(&txid) {
+            ids = all.iter().map(|(id, _)| *id).collect();
+        }
     }
     // The set is the block's run of PRIVATE_FETCH_SET transactions that holds ours, fixed by
     // block order, so checking the same receipt twice asks for the same set: random decoys would
@@ -108,6 +125,19 @@ pub async fn fetch_mined_tx_in_block(
         bail!("the server put transaction {} at block {h}, not {height}", display_txid(&txid));
     }
     Ok((tx, h, set))
+}
+
+/// Whether block `height` (on the server's current chain) contains `txid`, from the block's
+/// compact form: the server learns which block is being watched, not which transaction.
+pub async fn tx_in_block(net: Net, server: Option<&str>, txid: [u8; 32], height: u32) -> anyhow::Result<bool> {
+    use zcash_client_backend::proto::service::BlockId;
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    let block = client
+        .get_block(BlockId { height: u64::from(height), hash: vec![] })
+        .await
+        .map_err(|e| anyhow!("block {height}: {}", e.message()))?
+        .into_inner();
+    Ok(block.vtx.iter().any(|t| t.txid.as_slice() == txid))
 }
 
 /// Fisher-Yates with the OS random number generator.
@@ -152,6 +182,10 @@ pub struct Report {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<ReportSource>,
     pub outputs: Vec<ReportOutput>,
+    /// With a block hint: how many transactions that could carry a receipt were fetched with
+    /// this one (the server can't tell which of them was checked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anonymity_set: Option<usize>,
 }
 
 /// A proven source: the note spent by `spend_action` was created by `source_action` of
@@ -279,6 +313,25 @@ pub fn orchard_receiver_of(ua: &str) -> anyhow::Result<[u8; 43]> {
         .ok_or_else(|| anyhow!("that unified address has no Orchard receiver"))
 }
 
+/// The Orchard receiver of `ua`, refusing an address of another network than `network`
+/// ("mainnet", "testnet" or "regtest", as reports name them): the raw receiver bytes carry no
+/// network, so comparing them alone would let a testnet payment satisfy a mainnet payee.
+pub fn orchard_receiver_on(network: &str, ua: &str) -> anyhow::Result<[u8; 43]> {
+    use zcash_protocol::consensus::NetworkType;
+    let (nt, _, _) = unified::Address::decode(ua).map_err(|e| anyhow!("not a unified address: {e}"))?;
+    // Testnet and regtest share a coin type, so a receipt can't tell them apart: only mainnet
+    // versus the test networks is checked.
+    let ok = matches!((network, nt), ("mainnet", NetworkType::Main) | ("testnet" | "regtest", NetworkType::Test | NetworkType::Regtest));
+    if !ok {
+        bail!("{} is a {} address, but the payment is on {network}", short_ua(ua), match nt { NetworkType::Main => "mainnet", NetworkType::Test => "testnet", NetworkType::Regtest => "regtest" });
+    }
+    orchard_receiver_of(ua)
+}
+
+fn short_ua(ua: &str) -> String {
+    if ua.len() > 16 { format!("{}…", &ua[..14]) } else { ua.to_string() }
+}
+
 pub fn memo_text(memo: &[u8; 512]) -> Option<String> {
     if memo[0] > 0xf4 {
         return None; // not a text memo (ZIP 302)
@@ -334,7 +387,7 @@ fn outpoints(tx: &Transaction) -> Vec<([u8; 32], u32)> {
 }
 
 /// Net value a transaction moved from transparent into the shielded pools (negative: out).
-fn net_into_shielded(tx: &Transaction) -> i64 {
+pub fn net_into_shielded(tx: &Transaction) -> i64 {
     let o = tx.orchard_bundle().map(|b| i64::from(*b.value_balance())).unwrap_or(0);
     let i = tx.ironwood_bundle().map(|b| i64::from(*b.value_balance())).unwrap_or(0);
     let s = tx.sapling_bundle().map(|b| i64::from(*b.value_balance())).unwrap_or(0);
@@ -404,15 +457,20 @@ pub async fn verify_against_chain_hinted(
     hint: Option<u32>,
 ) -> anyhow::Result<Report> {
     let net = net::for_receipt(receipt.unsigned.coin_type, regtest)?;
-    let (tx, height) = match hint {
+    let (tx, height, set) = match hint {
         Some(h) => {
-            let (tx, height, _) = fetch_mined_tx_in_block(net, server, receipt.unsigned.txid, h).await?;
-            (tx, height)
+            let (tx, height, set) = fetch_mined_tx_in_block(net, server, receipt.unsigned.txid, h).await?;
+            (tx, height, Some(set))
         }
-        None => fetch_mined_tx(net, server, receipt.unsigned.txid).await?,
+        None => {
+            let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
+            (tx, height, None)
+        }
     };
     let sources = fetch_sources(receipt, net, server).await?;
-    report_for(receipt, net, &tx, height, &sources)
+    let mut report = report_for(receipt, net, &tx, height, &sources)?;
+    report.anonymity_set = set;
+    Ok(report)
 }
 
 fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, sources: &std::collections::BTreeMap<[u8; 32], SourceTx>) -> anyhow::Result<Report> {
@@ -466,6 +524,7 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
         proven_spend_actions: v.proven_spends,
         sender_addresses: v.proven_addresses.iter().map(|(_, a)| encode_orchard_receiver(net, *a)).collect(),
         sources: report_sources,
+        anonymity_set: None,
         outputs: v
             .outputs
             .iter()
@@ -877,6 +936,21 @@ pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReservePro
 #[cfg(test)]
 mod window_tests {
     use super::*;
+
+    #[test]
+    fn expected_addresses_must_be_on_the_payments_network() {
+        // The same Orchard receiver as a testnet and as a mainnet address: the receiver bytes
+        // match, so only the network check stops a testnet payment satisfying a mainnet payee.
+        let test_ua = include_str!("../../../examples/testnet/merchant.ua").trim();
+        let raw = orchard_receiver_of(test_ua).unwrap();
+        let main_ua = encode_orchard_receiver(crate::net::Net::Main, raw);
+        assert_eq!(orchard_receiver_on("testnet", test_ua).unwrap(), raw);
+        assert_eq!(orchard_receiver_on("mainnet", &main_ua).unwrap(), raw);
+        assert!(orchard_receiver_on("testnet", &main_ua).is_err());
+        assert!(orchard_receiver_on("mainnet", test_ua).is_err());
+        // Testnet and regtest share a coin type: a receipt can't tell them apart.
+        assert!(orchard_receiver_on("regtest", test_ua).is_ok());
+    }
 
     #[test]
     fn batch_height_hints_are_read_from_links() {

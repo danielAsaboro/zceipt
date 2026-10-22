@@ -141,3 +141,14 @@ fn sign_in_digest_and_limits() {
     assert!(with_proof(1 << 16).is_some());
     assert!(with_proof((1 << 16) + 1).is_none());
 }
+
+/// The `batch:` grammar is strict, so every verifier reads the same position from the same bytes.
+#[test]
+fn batch_positions_use_a_strict_grammar() {
+    use receipts_core::batch_position;
+    assert_eq!(batch_position(b"batch:ab 2/3\nnote"), Some(("ab".into(), 2, 3)));
+    assert_eq!(batch_position(b"batch:ab 2/3\r\nnote"), Some(("ab".into(), 2, 3)));
+    for bad in [&b"batch:ab +2/3"[..], b"batch:ab 2 /3", b"batch:ab 0_2/3", b"batch: 2/3", b"batch:ab 2/3 ", "batch:ab ٢/3".as_bytes(), b"note\nbatch:ab 2/3", b"batch:ab 70000/70000"] {
+        assert_eq!(batch_position(bad), None, "{:?}", String::from_utf8_lossy(bad));
+    }
+}

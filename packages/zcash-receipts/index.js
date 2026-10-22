@@ -8,7 +8,7 @@
 // the public transaction from a lightwalletd grpc-web server, which you can override or skip
 // entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -145,13 +145,25 @@ export async function verifyReceipt(input, options = {}) {
     if (!m || m[1] !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");
   }
   if (options.expectAddress) {
-    const want = orchard_receiver_hex(options.expectAddress);
-    const paid = v.outputs.filter((o) => orchard_receiver_hex(o.recipient) === want).reduce((s, o) => s + o.zatoshis, 0);
+    const paid = paidTo([v], options.expectAddress);
     if (paid === 0) throw new Error("no disclosed output paid the expected address");
     if (options.minZatoshis != null && paid < options.minZatoshis) throw new Error(`paid ${paid} zatoshis, less than ${options.minZatoshis}`);
     v.paidToExpected = paid;
   }
   return v;
+}
+
+// What verified receipts paid `ua`, by Orchard receiver. The address must be on the payments'
+// network (receiver bytes carry none), and outputs disclosed without their memo don't count:
+// they don't show the payee can receive the note.
+// Testnet and regtest share a coin type, so only mainnet versus the test networks is checked.
+const sameNet = (a, b) => (a === "mainnet") === (b === "mainnet");
+
+function paidTo(results, ua) {
+  const network = results[0].network;
+  if (!sameNet(address_network(ua), network)) throw new Error(`the expected address is a ${address_network(ua)} address, but the payment is on ${network}`);
+  const want = orchard_receiver_hex(ua);
+  return results.flatMap((v) => v.outputs).filter((o) => !o.memo_withheld && orchard_receiver_hex(o.recipient) === want).reduce((s, o) => s + o.zatoshis, 0);
 }
 
 /**
@@ -175,8 +187,13 @@ export async function verifyIncoming(input, options = {}) {
     raw = hexToBytes(raw.trim());
   }
   const v = JSON.parse(verify_incoming(text, raw, Number(height), !!options.regtest));
-  if (options.expectAddress && orchard_receiver_hex(v.recipient) !== orchard_receiver_hex(options.expectAddress)) {
-    throw new Error("the receipt proves a different receiving address");
+  if (options.expectAddress) {
+    if (!sameNet(address_network(options.expectAddress), v.network)) throw new Error(`the expected address is a ${address_network(options.expectAddress)} address, but the payment is on ${v.network}`);
+    if (orchard_receiver_hex(v.recipient) !== orchard_receiver_hex(options.expectAddress)) throw new Error("the receipt proves a different receiving address");
+  }
+  if (options.minZatoshis != null) {
+    const total = v.outputs.reduce((s, o) => s + o.zatoshis, 0);
+    if (total < options.minZatoshis) throw new Error(`received ${total} zatoshis, less than ${options.minZatoshis}`);
   }
   return v;
 }
@@ -202,7 +219,15 @@ export async function verifyBatch(input, options = {}) {
   results.push(...(await Promise.all(receipts.map((r) => verifyReceipt(r, rest)))));
   const totals = {};
   for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
-  return { id, results, totals };
+  const out = { id, results, totals };
+  if (expectAddress) {
+    out.paidToExpected = paidTo(results, expectAddress);
+    if (out.paidToExpected === 0) throw new Error("no disclosed output in the batch paid the expected address");
+    if (minZatoshis != null && out.paidToExpected < minZatoshis) throw new Error(`the batch paid ${out.paidToExpected} zatoshis, less than ${minZatoshis}`);
+  } else if (minZatoshis != null) {
+    throw new Error("minZatoshis needs expectAddress");
+  }
+  return out;
 }
 
 /** Extracts a `zsig1…` sign-in from a link, a fragment or bare text, or returns null. */

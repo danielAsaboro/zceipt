@@ -144,13 +144,19 @@ async function grpcUnary(endpoint, method, msg) {
 }
 
 /** Display txids (block-explorer hex) of the shielded transactions in block `height`. */
-export async function fetchBlockTxids(endpoint, height) {
+export async function fetchBlockTxids(endpoint, height, { shieldedOnly = false } = {}) {
   const msg = new Uint8Array([0x08, ...encodeVarint(height)]); // BlockID.height
   const block = await grpcUnary(endpoint, "GetBlock", msg);
   const ids = [];
   for (const [f, v] of parseFields(block)) {
     if (f !== 7) continue; // CompactBlock.vtx
-    for (const [tf, tv] of parseFields(v)) if (tf === 2) ids.push(bytesToHex(Uint8Array.from(tv).reverse()));
+    let id = null, index = 0, shielded = false;
+    for (const [tf, tv] of parseFields(v)) {
+      if (tf === 1) index = Number(tv);
+      if (tf === 2) id = bytesToHex(Uint8Array.from(tv).reverse());
+      if (tf === 4 || tf === 5 || tf === 6 || tf === 9) shielded = true; // Sapling spends/outputs, Orchard and Ironwood actions
+    }
+    if (id && (!shieldedOnly || (shielded && index !== 0))) ids.push(id);
   }
   return ids;
 }
@@ -162,8 +168,11 @@ export async function fetchBlockTxids(endpoint, height) {
  * Throws if the transaction is not in that block.
  */
 export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64 } = {}) {
-  const ids = await fetchBlockTxids(endpoint, height);
   const want = displayTxid.toLowerCase();
+  // Cover is only transactions that could carry a receipt: shielded, not the coinbase. If the
+  // server's compact data doesn't show ours as shielded, fall back to every transaction.
+  let ids = await fetchBlockTxids(endpoint, height, { shieldedOnly: true });
+  if (!ids.includes(want)) ids = await fetchBlockTxids(endpoint, height);
   if (!ids.includes(want)) throw new Error(`transaction ${want.slice(0, 12)}… is not in block ${height}`);
   // The run of maxSet transactions (in block order) that holds ours: the same set every time,
   // so checking one receipt twice can't be intersected down to it.

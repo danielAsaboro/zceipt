@@ -228,7 +228,7 @@ DL=$(echo "$DQ" | jq -r .receipt_link)
 for i in $(seq 1 10); do "$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" -s "127.0.0.1:$GRPC" --out nosrc.txt > nosrc.log 2>&1 && break; sleep 4; sync trader; done
 E1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zip311r1[A-Za-z0-9_-]*' nosrc.txt)\"}" | jq -r .error.code)
 [ "$E1" = "source_of_funds_required" ] && ok "a deposit receipt without proof of source is refused (source_of_funds_required)" || bad "no-source receipt: $E1"
-"$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" --prove-source -s "127.0.0.1:$GRPC" --out withsrc.txt > withsrc.log 2>&1
+"$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" --prove-source --reveal-source-value -s "127.0.0.1:$GRPC" --out withsrc.txt > withsrc.log 2>&1
 D1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zip311r1[A-Za-z0-9_-]*' withsrc.txt)\"}")
 echo "$D1" > desk-cleared.json
 echo "$D1" | jq -e --arg t "$TRADER_T" '.status == "fulfilled" and .provenance.status == "cleared" and (.provenance.funding | map(.address) | index($t)) != null' >/dev/null \

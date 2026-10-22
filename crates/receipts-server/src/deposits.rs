@@ -7,8 +7,9 @@
 //! clear (the source transaction's transparent inputs) against its own list of blocked
 //! addresses:
 //!
-//! - every source funded in the clear by addresses not on the list: `cleared`, the request is
-//!   fulfilled (credited) as usual;
+//! - every source funded in the clear by addresses not on the list, every one of its transparent
+//!   inputs resolved, and enough moved in from the clear to cover the spent note (whose value
+//!   the payer reveals): `cleared`, the request is fulfilled (credited) as usual;
 //! - a blocked address, or a source funded from shielded notes the payer didn't show: the request
 //!   is `held_for_review` (`request.held_for_review` webhook) until the desk accepts or rejects
 //!   it (`POST /v1/requests/{id}/review`); a rejected deposit can be refunded to the address the
@@ -95,10 +96,25 @@ pub fn evaluate(policy: &str, v: &crate::verify::Verification) -> Result<Value, 
     let mut reasons = Vec::new();
     let mut funding = Vec::new();
     for s in &v.sources {
+        let (action, stx) = (&s["spend_action"], s["source_txid"].as_str().unwrap_or("?"));
         let inputs = s["transparent_inputs"].as_array().cloned().unwrap_or_default();
         let known: Vec<&Value> = inputs.iter().filter(|i| i["address"].is_string()).collect();
         if known.is_empty() {
-            reasons.push(format!("the note spent by action {} came from transaction {}, whose own funding isn't visible (shielded notes the payer didn't show, or newly mined coins)", s["spend_action"], s["source_txid"].as_str().unwrap_or("?")));
+            reasons.push(format!("the note spent by action {action} came from transaction {stx}, whose own funding isn't visible (shielded notes the payer didn't show, or newly mined coins)"));
+        } else if known.len() < inputs.len() {
+            // An input whose previous output couldn't be read (or past the lookup limit) could be
+            // a blocked address: never clear around it.
+            reasons.push(format!("{} of the {} transparent inputs of transaction {stx} couldn't be resolved", inputs.len() - known.len(), inputs.len()));
+        }
+        // Clean inputs alone don't explain the note: the clear funding must cover its value, or
+        // the rest came from shielded notes the payer didn't show.
+        match s["zatoshis"].as_u64() {
+            None if !known.is_empty() => reasons.push(format!("the value of the note spent by action {action} is hidden, so the desk can't check its funding covers it (resend with --reveal-source-value; receipts pay does this for deposit desks)")),
+            Some(value) if s["net_into_shielded_zatoshis"].as_i64().unwrap_or(0) < value as i64 => reasons.push(format!(
+                "transaction {stx} moved {} zatoshis in from the clear, less than the {value}-zatoshi note spent by action {action}: the rest came from shielded notes the payer didn't show",
+                s["net_into_shielded_zatoshis"].as_i64().unwrap_or(0)
+            )),
+            _ => {}
         }
         for i in known {
             let a = i["address"].as_str().unwrap_or_default();

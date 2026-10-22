@@ -98,7 +98,7 @@ enum Cmd {
         /// The second step of the TEX payment: the transaction that paid the TEX address.
         #[arg(long, requires = "tex_deposit")]
         second_tx: Option<String>,
-        /// A proof request link from the verifier page (`…?request=<code>&to=<ua>&min=<zats>`).
+        /// A proof request link from the verifier page (`…#request=<code>&to=<ua>&min=<zats>`).
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
         request: Option<String>,
@@ -317,7 +317,7 @@ enum Cmd {
     ///
     /// Pay a proof request and answer it in one step: pays from your zcash-devtool wallet,
     /// waits for the block, builds the receipt and hands it back. Takes the shop's hosted pay
-    /// link (`…/pay/<id>?secret=…`, submitted automatically) or a receipt link (`…?request=…`).
+    /// link (`…/pay/<id>?secret=…`, submitted automatically) or a receipt link (`…#request=…`).
     #[command(display_order = 10)]
     Pay {
         /// The hosted pay link or receipt link the shop gave you.
@@ -433,6 +433,20 @@ enum Cmd {
     },
 }
 
+/// The link to share: the verifier page (or the shop's request link, whose parameters are in the
+/// fragment) with the receipt and its block hint added to the fragment.
+fn answer_link(base: &str, text: &str, h: &str) -> String {
+    let base = match base.find("#zip311") .or_else(|| base.find("&zip311")).or_else(|| base.find("#zrcin1")) {
+        Some(i) => &base[..i],
+        None => base,
+    };
+    if base.contains('#') {
+        format!("{base}&{text}&h={h}")
+    } else {
+        format!("{base}#{text}&h={h}")
+    }
+}
+
 fn read_arg_text(arg: &str) -> anyhow::Result<String> {
     Ok(if let Some(path) = arg.strip_prefix('@') {
         std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
@@ -441,7 +455,7 @@ fn read_arg_text(arg: &str) -> anyhow::Result<String> {
     })
 }
 
-async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::path::Path>, json: bool) -> anyhow::Result<()> {
+async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::path::Path>, json: bool, expect_address: Option<&str>) -> anyhow::Result<()> {
     let i = text.find(receipts_core::BATCH_TEXT_PREFIX).unwrap();
     let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
     let batch = receipts_core::ReceiptBatch::from_text(&body)?;
@@ -451,6 +465,13 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     let mut reports = Vec::new();
     for (i, r) in batch.receipts.iter().enumerate() {
         reports.push(chain::verify_against_chain_hinted(r, server, regtest, hints.as_ref().map(|h| h[i])).await?);
+    }
+    if let Some(addr) = expect_address {
+        let want = chain::orchard_receiver_on(reports[0].network, addr)?;
+        let paid: u64 = reports.iter().flat_map(|r| &r.outputs).filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum();
+        if paid == 0 {
+            bail!("no disclosed output in the batch pays {addr}");
+        }
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&reports)?);
@@ -621,8 +642,9 @@ async fn main() -> anyhow::Result<()> {
                 Some(r) => format!("challenge:{}\n{}", r.code, msg),
                 None => msg,
             };
+            // Answering a request: the shop's link (its parameters are in the fragment) plus the receipt.
             let link_base = match &request {
-                Some(link) => link.split('#').next().unwrap_or(link).to_string(),
+                Some(link) => link.clone(),
                 None => link_base,
             };
             let source = if from_chain { wallet::WitnessSource::Chain } else { wallet::WitnessSource::Auto };
@@ -654,7 +676,7 @@ async fn main() -> anyhow::Result<()> {
                     eprintln!("wrote {}", out.display());
                 }
                 eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link (`h=` lists each payment's block, so verifiers fetch each payment among others from its block, not by its id):", batch.to_bytes().len());
-                println!("{}#{}&h={}", link_base, text, heights.join(","));
+                println!("{}", answer_link(&link_base, &text, &heights.join(",")));
                 return Ok(());
             }
             let txid = &txids[0];
@@ -679,7 +701,7 @@ async fn main() -> anyhow::Result<()> {
             );
             eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server;");
             eprintln!("`h=` lets verifiers fetch it among up to 64 shielded transactions of its block, so the server learns the block, not which one):");
-            println!("{}#{}&h={}", link_base, text, mined_height);
+            println!("{}", answer_link(&link_base, &text, &mined_height.to_string()));
         }
         Cmd::Verify { receipt, server, json, regtest, .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
@@ -730,8 +752,12 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             if let Some(addr) = &expect_address {
-                let want = chain::orchard_receiver_of(addr)?;
-                if !report.outputs.iter().any(|o| o.recipient_raw == want) {
+                let want = chain::orchard_receiver_on(report.network, addr)?;
+                // Outputs disclosed without their memo don't show the payee can receive the note.
+                if !report.outputs.iter().any(|o| o.recipient_raw == want && !o.memo_withheld) {
+                    if report.outputs.iter().any(|o| o.recipient_raw == want) {
+                        bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
+                    }
                     bail!("no disclosed output pays {addr}");
                 }
             }
@@ -740,8 +766,14 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, .. } => {
             let text = read_arg_text(&receipt)?;
-            if text.contains(receipts_core::BATCH_TEXT_PREFIX) {
-                return verify_batch(&text, server.as_deref(), regtest.as_deref(), json).await;
+            // Route by the input's own receipt prefix, and refuse more than one: a batch pasted
+            // after a receipt must not take the batch path past any check.
+            let (r1, b1) = (text.matches(receipts_core::TEXT_PREFIX).count(), text.matches(receipts_core::BATCH_TEXT_PREFIX).count());
+            if r1 + b1 > 1 {
+                bail!("the input holds more than one receipt; verify one at a time");
+            }
+            if b1 == 1 {
+                return verify_batch(&text, server.as_deref(), regtest.as_deref(), json, expect_address.as_deref()).await;
             }
             let receipt = read_receipt_arg(&receipt)?;
             if receipts_chain::deposit::deposit_claim(&String::from_utf8_lossy(&receipt.unsigned.msg)).is_some() {
@@ -754,13 +786,21 @@ async fn main() -> anyhow::Result<()> {
             let report = chain::verify_against_chain_hinted(&receipt, server.as_deref(), regtest.as_deref(), hint).await?;
             if !json {
                 match hint {
-                    Some(h) => eprintln!("(fetched among up to {} shielded transactions of block {h}: the server learned the block, not which transaction)", chain::PRIVATE_FETCH_SET),
+                    Some(h) => match report.anonymity_set {
+                        Some(n) if n < 4 => eprintln!("(fetched by block {h}, but only {n} transaction(s) there could carry a receipt: the server can narrow it to those)"),
+                        Some(n) => eprintln!("(fetched with the {n} transactions of block {h} that could carry a receipt: the server learned the block, not which one)"),
+                        None => {}
+                    },
                     None => eprintln!("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)"),
                 }
             }
             if let Some(addr) = &expect_address {
-                let want = chain::orchard_receiver_of(addr)?;
-                if !report.outputs.iter().any(|o| o.recipient_raw == want) {
+                let want = chain::orchard_receiver_on(report.network, addr)?;
+                // Outputs disclosed without their memo don't show the payee can receive the note.
+                if !report.outputs.iter().any(|o| o.recipient_raw == want && !o.memo_withheld) {
+                    if report.outputs.iter().any(|o| o.recipient_raw == want) {
+                        bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
+                    }
                     bail!("no disclosed output pays {addr}");
                 }
             }
@@ -923,7 +963,7 @@ async fn main() -> anyhow::Result<()> {
             }
             eprintln!("Incoming receipt for {}: {} output(s) you received, {} bytes.", receipts_core::display_txid(&r.txid), r.outputs.len(), r.to_bytes().len());
             eprintln!("It shows the receiving address and these payments, and nothing else about your wallet.\n\nShare this link:");
-            println!("{}#{}&h={}", link_base, text, height);
+            println!("{}", answer_link(&link_base, &text, &height.to_string()));
         }
         Cmd::SignIn { wallet, identity, domain, nonce, address, submit, api_key } => {
             eprintln!("Proving control of an address for {domain}…");
@@ -1096,7 +1136,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     println!("  to       {payee}");
     if need_source {
         println!("  source   this deposit asks where the money came from: the receipt will prove which earlier");
-        println!("           transaction created each note you spend, and nothing else about your wallet");
+        println!("           transaction created each note you spend and its value, and nothing else about your wallet");
     }
     if dry_run {
         return Ok(());
@@ -1141,9 +1181,13 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     eprintln!("Waiting for {txid} to be mined…");
     let net = wallet_net;
     let id = parse_txid(&txid)?;
+    let _ = net;
+    // Wait by syncing the wallet (whole blocks), not by asking a server for the txid: the server
+    // would learn which transaction this payer is waiting on.
     let mut mined = false;
     for _ in 0..120 {
-        if chain::fetch_mined_tx(net, server.as_deref(), id).await.is_ok() {
+        devtool_run(vec!["sync".into()]).await?;
+        if wallet::mined_height_in_wallet(&wallet_dir, id).is_some() {
             mined = true;
             break;
         }
@@ -1160,7 +1204,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let mut attempt = 0;
     let (receipt, height) = loop {
         devtool_run(vec!["sync".into()]).await?;
-        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, need_source.then_some(wallet::SourceMode::HideValue), false).await {
+        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, need_source.then_some(wallet::SourceMode::RevealValue), false).await {
             Ok(x) => break x,
             Err(e) if attempt < 12 && e.to_string().contains("not mined") => {
                 attempt += 1;
@@ -1172,7 +1216,8 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let text = receipt.to_text();
     match submit_to {
         Some((base, rid, secret)) => {
-            let res = reqwest::Client::new().post(format!("{base}/v1/public/requests/{rid}/receipts")).json(&serde_json::json!({ "receipt": text, "client_secret": secret })).send().await?;
+            // With the block hint, the shop's server fetches the payment by block, not by txid.
+            let res = reqwest::Client::new().post(format!("{base}/v1/public/requests/{rid}/receipts")).json(&serde_json::json!({ "receipt": format!("{text}&h={height}"), "client_secret": secret })).send().await?;
             let ok = res.status().is_success();
             let body: serde_json::Value = res.json().await.unwrap_or_default();
             if ok {
@@ -1188,7 +1233,7 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         }
         None => {
             println!("Paid. Send this receipt link back to the shop:");
-            println!("{}#{}&h={height}", receipt_link.split('#').next().unwrap_or(&receipt_link), text);
+            println!("{}", answer_link(&receipt_link, &text, &height.to_string()));
         }
     }
     Ok(())

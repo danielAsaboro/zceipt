@@ -16,6 +16,7 @@ age = { version = "0.12", features = ["armor"] }
 bip0039 = "0.12"
 secrecy = "0.8"
 rusqlite = "0.37"
+blake2b_simd.workspace = true
 rand = { version = "0.10", features = ["std", "sys_rng"] }
 orchard.workspace = true
 incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }

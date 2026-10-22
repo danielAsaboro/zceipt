@@ -464,7 +464,7 @@ struct CreateEndpoint {
     events: Option<Vec<String>>,
 }
 
-const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.payment_reorged", "request.expired", "receipt.rejected", "refund.created", "refund.succeeded"];
+const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.payment_reorged", "request.expired", "request.held_for_review", "request.rejected", "receipt.rejected", "refund.created", "refund.succeeded"];
 
 /// Whether `ip` is a public unicast address (not loopback, private, link-local, CGNAT,
 /// benchmarking, multicast, reserved, or an IPv6 form that embeds such an IPv4 address).

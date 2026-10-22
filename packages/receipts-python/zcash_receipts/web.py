@@ -62,7 +62,7 @@ _lock = threading.Lock()
 
 def check_gate(receipts: Receipts, *, payee: str, amount_zatoshis: int, request_id: Optional[str] = None,
                bind_to: Optional[str] = None, route: Optional[str] = None, label: Optional[str] = None,
-               expires_in: int = 3600, require_final: bool = False, max_age_seconds: Optional[int] = None,
+               expires_in: int = 3600, require_final: bool = False, max_age_seconds: Optional[int] = 86_400,
                max_new_per_minute: int = 30) -> Gate:
     """Let the caller through if `request_id` names a fulfilled request this gate issued for the
     same payee, `route` (default: the label) and `bind_to`, with at least the price paid net of
@@ -92,8 +92,10 @@ def check_gate(receipts: Receipts, *, payee: str, amount_zatoshis: int, request_
         elif matches and r["status"] == "open":
             return Gate(allow=False, status=402, body=_challenge(r, "waiting for the receipt"))
     key = f"{bind or '*'}|{route_key}"
+    # Only a bound caller reuses its open request: unbound callers sharing one id would all get
+    # through once anyone paid it.
     with _lock:
-        prev = _issued.get(key)
+        prev = _issued.get(key) if bind is not None else None
     if prev and time.time() - prev[1] < min(expires_in, 600):
         try:
             r = receipts.requests.retrieve(prev[0])
@@ -115,7 +117,8 @@ def check_gate(receipts: Receipts, *, payee: str, amount_zatoshis: int, request_
     with _lock:
         if len(_issued) > 10_000:
             _issued.clear()
-        _issued[key] = (r["id"], time.time())
+        if bind is not None:
+            _issued[key] = (r["id"], time.time())
     return Gate(allow=False, status=402, body=_challenge(r, "payment required"))
 
 

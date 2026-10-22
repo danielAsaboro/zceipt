@@ -28,7 +28,7 @@ network traffic is fetching public chain data.
 | Only the holder of the spending key can make a receipt for a spend | `receipts-core/tests/roundtrip.rs::only_the_spender_can_create` |
 | The proof re-randomizes `rk`, `cv_net` and the dummy output, so the disclosure can't be matched to the on-chain action's keys, and two receipts for the same spend share nothing | `roundtrip.rs::disclosures_are_unlinkable_to_the_action_and_to_each_other`; `receipts-core/src/lib.rs` (`create_cross`: fresh `alpha`, `rcv`, dummy note) |
 | Rebuilding a pruned Merkle path uses only public data (tree state and compact blocks), never the wallet's keys | `receipts-chain/src/chain.rs::rebuild_witness` |
-| lightwalletd sees the wallet fetching blocks and, without the `h=` hint, one transaction id | `receipts-chain/src/chain.rs::fetch_mined_tx` |
+| lightwalletd sees the wallet fetching blocks and, without the `h=` hint, one transaction id. `receipts pay` waits for its payment to be mined by syncing the wallet (whole blocks), not by asking for the txid, and hands the shop the receipt with its block hint | `receipts-chain/src/chain.rs::fetch_mined_tx`; `receipts-wallet::mined_height_in_wallet` |
 
 ## 2. What the receipt itself reveals
 
@@ -49,7 +49,7 @@ The receipt sits in the URL `#fragment`, which browsers never send to a server.
 
 | Party | Learns | Backed by |
 |---|---|---|
-| The page's host | Nothing about the receipt (the fragment isn't in the HTTP request) | `web/app.js` (reads `location.hash` only); the page makes no request containing it |
+| The page's host | Nothing about the receipt (the fragment isn't in the HTTP request), and nothing about a proof request: its code, payee, minimum and label are in the fragment too (`#request=…`; links made before Oct 22 used the query string, which the host's logs see) | `web/app.js` (reads `location.hash` only); `receipts-wallet::parse_request_link` tests (fragment form) |
 | Referrer leaks | None: pages send `Referrer-Policy: no-referrer` | `receipts-server/tests/api.rs::hardening_public_limits_headers_and_live_webhook_hosts` |
 | Onlooker | Nothing; receipts never touch the chain | (no transaction is made) |
 
@@ -58,7 +58,7 @@ The receipt sits in the URL `#fragment`, which browsers never send to a server.
 | Party | Learns | Backed by |
 |---|---|---|
 | Shop | What the receipt reveals (section 2) | `packages/zcash-receipts/test/conformance.test.js` |
-| lightwalletd, link with `h=` | That someone fetched block *h* and every shielded transaction in it, not which one was checked. The hiding is only as good as the block is busy: with one shielded transaction it hides nothing, so the page reports the count | `packages/zcash-receipts/test/testnet.test.js` "block-level fetch hides which transaction was checked"; `grpc.js::fetchTransactionPrivately` |
+| lightwalletd, link with `h=` | That someone fetched block *h* and the run of up to 64 of its transactions that could carry a receipt (shielded, not the coinbase), the same run every time, not which one was checked. The hiding is only as good as the block is busy: measured over 1,000 recent blocks in an Oct 22 review, a receipt shares its block with 4.6 candidates on average on mainnet and is alone 10% of the time (testnet: 1.7, alone 53%). Below 4 candidates the page and CLI say the server can narrow it down | `packages/zcash-receipts/test/testnet.test.js` "block-level fetch hides which transaction was checked"; `grpc.js::fetchTransactionPrivately` |
 | lightwalletd, no `h=` | The transaction id checked (the page says so) | `web/app.js::localBadge` |
 | lightwalletd, offline mode | Nothing (the verifier is given the raw transaction) | `receipts-cli/tests/conformance.rs::conformance_vectors` (all offline) |
 | Receipts server | Nothing: verification runs in WebAssembly on the device | `crates/receipts-wasm` (no network calls) |
@@ -71,7 +71,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 |---|---|---|
 | Receipts server | Everything the receipt reveals (section 2); it stores it with the request | `receipts-server/src/requests.rs::accept_receipt` |
 | Receipts server | Never a viewing key, spending key, seed phrase or age key: requests containing one are refused and not stored or echoed | `api.rs::pasted_viewing_keys_are_refused_and_never_echoed`, `::second_qa_pass_regressions` (JSON-escaped keys); `receipts-core/src/tripwire.rs` |
-| lightwalletd | The transaction id (the server fetches it) | `receipts-server/src/verify.rs::verify_parsed` |
+| lightwalletd | With a link's `h=` (which `receipts pay` sends), the block, as in section 4; without it, the transaction id. Finality is then watched by block (`chain::tx_in_block`), not by txid | `receipts-server/src/verify.rs::verify_parsed_hinted`, `clocks.rs` |
 | Another shop | Can't reuse the receipt: it signs this request's challenge, and one payment settles one request | `api.rs::real_receipt_replay_is_refused`, `::one_payment_settles_one_request`, `::concurrent_submissions_settle_once` |
 
 ## 6. Hosted pay pages and campaigns
@@ -103,7 +103,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 
 | Party | Learns | Backed by |
 |---|---|---|
-| The site | That the user controls the address they chose, for this domain and nonce, once | `api.rs::sign_in_with_zcash`; `roundtrip.rs::sign_in_roundtrip_and_replay` |
+| The site | That the user controls an address, for this domain and nonce, once. By default the address is derived from the domain, so each site sees its own address and two sites can't link a user by it | `api.rs::sign_in_with_zcash`; `roundtrip.rs::sign_in_roundtrip_and_replay`; `receipts-wallet::sign_in` |
 | Another site (phishing, replay) | Can't reuse the proof: it signs the domain and a single-use nonce | same |
 | Someone who knows your address | Can't sign in as you: the address proof's value commitment is fixed to `ValueCommit_0(1)`, so the circuit enforces that the proven note is yours (before 2026-10-15 it was not, and this was possible) | `roundtrip.rs::sign_in_as_someone_elses_address_is_refused`; conformance `sign-in/pre-fix` |
 | Onlooker | Nothing; no transaction is made | (no transaction) |
@@ -153,7 +153,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 
 | Party | Learns | Backed by |
 |---|---|---|
-| Verifier | The total and each note's value; the notes' nullifiers, so it can see when they are spent later (inherent: it is how "unspent" is checked) | `roundtrip.rs::proof_of_funds`; `examples/testnet/reserve` |
+| Verifier | The total and each note's value; the notes' nullifiers. That is forward linkability: whoever holds the proof sees the transaction that later spends those notes. It is how "unspent" is checked; move the notes to a fresh address after using a proof if that matters | `roundtrip.rs::proof_of_funds`; `examples/testnet/reserve` |
 | Verifier | Not: the holder's address, other notes, history | same |
 | lightwalletd (verifier side) | Only that the verifier downloaded the pool's blocks (all of them since activation), not which nullifiers it looks for | `receipts-chain/src/chain.rs::published_nullifiers` |
 | Holder after spending | Can't keep using the proof: once a nullifier is on chain, verification fails | `scripts/e2e-regtest.sh` ("after the saver spends, the same proof is refused") |

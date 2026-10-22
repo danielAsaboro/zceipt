@@ -290,6 +290,21 @@ pub fn orchard_receiver_hex(ua: &str) -> Result<String, JsError> {
         .ok_or_else(|| JsError::new("no Orchard receiver in that address"))
 }
 
+/// The network a unified address belongs to: "mainnet", "testnet" or "regtest". A receipt's
+/// recipient bytes carry no network, so an expected address is checked against the receipt's
+/// network with this before its receiver is compared.
+#[wasm_bindgen]
+pub fn address_network(ua: &str) -> Result<String, JsError> {
+    use zcash_protocol::consensus::NetworkType;
+    let (nt, _, _) = unified::Address::decode(ua).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(match nt {
+        NetworkType::Main => "mainnet",
+        NetworkType::Test => "testnet",
+        NetworkType::Regtest => "regtest",
+    }
+    .into())
+}
+
 /// Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
 /// Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
 #[wasm_bindgen]

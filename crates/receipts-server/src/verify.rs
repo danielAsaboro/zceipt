@@ -244,6 +244,7 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
                 "source_height": stx.height,
                 "zatoshis": s.value,
                 "transparent_inputs": stx.transparent_inputs.iter().map(|t| serde_json::json!({ "prevout_txid": t.prevout_txid, "prevout_index": t.prevout_index, "address": t.address, "zatoshis": t.zatoshis })).collect::<Vec<_>>(),
+                "net_into_shielded_zatoshis": chain::net_into_shielded(&stx.tx),
             })
         })
         .collect();
@@ -326,7 +327,7 @@ pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_
     }
     let recipient = chain::encode_orchard_receiver(net, v.recipient);
     if let Some(want) = expect_address {
-        if chain::orchard_receiver_of(want).map_err(|e| ApiError::invalid("address_invalid", e.to_string()).param("expect_address"))? != v.recipient {
+        if chain::orchard_receiver_on(net.name(), want).map_err(|e| ApiError::invalid("address_invalid", e.to_string()).param("expect_address"))? != v.recipient {
             return Err(ApiError::verification("address_mismatch", "the receipt proves a different receiving address"));
         }
     }
@@ -397,9 +398,11 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
 }
 
 /// Total paid to `payee` (compared by Orchard receiver) in a verification.
+/// Outputs disclosed without their memo (v5) don't count: they don't show the payee can receive
+/// the note. The address must be on the payment's network.
 pub fn paid_to(v: &Verification, payee: &str, param: &'static str) -> Result<u64, ApiError> {
-    let want = chain::orchard_receiver_of(payee).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param(param))?;
-    Ok(v.outputs.iter().filter(|o| o.recipient_raw == want).map(|o| o.zatoshis).sum())
+    let want = chain::orchard_receiver_on(v.network, payee).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param(param))?;
+    Ok(v.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum())
 }
 
 pub fn txid_short(t: &[u8; 32]) -> String {

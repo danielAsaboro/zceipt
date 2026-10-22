@@ -430,6 +430,14 @@ impl<T: orchard::bundle::Authorization, V> RecoverExt for orchard::Bundle<T, V> 
     }
 }
 
+/// The block the wallet recorded `txid` in, once a sync has seen it. Waiting on this (instead of
+/// asking a chain server for the txid) keeps the server from learning which transaction the
+/// payer is waiting for: a sync downloads whole blocks.
+pub fn mined_height_in_wallet(wallet: &Path, txid: [u8; 32]) -> Option<u32> {
+    let conn = rusqlite::Connection::open_with_flags(wallet.join("data.sqlite"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    conn.query_row("SELECT mined_height FROM transactions WHERE txid = ?1", [txid.as_slice()], |r| r.get::<_, Option<u32>>(0)).ok().flatten()
+}
+
 /// A fresh Orchard address of the wallet's account (a random diversifier), for a `refund-to:`
 /// line: reusing one address in every receipt would let merchants link the receipts. The wallet
 /// finds payments to it like any other of its addresses (Orchard decryption doesn't depend on
@@ -446,8 +454,10 @@ pub fn fresh_address(wallet: &Path, identity: &Path) -> anyhow::Result<String> {
     Ok(receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes()))
 }
 
-/// Signs in to `domain` with `nonce`, proving control of `address` (default: the account's
-/// first Orchard address). No transaction is made and nothing is written to the wallet.
+/// Signs in to `domain` with `nonce`, proving control of `address` (default: an address of the
+/// account derived from the domain, so every site sees a different one and sites can't link a
+/// user by it; the same site sees the same address each time). No transaction is made and
+/// nothing is written to the wallet.
 pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, address: Option<&str>) -> anyhow::Result<(receipts_core::signin::SignIn, String)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
@@ -455,7 +465,11 @@ pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, addres
     let sk: SpendingKey = usk.orchard().clone();
     let fvk = FullViewingKey::from(&sk);
     let addr = match address {
-        None => fvk.address_at(0u32, Scope::External),
+        None => {
+            let h = blake2b_simd::Params::new().hash_length(32).personal(b"ReceiptsSignInDv").hash(domain.as_bytes());
+            let index: [u8; 11] = h.as_bytes()[..11].try_into().expect("11 bytes");
+            fvk.address_at(orchard::keys::DiversifierIndex::from(index), Scope::External)
+        }
         Some(ua) => {
             let raw = receipts_chain::chain::orchard_receiver_of(ua)?;
             let a = Option::<orchard::Address>::from(orchard::Address::from_raw_address_bytes(&raw))
@@ -599,7 +613,8 @@ pub fn create_reserve_proof(wallet: &Path, identity: &Path, pool: Pool, msg: &[u
     Ok(receipts_core::reserve::create_reserve(&receipts_core::proving_key(), net.coin_type(), pool, height, anchor.expect("at least one note"), msg, &sk, &witnesses, OsRng)?)
 }
 
-/// A shop's proof-request link: `…?request=<challenge>&to=<payee>&min=<zatoshis>`.
+/// A shop's proof-request link: `…#request=<challenge>&to=<payee>&min=<zatoshis>` (or the older
+/// `…?request=…` form).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestLink {
     pub code: String,
@@ -610,9 +625,12 @@ pub struct RequestLink {
 /// Parses a proof-request link. Each parameter may appear once; the payee must have an Orchard
 /// receiver (so a receipt can prove it).
 pub fn parse_request_link(link: &str) -> anyhow::Result<RequestLink> {
-    let query = link.split('#').next().unwrap_or(link).split_once('?').map(|(_, q)| q).unwrap_or("");
+    // Parameters are in the #fragment (so the page's host never sees them); older links put them
+    // in the query string. Receipt tokens and `h=` in the fragment are skipped.
+    let (before, fragment) = link.split_once('#').unwrap_or((link, ""));
+    let query = before.split_once('?').map(|(_, q)| q).unwrap_or("");
     let (mut code, mut to, mut min) = (None, None, None);
-    for pair in query.split('&').filter(|p| !p.is_empty()) {
+    for pair in query.split('&').chain(fragment.split('&')).filter(|p| !p.is_empty()) {
         let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
         let v = percent_decode(v);
         let slot = match k {
@@ -645,7 +663,7 @@ pub async fn check_answers(receipt: &Receipt, req: &RequestLink, server: Option<
     let report = receipts_chain::chain::verify_against_chain(receipt, server, regtest).await?;
     let paid: u64 = match &req.to {
         Some(to) => {
-            let want = receipts_chain::chain::orchard_receiver_of(to)?;
+            let want = receipts_chain::chain::orchard_receiver_on(report.network, to)?;
             // Memo-withheld outputs (v5) don't show the payee can receive the note: not counted.
             report.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum()
         }
@@ -696,6 +714,10 @@ mod tests {
         assert!(super::parse_request_link("https://x/?request=00aa11bb&request=ffff0000").is_err(), "duplicates refused");
         assert!(super::parse_request_link("https://x/?request=00aa11bb&to=tmEZhbWHTpdKMw5it8YDspUXSMGQyFwovpU").is_err(), "unprovable payee refused");
         assert!(super::parse_request_link("https://x/?request=zz").is_err());
+        // The fragment form, with a receipt and a block hint after it.
+        let r = super::parse_request_link(&format!("https://shop/verify/#request=00aa11bb&to={to}&min=5&zip311r1Abc&h=12")).unwrap();
+        assert_eq!((r.code.as_str(), r.min), ("00aa11bb", 5));
+        assert!(super::parse_request_link("https://x/?request=00aa11bb#request=ffff0000").is_err(), "one code, not two");
         assert!(super::check_refund_address("not-an-address").is_err());
     }
 }

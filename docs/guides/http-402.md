@@ -16,11 +16,13 @@ What a paid request unlocks:
   session or account id (never a header the client sets, such as `X-Forwarded-For`). The gate
   stores it in the request's metadata and only lets that caller through.
 - **What:** `route` (default: the label) is stored too; a request paid for `/a` doesn't open `/b`.
-- **For how long:** forever, unless you pass `maxAgeSeconds` (Python: `max_age_seconds`).
+- **For how long:** a day by default; set `maxAgeSeconds` (Python: `max_age_seconds`), or `null`
+  / `None` for no expiry.
 - **How much:** at least the price, net of refunds already paid back.
 
-Abuse: a caller without a valid header gets the open request the gate already issued to it for
-that route (not a new one), and the gate creates at most `maxNewPerMinute` (default 30) new
+Abuse: a bound caller without a valid header gets the open request the gate already issued to it
+for that route (not a new one; unbound callers each get their own, so one payment never opens
+the route for everyone), and the gate creates at most `maxNewPerMinute` (default 30) new
 requests a minute in all, answering 429 beyond that, so anonymous traffic can't exhaust your API
 key's rate limit.
 

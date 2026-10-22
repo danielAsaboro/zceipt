@@ -35,8 +35,9 @@ A receipt is about 5 KB (a 7 KB link): almost all of it is the one Halo 2 proof 
 spend, which is what proves who paid. That is too big for a QR code, so share it as a link, a
 file or a message; it fits in a URL fragment. The receipt stays in the URL `#fragment`, which
 browsers never send. The page fetches the payment
-together with the other shielded transactions in its block (up to 64; this block has 10), so the
-chain server learns the block but not which transaction was checked.
+together with the other transactions in its block that could carry a receipt (up to 64; this
+block has 5), so the chain server learns the block but not which of them was checked. In a quiet
+block that hides little, and the page says how many there were.
 
 **Check the cryptography in a minute**, with no Rust: `python3 -m unittest discover -s spec-verifier/tests`
 runs an independent verifier written from the protocol specification, which agrees with ours on
@@ -68,7 +69,7 @@ disclosure complete only with it. Exact claim, assumptions and limits:
 | Party | Learns | Doesn't learn |
 |---|---|---|
 | The person you give the receipt to | the disclosed outputs, your message, that you paid | your address (unless you add `--prove-address`), balance, other payments |
-| The chain server, when someone verifies | one block, and a fetch of up to 64 of its shielded transactions (links carry an `h=` block hint), or the txid without the hint; the verifier's IP | which of those transactions; anything in the receipt. A block with one shielded transaction hides nothing, and the page says how many there were |
+| The chain server, when someone verifies | one block, and a fetch of up to 64 of its transactions that could carry a receipt (links carry an `h=` block hint), or the txid without the hint; the verifier's IP | which of those transactions; anything in the receipt. On mainnet a receipt shares its block with about 4.6 such transactions on average and is alone about 10% of the time; the page and CLI say when the block is that quiet |
 | The chain server, when you make a receipt | whole 1,000-block windows (only if your wallet pruned the note's witness) | which note or block |
 | Anyone else | nothing | |
 

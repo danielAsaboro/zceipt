@@ -436,6 +436,11 @@ pub fn batch_position(msg: &[u8]) -> Option<(String, u16, u16)> {
     let line = text.lines().next()?.strip_prefix("batch:")?;
     let (id, pos) = line.split_once(' ')?;
     let (i, n) = pos.split_once('/')?;
+    // Strict: a non-empty id, and ASCII digits only (u16::from_str would also take a leading `+`).
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if id.is_empty() || !digits(i) || !digits(n) {
+        return None;
+    }
     Some((id.to_string(), i.parse().ok()?, n.parse().ok()?))
 }
 

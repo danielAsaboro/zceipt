@@ -242,6 +242,20 @@ pub async fn finality_sweeper(st: Shared) {
                         continue; // sandbox payment
                     }
                     let Ok(id) = crate::verify::parse_display_txid(&txid) else { continue };
+                    // Known block: watch the block (the server learns the block, not the txid).
+                    if let Some(h) = was {
+                        match chain::tx_in_block(net, server.as_deref(), id, h as u32).await {
+                            Ok(true) => {
+                                lowest_conf = lowest_conf.min(tip as i64 - h + 1);
+                                continue;
+                            }
+                            Ok(false) => {} // reorged out of that block: find it again below
+                            Err(_) => {
+                                dropped = true; // server trouble: decide next time
+                                continue;
+                            }
+                        }
+                    }
                     match chain::fetch_mined_tx(net, server.as_deref(), id).await {
                         Ok((_, h)) => {
                             if was != Some(h as i64) {

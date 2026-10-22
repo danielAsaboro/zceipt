@@ -39,12 +39,18 @@ const warmed = call("warm")
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
   await local;
   if (op === "inspect") return JSON.parse(inspectLocal(args.receipt));
   if (op === "receiver") return orchard_receiver_hex(args.ua);
+  // An expected address must be on the payment's network: receiver bytes carry no network.
+  if (op === "receiverOn") {
+    const n = address_network(args.ua);
+    if ((n === "mainnet") !== (args.network === "mainnet")) throw new Error(`that is a ${n} address, but this payment is on ${args.network}`);
+    return orchard_receiver_hex(args.ua);
+  }
   if (op === "batch") return JSON.parse(open_batch(args.batch));
 };
 
@@ -128,7 +134,9 @@ const loadRequests = () => { try { return JSON.parse(localStorage.getItem(REQ_KE
 const saveRequest = (code, r) => { try { const all = loadRequests(); all[code] = r; localStorage.setItem(REQ_KEY, JSON.stringify(all)); } catch {} };
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 function requestFromUrl() {
-  const q = new URLSearchParams(location.search);
+  // Request parameters live in the #fragment (older links used the query string).
+  const frag = new URLSearchParams(location.hash.slice(1).split("&").filter((p) => /^(request|to|min|label)=/.test(p)).join("&"));
+  const q = frag.get("request") ? frag : new URLSearchParams(location.search);
   const code = q.get("request");
   if (!code) return null;
   return { code, to: q.get("to") || "", min: Number(q.get("min") || 0), label: q.get("label") || "" };
@@ -168,7 +176,9 @@ function localBadge() {
   const f = fetchMode || {};
   const sees =
     f.mode === "offline" ? "No server was contacted: you supplied the transaction."
-    : f.mode === "block" ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and its ${f.set} shielded transactions, not which one you checked.`
+    : f.mode === "block" ? (f.set < 4
+      ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()}, which has only ${f.set} transaction${f.set === 1 ? "" : "s"} that could carry a receipt, so it can narrow the one you checked down to ${f.set === 1 ? "it" : "those"}.`
+      : `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and the ${f.set} transactions in it that could carry a receipt, not which one you checked.`)
     : f.mode === "batch-blocks" ? `${escapeHtml(f.host)} saw requests for ${f.blocks.length} block${f.blocks.length > 1 ? "s" : ""} (${f.set} transactions in all), not which transactions are in the batch. It can tell the requests came from one visitor at one time.`
     : f.mode === "batch-txids" ? `${escapeHtml(f.host)} saw the ids of all ${f.n} transactions you checked, together, so it can tell they belong to one batch. Links with <code>h=</code> block hints avoid this.`
     : `${escapeHtml(f.host || "The server")} saw which transaction you checked. Links with an <code>h=</code> block hint avoid this.`;
@@ -244,9 +254,10 @@ function render(v, net) {
     const ua = $("#mine").value.trim();
     if (!ua) return;
     try {
-      const want = await quick("receiver", { ua });
-      // Compare by Orchard receiver: a unified address can carry other receivers too.
-      const got = await Promise.all(v.outputs.map((o) => quick("receiver", { ua: o.recipient })));
+      const want = await quick("receiverOn", { ua, network: v.network });
+      // Compare by Orchard receiver: a unified address can carry other receivers too. Outputs
+      // disclosed without their memo don't show the note can be received, so they don't count.
+      const got = await Promise.all(v.outputs.filter((o) => !o.memo_withheld).map((o) => quick("receiver", { ua: o.recipient })));
       $("#mineOut").textContent = got.includes(want) ? "Yes. This payment went to that address." : "No. None of the disclosed outputs went to that address.";
       $("#mineOut").dataset.ok = got.includes(want);
     } catch (e) {
@@ -268,9 +279,9 @@ async function renderRequestChecks(v) {
   row(signed === code, signed === code ? "The sender signed your challenge, so this receipt was made for this request" : "The receipt does not sign this request's challenge");
   if (req && req.to) {
     try {
-      const want = await quick("receiver", { ua: req.to });
+      const want = await quick("receiverOn", { ua: req.to, network: v.network });
       const paid = [];
-      for (const o of v.outputs) if ((await quick("receiver", { ua: o.recipient })) === want) paid.push(o.zatoshis);
+      for (const o of v.outputs) if (!o.memo_withheld && (await quick("receiver", { ua: o.recipient })) === want) paid.push(o.zatoshis);
       const total = paid.reduce((s, z) => s + z, 0);
       row(paid.length > 0, paid.length ? `Paid ${zec(total)} ${UNIT} to the requested address` : "Nothing was paid to the requested address");
       if (req.min) row(total >= req.min, `${total >= req.min ? "At least" : "Less than"} the requested ${zec(req.min)} ${UNIT}`);
@@ -316,7 +327,7 @@ async function run(receiptText) {
         // block, not which transaction is checked.
         tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
         fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint };
-        setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} transactions) from ${new URL(endpoint).host}`);
+        setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
       } else {
         tx = await fetchRawTx(endpoint, summary.txid);
         fetchMode = { mode: "txid", host: new URL(endpoint).host };
@@ -679,7 +690,9 @@ $("#reqBtn").onclick = () => {
   if (min) q.set("min", String(min));
   if (label) q.set("label", label);
   if (regtest()) q.set("regtest", "");
-  const link = `${location.origin}${location.pathname}?${q}`;
+  // In the #fragment, like receipts: browsers never send it, so the page's host doesn't log the
+  // payee, amount or label.
+  const link = `${location.origin}${location.pathname}#${q}`;
   $("#reqOut").innerHTML = `
     <p class="hint">Send this to the person who paid you. Their receipt must answer challenge <code>${code}</code>.</p>
     <textarea readonly id="reqLink">${escapeHtml(link)}</textarea>

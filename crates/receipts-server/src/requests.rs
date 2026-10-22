@@ -133,7 +133,8 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
     if let Some(l) = &r.label {
         uri.push_str(&format!("&message={}", urlenc(l)));
     }
-    let mut link = format!("{}?request={}&to={}", st.config.verifier_url, r.challenge, urlenc(&r.payee));
+    // Parameters in the #fragment, which browsers never send: the page's host doesn't learn them.
+    let mut link = format!("{}#request={}&to={}", st.config.verifier_url, r.challenge, urlenc(&r.payee));
     if r.kind == "single" {
         if let Some(a) = r.amount {
             link.push_str(&format!("&min={a}"));

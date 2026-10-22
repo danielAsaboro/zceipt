@@ -214,16 +214,19 @@ def batch_position(msg: bytes):
     """(id, i, n) from a `batch:<id> <i>/<n>` FIRST line of msg (docs/SPEC.md), else None."""
     try:
         first = msg.decode("utf-8").split("\n", 1)[0]
+        if first.endswith("\r"):  # "\r\n" ends a line too, as in Rust's str::lines
+            first = first[:-1]
     except UnicodeDecodeError:
         return None
     if not first.startswith("batch:"):
         return None
-    try:
-        bid, pos = first[len("batch:"):].split(" ", 1)
-        i, n = pos.split("/", 1)
-        return bid, int(i), int(n)
-    except ValueError:
+    # Strict grammar (as the Rust parser reads it): `batch:<id> <i>/<n>`, ASCII digits only, no
+    # signs, spaces, underscores or non-ASCII digits that int() would otherwise accept.
+    import re
+    m = re.fullmatch(r"batch:([^ ]+) ([0-9]{1,5})/([0-9]{1,5})", first)
+    if not m or int(m.group(2)) > 65535 or int(m.group(3)) > 65535:
         return None
+    return m.group(1), int(m.group(2)), int(m.group(3))
 
 
 def check_batch(receipts) -> str:

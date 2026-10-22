@@ -82,7 +82,7 @@ pub fn check(receipt: &Receipt, message: &str, net: NetworkType, tx1: &Transacti
         .map(|o| u64::from(o.value()))
         .sum();
     if to_tex == 0 {
-        return Err("the second transaction pays nothing to {tex}".into());
+        return Err(format!("the second transaction pays nothing to {tex}"));
     }
     Ok(Deposit {
         tex_address: tex,

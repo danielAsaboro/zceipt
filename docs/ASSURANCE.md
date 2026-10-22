@@ -87,7 +87,7 @@ same bytes, so the signed encoding is unique:
 | `decode_receipt` (bytes) | 11,359,725 | no crash, no non-canonical decode |
 | `decode_batch` | 8,761,198 | same |
 | `decode_sign_in` | 12,374,327 | same |
-| `decode_text` (`zrcpt1`, `zrcptb1`, `zsig1`) | 10,092,364 | same |
+| `decode_text` (`zip311r1`, `zip311b1`, `zsig1`) | 10,092,364 | same |
 
 ```bash
 cd crates/receipts-core && cargo +nightly fuzz run decode_receipt -- -max_total_time=900

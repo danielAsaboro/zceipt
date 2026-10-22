@@ -108,7 +108,7 @@ for i in $(seq 1 10); do "$R" create -w ./merchant -i ./merchant.age --txid "$T2
 "$R" tx "$T2" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex > refund-tx.txt 2>/dev/null || true
 XP=$("$R" verify @refund.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>&1 | sed -n 's/^  pool *//p')
 [ "$XP" = "Orchard to Ironwood" ] && ok "the refund is a cross-pool receipt (Orchard notes into an Ironwood output)" || echo "  (refund receipt pools: $XP)"
-RS=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/refunds/$RFID/receipts" -d "{\"receipt\":\"$(grep -o 'zrcpt1[A-Za-z0-9_-]*' refund.txt)\"}" | jq -r .status)
+RS=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/refunds/$RFID/receipts" -d "{\"receipt\":\"$(grep -o 'zip311r1[A-Za-z0-9_-]*' refund.txt)\"}" | jq -r .status)
 [ "$RS" = "succeeded" ] && ok "refund settled with the merchant's receipt" || { bad "refund status $RS"; tail -3 create-refund.log; }
 ATT=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$RID/attestations" -d '{}' | jq -r .presentation)
 curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/attestations/verify" -d "{\"attestation\":\"$ATT\"}" | jq -e '.valid and .claims.paid_at_least_zatoshis == 20000000' >/dev/null && ok "attestation: paid at least 0.2 ZEC net of the refund" || bad "attestation"
@@ -199,7 +199,7 @@ PY
 )
 "$R" pay "$EDIT" --dry-run -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" > edit.log 2>&1 && bad "an edited request was accepted" || ok "an edited request is refused ($(tail -1 edit.log | cut -c1-60))"
 "$R" pay "$REQ1" --yes -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" > pay-signed.log 2>&1 && ok "payer paid the signed request" || { bad "pay signed request"; tail -3 pay-signed.log; }
-SR=$(grep -o 'zrcpt1[A-Za-z0-9_-]*' pay-signed.log | tail -1)
+SR=$(grep -o 'zip311r1[A-Za-z0-9_-]*' pay-signed.log | tail -1)
 "$R" verify "$SR" --json --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" > signed-receipt.json 2>&1
 jq -e '.message == "challenge:c0ffee77" and .outputs[0].zatoshis == 7000000 and .outputs[0].memo == "Order 77"' signed-receipt.json >/dev/null && ok "the receipt answers request c0ffee77: 0.07 ZEC with the shop's memo" || { bad "signed request receipt"; tail -3 signed-receipt.json; }
 kill "$WK_PID" 2>/dev/null || true
@@ -226,10 +226,10 @@ NOSRC=$(send trader "$MERCHANT" 5000000 "Deposit $DID") || bad "deposit payment"
 sleep 6; sync trader
 DL=$(echo "$DQ" | jq -r .receipt_link)
 for i in $(seq 1 10); do "$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" -s "127.0.0.1:$GRPC" --out nosrc.txt > nosrc.log 2>&1 && break; sleep 4; sync trader; done
-E1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zrcpt1[A-Za-z0-9_-]*' nosrc.txt)\"}" | jq -r .error.code)
+E1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zip311r1[A-Za-z0-9_-]*' nosrc.txt)\"}" | jq -r .error.code)
 [ "$E1" = "source_of_funds_required" ] && ok "a deposit receipt without proof of source is refused (source_of_funds_required)" || bad "no-source receipt: $E1"
 "$R" create -w ./trader -i ./trader.age --txid "$NOSRC" --request "$DL" --prove-source -s "127.0.0.1:$GRPC" --out withsrc.txt > withsrc.log 2>&1
-D1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zrcpt1[A-Za-z0-9_-]*' withsrc.txt)\"}")
+D1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "{\"receipt\":\"$(grep -o 'zip311r1[A-Za-z0-9_-]*' withsrc.txt)\"}")
 echo "$D1" > desk-cleared.json
 echo "$D1" | jq -e --arg t "$TRADER_T" '.status == "fulfilled" and .provenance.status == "cleared" and (.provenance.funding | map(.address) | index($t)) != null' >/dev/null \
   && ok "with --prove-source the deposit is credited: funding screened and cleared ($TRADER_T)" || { bad "cleared deposit"; echo "$D1" | head -c 400; }

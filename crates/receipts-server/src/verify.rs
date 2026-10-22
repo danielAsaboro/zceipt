@@ -111,7 +111,7 @@ pub fn extract(text: &str, prefix: &str) -> Option<String> {
 
 /// Verifies one receipt. `net` is the network the API key's mode serves.
 pub async fn verify_receipt(net: Net, server: Option<&str>, text: &str) -> Result<Verification, ApiError> {
-    let body = extract(text, "zrcpt1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcpt1… receipt found").param("receipt"))?;
+    let body = extract(text, "zip311r1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zip311r1… receipt found").param("receipt"))?;
     let receipt = Receipt::from_text(&body).map_err(|e| ApiError::invalid("receipt_malformed", e.to_string()).param("receipt"))?;
     // A link's `h=` hint lets the server fetch the payment among others from its block, so the
     // chain server doesn't learn which transaction this API is checking.
@@ -289,9 +289,9 @@ pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_
     }))
 }
 
-/// Verifies a `zrcptb1…` batch: completeness first, then every receipt.
+/// Verifies a `zip311b1…` batch: completeness first, then every receipt.
 pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<serde_json::Value, ApiError> {
-    let body = extract(text, "zrcptb1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcptb1… batch found").param("receipt"))?;
+    let body = extract(text, "zip311b1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zip311b1… batch found").param("receipt"))?;
     let batch = ReceiptBatch::from_text(&body).map_err(|e| ApiError::invalid("receipt_malformed", e.to_string()).param("receipt"))?;
     let id = receipts_core::check_batch(&batch).map_err(|e| ApiError::verification("batch_invalid", e))?;
     // Fetch and verify the receipts concurrently (proof checks are bounded by verify_slots).
@@ -362,8 +362,8 @@ mod tests {
         assert_eq!(challenge_of("Order 7\nchallenge:00aa11bb\nrefund-to:x"), Some("00aa11bb".into()));
         assert_eq!(challenge_of("challenge:xyz"), None, "not hex");
         assert_eq!(challenge_of("challenge:abc"), None, "too short");
-        assert_eq!(extract("https://x/#zrcpt1Abc_-9&h=12", "zrcpt1"), Some("zrcpt1Abc_-9".into()));
-        assert_eq!(extract("nothing here", "zrcpt1"), None);
+        assert_eq!(extract("https://x/#zip311r1Abc_-9&h=12", "zip311r1"), Some("zip311r1Abc_-9".into()));
+        assert_eq!(extract("nothing here", "zip311r1"), None);
         let id = parse_display_txid("571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73").unwrap();
         assert_eq!(display_txid(&id), "571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73");
         assert!(parse_display_txid("zz").is_err());

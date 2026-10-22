@@ -132,7 +132,7 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     say(&format!("link checker: {} (testnet unified address, provable with a receipt)", if check["ok"] == true { "OK to print" } else { "problems" }));
 
     step(3, "The customer pays and sends a receipt instead of a viewing key");
-    say("(sandbox: zrcpt_test_refund_to stands in for a real zrcpt1… receipt, which also signs a refund address)");
+    say("(sandbox: zrcpt_test_refund_to stands in for a real zip311r1… receipt, which also signs a refund address)");
     let paid = api.submit_receipt(&id, "zrcpt_test_refund_to").await?;
     let v = &paid["fulfillment"]["verification"];
     say(&format!("status {}: paid {} to the shop, spend authority {}, challenge {}", paid["status"].as_str().unwrap_or("?"), zec(paid["received_zatoshis"].as_u64().unwrap_or(0)), v["checks"]["spend_authority"]["level"].as_str().unwrap_or("?"), v["checks"]["challenge"].as_str().unwrap_or("?")));

@@ -77,7 +77,7 @@ fn decoders_never_panic() {
         x ^= x << 17;
         x
     };
-    let seeds: Vec<Vec<u8>> = [("examples/testnet/receipt.txt", "zrcpt1"), ("examples/testnet/sign-in.txt", "zsig1"), ("examples/testnet/batch.txt", "zrcptb1")]
+    let seeds: Vec<Vec<u8>> = [("examples/testnet/receipt.txt", "zip311r1"), ("examples/testnet/sign-in.txt", "zsig1"), ("examples/testnet/batch.txt", "zip311b1")]
         .iter()
         .map(|(p, pre)| {
             let t = std::fs::read_to_string(format!("{ROOT}/{p}")).unwrap();
@@ -104,8 +104,8 @@ fn decoders_never_panic() {
             }
         }
         let text = URL_SAFE_NO_PAD.encode(&b);
-        let _ = Receipt::from_text(&format!("zrcpt1{text}"));
-        let _ = receipts_core::ReceiptBatch::from_text(&format!("zrcptb1{text}"));
+        let _ = Receipt::from_text(&format!("zip311r1{text}"));
+        let _ = receipts_core::ReceiptBatch::from_text(&format!("zip311b1{text}"));
         let _ = SignIn::from_text(&format!("zsig1{text}"));
     }
 }

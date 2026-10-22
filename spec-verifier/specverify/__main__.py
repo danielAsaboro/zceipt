@@ -15,7 +15,7 @@ def main(argv):
     text = open(argv[0]).read().strip()
     raw = bytes.fromhex(open(argv[1]).read().strip())
     try:
-        report = verify(rc.b64decode(text[len("zrcpt1"):]) if text.startswith("zrcpt1") else bytes.fromhex(text), raw, coin)
+        report = verify(rc.b64decode(text[len("zip311r1"):]) if text.startswith("zip311r1") else bytes.fromhex(text), raw, coin)
     except (Invalid, rc.DecodeError, ValueError) as e:
         print(json.dumps({"valid": False, "error": str(e)}))
         return 1

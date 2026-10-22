@@ -9,7 +9,7 @@ sender authorized it. It reveals nothing else about the sender's wallet.
 ```js
 import { verifyReceipt } from "zcash-receipts";
 
-const r = await verifyReceipt("https://…#zrcpt1…", {
+const r = await verifyReceipt("https://…#zip311r1…", {
   expectAddress: "u1…",        // fail unless this address was paid
   minZatoshis: 1_000_000,      // …at least this much
   challenge: "e1e14a5d182a",   // fail unless the receipt signs your challenge
@@ -21,7 +21,7 @@ Or drop the web component into any page:
 
 ```html
 <script type="module" src="/zcash-receipts/widget.js"></script>
-<zcash-receipt receipt="zrcpt1…" expect-address="u1…" min-zatoshis="1000000"></zcash-receipt>
+<zcash-receipt receipt="zip311r1…" expect-address="u1…" min-zatoshis="1000000"></zcash-receipt>
 ```
 
 It fires `receipt-verified` (with the result in `detail`) or `receipt-invalid`.

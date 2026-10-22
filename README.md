@@ -71,7 +71,7 @@ The core is one Rust crate on top of `orchard` and `zcash_primitives`:
 // The sender, after paying: disclose output 1, prove the spend in action 0.
 let receipt = receipts_core::create(&pk, coin_type, Pool::Ironwood, txid, &bundle, b"Invoice 42",
     &[(1, ovk)], &[SpendWitness { index: 0, sk, note, merkle_path, prove_address: None, source: None }], rng)?;
-let link = receipt.to_text(); // "zrcpt1…"
+let link = receipt.to_text(); // "zip311r1…"
 
 // Anyone, with the mined transaction's bundle:
 let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool::Ironwood, txid, &bundle)?;
@@ -121,8 +121,8 @@ are in [FEATURES.md](docs/FEATURES.md).
 
 Three other projects started on ZIP 311 output disclosure this autumn: zreceipt,
 zcash-delivery-proof and auzum197's `zcash_disclosure`. None of them proves who sent the
-payment. [RELATED-WORK.md](docs/RELATED-WORK.md) compares them and explains the shared `zrcpt1`
-prefix (the formats differ, and the verifier recognises a zreceipt link). Next to viewing-key
+payment. [RELATED-WORK.md](docs/RELATED-WORK.md) compares them. Receipts' links start `zip311r1`; the
+verifier recognises a zreceipt link (`zrcpt1…`) and says what it is. Next to viewing-key
 payment processors: [COMPARISON.md](docs/COMPARISON.md).
 
 ## Evidence on the public testnet

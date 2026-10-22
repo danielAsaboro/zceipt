@@ -18,7 +18,7 @@ fn body(t: &str, prefix: &str) -> String {
 #[test]
 fn receipts_round_trip() {
     for t in RECEIPTS {
-        let text = body(t, "zrcpt1");
+        let text = body(t, "zip311r1");
         let r = Receipt::from_text(&text).unwrap();
         assert_eq!(r.to_text(), text);
         let bytes = r.to_bytes();
@@ -33,7 +33,7 @@ fn receipts_round_trip() {
 
 #[test]
 fn batch_and_sign_in_round_trip() {
-    let b = ReceiptBatch::from_text(&body(include_str!("../../../examples/testnet/batch.txt"), "zrcptb1")).unwrap();
+    let b = ReceiptBatch::from_text(&body(include_str!("../../../examples/testnet/batch.txt"), "zip311b1")).unwrap();
     assert!(check_batch(&b).is_ok());
     assert_eq!(ReceiptBatch::from_bytes(&b.to_bytes()).unwrap(), b);
     let s = SignIn::from_text(&body(include_str!("../../../examples/testnet/sign-in.txt"), "zsig1")).unwrap();
@@ -44,7 +44,7 @@ fn batch_and_sign_in_round_trip() {
 #[test]
 fn spend_auth_signatures_verify() {
     use orchard::primitives::redpallas::{Signature, SpendAuth, VerificationKey};
-    let r = Receipt::from_text(&body(RECEIPTS[0], "zrcpt1")).unwrap();
+    let r = Receipt::from_text(&body(RECEIPTS[0], "zip311r1")).unwrap();
     let digest = signing_digest(&r.unsigned);
     for (s, sig) in r.unsigned.spends.iter().zip(&r.spend_auth_sigs) {
         let rk = VerificationKey::<SpendAuth>::try_from(s.rk).unwrap();
@@ -57,7 +57,7 @@ fn spend_auth_signatures_verify() {
 
 #[test]
 fn txids_display_as_explorers_show_them() {
-    let r = Receipt::from_text(&body(RECEIPTS[0], "zrcpt1")).unwrap();
+    let r = Receipt::from_text(&body(RECEIPTS[0], "zip311r1")).unwrap();
     assert_eq!(receipts_core::display_txid(&r.unsigned.txid), "571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73");
 }
 
@@ -66,7 +66,7 @@ fn txids_display_as_explorers_show_them() {
 #[test]
 fn length_limits_are_exact() {
     use receipts_core::{AddressProof, DecodeError, SourceProof, SourceValue};
-    let base = Receipt::from_text(&body(RECEIPTS[0], "zrcpt1")).unwrap();
+    let base = Receipt::from_text(&body(RECEIPTS[0], "zip311r1")).unwrap();
     // where: 0 = the spend proof, 1 = an address proof, 2 = a source proof
     let with_proof = |n: usize, place: u8| {
         let mut r = base.clone();
@@ -101,7 +101,7 @@ fn length_limits_are_exact() {
 /// Batch positions must be 1..=n, each once, with one id and the right count.
 #[test]
 fn batch_positions_are_checked() {
-    let base = Receipt::from_text(&body(RECEIPTS[0], "zrcpt1")).unwrap();
+    let base = Receipt::from_text(&body(RECEIPTS[0], "zip311r1")).unwrap();
     let batch = |msgs: &[&str]| {
         let receipts = msgs
             .iter()

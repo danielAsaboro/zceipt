@@ -1,4 +1,4 @@
-// Receipts verifier page. The receipt lives in the URL fragment (#zrcpt1…), which browsers
+// Receipts verifier page. The receipt lives in the URL fragment (#zip311r1…), which browsers
 // never send to any server. The only network request is fetching the public transaction
 // from a lightwalletd server of the viewer's choice.
 
@@ -276,12 +276,11 @@ async function renderRequestChecks(v) {
   $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok}"><div class="reqhead">${ok ? "REQUEST SATISFIED" : "REQUEST NOT SATISFIED"}</div><ul>${rows.join("")}</ul></div>`;
 }
 
-// zreceipt (a separate project) also writes links as zrcpt1 + base64url, but of JSON. Say so
+// zreceipt (a separate project) also writes links as zip311r1 + base64url, but of JSON. Say so
 // instead of failing with a decode error.
 const ZRECEIPT_NOTE = "This is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it. Open it with zreceipt's verifier. See docs/RELATED-WORK.md.";
 
 async function run(receiptText) {
-  if (receiptText.startsWith("zrcpt1eyJ")) return showError(ZRECEIPT_NOTE);
   $("#result").hidden = true;
   $("#progress").hidden = false;
   resetSteps();
@@ -532,7 +531,7 @@ async function runIncoming(text) {
 
 function batchFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
-  const i = h.indexOf("zrcptb1");
+  const i = h.indexOf("zip311b1");
   return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
 }
 
@@ -544,8 +543,9 @@ function batchHeightHints(input) {
 
 function receiptFromHash() {
   const h = decodeURIComponent(location.hash.slice(1));
-  if (h.includes("zrcptb1")) return "";
-  const i = h.indexOf("zrcpt1");
+  if (h.includes("zip311b1")) return "";
+  if (!h.includes("zip311r1") && h.includes("zrcpt1eyJ")) { showError(ZRECEIPT_NOTE); return ""; }
+  const i = h.indexOf("zip311r1");
   return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
 }
 
@@ -558,7 +558,7 @@ $("#verifyBtn").onclick = async () => {
   const leak = secret_kind(t);
   if (leak) {
     $("#paste").value = "";
-    return showError(`That looks like a ${leak}. Never paste it anywhere: it reveals your whole wallet. It was cleared and not sent. Paste only the zrcpt1… receipt.`);
+    return showError(`That looks like a ${leak}. Never paste it anywhere: it reveals your whole wallet. It was cleared and not sent. Paste only the zip311r1… receipt.`);
   }
   const ii = t.indexOf("zrcin1");
   if (ii >= 0) {
@@ -567,15 +567,15 @@ $("#verifyBtn").onclick = async () => {
     history.replaceState(null, "", "#" + it + (h ? `&h=${h}` : ""));
     return runIncoming(it);
   }
-  const bi = t.indexOf("zrcptb1");
+  const bi = t.indexOf("zip311b1");
   if (bi >= 0) {
     const bt = t.slice(bi).replace(/[^A-Za-z0-9_-].*$/s, "");
     const hs = batchHeightHints(t);
     history.replaceState(null, "", "#" + bt + (hs ? `&h=${hs.join(",")}` : ""));
     return runBatch(bt);
   }
-  const i = t.indexOf("zrcpt1");
-  if (i < 0) return showError("Paste a receipt that starts with zrcpt1, or a link containing one.");
+  const i = t.indexOf("zip311r1");
+  if (i < 0) return showError(t.includes("zrcpt1eyJ") ? ZRECEIPT_NOTE : "Paste a receipt that starts with zip311r1, or a link containing one.");
   const r = t.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
   const h = heightHint(t);
   history.replaceState(null, "", "#" + r + (h ? `&h=${h}` : ""));

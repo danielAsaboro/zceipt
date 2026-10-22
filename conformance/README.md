@@ -15,6 +15,6 @@ conformant when it agrees with `expect.valid` on all of them. Everything is offl
 receipt vector carries its raw transaction and height.
 
 The Rust run also includes a small fuzz pass: 20,000 random and mutated inputs through every
-decoder (`zrcpt1`, `zrcptb1`, `zsig1`), which must reject without panicking.
+decoder (`zip311r1`, `zip311b1`, `zsig1`), which must reject without panicking.
 
 Regenerate with `python3 scripts/gen-conformance.py` after changing an example.

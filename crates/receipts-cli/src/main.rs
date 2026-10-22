@@ -99,7 +99,7 @@ enum Cmd {
     },
     /// Verify a receipt against the chain.
     Verify {
-        /// The receipt (`zrcpt1…`), a link containing it, or `@file`.
+        /// The receipt (`zip311r1…`), a link containing it, or `@file`.
         receipt: String,
         /// lightwalletd server, host:port. Default: zec.rocks for the receipt's network.
         #[arg(short, long)]
@@ -137,7 +137,7 @@ enum Cmd {
     },
     /// Decode a receipt without touching the network.
     Inspect {
-        /// The receipt (`zrcpt1…`), a link containing it, or `@file`.
+        /// The receipt (`zip311r1…`), a link containing it, or `@file`.
         receipt: String,
     },
     /// Lint a ZIP-321 payment link (`zcash:…`) before printing it or making a QR code: network,
@@ -505,7 +505,7 @@ fn read_incoming_arg(arg: &str) -> anyhow::Result<receipts_core::incoming::Incom
 
 fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
     if let Some(kind) = receipts_core::tripwire::secret_kind(&read_arg_text(arg)?) {
-        bail!("refusing: the input contains what looks like a {kind}. Never share it; a zrcpt1… receipt is all that's needed.");
+        bail!("refusing: the input contains what looks like a {kind}. Never share it; a zip311r1… receipt is all that's needed.");
     }
     let text = if let Some(path) = arg.strip_prefix('@') {
         std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
@@ -513,14 +513,13 @@ fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
         arg.to_string()
     };
     let text = text.trim();
-    let body = match text.find("zrcpt1") {
+    let body = match text.find("zip311r1") {
         Some(i) => &text[i..],
-        None => bail!("no zrcpt1… receipt found in the input"),
+        // zreceipt (a separate project) writes `zrcpt1` + base64url JSON: say so.
+        None if text.contains("zrcpt1eyJ") => bail!("this is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it; see docs/RELATED-WORK.md"),
+        None => bail!("no zip311r1… receipt found in the input"),
     };
     let body: String = body.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
-    if body.starts_with("zrcpt1eyJ") {
-        bail!("this is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it; see docs/RELATED-WORK.md");
-    }
     Ok(Receipt::from_text(&body)?)
 }
 

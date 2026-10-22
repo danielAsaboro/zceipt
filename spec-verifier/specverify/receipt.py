@@ -179,9 +179,9 @@ def decode(b: bytes) -> Receipt:
 
 def from_text(s: str) -> Receipt:
     s = s.strip()
-    if not s.startswith("zrcpt1"):
-        raise DecodeError("not a zrcpt1 receipt")
-    return decode(b64decode(s[len("zrcpt1"):]))
+    if not s.startswith("zip311r1"):
+        raise DecodeError("not a zip311r1 receipt")
+    return decode(b64decode(s[len("zip311r1"):]))
 
 
 def b64decode(body: str) -> bytes:

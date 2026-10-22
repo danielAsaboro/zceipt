@@ -17,7 +17,7 @@ export function useVerifyReceipt(receipt, options = {}) {
     if (!receipt) { setState({ status: "idle", result: null, error: null }); return; }
     const run = ++latest.current;
     setState({ status: "verifying", result: null, error: null });
-    const isBatch = String(receipt).includes("zrcptb1");
+    const isBatch = String(receipt).includes("zip311b1");
     verifyInBackground(receipt, { ...options, batch: isBatch })
       .then((result) => run === latest.current && setState({ status: "valid", result, error: null }))
       .catch((error) => run === latest.current && setState({ status: "invalid", result: null, error }));

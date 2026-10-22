@@ -1,7 +1,7 @@
 // <zcash-receipt> web component: drop a verified Zcash payment receipt into any page.
 //
 //   <script type="module" src="https://…/zcash-receipts/widget.js"></script>
-//   <zcash-receipt receipt="zrcpt1…" expect-address="u1…"></zcash-receipt>
+//   <zcash-receipt receipt="zip311r1…" expect-address="u1…"></zcash-receipt>
 //
 // Attributes: receipt (or link), expect-address, min-zatoshis, challenge, endpoint, regtest.
 // Fires `receipt-verified` (detail: result) or `receipt-invalid` (detail: { error }).
@@ -33,7 +33,7 @@ class ZcashReceipt extends HTMLElement {
 
   async run() {
     const input = this.getAttribute("receipt") || this.textContent;
-    if (!input?.includes("zrcpt1")) return this.paint(`<div class="top"><span>ZCASH RECEIPT</span><span class="stamp bad">MISSING</span></div>`);
+    if (!input?.includes("zip311r1")) return this.paint(`<div class="top"><span>ZCASH RECEIPT</span><span class="stamp bad">MISSING</span></div>`);
     this.paint(`<div class="top"><span>ZCASH RECEIPT</span><span class="stamp wait">CHECKING</span></div><div class="fine">Verifying the zero-knowledge proof in your browser…</div>`);
     const options = {
       expectAddress: this.getAttribute("expect-address") || undefined,

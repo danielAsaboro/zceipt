@@ -66,7 +66,7 @@ async function orderPage(id, error = "") {
       <p><b>1.</b> Scan with any shielded Zcash wallet, or pay <code>${esc(r.payment_uri)}</code></p>
       <p><b>2.</b> Prove it (your wallet stays private):</p><code>${esc(r.cli_command)}</code></div></div></div>
     <form class="card" method="post" action="/order/${esc(id)}/receipt"><b>3.</b> Paste the receipt link here
-      <textarea name="receipt" placeholder="https://…#zrcpt1…  (sandbox: zrcpt_test_valid)"></textarea>
+      <textarea name="receipt" placeholder="https://…#zip311r1…  (sandbox: zrcpt_test_valid)"></textarea>
       ${error ? `<p class="err">${esc(error)}</p>` : ""}<button>Confirm payment</button></form>
     <script>setInterval(async()=>{const s=await (await fetch('/order/${esc(id)}/status')).json(); if(s.status==='paid') location.reload();},3000)</script>`}`);
 }

@@ -249,7 +249,7 @@ impl<T: serde::de::DeserializeOwned> axum::extract::FromRequest<Shared> for Body
         let raw = String::from_utf8_lossy(&bytes).into_owned();
         // Refuse keys and seed phrases outright, and never store or echo them.
         if let Some(kind) = receipts_core::tripwire::secret_kind(&raw) {
-            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zrcpt1… receipt.")));
+            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zip311r1… receipt.")));
         }
         let value: Value = serde_json::from_slice(if bytes.is_empty() { b"{}" } else { &bytes })
             .map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
@@ -268,7 +268,7 @@ impl<T: serde::de::DeserializeOwned> axum::extract::FromRequest<Shared> for Body
         let mut all = Vec::new();
         strings(&value, &mut all);
         if let Some(kind) = all.iter().find_map(|s| receipts_core::tripwire::secret_kind(s)) {
-            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zrcpt1… receipt.")));
+            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zip311r1… receipt.")));
         }
         let v = serde_json::from_value(value).map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
         Ok(Body(v, raw))
@@ -406,7 +406,7 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
             return Err(ApiError::invalid("receipt_network_mismatch", "sandbox fixtures only work with rcpt_test_ keys").param("receipt"));
         }
         sandbox::resolve(&text, req.expect_address.as_deref(), req.min_zatoshis, req.challenge.as_deref())?
-    } else if text.contains("zrcptb1") {
+    } else if text.contains("zip311b1") {
         return Ok(Json(verify::verify_batch(net, server.as_deref(), &text).await?));
     } else if text.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) {
         return Ok(Json(verify::verify_incoming(net, server.as_deref(), &text, req.expect_address.as_deref(), req.challenge.as_deref()).await?));

@@ -103,7 +103,7 @@
     <div class="grid">
       <div class="card">
         <h2>Verify a receipt</h2>
-        <label for="pg-receipt">Receipt, batch or link</label><textarea id="pg-receipt" placeholder="zrcpt1…  or try zrcpt_test_valid"></textarea>
+        <label for="pg-receipt">Receipt, batch or link</label><textarea id="pg-receipt" placeholder="zip311r1…  or try zrcpt_test_valid"></textarea>
         <label for="pg-addr">Expect payment to (optional)</label><input id="pg-addr" placeholder="utest1…">
         <label for="pg-min">At least (zatoshis, optional)</label><input id="pg-min" inputmode="numeric">
         <label for="pg-ch">Challenge (optional)</label><input id="pg-ch">
@@ -231,7 +231,7 @@ async function showRequest(id, into = "#rq-detail") {
       <div style="flex:1;min-width:200px"><label>Payment URI (ZIP-321)</label><div class="mono">${esc(r.payment_uri)}</div>
       <label>Hosted pay page</label><div class="mono"><a href="${esc(r.hosted_url)}" target="_blank" rel="noopener">${esc(short(r.hosted_url, 30))}</a></div>
       <label>Payer runs</label><div class="mono">${esc(r.cli_command)}</div></div></div>
-      <label>Paste the payer's receipt</label><textarea id="sub-${r.id}" placeholder="zrcpt1… or zrcpt_test_valid"></textarea>
+      <label>Paste the payer's receipt</label><textarea id="sub-${r.id}" placeholder="zip311r1… or zrcpt_test_valid"></textarea>
       <button class="primary" id="subbtn-${r.id}">Submit receipt</button><div id="suberr-${r.id}"></div>` : ""}
     ${pays ? `<label>Payments</label><table><thead><tr><th>Tx</th><th>Amount</th><th>Block</th><th>Refund address</th></tr></thead><tbody>${pays}</tbody></table>` : ""}
     ${v ? `<div class="kv"><span class="k">Verdict</span><span class="${v.verdict === "valid" ? "ok" : ""}">${esc(v.verdict || "valid")}</span>${v.checks ? Object.entries(v.checks).map(([k, x]) => `<span class="k">${esc(k.replace(/_/g, " "))}</span><span>${esc(typeof x === "object" && x ? x.level ?? JSON.stringify(x) : x)}</span>`).join("") : ""}</div>
@@ -270,7 +270,7 @@ async function showRequest(id, into = "#rq-detail") {
     try {
       const x = await api("POST", `/v1/requests/${r.id}/refunds`, { amount_zatoshis: amt ? Math.round(Number(amt) * 1e8) : undefined, reason: q(`rf-why-${r.id}`).value.trim() || undefined });
       q(`rf-out-${r.id}`).innerHTML = `<label>Pay this to refund</label><div class="mono">${esc(x.payment_uri)}</div>
-        <label>Then paste the receipt for the refund payment (it signs <span class="mono">challenge:${esc(x.challenge)}</span>)</label><textarea id="rfr-${x.id}" placeholder="zrcpt1… or zrcpt_test_valid"></textarea>
+        <label>Then paste the receipt for the refund payment (it signs <span class="mono">challenge:${esc(x.challenge)}</span>)</label><textarea id="rfr-${x.id}" placeholder="zip311r1… or zrcpt_test_valid"></textarea>
         <button class="primary" id="rfr-btn-${x.id}">Settle refund</button><div id="rfr-out-${x.id}"></div>`;
       q(`rfr-btn-${x.id}`).onclick = async () => {
         try { await api("POST", `/v1/refunds/${x.id}/receipts`, { receipt: q(`rfr-${x.id}`).value.trim() }); await showRequest(r.id, into); }
@@ -305,7 +305,7 @@ $("#rq-refresh").onclick = loadRequests;
 // ---------- playground ----------
 let lang = "curl";
 function code() {
-  const receipt = $("#pg-receipt").value.trim() || "zrcpt1…";
+  const receipt = $("#pg-receipt").value.trim() || "zip311r1…";
   const r = receipt.length > 60 ? receipt.slice(0, 40) + "…" : receipt;
   const addr = $("#pg-addr").value.trim(), min = $("#pg-min").value.trim(), ch = $("#pg-ch").value.trim();
   const k = key || "rcpt_test_…";

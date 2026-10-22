@@ -1,7 +1,7 @@
 // zcash-receipts: verify ZIP 311 payment receipts for Zcash Orchard and Ironwood.
 //
 //   import { verifyReceipt } from "zcash-receipts";
-//   const r = await verifyReceipt("https://…#zrcpt1…", { expectAddress: "u1…" });
+//   const r = await verifyReceipt("https://…#zip311r1…", { expectAddress: "u1…" });
 //   r.valid, r.outputs[0].zatoshis, r.outputs[0].memo, r.message
 //
 // Everything runs locally (Rust compiled to WebAssembly). The only network request fetches
@@ -34,18 +34,18 @@ export async function detectSecret(text) {
   return secret_kind(String(text)) || null;
 }
 
-/** Extracts a `zrcptb1…` batch from a link, a fragment or bare text, or returns null. */
+/** Extracts a `zip311b1…` batch from a link, a fragment or bare text, or returns null. */
 export function extractBatch(input) {
   const s = decodeURIComponent(String(input).trim());
-  const i = s.indexOf("zrcptb1");
+  const i = s.indexOf("zip311b1");
   return i < 0 ? null : s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
 }
 
-/** Extracts the `zrcpt1…` receipt from a link, a fragment or bare text. */
+/** Extracts the `zip311r1…` receipt from a link, a fragment or bare text. */
 export function extractReceipt(input) {
   const s = decodeURIComponent(String(input).trim());
-  const i = s.indexOf("zrcpt1");
-  if (i < 0) throw new Error("no zrcpt1 receipt found");
+  const i = s.indexOf("zip311r1");
+  if (i < 0) throw new Error("no zip311r1 receipt found");
   return s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
 }
 
@@ -182,7 +182,7 @@ export async function verifyIncoming(input, options = {}) {
 }
 
 /**
- * Verifies a batch link (`zrcptb1…`): checks it is complete and consistent (every receipt signs
+ * Verifies a batch link (`zip311b1…`): checks it is complete and consistent (every receipt signs
  * `batch:<id> <i>/<n>`), then verifies each receipt against the chain.
  * Resolves to `{ id, results: [verifyReceipt result, …], totals: { recipient: zatoshis } }`.
  * Options are passed to each `verifyReceipt` call, except `rawTx`/`height`.
@@ -194,7 +194,7 @@ function bytesToHex(b) {
 export async function verifyBatch(input, options = {}) {
   await load();
   const text = extractBatch(input);
-  if (!text) throw new Error("no zrcptb1 batch found");
+  if (!text) throw new Error("no zip311b1 batch found");
   const { id, receipts } = JSON.parse(open_batch(text));
   const { rawTx, height, expectAddress, minZatoshis, ...rest } = options;
   const results = [];

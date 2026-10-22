@@ -32,11 +32,11 @@ for name, r, tx, h, regtest, outs in cases:
         base["heights"] = f"examples/{name}/heights.toml"
     expect = {"valid": True, "outputs": outs} if outs else {"valid": True}
     vectors.append({"name": f"{name}/valid", **base, "receipt": r, "expect": expect})
-    for i in spread(r, "zrcpt1", 24):
+    for i in spread(r, "zip311r1", 24):
         vectors.append({"name": f"{name}/flip-{i}", **base, "receipt": flip(r, i), "expect": {"valid": False}})
     vectors.append({"name": f"{name}/truncated", **base, "receipt": r[:-40], "expect": {"valid": False}})
     vectors.append({"name": f"{name}/extra-bytes", **base, "receipt": r + "AAAA", "expect": {"valid": False}})
-    vectors.append({"name": f"{name}/wrong-prefix", **base, "receipt": "zrcpt2" + r[6:], "expect": {"valid": False}})
+    vectors.append({"name": f"{name}/wrong-prefix", **base, "receipt": "zip311r2" + r[len("zip311r1"):], "expect": {"valid": False}})
 # Source of funds (format v4): each vector also carries the source transaction(s), and a
 # verifier must refuse the receipt without them, or with a source mined after the payment.
 src_cases = [
@@ -50,7 +50,7 @@ for name, r, tx, h, regtest, stx, sh, value in src_cases:
     if regtest:
         base["heights"] = "examples/regtest-source/heights.toml"
     vectors.append({"name": f"{name}/valid", **base, "receipt": r, "expect": {"valid": True, "sources": [{"zatoshis": value}]}})
-    for i in spread(r, "zrcpt1", 12):
+    for i in spread(r, "zip311r1", 12):
         vectors.append({"name": f"{name}/flip-{i}", **base, "receipt": flip(r, i), "expect": {"valid": False}})
     vectors.append({"name": f"{name}/no-source-tx", **base, "source_txs": [], "receipt": r, "expect": {"valid": False}})
     vectors.append({"name": f"{name}/source-after-payment", **base, "source_txs": [{"raw_tx": stx, "height": h + 1}], "receipt": r, "expect": {"valid": False}})

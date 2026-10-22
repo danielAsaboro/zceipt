@@ -32,7 +32,7 @@ paths:
       summary: Verify a receipt or a batch
       description: |
         Verifies the receipt's zero-knowledge proof and signature against the mined transaction, and opens the disclosed outputs.
-        If `receipt` is a `zrcptb1…` batch, returns a `batch_verification`. Optional checks: `expect_address` and `min_zatoshis`, and `challenge`.
+        If `receipt` is a `zip311b1…` batch, returns a `batch_verification`. Optional checks: `expect_address` and `min_zatoshis`, and `challenge`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -43,11 +43,11 @@ paths:
               type: object
               required: [receipt]
               properties:
-                receipt: { type: string, description: "A zrcpt1… receipt, a zrcptb1… batch, or a link containing one." }
+                receipt: { type: string, description: "A zip311r1… receipt, a zip311b1… batch, or a link containing one." }
                 expect_address: { type: string, description: "Fail with wrong_payee unless a disclosed output paid this unified address." }
                 min_zatoshis: { type: integer, minimum: 0, description: "With expect_address: fail with insufficient_amount unless at least this much was paid." }
                 challenge: { type: string, description: "Fail with challenge_mismatch unless the receipt signs challenge:<this>." }
-            example: { receipt: "zrcpt1WlJDVAEB…", expect_address: "utest1…", min_zatoshis: 1000000 }
+            example: { receipt: "zip311r1WlJDVAEB…", expect_address: "utest1…", min_zatoshis: 1000000 }
       responses:
         "200":
           description: Valid

@@ -11,7 +11,7 @@ zcash-devtool wallet -w ./wallet receipt -i ./wallet.age --txid <txid> --request
 
 With `--request` it checks, like `receipts create --request`, that the transaction actually paid
 the requested address at least the requested amount, and refuses otherwise; `--refund-to` must be
-an address a receipt can prove (an Orchard receiver). It prints a verifier link (`…/verify/#zrcpt1…&h=<block>`). All the work is in
+an address a receipt can prove (an Orchard receiver). It prints a verifier link (`…/verify/#zip311r1…&h=<block>`). All the work is in
 [`crates/receipts-wallet`](../../crates/receipts-wallet), the same library the `receipts` CLI uses.
 
 ## Applying it

@@ -101,8 +101,8 @@ function takeFromExternrefTable0(idx) {
     return value;
 }
 /**
- * Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
- * Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+ * Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
  * @param {string} batch
  * @returns {string}
  */

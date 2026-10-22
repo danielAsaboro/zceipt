@@ -1,4 +1,4 @@
-//! Binary encoding of receipts, and the `zrcpt1…` text form used in links.
+//! Binary encoding of receipts, and the `zip311r1…` text form used in links.
 //!
 //! ```text
 //! unsigned := "ZRCT" | version:u8 | coin_type:u32le | pool:u8 | [output_pool:u8 if v3]
@@ -23,7 +23,7 @@
 //! receipt is accepted only if re-encoding it gives back exactly the same bytes, so one receipt
 //! has one encoding.
 //!
-//! The text form is `zrcpt1` followed by the unpadded base64url encoding of the receipt.
+//! The text form is `zip311r1` followed by the unpadded base64url encoding of the receipt.
 
 use crate::{AddressProof, OpenedOutput, OutputDisclosure, Pool, Receipt, SourceProof, SourceValue, SpendDisclosure, UnsignedReceipt};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -42,7 +42,7 @@ const VERSION_SOURCE: u8 = 4;
 /// after the outputs). Used exactly when there is at least one.
 const VERSION_OPENED: u8 = 5;
 /// Prefix of the text encoding.
-pub const TEXT_PREFIX: &str = "zrcpt1";
+pub const TEXT_PREFIX: &str = "zip311r1";
 const MAX_PROOF_LEN: usize = 1 << 16;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -349,7 +349,7 @@ impl Receipt {
         })
     }
 
-    /// `zrcpt1…` text form, safe to put in a URL fragment.
+    /// `zip311r1…` text form, safe to put in a URL fragment.
     pub fn to_text(&self) -> String {
         format!("{TEXT_PREFIX}{}", URL_SAFE_NO_PAD.encode(self.to_bytes()))
     }
@@ -363,7 +363,7 @@ impl Receipt {
 }
 
 /// Prefix of the text encoding of a batch of receipts.
-pub const BATCH_TEXT_PREFIX: &str = "zrcptb1";
+pub const BATCH_TEXT_PREFIX: &str = "zip311b1";
 const BATCH_MAGIC: &[u8; 4] = b"ZRCB";
 const MAX_BATCH: usize = 256;
 
@@ -371,7 +371,7 @@ const MAX_BATCH: usize = 256;
 ///
 /// ```text
 /// batch := "ZRCB" | version:u8 = 1 | count:u16le | { len:u32le | receipt }*
-/// text  := "zrcptb1" || base64url_nopad(batch)
+/// text  := "zip311b1" || base64url_nopad(batch)
 /// ```
 ///
 /// Each receipt is verified on its own and signs `batch:<id> <i>/<n>` in its message, so the

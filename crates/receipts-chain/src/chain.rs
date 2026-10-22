@@ -858,11 +858,11 @@ mod window_tests {
 
     #[test]
     fn height_hints_are_read_from_links() {
-        assert_eq!(height_hint("http://x/verify/#zrcpt1Abc&h=4500997"), Some(4_500_997));
-        assert_eq!(height_hint("zrcpt1Abc&h=12&x=1"), Some(12));
-        assert_eq!(height_hint("zrcpt1Abc"), None);
-        assert_eq!(height_hint("zrcpt1Abc&h="), None);
-        assert_eq!(height_hint("zrcpt1Abc&h=1234567890"), None);
+        assert_eq!(height_hint("http://x/verify/#zip311r1Abc&h=4500997"), Some(4_500_997));
+        assert_eq!(height_hint("zip311r1Abc&h=12&x=1"), Some(12));
+        assert_eq!(height_hint("zip311r1Abc"), None);
+        assert_eq!(height_hint("zip311r1Abc&h="), None);
+        assert_eq!(height_hint("zip311r1Abc&h=1234567890"), None);
     }
 
     #[test]

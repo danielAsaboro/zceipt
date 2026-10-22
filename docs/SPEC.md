@@ -78,7 +78,7 @@ unsigned := "ZRCT" | version:u8 = 1 | coin_type:u32le | pool:u8 (0 Orchard, 1 Ir
             | n_outputs:u8 | { index:u32le | ock[32] }*
             | n_spends:u8  | { index:u32le | cv_net[32] | rk[32] | cmx[32] | proof_len:u32le | proof }*
 receipt  := unsigned | { spend_auth_sig[64] } * n_spends
-text     := "zrcpt1" || base64url_nopad(receipt)
+text     := "zip311r1" || base64url_nopad(receipt)
 ```
 
 Version 2 (some spend proves a sender address) appends to every spend, after its proof:
@@ -268,7 +268,7 @@ the same reason). Nothing else is revealed: no address, no other notes.
 
 ```
 batch := "ZRCB" | version:u8 = 1 | count:u16le | { len:u32le | receipt }*
-text  := "zrcptb1" || base64url_nopad(batch)
+text  := "zip311b1" || base64url_nopad(batch)
 ```
 
 Every receipt in a batch carries `batch:<id> <i>/<n>` as the first line of `msg`, which its

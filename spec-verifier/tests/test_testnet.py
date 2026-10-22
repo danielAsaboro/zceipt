@@ -24,8 +24,8 @@ EXPECT = {
 
 def receipt_bytes(name):
     with open(os.path.join(EX, name + ".txt")) as f:
-        m = re.search(r"zrcpt1[A-Za-z0-9_-]+", f.read())
-    return rc.b64decode(m.group(0)[6:])
+        m = re.search(r"zip311r1[A-Za-z0-9_-]+", f.read())
+    return rc.b64decode(m.group(0)[len("zip311r1"):])
 
 
 def raw(r):
@@ -48,8 +48,8 @@ class Testnet(unittest.TestCase):
 
     def test_batch(self):
         with open(os.path.join(EX, "batch.txt")) as f:
-            m = re.search(r"zrcptb1[A-Za-z0-9_-]+", f.read())
-        batch = rc.decode_batch(rc.b64decode(m.group(0)[7:]))
+            m = re.search(r"zip311b1[A-Za-z0-9_-]+", f.read())
+        batch = rc.decode_batch(rc.b64decode(m.group(0)[len("zip311b1"):]))
         self.assertEqual(len(batch), 3)
         for r in batch:
             v.verify(r.unsigned_bytes + b"".join(r.sigs), raw(r), 1)

@@ -1,4 +1,4 @@
-//! Any string through every text decoder (zrcpt1, zrcptb1, zsig1): never panics; a decoded
+//! Any string through every text decoder (zip311r1, zip311b1, zsig1): never panics; a decoded
 //! receipt re-encodes to the same text, up to surrounding whitespace.
 #![no_main]
 use libfuzzer_sys::fuzz_target;

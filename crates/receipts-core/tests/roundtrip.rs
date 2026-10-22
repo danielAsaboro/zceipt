@@ -165,7 +165,7 @@ fn roundtrip(version: BundleVersion, pool: Pool) {
 
     // Text round trip.
     let text = receipt.to_text();
-    assert!(text.starts_with("zrcpt1"));
+    assert!(text.starts_with("zip311r1"));
     let parsed = Receipt::from_text(&text).unwrap();
     assert_eq!(parsed, receipt);
 
@@ -279,7 +279,7 @@ fn batch_roundtrip_and_checks() {
     second.unsigned.txid[0] ^= 1;
     let batch = ReceiptBatch { receipts: vec![mk(1, 2), second] };
     let text = batch.to_text();
-    assert!(text.starts_with("zrcptb1"));
+    assert!(text.starts_with("zip311b1"));
     let parsed = ReceiptBatch::from_text(&text).unwrap();
     assert_eq!(parsed, batch);
     assert_eq!(check_batch(&parsed).unwrap(), "ab12cd34");
@@ -431,7 +431,7 @@ fn encodings_are_canonical() {
     // same receipt; strict decoding refuses it, so one receipt has exactly one encoding.
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/receipt.txt")).unwrap();
-    let mut b = URL_SAFE_NO_PAD.decode(text.trim().strip_prefix("zrcpt1").unwrap()).unwrap();
+    let mut b = URL_SAFE_NO_PAD.decode(text.trim().strip_prefix("zip311r1").unwrap()).unwrap();
     assert!(Receipt::from_bytes(&b).is_ok());
     b[4] = 2;
     assert!(Receipt::from_bytes(&b).is_err(), "v1 bytes labelled v2 must not decode");

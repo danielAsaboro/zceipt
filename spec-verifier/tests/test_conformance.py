@@ -31,9 +31,9 @@ def memo_text(memo_hex):
 def run(vec):
     if vec["type"] == "receipt":
         text = vec["receipt"].strip()
-        if not text.startswith("zrcpt1"):
+        if not text.startswith("zip311r1"):
             raise rc.DecodeError("not a receipt")
-        b = rc.b64decode(text[6:])
+        b = rc.b64decode(text[len("zip311r1"):])
         coin = int.from_bytes(b[5:9], "little") if len(b) >= 9 else 1
         # A source must be mined no later than the payment: raw bytes carry no height, so the
         # caller enforces it, as the docstring of verify() says.

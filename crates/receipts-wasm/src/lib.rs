@@ -290,8 +290,8 @@ pub fn orchard_receiver_hex(ua: &str) -> Result<String, JsError> {
         .ok_or_else(|| JsError::new("no Orchard receiver in that address"))
 }
 
-/// Splits a `zrcptb1…` batch into its receipts after checking it is complete and consistent.
-/// Returns JSON `{ "id": "<batch id>", "receipts": ["zrcpt1…", …] }`.
+/// Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
+/// Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
 #[wasm_bindgen]
 pub fn open_batch(batch: &str) -> Result<String, JsError> {
     console_error_panic_hook::set_once();

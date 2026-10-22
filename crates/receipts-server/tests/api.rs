@@ -580,7 +580,7 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     let secret = r["client_secret"].as_str().unwrap();
     let mut last = StatusCode::OK;
     for _ in 0..(receipts_server::PUBLIC_SUBMIT_LIMIT + 1) {
-        let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zrcpt1AAAA" })), None).await;
+        let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zip311r1AAAA" })), None).await;
         last = s;
     }
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
@@ -674,7 +674,7 @@ async fn second_qa_pass_regressions() {
     let mut last = StatusCode::OK;
     for i in 0..(receipts_server::PUBLIC_SUBMIT_LIMIT + 2) {
         let path = if i % 2 == 0 { format!("/v1/public/requests/{id}/receipts") } else { format!("/v1/public/requests/%70{}/receipts", &id[1..]) };
-        let req = Request::builder().method("POST").uri(path).header("x-api-key", format!("junk{i}")).header("content-type", "application/json").body(Body::from(json!({ "receipt": "zrcpt1AAAA" }).to_string())).unwrap();
+        let req = Request::builder().method("POST").uri(path).header("x-api-key", format!("junk{i}")).header("content-type", "application/json").body(Body::from(json!({ "receipt": "zip311r1AAAA" }).to_string())).unwrap();
         last = app.clone().oneshot(req).await.unwrap().status();
     }
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);

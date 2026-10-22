@@ -56,9 +56,9 @@ test("Sign in with Zcash verifies locally, only for its domain and nonce", async
 
 test("block hints are read from links", async () => {
   const { heightHint } = await import("../index.js");
-  assert.equal(heightHint("https://x/#zrcpt1abc&h=4500997"), 4500997);
-  assert.equal(heightHint("zrcpt1abc"), null);
-  assert.equal(heightHint("https://x/?request=ab#zrcpt1abc&h=12"), 12);
+  assert.equal(heightHint("https://x/#zip311r1abc&h=4500997"), 4500997);
+  assert.equal(heightHint("zip311r1abc"), null);
+  assert.equal(heightHint("https://x/?request=ab#zip311r1abc&h=12"), 12);
 });
 
 test("block-level fetch hides which transaction was checked", { skip: !!process.env.OFFLINE }, async () => {

@@ -34,7 +34,7 @@ payer proves their one payment, and nobody hands over a viewing key.
 
 | Path | What |
 |---|---|
-| `crates/receipts-core` | Create and verify receipts, the `zrcpt1…` encoding, and tests |
+| `crates/receipts-core` | Create and verify receipts, the `zip311r1…` encoding, and tests |
 | `crates/receipts-chain` | lightwalletd access, on-chain verification, rebuilding Merkle paths |
 | `crates/receipts-server` | the REST API, webhooks, sandbox and docs (`receipts serve`) |
 | `crates/receipts-client` | Rust API client |
@@ -65,7 +65,7 @@ transaction's anchor, the CLI rebuilds the Merkle path from public chain data:
 
 ```bash
 receipts create -w <wallet_dir> -i <identity.age> --txid <txid> -m "Invoice 42"
-receipts verify '<link or zrcpt1…>' --expect-address <recipient u1…>
+receipts verify '<link or zip311r1…>' --expect-address <recipient u1…>
 ```
 
 Paying a shop's proof request is one command: it pays from the wallet, waits for the block,
@@ -81,7 +81,7 @@ receipts pay 'https://shop.example/pay/preq_…?secret=…' -w <wallet_dir> -i <
 receipts create -w wallet -i key.age --txid <a> --txid <b> --txid <c> -m "Grant round 3"
 ```
 
-This makes a `zrcptb1…` batch link. Each receipt signs `batch:<id> <i>/<n>`, so payments
+This makes a `zip311b1…` batch link. Each receipt signs `batch:<id> <i>/<n>`, so payments
 can't be dropped, added or reordered without breaking a signature. The verifier page shows
 every payment and the total. A DAO, payroll or grant program can prove "we paid all of these
 people" without exposing its treasury address or balance.
@@ -168,7 +168,7 @@ the memo holds an invoice note or a refund address that the verifier doesn't nee
 ```html
 <!-- served by `receipts serve` at /verify/zcash-receipts/, or copy packages/zcash-receipts -->
 <script type="module" src="/verify/zcash-receipts/widget.js"></script>
-<zcash-receipt receipt="zrcpt1…" expect-address="u1…" min-zatoshis="1000000"></zcash-receipt>
+<zcash-receipt receipt="zip311r1…" expect-address="u1…" min-zatoshis="1000000"></zcash-receipt>
 ```
 
 A shop, an exchange's support desk or a grant program can confirm a customer's payment on

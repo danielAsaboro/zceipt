@@ -3,7 +3,7 @@
 //
 //	c := receipts.New(os.Getenv("RECEIPTS_KEY"))
 //	req, _ := c.CreateRequest(ctx, receipts.M{"payee": shopUA, "amount_zatoshis": 1_000_000})
-//	v, err := c.Verify(ctx, receipts.M{"receipt": "zrcpt1…"})
+//	v, err := c.Verify(ctx, receipts.M{"receipt": "zip311r1…"})
 //
 // Responses are decoded into map[string]any (type M), mirroring the JSON documented in
 // docs/openapi.yaml. Errors are *Error with the API's stable Code.

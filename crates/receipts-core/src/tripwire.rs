@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn leaves_receipts_and_addresses_alone() {
-        assert_eq!(secret_kind("zrcpt1WlJDVAEBAAAAATK31A9O9qnzNzfQV0FO7NcPf3qawgf"), None);
+        assert_eq!(secret_kind("zip311r1WlJDVAEBAAAAATK31A9O9qnzNzfQV0FO7NcPf3qawgf"), None);
         assert_eq!(secret_kind("utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa"), None);
         assert_eq!(secret_kind("Order #42 at Kemi's Coffee, two flat whites please"), None);
         assert_eq!(secret_kind("571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73"), None);

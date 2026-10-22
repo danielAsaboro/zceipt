@@ -31,9 +31,9 @@ On top of that, and not in the projects above:
 - **Integration points:** a Rust library, a `zcash-devtool wallet receipt` command, a REST API
   with webhooks, SDKs for TypeScript, Python, Rust and Go, and a browser verifier.
 
-## The `zrcpt1` prefix
+## Prefixes
 
-zreceipt also writes its receipts as `zrcpt1` followed by base64url. That is a coincidence of
-naming, and the formats are incompatible: a zreceipt link carries base64url JSON (it begins
-`zrcpt1eyJ`), while a Receipts receipt carries the binary encoding in [SPEC.md](SPEC.md). The
-Receipts verifier recognises a zreceipt link and says so instead of failing with a decode error.
+zreceipt writes its receipts as `zrcpt1` followed by base64url JSON. Receipts used the same
+prefix by coincidence until Oct 22, 2026, when it moved to `zip311r1` (and `zip311b1` for
+batches) so the two incompatible formats can't be confused. The Receipts verifier recognises a
+zreceipt link (it begins `zrcpt1eyJ`) and says what it is instead of failing with a decode error.

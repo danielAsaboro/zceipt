@@ -112,15 +112,18 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   [SPEC.md](docs/SPEC.md) adds the extensions. [ZIP311-TODOS.md](docs/ZIP311-TODOS.md) maps each
   open item in ZIP 311 to what we chose, and [SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md)
   lists where the specs are silent.
-- **Conformance:** [276 vectors](conformance/README.md) from real Orchard and Ironwood receipts,
+- **Conformance:** [276 vectors](conformance/README.md): 12 valid receipts from 7 real Orchard and
+  Ironwood transactions, their mutations, and "was I paid" expectations,
   run by the native and WebAssembly builds and the npm package.
-- **A second verifier written from the protocol specification** in Python, with no shared code
+- **A second implementation of the verifier, written from the protocol specification** in Python,
+  with no shared code
   ([spec-verifier](spec-verifier)). It checks everything except the Halo 2 proof itself (it
   rebuilds the proof's public inputs), agrees on all 276 vectors and on 232 adversarial
   receipts (the 9 that only the Halo 2 check rejects get the same public inputs), and its
   primitives match the Zcash test vectors:
   `python3 -m unittest discover -s spec-verifier/tests`.
-- **Assurance:** mutation testing, fuzzing of every decoder, Miri on the encoding, and a
+- **Assurance:** mutation testing of the core, fuzzing of the receipt and batch decoders (plus a
+  panic-freedom pass over every decoder in `cargo test`), Miri on the encoding, and a
   self-found forgery (address proofs trusted a prover-chosen value commitment), fixed, with the
   forged artifacts kept as must-fail vectors: [ASSURANCE.md](docs/ASSURANCE.md),
   [CRYPTO-REVIEW.md](docs/CRYPTO-REVIEW.md).
@@ -129,7 +132,7 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   and Go.
 - **A small patch to `orchard` 0.16** (about 60 lines, no circuit change) that this workspace
   applies for its own binaries, behind receipts-core's `orchard-ext` feature: precomputed
-  verifier parameters (3x faster key building), incoming receipts and memo-withheld outputs. A
+  verifier parameters (about 2.7x faster key building), incoming receipts and memo-withheld outputs. A
   crate that depends on receipts-core gets stock `orchard` and everything else
   ([vendor/README.md](vendor/README.md), `scripts/check-stock-orchard.sh`).
 
@@ -162,8 +165,8 @@ are in [FEATURES.md](docs/FEATURES.md).
 ## Related work
 
 Three other projects started on ZIP 311 output disclosure this autumn: zreceipt,
-zcash-delivery-proof and auzum197's `zcash_disclosure`. None of them proves who sent the
-payment. [RELATED-WORK.md](docs/RELATED-WORK.md) compares them. Receipts' links start `zip311r1`; the
+zcash-delivery-proof and auzum197's `zcash_disclosure`. Their products disclose outputs; zreceipt
+added a test prototype of a spend-authority proof on Oct 20, six days after Receipts shipped one. [RELATED-WORK.md](docs/RELATED-WORK.md) compares them. Receipts' links start `zip311r1`; the
 verifier recognises a zreceipt link (`zrcpt1…`) and says what it is. Next to viewing-key
 payment processors: [COMPARISON.md](docs/COMPARISON.md).
 

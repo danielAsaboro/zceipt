@@ -1144,7 +1144,7 @@ pub fn proving_key() -> ProvingKey {
 #[cfg(feature = "orchard-ext")]
 const ORCHARD_PARAMS_K11: &[u8] = include_bytes!("orchard-params-k11.bin");
 
-/// Verifying key for receipts. Uses the precomputed parameters (about 3x faster); cache it.
+/// Verifying key for receipts. Uses the precomputed parameters (about 2.7x faster); cache it.
 #[cfg(feature = "orchard-ext")]
 pub fn verifying_key() -> VerifyingKey {
     VerifyingKey::build_with_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT).unwrap_or_else(|_| VerifyingKey::build(RECEIPT_CIRCUIT))

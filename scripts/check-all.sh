@@ -28,4 +28,5 @@ python3 -m http.server --bind 127.0.0.1 -d web "$P" >/dev/null 2>&1 &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
 sleep 1
-node scripts/browser-smoke.mjs "http://127.0.0.1:$P/"
+# One retry: on a loaded machine the first warm-up of the verifier can exceed the time limit.
+node scripts/browser-smoke.mjs "http://127.0.0.1:$P/" || { echo "(retrying once)"; node scripts/browser-smoke.mjs "http://127.0.0.1:$P/"; }

@@ -71,14 +71,18 @@ fn describe(addr: &str) -> (String, Option<NetworkType>, Vec<&'static str>) {
 pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
     let mut f = Findings(vec![]);
     let uri = uri.trim();
-    if uri.len() >= 6 && uri[..6].eq_ignore_ascii_case("zcash:") && !uri.starts_with("zcash:") {
+    // Byte-wise prefix check: slicing the str at 6 could split a multi-byte character (a panic
+    // on untrusted input).
+    let zcash_scheme = uri.as_bytes().get(..6).is_some_and(|p| p.eq_ignore_ascii_case(b"zcash:"));
+    if zcash_scheme && !uri.starts_with("zcash:") {
         f.add("warning", "scheme_case", None, "the scheme should be lowercase `zcash:`; some wallets reject other cases".into());
     }
     let b = uri.as_bytes();
     if (0..b.len()).any(|i| b[i] == b'%' && !(i + 2 < b.len() && b[i + 1].is_ascii_hexdigit() && b[i + 2].is_ascii_hexdigit())) {
         f.add("error", "bad_percent_encoding", None, "a `%` is not followed by two hex digits; wallets may reject or misread the link".into());
     }
-    let normalized = if uri.len() >= 6 && uri[..6].eq_ignore_ascii_case("zcash:") { format!("zcash:{}", &uri[6..]) } else { uri.to_string() };
+    // The first six bytes are ASCII here, so byte 6 is a character boundary.
+    let normalized = if zcash_scheme { format!("zcash:{}", &uri[6..]) } else { uri.to_string() };
     let req = match TransactionRequest::from_uri(&normalized) {
         Ok(r) => r,
         Err(e) => {
@@ -87,6 +91,9 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
         }
     };
     let payments = req.payments();
+    if payments.is_empty() {
+        f.add("error", "no_payment", None, "the link pays nobody: it has no address".into());
+    }
     if payments.len() > 1 {
         f.add("warning", "multiple_payments", None, format!("{} payments in one URI; several wallets only support one", payments.len()));
     }
@@ -191,6 +198,15 @@ mod tests {
 
     fn codes(v: &Value) -> Vec<String> {
         v["findings"].as_array().unwrap().iter().map(|f| f["code"].as_str().unwrap().to_string()).collect()
+    }
+
+    #[test]
+    fn untrusted_links_never_panic() {
+        for uri in ["zcashé:abc", "zcas\u{e9}", "ééééééé", "zcash:", "ZCASH:", "zcash:%", "zcash:?amount=%zz", "\u{1F600}zcash:x", "z"] {
+            let v = check_payment_uri(uri, Some("testnet"));
+            assert!(v["ok"].is_boolean(), "{uri}");
+        }
+        assert_eq!(check_payment_uri("zcash:", Some("testnet"))["ok"], false, "a bare scheme pays nobody");
     }
 
     #[test]

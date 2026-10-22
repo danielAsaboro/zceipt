@@ -149,6 +149,7 @@ export async function fetchBlockTxids(endpoint, height, { shieldedOnly = false }
   const block = await grpcUnary(endpoint, "GetBlock", msg);
   const ids = [];
   for (const [f, v] of parseFields(block)) {
+    if (f === 5) ids.time = Number(v); // CompactBlock.time (Unix seconds)
     if (f !== 7) continue; // CompactBlock.vtx
     let id = null, index = 0, shielded = false;
     for (const [tf, tv] of parseFields(v)) {
@@ -184,7 +185,7 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   }
   const results = await Promise.all(set.map((t) => fetchTransaction(endpoint, t)));
   const mine = results[set.indexOf(want)];
-  return { ...mine, anonymitySet: set.length, blockTxs: ids.length };
+  return { ...mine, anonymitySet: set.length, blockTxs: ids.length, blockTime: ids.time };
 }
 
 /** The block-height hint in a receipt link (`…&h=4500997`), or null. Unsigned: only a fetch hint. */

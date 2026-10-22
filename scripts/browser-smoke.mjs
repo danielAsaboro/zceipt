@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Drives the verifier page in headless Chrome (no dependencies: the DevTools protocol over the
 // WebSocket built into Node 22+). It clicks "Try a real testnet receipt" and expects VERIFIED,
-// clicks "Try an edited copy" and expects NOT VALID, and at phone width expects the result above
-// the form. Serve the page first: PORT=5321 ./scripts/serve-verifier.sh
+// clicks "Try an edited copy" and expects NOT VALID, at phone width expects the result above
+// the form, and opens the committed answer to a payment request. Serve the page first: PORT=5321 ./scripts/serve-verifier.sh
 //
 //   node scripts/browser-smoke.mjs [http://127.0.0.1:5321/]
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -46,6 +46,11 @@ try {
   await evaluate(`document.querySelector('#sampleEdited').click()`);
   const edited = await until(`(${resultText}).includes('NOT VALID') ? 'NOT VALID' : ''`, 60);
   check(edited === "NOT VALID", "edited copy shows NOT VALID");
+  // The committed answer to a payment request: valid, signs the request, pays enough.
+  const answer = readFileSync(new URL("../examples/testnet/request-answer-link.txt", import.meta.url), "utf8").trim();
+  await send("Page.navigate", { url: url.replace(/#.*$/, "") + "#" + answer.split("#")[1] });
+  const req = await until(`document.querySelector('.reqhead')?.innerText || ''`, 90);
+  check(req === "MATCHES THE REQUEST IN THIS LINK", `answered request link: ${req}`);
   const errors = await evaluate(`document.querySelector('#progress').innerText.includes('Maximum call stack')`);
   check(!errors, "no script errors in the progress steps");
   ws.close();

@@ -57,7 +57,7 @@
     .how h2 { font-size: 15px; margin: 0 0 10px; }
     .how ol { margin: 0; padding-left: 20px; color: var(--text-2); line-height: 1.65; font-size: 14px; }
     .how code, .cli code { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
-    .cli { margin-top: 18px; background: var(--desk-2); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); overflow-x: auto; white-space: pre; }
+    .cli { margin-top: 18px; background: var(--desk-2); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
 
     /* the paper receipt */
     .ticket { position: relative; background: var(--paper); color: var(--ink); padding: 34px 26px 36px; font-family: var(--mono); font-size: 14px;
@@ -107,6 +107,9 @@
     .reqbox[data-ok="false"] .reqhead { color: var(--bad); }
     .reqbox ul { margin: 6px 0 0; padding-left: 0; list-style: none; line-height: 1.55; }
     .reqbox li[data-ok="false"] { color: var(--bad); }
+    .reqbox[data-ok="info"] { border-color: #8a6100; }
+    .reqbox[data-ok="info"] .reqhead, .reqbox li[data-ok="info"] { color: #8a6100; }
+    @media print { body > *:not(main), #left, section:first-child, .samples, .check, .actions, #progress { display: none !important; } main { display: block; padding: 0; } }
     .request { margin-top: 22px; color: var(--text-2); font-size: 14px; }
     .request summary { cursor: pointer; color: var(--text); font-weight: 600; }
     .request .grid { display: grid; gap: 8px; margin-top: 10px; }
@@ -137,6 +140,7 @@
         <span class="hint">No receipt at hand?</span>
         <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>
         <button type="button" class="ghost" id="sampleEdited">Try an edited copy</button>
+        <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
       </div>
       <div id="warm" class="warm" data-state="busy">Preparing the verifier in the background (a few seconds)…</div>
 

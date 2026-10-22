@@ -81,7 +81,8 @@ enum Cmd {
         #[arg(long)]
         public_note: Option<String>,
         /// Where the merchant should send a refund, signed into the receipt so only you could
-        /// have chosen it. Use an address of yours (any receiver type the merchant can pay).
+        /// have chosen it. `fresh` uses a new address of this wallet, so receipts with refund
+        /// addresses can't be linked to each other; or give an address of yours.
         #[arg(long)]
         refund_to: Option<String>,
         /// Exchange deposit (ZIP 320): the TEX address this transaction (the first of the two
@@ -294,7 +295,7 @@ enum Cmd {
         /// lightwalletd server (host:port). Default: zec.rocks for the wallet's network.
         #[arg(short, long)]
         server: Option<String>,
-        /// Also sign this refund address into the receipt.
+        /// Also sign this refund address into the receipt (`fresh`: a new address of this wallet).
         #[arg(long)]
         refund_to: Option<String>,
         /// Show what would be paid, then stop.
@@ -556,6 +557,7 @@ async fn main() -> anyhow::Result<()> {
                 lines.push(format!("second-tx:{}", t2.trim().to_lowercase()));
             }
             if let Some(a) = refund_to {
+                let a = if a == "fresh" { wallet::fresh_address(&wallet, &identity)? } else { a };
                 receipts_chain::chain::orchard_receiver_of(&a).map_err(|e| anyhow::anyhow!("--refund-to: {e}"))?;
                 lines.push(format!("refund-to:{a}"));
             }
@@ -604,7 +606,7 @@ async fn main() -> anyhow::Result<()> {
                     std::fs::write(&out, &text)?;
                     eprintln!("wrote {}", out.display());
                 }
-                eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link (`h=` lists each payment's block, so verifiers fetch whole blocks, not your transactions):", batch.to_bytes().len());
+                eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link (`h=` lists each payment's block, so verifiers fetch each payment among others from its block, not by its id):", batch.to_bytes().len());
                 println!("{}#{}&h={}", link_base, text, heights.join(","));
                 return Ok(());
             }
@@ -629,7 +631,7 @@ async fn main() -> anyhow::Result<()> {
                 receipt.to_bytes().len()
             );
             eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server;");
-            eprintln!("`h=` lets verifiers fetch the whole block, so the server never learns which transaction):");
+            eprintln!("`h=` lets verifiers fetch it among up to 64 shielded transactions of its block, so the server learns the block, not which one):");
             println!("{}#{}&h={}", link_base, text, mined_height);
         }
         Cmd::Verify { receipt, server, json, regtest, .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
@@ -700,7 +702,15 @@ async fn main() -> anyhow::Result<()> {
                 print_deposit(&report, &d, json)?;
                 return Ok(());
             }
-            let report = chain::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
+            // A link's `h=` block hint: fetch the payment among others from its block.
+            let hint = chain::height_hint(&text);
+            let report = chain::verify_against_chain_hinted(&receipt, server.as_deref(), regtest.as_deref(), hint).await?;
+            if !json {
+                match hint {
+                    Some(h) => eprintln!("(fetched among up to {} shielded transactions of block {h}: the server learned the block, not which transaction)", chain::PRIVATE_FETCH_SET),
+                    None => eprintln!("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)"),
+                }
+            }
             if let Some(addr) = &expect_address {
                 let want = chain::orchard_receiver_of(addr)?;
                 if !report.outputs.iter().any(|o| o.recipient_raw == want) {
@@ -834,7 +844,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Request { wallet, identity, domain, amount, memo, code, expires_in, payee } => {
             let zats = parse_zec(&amount)?;
-            let code = code.unwrap_or_else(|| format!("{:016x}", rand::random::<u64>()));
+            let code = code.unwrap_or_else(|| format!("{:032x}", rand::random::<u128>()));
             let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
             let (r, ua) = wallet::sign_payment_request(&wallet, &identity, &domain, zats, &memo, &code, now + expires_in, payee.as_deref())?;
             eprintln!("Signed request {} for {} ZEC to {ua}, valid {}s.", r.code, chain::zec(zats), expires_in);
@@ -953,6 +963,13 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
 
 #[allow(clippy::too_many_arguments)]
 async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool, paid_txid: Option<String>, yes: bool) -> anyhow::Result<()> {
+    let refund_to = match refund_to.as_deref() {
+        Some("fresh") => Some(wallet::fresh_address(&wallet_dir, &identity)?),
+        _ => refund_to,
+    };
+    if let Some(a) = &refund_to {
+        receipts_wallet::check_refund_address(a)?;
+    }
     // What to pay: from the hosted page's public API, or from a receipt link's parameters.
     let link = link.trim().to_string();
     let parsed = reqwest::Url::parse(&link).ok();

@@ -125,7 +125,7 @@ if (new URLSearchParams(location.search).has("regtest")) $("#regtest").checked =
 const REQ_KEY = "receipts.requests.v1";
 const loadRequests = () => { try { return JSON.parse(localStorage.getItem(REQ_KEY) || "{}"); } catch { return {}; } };
 const saveRequest = (code, r) => { try { const all = loadRequests(); all[code] = r; localStorage.setItem(REQ_KEY, JSON.stringify(all)); } catch {} };
-const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
+const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 function requestFromUrl() {
   const q = new URLSearchParams(location.search);
   const code = q.get("request");
@@ -307,7 +307,8 @@ async function run(receiptText) {
       if (!endpoint) throw new Error(`no ${summary.network} server set; open Settings`);
       const hint = heightHint(location.hash);
       if (hint) {
-        // Fetch the whole block: the server learns the block, not which transaction is checked.
+        // Fetch the payment among up to 64 shielded transactions of its block: the server learns the
+        // block, not which transaction is checked.
         tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
         fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint };
         setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} transactions) from ${new URL(endpoint).host}`);

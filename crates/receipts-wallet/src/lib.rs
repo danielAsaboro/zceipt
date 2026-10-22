@@ -415,6 +415,22 @@ impl<T: orchard::bundle::Authorization, V> RecoverExt for orchard::Bundle<T, V> 
     }
 }
 
+/// A fresh Orchard address of the wallet's account (a random diversifier), for a `refund-to:`
+/// line: reusing one address in every receipt would let merchants link the receipts. The wallet
+/// finds payments to it like any other of its addresses (Orchard decryption doesn't depend on
+/// the diversifier).
+pub fn fresh_address(wallet: &Path, identity: &Path) -> anyhow::Result<String> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), zip32::AccountId::ZERO)
+        .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let fvk = FullViewingKey::from(usk.orchard());
+    let mut index = [0u8; 11];
+    let mut rng = OsRng;
+    rand::Rng::fill_bytes(&mut rng, &mut index);
+    let addr = fvk.address_at(orchard::keys::DiversifierIndex::from(index), Scope::External);
+    Ok(receipts_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes()))
+}
+
 /// Signs in to `domain` with `nonce`, proving control of `address` (default: the account's
 /// first Orchard address). No transaction is made and nothing is written to the wallet.
 pub fn sign_in(wallet: &Path, identity: &Path, domain: &str, nonce: &str, address: Option<&str>) -> anyhow::Result<(receipts_core::signin::SignIn, String)> {

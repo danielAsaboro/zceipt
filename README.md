@@ -25,9 +25,10 @@ It serves the browser verifier from the committed WebAssembly build and prints t
 first is a real testnet payment ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73),
 0.01 TAZ, memo "Invoice 42: two coffees") and shows **VERIFIED** in about two seconds. The second
 is the same receipt with "Order #42" changed to "Order #43" and shows **NOT VALID: the signature
-for action 0 is invalid**. The receipt stays in the URL `#fragment`, which browsers never send;
-the page downloads the payment's whole block, so the chain server doesn't learn which transaction
-was checked.
+for action 0 is invalid**. The receipt stays in the URL `#fragment`, which browsers never send.
+The page fetches the payment together with the other shielded transactions in its block (up to 64
+in all; this one has 10), so the chain server learns the block but not which transaction was
+checked.
 
 With Rust, `cargo install --locked --path crates/receipts-cli && receipts demo` runs a tour of the
 payment API (on sandbox fixtures) and then checks the same real receipt offline. The first build
@@ -53,7 +54,7 @@ disclosure complete only with it. Exact claim, assumptions and limits:
 | Party | Learns | Doesn't learn |
 |---|---|---|
 | The person you give the receipt to | the disclosed outputs, your message, that you paid | your address (unless you add `--prove-address`), balance, other payments |
-| The chain server, when someone verifies | one block and its shielded transactions (links carry an `h=` block hint), or the txid without the hint; the verifier's IP | which transaction in the block; anything in the receipt |
+| The chain server, when someone verifies | one block, and a fetch of up to 64 of its shielded transactions (links carry an `h=` block hint), or the txid without the hint; the verifier's IP | which of those transactions; anything in the receipt. A block with one shielded transaction hides nothing, and the page says how many there were |
 | The chain server, when you make a receipt | whole 1,000-block windows (only if your wallet pruned the note's witness) | which note or block |
 | Anyone else | nothing | |
 

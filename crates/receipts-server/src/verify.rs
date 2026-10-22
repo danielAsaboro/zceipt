@@ -113,10 +113,16 @@ pub fn extract(text: &str, prefix: &str) -> Option<String> {
 pub async fn verify_receipt(net: Net, server: Option<&str>, text: &str) -> Result<Verification, ApiError> {
     let body = extract(text, "zrcpt1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcpt1… receipt found").param("receipt"))?;
     let receipt = Receipt::from_text(&body).map_err(|e| ApiError::invalid("receipt_malformed", e.to_string()).param("receipt"))?;
-    verify_parsed(net, server, &receipt).await
+    // A link's `h=` hint lets the server fetch the payment among others from its block, so the
+    // chain server doesn't learn which transaction this API is checking.
+    verify_parsed_hinted(net, server, &receipt, chain::height_hint(text)).await
 }
 
 pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) -> Result<Verification, ApiError> {
+    verify_parsed_hinted(net, server, receipt, None).await
+}
+
+pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Receipt, hint: Option<u32>) -> Result<Verification, ApiError> {
     let u = &receipt.unsigned;
     let receipt_is_main = u.coin_type == COIN_TYPE_MAINNET;
     if receipt_is_main != (net == Net::Main) {
@@ -126,11 +132,15 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
         )
         .param("receipt"));
     }
-    let (tx, height) = chain::fetch_mined_tx(net, server, u.txid).await.map_err(|e| {
+    let fetched = match hint {
+        Some(h) => chain::fetch_mined_tx_in_block(net, server, u.txid, h).await.map(|(tx, height, _)| (tx, height)),
+        None => chain::fetch_mined_tx(net, server, u.txid).await,
+    };
+    let (tx, height) = fetched.map_err(|e| {
         let m = e.to_string();
         if m.contains("not mined") {
             ApiError::verification("transaction_not_mined", m)
-        } else if m.contains("could not find") || m.contains("NotFound") || m.contains("not found") {
+        } else if m.contains("could not find") || m.contains("NotFound") || m.contains("not found") || m.contains("is not in block") {
             ApiError::verification("transaction_not_found", m)
         } else {
             ApiError::chain(m)

@@ -42,6 +42,10 @@ pub async fn fetch_mined_tx(
     txid: [u8; 32],
 ) -> anyhow::Result<(Transaction, u32)> {
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    fetch_mined_tx_with(&mut client, net, txid).await
+}
+
+async fn fetch_mined_tx_with(client: &mut CompactTxStreamerClient<Channel>, net: Net, txid: [u8; 32]) -> anyhow::Result<(Transaction, u32)> {
     let raw = client
         .get_transaction(TxFilter { block: None, index: 0, hash: txid.to_vec() })
         .await
@@ -57,6 +61,68 @@ pub async fn fetch_mined_tx(
         bail!("server returned a different transaction");
     }
     Ok((tx, height))
+}
+
+/// How many transactions a block-hinted fetch asks for, ours included.
+pub const PRIVATE_FETCH_SET: usize = 64;
+
+/// Fetches `txid` without telling the server which transaction is wanted: lists the shielded
+/// transactions in block `height`, then fetches up to [`PRIVATE_FETCH_SET`] of them (always
+/// including `txid`) in random order. Returns the transaction, its height and how many were
+/// fetched (the anonymity set; 1 means the block hid nothing). Same scheme as the browser's.
+pub async fn fetch_mined_tx_in_block(
+    net: Net,
+    server: Option<&str>,
+    txid: [u8; 32],
+    height: u32,
+) -> anyhow::Result<(Transaction, u32, usize)> {
+    use zcash_client_backend::proto::service::BlockId;
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    let block = client
+        .get_block(BlockId { height: u64::from(height), hash: vec![] })
+        .await
+        .map_err(|e| anyhow!("block {height}: {}", e.message()))?
+        .into_inner();
+    let ids: Vec<[u8; 32]> = block.vtx.iter().filter_map(|t| <[u8; 32]>::try_from(t.txid.as_slice()).ok()).collect();
+    if !ids.contains(&txid) {
+        bail!("transaction {} is not in block {height}", display_txid(&txid));
+    }
+    let mut others: Vec<[u8; 32]> = ids.into_iter().filter(|t| *t != txid).collect();
+    shuffle(&mut others)?;
+    others.truncate(PRIVATE_FETCH_SET - 1);
+    others.push(txid);
+    shuffle(&mut others)?;
+    let set = others.len();
+    let mut mine = None;
+    for t in others {
+        // Every transaction is fetched and checked the same way, so the requests look alike.
+        let fetched = fetch_mined_tx_with(&mut client, net, t).await;
+        if t == txid {
+            mine = Some(fetched?);
+        }
+    }
+    let (tx, h) = mine.expect("txid is in the set");
+    if h != height {
+        bail!("the server put transaction {} at block {h}, not {height}", display_txid(&txid));
+    }
+    Ok((tx, h, set))
+}
+
+/// Fisher-Yates with the OS random number generator.
+fn shuffle<T>(v: &mut [T]) -> anyhow::Result<()> {
+    for i in (1..v.len()).rev() {
+        let mut b = [0u8; 8];
+        getrandom::fill(&mut b).map_err(|e| anyhow!("OS RNG: {e}"))?;
+        v.swap(i, (u64::from_le_bytes(b) % (i as u64 + 1)) as usize);
+    }
+    Ok(())
+}
+
+/// The block-height hint in a receipt link (`…&h=4500997`), if any. Unsigned: only a fetch hint.
+pub fn height_hint(link: &str) -> Option<u32> {
+    let i = link.find("&h=").or_else(|| link.find("?h=")).or_else(|| link.find("#h="))?;
+    let digits: String = link[i + 3..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    (1..=9).contains(&digits.len()).then(|| digits.parse().ok()).flatten()
 }
 
 #[derive(Serialize)]
@@ -311,8 +377,25 @@ pub async fn verify_against_chain(
     server: Option<&str>,
     regtest: Option<&std::path::Path>,
 ) -> anyhow::Result<Report> {
+    verify_against_chain_hinted(receipt, server, regtest, None).await
+}
+
+/// Like [`verify_against_chain`]; with a block-height hint the transaction is fetched among
+/// others from its block ([`fetch_mined_tx_in_block`]), so the server learns the block only.
+pub async fn verify_against_chain_hinted(
+    receipt: &Receipt,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+    hint: Option<u32>,
+) -> anyhow::Result<Report> {
     let net = net::for_receipt(receipt.unsigned.coin_type, regtest)?;
-    let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
+    let (tx, height) = match hint {
+        Some(h) => {
+            let (tx, height, _) = fetch_mined_tx_in_block(net, server, receipt.unsigned.txid, h).await?;
+            (tx, height)
+        }
+        None => fetch_mined_tx(net, server, receipt.unsigned.txid).await?,
+    };
     let sources = fetch_sources(receipt, net, server).await?;
     report_for(receipt, net, &tx, height, &sources)
 }
@@ -749,6 +832,15 @@ pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReservePro
 #[cfg(test)]
 mod window_tests {
     use super::*;
+
+    #[test]
+    fn height_hints_are_read_from_links() {
+        assert_eq!(height_hint("http://x/verify/#zrcpt1Abc&h=4500997"), Some(4_500_997));
+        assert_eq!(height_hint("zrcpt1Abc&h=12&x=1"), Some(12));
+        assert_eq!(height_hint("zrcpt1Abc"), None);
+        assert_eq!(height_hint("zrcpt1Abc&h="), None);
+        assert_eq!(height_hint("zrcpt1Abc&h=1234567890"), None);
+    }
 
     #[test]
     fn witness_windows_hide_the_payment_block() {

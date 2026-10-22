@@ -11,7 +11,7 @@ Receipts is a full developer platform, not just a library. Start with [docs/QUIC
 | **REST API** (`receipts serve`) | proof requests (each with a ZIP-321 payment URI and a payer link), verification of receipts and batches, `rcpt_test_` / `rcpt_live_` keys, idempotency keys, cursor pagination, a stable error `code` on every failure, and an [OpenAPI spec](openapi.yaml) |
 | **Webhooks** | HMAC-signed events (`request.created`, `request.payment_received`, `request.fulfilled`, `request.final`, `request.expired`, `receipt.rejected`, `refund.created`, `refund.succeeded`), retried with backoff for up to 8 attempts, plus resend |
 | **SDKs** | [TypeScript](../packages/zcash-receipts) (with types), [Python](../packages/receipts-python) (standard library only), [Rust](../crates/receipts-client) and [Go](../packages/receipts-go), all with typed errors, automatic retries and idempotency, and webhook verification. Every one of the 31 API operations is covered by all four; `scripts/sdk-parity.py` and a live test per SDK prove it ([table](../conformance/sdk-parity.json)) |
-| **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component. Links carry an `h=` block hint, so the page downloads every shielded transaction in that block and lightwalletd learns only the block (in a block with one shielded transaction that hides nothing, and the page says how many there were); every result says what the server could see |
+| **Browser** | `verifyReceipt()` in WebAssembly with no server, and the `<zcash-receipt>` web component. Links carry an `h=` block hint, so the page fetches the payment among up to 64 shielded transactions of that block and lightwalletd learns only the block (in a block with one shielded transaction that hides nothing, and the page says how many there were); every result says what the server could see |
 | **Inside the wallet** | `zcash-devtool wallet receipt --txid …` makes a receipt from the wallet that paid ([local patch](../integrations/zcash-devtool), built on the `receipts-wallet` library) |
 | **Drop-in integrations** | HTTP 402 "prove you paid" gate and signed-webhook handler for Express, Next.js/fetch servers and FastAPI/Django/Flask ([guide](guides/http-402.md), [paid API example](../examples/paid-api/server.mjs)) |
 | **Payment-link checker** | `receipts check-link`, `POST /v1/payment_links/check`, `checkPaymentLink()` and a panel on the page lint a `zcash:` link before it goes on an invoice: wrong network, transparent/TEX/Sapling-only recipients a receipt can't prove, missing amount or memo, unknown required params, QR density |
@@ -127,6 +127,10 @@ receipts verify @receipt.txt
 `receipts received -w wallet -i key.age --txid <txid>` makes a `zrcin1…` link for an accountant,
 a tax office or a lender: these payments reached this address, and the presenter controls it.
 No incoming viewing key, no other payments, and the payer can't make one for you.
+It proves "a note reached an address you control", not "someone else paid you": you can pay
+yourself and make one. A lender or tax office that needs income should ask for the payer's
+receipt as well (which proves the payer's spend authority), or for a receipt answering its own
+proof request.
 
 ## Signed payment requests
 

@@ -139,6 +139,7 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Verifier (an accountant, say) | The receiving address (proven controlled by the presenter), and the value and memo of each chosen output of one transaction | `roundtrip.rs::ironwood_incoming_roundtrip`; `examples/testnet/incoming` |
 | Verifier | Not: other payments to the wallet, its balance, or when it spends these notes (no nullifier in the receipt) | same test (asserts the nullifier is absent) |
 | The payer | Can't make one for the recipient: it knows `esk` but can't prove the address | `roundtrip.rs::only_the_recipient_can_prove_receipt` |
+| The presenter | Can make one for a payment to itself: an incoming receipt proves a note reached an address the presenter controls, not that a third party paid it. For income, also ask for the payer's receipt | by design |
 
 ## 11d. Signed payment requests (`receipts request`, `receipts pay 'zreq1…'`)
 

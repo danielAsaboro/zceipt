@@ -677,6 +677,29 @@ pub fn pool_activation(net: Net, pool: Pool) -> u32 {
     net.activation_height(nu).map(u32::from).unwrap_or(1)
 }
 
+/// Asks a second lightwalletd server whether `txid` is mined at `height` in the same block the
+/// first server reported (same block hash), and how many confirmations it sees. "VALID" otherwise
+/// rests on one server's word that the transaction is mined. The second server learns the txid.
+pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32) -> anyhow::Result<u32> {
+    let mut a = connect(first.unwrap_or(net.default_server())).await?;
+    let mut b = connect(second).await?;
+    let (_, h2) = fetch_mined_tx_with(&mut b, net, txid).await.with_context(|| format!("second server {second}"))?;
+    if h2 != height {
+        bail!("the second server puts the transaction at block {h2}, the first at {height}");
+    }
+    let (ha, hb) = (block_hash(&mut a, height).await, block_hash(&mut b, height).await);
+    if ha.is_none() || ha != hb {
+        bail!("the two servers disagree about block {height}");
+    }
+    let tip = b
+        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
+        .await
+        .map_err(|e| anyhow!("latest block: {}", e.message()))?
+        .into_inner()
+        .height as u32;
+    Ok(tip.saturating_sub(height) + 1)
+}
+
 async fn block_hash(c: &mut CompactTxStreamerClient<Channel>, h: u32) -> Option<Vec<u8>> {
     use zcash_client_backend::proto::service::BlockId;
     c.get_block(BlockId { height: u64::from(h), hash: vec![] }).await.ok().map(|b| b.into_inner().hash)

@@ -113,6 +113,10 @@ enum Cmd {
         /// Verify against a local regtest chain with these activation heights (devtool format).
         #[arg(long)]
         regtest: Option<PathBuf>,
+        /// Also ask this second lightwalletd server (host:port) that the transaction is mined in
+        /// the same block, so the result doesn't rest on one server's word. It learns the txid.
+        #[arg(long)]
+        cross_check: Option<String>,
         /// Verify offline against this raw transaction (hex file) instead of fetching it.
         /// Needs --height.
         #[arg(long, requires = "height")]
@@ -656,7 +660,7 @@ async fn main() -> anyhow::Result<()> {
             let rep = chain::verify_incoming_against_chain(&r, server.as_deref(), regtest.as_deref()).await?;
             if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height, source_raw_txs } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height, source_raw_txs, .. } => {
             let receipt = read_receipt_arg(&receipt)?;
             let raw1 = std::fs::read_to_string(&raw)?;
             let mut sources = Vec::new();
@@ -691,7 +695,7 @@ async fn main() -> anyhow::Result<()> {
             let _ = server;
             if json { println!("{}", serde_json::to_string_pretty(&report)?); } else { report.print(); }
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, .. } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, .. } => {
             let text = read_arg_text(&receipt)?;
             if text.contains(receipts_core::BATCH_TEXT_PREFIX) {
                 return verify_batch(&text, server.as_deref(), regtest.as_deref(), json).await;
@@ -715,6 +719,13 @@ async fn main() -> anyhow::Result<()> {
                 let want = chain::orchard_receiver_of(addr)?;
                 if !report.outputs.iter().any(|o| o.recipient_raw == want) {
                     bail!("no disclosed output pays {addr}");
+                }
+            }
+            if let Some(second) = &cross_check {
+                let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
+                let conf = chain::cross_check(net, server.as_deref(), second, receipt.unsigned.txid, report.mined_height).await?;
+                if !json {
+                    eprintln!("(cross-checked with {second}: same block, {conf} confirmation{})", if conf == 1 { "" } else { "s" });
                 }
             }
             if json {

@@ -38,6 +38,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
+import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT } from "./samples.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
@@ -551,6 +552,15 @@ function receiptFromHash() {
 
 // How the transaction was obtained, for the privacy badge.
 let fetchMode = null;
+
+for (const [id, text] of [["#sampleReal", SAMPLE_REAL], ["#sampleEdited", SAMPLE_EDITED]]) {
+  const b = $(id);
+  if (b) b.onclick = () => {
+    const h = `${text}&h=${SAMPLE_HEIGHT}`;
+    if (decodeURIComponent(location.hash.slice(1)) === h) run(text);
+    else location.hash = h;
+  };
+}
 
 $("#verifyBtn").onclick = async () => {
   const t = $("#paste").value.trim();

@@ -19,6 +19,7 @@ const FILES: &[(&str, &str, &[u8])] = &[
     ("index.html", "text/html; charset=utf-8", file!("web/index.html")),
     ("embed.html", "text/html; charset=utf-8", file!("web/embed.html")),
     ("app.js", "text/javascript", file!("web/app.js")),
+    ("samples.js", "text/javascript", file!("web/samples.js")),
     ("worker.js", "text/javascript", file!("web/worker.js")),
     ("zcash-receipts/index.js", "text/javascript", file!("packages/zcash-receipts/index.js")),
     ("zcash-receipts/grpc.js", "text/javascript", file!("packages/zcash-receipts/grpc.js")),

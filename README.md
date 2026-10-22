@@ -15,24 +15,34 @@ Who needs this on Monday:
 
 Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
-## See it in ten seconds (no Rust, no wallet)
+## See it work (no Rust, no wallet)
 
 ```bash
-./scripts/serve-verifier.sh
+./scripts/serve-verifier.sh        # then open http://127.0.0.1:5321
 ```
 
-It serves the browser verifier from the committed WebAssembly build and prints two links. The
-first is a real testnet payment ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73),
-0.01 TAZ, memo "Invoice 42: two coffees") and shows **VERIFIED** in about two seconds. The second
-is the same receipt with "Order #42" changed to "Order #43" and shows **NOT VALID: the signature
-for action 0 is invalid**. The receipt stays in the URL `#fragment`, which browsers never send.
-The page fetches the payment together with the other shielded transactions in its block (up to 64
-in all; this one has 10), so the chain server learns the block but not which transaction was
-checked.
+It serves the browser verifier from the committed WebAssembly build. Click **Try a real testnet
+receipt**: a real payment ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73),
+0.01 TAZ, memo "Invoice 42: two coffees", signed note "Order #42 at Kemi's Coffee") shows
+**VERIFIED**. Click **Try an edited copy**: the same receipt with its signed note changed to
+"Order #43" shows **NOT VALID**. The first check also prepares the verifier, which takes 3 to 10
+seconds depending on the machine; later checks take about a second.
 
-With Rust, `cargo install --locked --path crates/receipts-cli && receipts demo` runs a tour of the
-payment API (on sandbox fixtures) and then checks the same real receipt offline. The first build
-takes about ten minutes; `docker compose run --build --rm receipts demo --no-wait` works too.
+<p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 ZEC with the memo Invoice 42: two coffees">
+<img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: the signature for action 0 is invalid"></p>
+
+The receipt stays in the URL `#fragment`, which browsers never send. The page fetches the payment
+together with the other shielded transactions in its block (up to 64; this block has 10), so the
+chain server learns the block but not which transaction was checked.
+
+**Check the cryptography in a minute**, with no Rust: `python3 -m unittest discover -s spec-verifier/tests`
+runs an independent verifier written from the protocol specification, which agrees with ours on
+all 270 conformance vectors and 232 signed adversarial receipts.
+
+With Rust, `cargo install --locked --path crates/receipts-cli && receipts demo` verifies the same
+real receipt and refuses the edited one, then tours the payment API on sandbox fixtures. The
+first build takes about ten minutes; `docker compose run --build --rm receipts demo --no-wait`
+works too.
 
 ## What a receipt proves
 

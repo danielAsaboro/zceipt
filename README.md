@@ -116,12 +116,23 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
 - **Bindings:** the browser verifier (WebAssembly, no server), an npm package and
   `<zcash-receipt>` web component, a CLI, and a REST API with SDKs for TypeScript, Python, Rust
   and Go.
-- **An optional patch to `orchard` 0.16** (about 60 lines, no circuit change), behind the
-  `orchard-ext` feature: precomputed verifier parameters (3x faster key building), incoming
-  receipts and memo-withheld outputs. See [vendor/README.md](vendor/README.md).
+- **A small patch to `orchard` 0.16** (about 60 lines, no circuit change) that this workspace
+  applies for its own binaries, behind receipts-core's `orchard-ext` feature: precomputed
+  verifier parameters (3x faster key building), incoming receipts and memo-withheld outputs. A
+  crate that depends on receipts-core gets stock `orchard` and everything else
+  ([vendor/README.md](vendor/README.md), `scripts/check-stock-orchard.sh`).
 
 Sapling is out of scope: wallets now pay from Orchard and Ironwood, and ZIP 311 already
 specifies Sapling.
+
+## Status and upstream plan
+
+The construction is unaudited: it has been reviewed only by its author ([CRYPTO-REVIEW.md](docs/CRYPTO-REVIEW.md),
+which found and fixed one forgery), checked by a second verifier written from the protocol
+specification, mutation testing and fuzzing ([ASSURANCE.md](docs/ASSURANCE.md)). The plan after
+ZECATHON: propose [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md) as the text for ZIP 311's Orchard
+item, offer receipts-core (which builds on stock `orchard`) to librustzcash, and get the
+construction reviewed externally. [SECURITY.md](SECURITY.md) says how to report a problem.
 
 ## Beyond one payment
 
@@ -150,13 +161,14 @@ payment processors: [COMPARISON.md](docs/COMPARISON.md).
 | Claim | Evidence |
 |---|---|
 | A real Ironwood payment and its receipt | tx [`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73), block 4,500,997; [examples/testnet/receipt.txt](examples/testnet/receipt.txt) |
-| Verified by the CLI and in the browser | `receipts verify @examples/testnet/receipt.txt` → VALID in about 2 s; the page → VERIFIED |
+| Verified by the CLI and in the browser | `receipts verify @examples/testnet/receipt-link.txt` → VALID in a few seconds, fetched by block (the link's `&h=`); the page → VERIFIED |
 | An edited receipt is refused | [examples/testnet/receipt-edited.txt](examples/testnet/receipt-edited.txt) → `the signature for action 0 is invalid` |
 | A challenge answered; a replayed receipt refused | [request-answer-link.txt](examples/testnet/request-answer-link.txt) → REQUEST SATISFIED; an older receipt → NOT SATISFIED |
 | Sender address proven; another wallet's address refused | [receipt-with-sender-address.txt](examples/testnet/receipt-with-sender-address.txt) |
 | A batch of three payments as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt), total 0.022 ZEC |
 | Source of funds, memo withheld, incoming receipt, signed request, refund, TEX deposit | [examples/testnet](examples/testnet) and its README |
 
+`./scripts/check-all.sh` runs every check that needs no build in about two minutes.
 `./scripts/e2e-regtest.sh` replays the whole story on a private Zebra regtest chain (needs
 Docker, lightwalletd and zcash-devtool). Everything else runs with `cargo test --release`.
 

@@ -1,0 +1,31 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --release --locked
+      - run: cargo clippy --workspace --release --locked -- -D warnings
+      - run: ./scripts/check-stock-orchard.sh
+  spec-verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s spec-verifier/tests
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: cd packages/zcash-receipts && node --test test/*.test.js
+  python-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26" }
+      - run: cd packages/receipts-python && python3 -m unittest discover -s tests
+      - run: cd packages/receipts-go && go test ./...

@@ -766,7 +766,7 @@ async fn main() -> anyhow::Result<()> {
             }
             if let Some(second) = &cross_check {
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
-                let conf = chain::cross_check(net, server.as_deref(), second, receipt.unsigned.txid, report.mined_height).await?;
+                let conf = chain::cross_check(net, server.as_deref(), second, receipt.unsigned.txid, report.mined_height, hint.is_some()).await?;
                 if !json {
                     eprintln!("(cross-checked with {second}: same block, {conf} confirmation{})", if conf == 1 { "" } else { "s" });
                 }

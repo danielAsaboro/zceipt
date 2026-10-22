@@ -694,11 +694,18 @@ pub fn pool_activation(net: Net, pool: Pool) -> u32 {
 
 /// Asks a second lightwalletd server whether `txid` is mined at `height` in the same block the
 /// first server reported (same block hash), and how many confirmations it sees. "VALID" otherwise
-/// rests on one server's word that the transaction is mined. The second server learns the txid.
-pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32) -> anyhow::Result<u32> {
+/// rests on one server's word that the transaction is mined. The second server learns the txid,
+/// unless `by_block`.
+pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32, by_block: bool) -> anyhow::Result<u32> {
     let mut a = connect(first.unwrap_or(net.default_server())).await?;
     let mut b = connect(second).await?;
-    let (_, h2) = fetch_mined_tx_with(&mut b, net, txid).await.with_context(|| format!("second server {second}"))?;
+    // With a block hint, ask the second server for the block's run of transactions too, so it
+    // learns the block, not the txid.
+    let h2 = if by_block {
+        fetch_mined_tx_in_block(net, Some(second), txid, height).await.with_context(|| format!("second server {second}"))?.1
+    } else {
+        fetch_mined_tx_with(&mut b, net, txid).await.with_context(|| format!("second server {second}"))?.1
+    };
     if h2 != height {
         bail!("the second server puts the transaction at block {h2}, the first at {height}");
     }

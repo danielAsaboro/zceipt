@@ -33,7 +33,15 @@ On top of that, and not in the projects above:
 
 ## Prefixes
 
-zreceipt writes its receipts as `zrcpt1` followed by base64url JSON. Receipts used the same
-prefix by coincidence until Oct 22, 2026, when it moved to `zip311r1` (and `zip311b1` for
-batches) so the two incompatible formats can't be confused. The Receipts verifier recognises a
-zreceipt link (it begins `zrcpt1eyJ`) and says what it is instead of failing with a decode error.
+zreceipt has written its receipts as `zrcpt1` followed by base64url JSON since Oct 7, 2026.
+Receipts' first commit (Oct 14) used the same text prefix for its own binary format. On Oct 22
+Receipts moved to `zip311r1` (and `zip311b1` for batches) so the two incompatible formats can't
+be confused, and its verifier recognises a zreceipt link (it begins `zrcpt1eyJ`) and says what it
+is instead of failing with a decode error.
+
+## Spend authority, by date
+
+Receipts' first commit (98e2028, Oct 14) creates and verifies the spend-authority proof (a fresh
+Orchard action proof against the transaction's anchor and nullifier, plus a spend-authorization
+signature over the receipt). zreceipt added a prototype test of a similar construction on Oct 20;
+its product discloses outputs only.

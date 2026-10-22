@@ -18,7 +18,7 @@ use std::path::PathBuf;
 const DEFAULT_LINK_BASE: &str = "http://127.0.0.1:8723/verify/";
 
 #[derive(Parser)]
-#[command(name = "receipts", version, about = "Prove one shielded Zcash payment, reveal nothing else.")]
+#[command(name = "receipts", version, about = "ZIP 311 payment disclosures for Orchard and Ironwood: prove one shielded payment, reveal nothing else.", after_help = "Start with `receipts demo`. The core is create, verify, inspect, received and reserve; commands marked Shops are the payment API around it.")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -26,7 +26,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Create a receipt for a payment you sent, from a zcash-devtool wallet.
+    ///
     /// Create a receipt for a transaction you sent, from a zcash-devtool wallet.
+    #[command(display_order = 1)]
     Create {
         /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
@@ -98,6 +101,7 @@ enum Cmd {
         request: Option<String>,
     },
     /// Verify a receipt against the chain.
+    #[command(display_order = 2)]
     Verify {
         /// The receipt (`zip311r1…`), a link containing it, or `@file`.
         receipt: String,
@@ -136,12 +140,16 @@ enum Cmd {
         source_raw_txs: Vec<String>,
     },
     /// Decode a receipt without touching the network.
+    #[command(display_order = 3)]
     Inspect {
         /// The receipt (`zip311r1…`), a link containing it, or `@file`.
         receipt: String,
     },
+    /// Shops: lint a ZIP-321 payment link (`zcash:…`) before printing it.
+    ///
     /// Lint a ZIP-321 payment link (`zcash:…`) before printing it or making a QR code: network,
     /// address type, whether a receipt can prove it, amount, memo, unknown params, QR density.
+    #[command(display_order = 16)]
     CheckLink {
         /// The payment link, e.g. `zcash:u1…?amount=0.01&memo=…` (quote it in the shell).
         uri: String,
@@ -152,9 +160,12 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Prove you received a payment (the recipient's side), without a viewing key.
+    ///
     /// Prove you RECEIVED a payment (the recipient's side): for an accountant, a tax office or a
     /// lender, without a viewing key. Shows the chosen outputs of one transaction to your
     /// address and proves you control that address; nothing else about your wallet.
+    #[command(display_order = 5)]
     Received {
         /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
@@ -184,9 +195,12 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Proof of funds: prove you hold at least an amount, without a viewing key.
+    ///
     /// Proof of funds: prove you hold at least an amount in unspent shielded notes (for a
     /// counterparty, an escrow, a lender or a treasury report), without a viewing key. Reveals
     /// each note's value and nullifier (so the verifier can see when they are spent), nothing else.
+    #[command(display_order = 6)]
     Reserve {
         #[arg(short, long)]
         wallet: PathBuf,
@@ -204,8 +218,11 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Shops: sign a payment request (`zreq1…`) so payers can check nothing was changed.
+    ///
     /// Shops: sign a payment request (`zreq1…`) with your wallet's key, so payers' wallets can
     /// check nobody changed the address, amount or memo, and that your domain lists the address.
+    #[command(display_order = 11)]
     Request {
         #[arg(short, long)]
         wallet: PathBuf,
@@ -229,8 +246,11 @@ enum Cmd {
         #[arg(long)]
         payee: Option<String>,
     },
+    /// Sign in with Zcash: prove to a site that you control a shielded address.
+    ///
     /// Sign in with Zcash: prove to a site that you control a shielded address, for its
     /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
+    #[command(display_order = 20)]
     SignIn {
         /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
@@ -254,14 +274,20 @@ enum Cmd {
         #[arg(long, env = "RECEIPTS_KEY")]
         api_key: Option<String>,
     },
+    /// Scan files for leaked viewing keys, spending keys and seed phrases.
+    ///
     /// Scan files or directories (logs, configs, code) for leaked viewing keys, spending keys
     /// and seed phrases. Prints file:line and the kind, never the secret. Exits 1 if any are found.
+    #[command(display_order = 21)]
     PrivacyLint {
         /// Files or directories to scan. Default: the current directory.
         paths: Vec<PathBuf>,
     },
+    /// Shops: receive webhooks locally and forward them to your app.
+    ///
     /// Receive webhooks locally: registers a temporary endpoint, prints each event and
     /// forwards it (with its signature) to your app.
+    #[command(display_order = 13)]
     Listen {
         /// Your app's webhook URL, e.g. http://localhost:3000/webhooks/receipts
         #[arg(long)]
@@ -274,16 +300,22 @@ enum Cmd {
         #[arg(long = "event")]
         events: Vec<String>,
     },
+    /// Tour: a real testnet receipt verified and an edited copy refused, then the payment API in the sandbox.
+    ///
     /// The whole product in one command: starts the API, dashboard and verifier on a free port
     /// and walks through pay, prove, settle, refund and attest in the sandbox. No setup needed.
+    #[command(display_order = 4)]
     Demo {
         /// Exit after the walkthrough instead of keeping the server running.
         #[arg(long)]
         no_wait: bool,
     },
+    /// Shops: pay a proof request and answer it with a receipt in one step.
+    ///
     /// Pay a proof request and answer it in one step: pays from your zcash-devtool wallet,
     /// waits for the block, builds the receipt and hands it back. Takes the shop's hosted pay
     /// link (`…/pay/<id>?secret=…`, submitted automatically) or a receipt link (`…?request=…`).
+    #[command(display_order = 10)]
     Pay {
         /// The hosted pay link or receipt link the shop gave you.
         link: String,
@@ -312,8 +344,11 @@ enum Cmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Check your setup (servers, API key, clock, wallet) and print what to fix.
+    ///
     /// Check your setup: lightwalletd servers, the Receipts API and key, the clock, a wallet,
     /// and how fast this machine builds proofs. Prints what to fix.
+    #[command(display_order = 22)]
     Doctor {
         /// Also check this zcash-devtool wallet directory.
         #[arg(short, long)]
@@ -326,15 +361,16 @@ enum Cmd {
         #[arg(long)]
         quick: bool,
     },
-    /// Model Context Protocol server (stdio) so AI agents can verify receipts and manage
-    /// proof requests through the Receipts API.
+    /// Shops: Model Context Protocol server so AI agents can use the Receipts API.
+    #[command(display_order = 15)]
     Mcp {
         #[arg(long, env = "RECEIPTS_KEY")]
         api_key: String,
         #[arg(long, env = "RECEIPTS_URL", default_value = "http://127.0.0.1:8723")]
         base_url: String,
     },
-    /// Fire a real event in test mode, using a sandbox fixture.
+    /// Shops: fire a real event in test mode, using a sandbox fixture.
+    #[command(display_order = 14)]
     Trigger {
         /// Any event type: request.created, request.payment_received, request.fulfilled,
         /// request.final, request.expired, receipt.rejected, refund.created, refund.succeeded,
@@ -348,7 +384,8 @@ enum Cmd {
         #[arg(long)]
         payee: Option<String>,
     },
-    /// Run the Receipts REST API (proof requests, verification, signed webhooks).
+    /// Shops: run the Receipts REST API (proof requests, verification, signed webhooks).
+    #[command(display_order = 12)]
     Serve {
         #[arg(long, default_value = "127.0.0.1:8723")]
         listen: String,
@@ -374,6 +411,7 @@ enum Cmd {
         rate_limit: u32,
     },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
+    #[command(display_order = 7)]
     Tx {
         /// Transaction id as block explorers show it.
         txid: String,

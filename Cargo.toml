@@ -37,7 +37,8 @@ lto = "thin"
 opt-level = 3
 
 
-# Local patch: lets the verifier load precomputed commitment parameters instead of deriving
-# them (most of the verifying key's build time; see vendor/orchard/src/circuit.rs).
+# orchard 0.16.0 from crates.io plus a ~60-line patch (vendor/orchard-0.16.0-receipts.patch):
+# precomputed verifier parameters, and a few note/address accessors made public for incoming
+# receipts and memo-withheld outputs. No circuit change. See vendor/README.md.
 [patch.crates-io]
 orchard = { path = "vendor/orchard" }

@@ -1,0 +1,110 @@
+--- a/src/address.rs
++++ b/src/address.rs
+@@ -43,7 +43,8 @@
+ 
+     /// Returns the diversified transmission key for this address.
+     #[cfg_attr(feature = "unstable-voting-circuits", visibility::make(pub))]
+-    pub(crate) fn pk_d(&self) -> &DiversifiedTransmissionKey {
++    /// Receipts patch: public, for recovering one output with a disclosed `esk`.
++    pub fn pk_d(&self) -> &DiversifiedTransmissionKey {
+         &self.pk_d
+     }
+ 
+--- a/src/circuit.rs
++++ b/src/circuit.rs
+@@ -1100,9 +1100,31 @@
+             params,
+             vk,
+             circuit_version,
++        }
++    }
++
++    /// Builds the verifying key from serialized commitment parameters (as written by
++    /// `Params::write`), skipping their derivation, which is most of the cost of `build`
++    /// (local patch for Receipts' in-browser verifier).
++    #[cfg(feature = "std")]
++    pub fn build_with_params(params: &[u8], circuit_version: OrchardCircuitVersion) -> std::io::Result<Self> {
++        let params = halo2_proofs::poly::commitment::Params::<vesta::Affine>::read(&mut &params[..])?;
++        if params.k() != K {
++            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "wrong k"));
+         }
++        let circuit = Circuit::empty(circuit_version);
++        let vk = plonk::keygen_vk(&params, &circuit).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{e:?}")))?;
++        Ok(VerifyingKey { params, vk, circuit_version })
+     }
+ 
++    /// The commitment parameters, serialized (for caching them; see `build_with_params`).
++    #[cfg(feature = "std")]
++    pub fn params_bytes(&self) -> Vec<u8> {
++        let mut v = Vec::new();
++        self.params.write(&mut v).expect("writing to a Vec");
++        v
++    }
++
+     /// The circuit version this verifying key was built for.
+     pub fn circuit_version(&self) -> OrchardCircuitVersion {
+         self.circuit_version
+--- a/src/keys.rs
++++ b/src/keys.rs
+@@ -889,7 +889,8 @@
+ }
+ 
+ impl EphemeralSecretKey {
+-    pub(crate) fn from_bytes(bytes: &[u8; 32]) -> CtOption<Self> {
++    /// Receipts patch: public, for incoming-payment disclosures that reveal one output's `esk`.
++    pub fn from_bytes(bytes: &[u8; 32]) -> CtOption<Self> {
+         NonZeroPallasScalar::from_bytes(bytes).map(EphemeralSecretKey)
+     }
+ 
+--- a/src/note.rs
++++ b/src/note.rs
+@@ -409,6 +409,20 @@
+         self.commitment_inner().unwrap()
+     }
+ 
++    /// The canonical bytes of this note's ephemeral secret key `esk` (derived from `rseed` and
++    /// `ρ`). Receipts patch: a recipient reveals it to open exactly this output.
++    pub fn esk_bytes(&self) -> [u8; 32] {
++        self.esk().0.to_repr()
++    }
++
++    /// Returns `(ψ, rcm)`: the parts of the commitment opening that `rseed` derives, without
++    /// `rseed` itself (which would also derive `esk` and so open the memo).
++    ///
++    /// Receipts patch: lets a sender disclose a note's recipient and value but withhold its memo.
++    pub fn commitment_opening(&self) -> ([u8; 32], [u8; 32]) {
++        (self.psi().to_repr(), self.rcm().0.to_repr())
++    }
++
+     /// Derives the commitment to this note.
+     ///
+     /// This is the internal fallible API, used to check at construction time that the
+@@ -587,3 +601,28 @@
+         }
+     }
+ }
++
++/// Recomputes `cmx` from a note opening that gives `ψ` and `rcm` instead of `rseed`
++/// (see [`Note::commitment_opening`]). `None` if a field is not canonical or the commitment is ⊥.
++///
++/// Receipts patch, for disclosures that withhold the memo.
++pub fn extracted_commitment_from_opening(
++    recipient: &Address,
++    value: NoteValue,
++    rho: &Rho,
++    psi: &[u8; 32],
++    rcm: &[u8; 32],
++) -> Option<ExtractedNoteCommitment> {
++    let psi = Option::<pallas::Base>::from(pallas::Base::from_repr(*psi))?;
++    let rcm = Option::<pallas::Scalar>::from(pallas::Scalar::from_repr(*rcm))?;
++    let cm = NoteCommitment::derive(
++        recipient.g_d().to_bytes(),
++        recipient.pk_d().inner().to_bytes(),
++        value,
++        rho.0,
++        psi,
++        commitment::NoteCommitTrapdoor(rcm),
++    );
++    Option::<NoteCommitment>::from(cm).map(ExtractedNoteCommitment::from)
++}
++

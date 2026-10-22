@@ -7,8 +7,8 @@ const ENDPOINTS = {
   testnet: "https://zcash-testnet.chainsafe.dev",
 };
 const EXPLORER = {
-  mainnet: (t) => `https://mainnet.zcashexplorer.app/transactions/${t}`,
-  testnet: (t) => `https://testnet.zcashexplorer.app/transactions/${t}`,
+  mainnet: (t) => `https://cipherscan.app/tx/${t}`,
+  testnet: (t) => `https://testnet.cipherscan.app/tx/${t}`,
 };
 
 const $ = (s) => document.querySelector(s);

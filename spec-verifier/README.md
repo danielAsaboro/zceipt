@@ -19,7 +19,8 @@ spend-authorization signature, every disclosed output (all of §4.20.3, with the
 Ironwood), every address proof's note, one-leaf anchor and fixed value commitment, and every
 source proof's anchor (rebuilt from the source transaction's output), fixed value commitment and
 opened output (format v4; the caller supplies the source transactions and checks their heights). For each
-proof it reports the exact public inputs the proof must verify against. It does not reimplement
+proof it reports the exact public inputs the proof must verify against. `check_batch` applies the
+batch rules (one id and network, every position once, no output disclosed twice). It does not reimplement
 the Halo 2 verifier for the Orchard circuit; a receipt it accepts is "valid if the proofs verify
 against these public inputs".
 

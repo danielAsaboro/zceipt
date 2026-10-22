@@ -1,25 +1,41 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
+ * Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
+ * controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
+ * memo, code, expires_at, network, well_known }`; the caller should still confirm that
+ * `well_known` (the domain's list of payees) contains `payee`.
+ */
+export function verify_payment_request(request: string, now: number): string;
+/**
+ * Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
+ * JSON `{ address, zatoshis }`, for showing who funded a source transaction.
+ */
+export function transparent_output(raw_tx: Uint8Array, height: number, index: number, coin_type: number, regtest: boolean): string;
+/**
+ * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+ */
+export function secret_kind(text: string): string;
+/**
  * Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
  * Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
  */
 export function open_batch(batch: string): string;
-/**
- * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
- * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
- * message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
- */
-export function verify_incoming(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
 /**
  * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
  * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
  */
 export function check_payment_uri(uri: string, network: string): string;
 /**
- * Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
  */
-export function inspect_incoming(receipt: string): string;
+export function warm_up(): void;
+/**
+ * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
+ * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
+ * message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
+ */
+export function verify_incoming(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
@@ -29,29 +45,15 @@ export function inspect_incoming(receipt: string): string;
  */
 export function verify(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean, sources?: string | null): string;
 /**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ * Decodes a receipt without verifying it. Returns JSON.
  */
-export function warm_up(): void;
+export function inspect(receipt: string): string;
 /**
  * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
  * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
  * The caller must still make sure the nonce was its own, unexpired and is used only once.
  */
 export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
-/**
- * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
- */
-export function secret_kind(text: string): string;
-/**
- * The source transactions a receipt's source proofs name (explorer-order txids), as a JSON
- * array, so the page can fetch them before calling `verify`.
- */
-export function source_txids(receipt: string): string;
-/**
- * Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
- * JSON `{ address, zatoshis }`, for showing who funded a source transaction.
- */
-export function transparent_output(raw_tx: Uint8Array, height: number, index: number, coin_type: number, regtest: boolean): string;
 /**
  * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
  * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
@@ -64,16 +66,14 @@ export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_heig
  */
 export function orchard_receiver_hex(ua: string): string;
 /**
- * Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
- * controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
- * memo, code, expires_at, network, well_known }`; the caller should still confirm that
- * `well_known` (the domain's list of payees) contains `payee`.
+ * The source transactions a receipt's source proofs name (explorer-order txids), as a JSON
+ * array, so the page can fetch them before calling `verify`.
  */
-export function verify_payment_request(request: string, now: number): string;
+export function source_txids(receipt: string): string;
 /**
- * Decodes a receipt without verifying it. Returns JSON.
+ * Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
  */
-export function inspect(receipt: string): string;
+export function inspect_incoming(receipt: string): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 

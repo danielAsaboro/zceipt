@@ -432,7 +432,8 @@ impl ReceiptBatch {
 /// Parses the `batch:<id> <i>/<n>` line a batched receipt signs.
 pub fn batch_position(msg: &[u8]) -> Option<(String, u16, u16)> {
     let text = std::str::from_utf8(msg).ok()?;
-    let line = text.lines().find_map(|l| l.strip_prefix("batch:"))?;
+    // Only the first line, as SPEC.md says: a `batch:` line further down is ordinary text.
+    let line = text.lines().next()?.strip_prefix("batch:")?;
     let (id, pos) = line.split_once(' ')?;
     let (i, n) = pos.split_once('/')?;
     Some((id.to_string(), i.parse().ok()?, n.parse().ok()?))

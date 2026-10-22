@@ -94,3 +94,14 @@ transaction `571de6e4…` (no Orchard actions, two Ironwood actions) and matches
 **A14.** `SPEC.md` described version 2 as "adds address proofs per spend" without their byte
 layout, the proof-length cap, or the fixed `cv`. Writing the spec verifier from `SPEC.md` alone
 exposed this; the layout is now in `SPEC.md`.
+
+**A15. Flags of the disclosure proof.** ZIP 311 does not say which `enableSpends` /
+`enableOutputs` flags the Orchard disclosure proof uses. Receipts proves with both enabled
+(`Flags::ENABLED`), with a zero-value dummy output, so the action is built by the same unmodified
+Orchard builder path as any wallet action and its `cmx`, `cv_net` and `rk` look like ordinary
+public inputs. Soundness of spend authority does not depend on the output half: the proof shows
+knowledge of the note behind the transaction's nullifier `nf` under the transaction's anchor, and
+`rk` is bound to `ak`. Proving spends-only (`0x01`), as zreceipt's prototype does, would also force
+`v_new = 0` inside the circuit; it is an equally valid choice, and a later version could adopt it
+to converge on one rule. The verifier always passes the same flags it expects, so the two are
+not interchangeable within a version.

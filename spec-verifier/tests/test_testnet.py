@@ -51,8 +51,23 @@ class Testnet(unittest.TestCase):
             m = re.search(r"zip311b1[A-Za-z0-9_-]+", f.read())
         batch = rc.decode_batch(rc.b64decode(m.group(0)[len("zip311b1"):]))
         self.assertEqual(len(batch), 3)
+        self.assertTrue(rc.check_batch(batch))
         for r in batch:
             v.verify(r.unsigned_bytes + b"".join(r.sigs), raw(r), 1)
+        # The batch rules: dropping, repeating or re-networking a receipt is refused.
+        import copy
+        with self.assertRaisesRegex(rc.DecodeError, "wrong number"):
+            rc.check_batch(batch[:2])
+        with self.assertRaisesRegex(rc.DecodeError, "repeated|more than once"):
+            rc.check_batch([batch[0], batch[0], batch[2]])
+        other = copy.copy(batch[1])
+        other.coin_type = 133
+        with self.assertRaisesRegex(rc.DecodeError, "different networks"):
+            rc.check_batch([batch[0], other, batch[2]])
+        moved = copy.copy(batch[0])
+        moved.msg = b"Grant round 3\n" + batch[0].msg
+        with self.assertRaisesRegex(rc.DecodeError, "no batch position"):
+            rc.check_batch([moved, batch[1], batch[2]])
 
     def test_source_of_funds(self):
         """examples/testnet/source: the payment 571de6e4… with a proof that its spent note came

@@ -210,6 +210,51 @@ def decode_batch(b: bytes):
     return out
 
 
+def batch_position(msg: bytes):
+    """(id, i, n) from a `batch:<id> <i>/<n>` FIRST line of msg (docs/SPEC.md), else None."""
+    try:
+        first = msg.decode("utf-8").split("\n", 1)[0]
+    except UnicodeDecodeError:
+        return None
+    if not first.startswith("batch:"):
+        return None
+    try:
+        bid, pos = first[len("batch:"):].split(" ", 1)
+        i, n = pos.split("/", 1)
+        return bid, int(i), int(n)
+    except ValueError:
+        return None
+
+
+def check_batch(receipts) -> str:
+    """The batch rules of docs/SPEC.md: one id and one network, positions 1..n each exactly once,
+    and no output (txid, outputs' pool, index) disclosed twice. Returns the id or raises
+    DecodeError."""
+    n = len(receipts)
+    ids, positions, outputs = set(), set(), set()
+    for r in receipts:
+        p = batch_position(r.msg)
+        if p is None:
+            raise DecodeError("a receipt in the batch has no batch position")
+        bid, i, total = p
+        if total != n:
+            raise DecodeError("the batch has the wrong number of receipts")
+        if not 1 <= i <= n or i in positions:
+            raise DecodeError("bad or repeated batch position")
+        positions.add(i)
+        ids.add(bid)
+        if r.coin_type != receipts[0].coin_type:
+            raise DecodeError("receipts for different networks in one batch")
+        pool = r.output_pool or r.pool
+        for idx in [o.index for o in r.outputs] + [o.index for o in r.opened]:
+            if (r.txid, pool, idx) in outputs:
+                raise DecodeError("an output is disclosed more than once")
+            outputs.add((r.txid, pool, idx))
+    if len(ids) != 1:
+        raise DecodeError("receipts from different batches")
+    return ids.pop()
+
+
 @dataclass
 class SignIn:
     coin_type: int

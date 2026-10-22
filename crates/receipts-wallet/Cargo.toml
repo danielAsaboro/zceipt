@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Make ZIP 311 receipts and Sign in with Zcash proofs from a zcash-devtool (zcash_client_sqlite) wallet."
 
 [dependencies]
-receipts-core = { path = "../receipts-core" }
+receipts-core = { path = "../receipts-core", features = ["orchard-ext"] }
 receipts-chain = { path = "../receipts-chain" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

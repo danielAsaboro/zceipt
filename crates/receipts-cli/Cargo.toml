@@ -11,7 +11,7 @@ name = "receipts"
 path = "src/main.rs"
 
 [dependencies]
-receipts-core = { path = "../receipts-core" }
+receipts-core = { path = "../receipts-core", features = ["orchard-ext"] }
 receipts-chain = { path = "../receipts-chain" }
 receipts-server = { path = "../receipts-server" }
 receipts-client = { path = "../receipts-client" }

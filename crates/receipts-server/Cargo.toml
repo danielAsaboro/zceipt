@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-receipts-core = { path = "../receipts-core" }
+receipts-core = { path = "../receipts-core", features = ["orchard-ext"] }
 receipts-chain = { path = "../receipts-chain" }
 anyhow = "1"
 axum = "0.8"

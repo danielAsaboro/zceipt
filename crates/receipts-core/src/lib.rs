@@ -38,6 +38,7 @@ use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBy
 
 mod encoding;
 pub mod deposit;
+#[cfg(feature = "orchard-ext")]
 pub mod incoming;
 pub mod payreq;
 pub mod reserve;
@@ -323,6 +324,8 @@ pub enum Error {
     ZeroValueSource,
     #[error("the opening for output {0} does not match its note commitment")]
     BadOpening(u32),
+    #[error("{0} need receipts-core's `orchard-ext` feature (the orchard patch in vendor/)")]
+    NeedsOrchardExt(&'static str),
 }
 
 /// The digest every spend-authorization signature covers:
@@ -724,7 +727,13 @@ pub fn create_cross_ext<A: Authorization, V>(
             ock: ock.0,
         });
     }
+    #[cfg_attr(not(feature = "orchard-ext"), allow(unused_mut))]
     let mut opened = Vec::with_capacity(withheld_memo.len());
+    #[cfg(not(feature = "orchard-ext"))]
+    if !withheld_memo.is_empty() {
+        return Err(Error::NeedsOrchardExt("outputs with the memo withheld"));
+    }
+    #[cfg(feature = "orchard-ext")]
     for (i, ovk) in withheld_memo {
         let action = &out_actions[*i];
         let ock = derive_ock(output_pool, ovk, action);
@@ -984,6 +993,11 @@ fn verify_cross<A: Authorization, V>(
             memo_withheld: false,
         });
     }
+    #[cfg(not(feature = "orchard-ext"))]
+    if !u.opened.is_empty() {
+        return Err(Error::NeedsOrchardExt("outputs with the memo withheld"));
+    }
+    #[cfg(feature = "orchard-ext")]
     for o in &u.opened {
         let action = &out_actions[o.index as usize];
         let bad = || Error::BadOpening(o.index);
@@ -1025,11 +1039,19 @@ pub fn proving_key() -> ProvingKey {
 /// The Orchard circuit's commitment parameters (k = 11), precomputed. They are deterministic
 /// (derived by hashing to the curve), and `params_match_derivation` checks these bytes against a
 /// fresh derivation, so shipping them changes nothing but speed.
+#[cfg(feature = "orchard-ext")]
 const ORCHARD_PARAMS_K11: &[u8] = include_bytes!("orchard-params-k11.bin");
 
 /// Verifying key for receipts. Uses the precomputed parameters (about 3x faster); cache it.
+#[cfg(feature = "orchard-ext")]
 pub fn verifying_key() -> VerifyingKey {
     VerifyingKey::build_with_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT).unwrap_or_else(|_| VerifyingKey::build(RECEIPT_CIRCUIT))
+}
+
+/// Verifying key for receipts (stock orchard: every parameter is derived). Cache it.
+#[cfg(not(feature = "orchard-ext"))]
+pub fn verifying_key() -> VerifyingKey {
+    VerifyingKey::build(RECEIPT_CIRCUIT)
 }
 
 /// The verifying key built the slow way, deriving every parameter (for checking the cache).

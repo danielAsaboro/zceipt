@@ -6,6 +6,13 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Needs the small orchard patch in vendor/ (see vendor/README.md): incoming receipts, outputs
+# with the memo withheld (format v5), and precomputed verifier parameters (about 3x faster key
+# building). Without it receipts-core builds on stock orchard 0.16, and receipts that use those
+# features are refused with Error::NeedsOrchardExt.
+orchard-ext = []
+
 [dependencies]
 orchard.workspace = true
 zcash_note_encryption.workspace = true
@@ -27,7 +34,12 @@ qrcode = { version = "0.14", default-features = false }
 serde_json = "1"
 
 [dev-dependencies]
+receipts-core = { path = ".", features = ["orchard-ext"] }
 halo2_proofs = { version = "0.4", default-features = false }
 rand = { version = "0.10", features = ["std", "sys_rng"] }
 incrementalmerkletree = "0.9"
 shardtree = "0.8"
+
+[[example]]
+name = "write_params"
+required-features = ["orchard-ext"]

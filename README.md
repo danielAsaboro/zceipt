@@ -28,7 +28,7 @@ receipt**: a real payment ([`571de6e4…`](https://testnet.cipherscan.app/tx/571
 "Order #43" shows **NOT VALID**. The first check also prepares the verifier, which takes 3 to 10
 seconds depending on the machine; later checks take about a second.
 
-<p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 ZEC with the memo Invoice 42: two coffees">
+<p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 TAZ (testnet) with the memo Invoice 42: two coffees">
 <img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: the signature for action 0 is invalid"></p>
 
 The receipt stays in the URL `#fragment`, which browsers never send. The page fetches the payment

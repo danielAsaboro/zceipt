@@ -438,16 +438,20 @@ pub fn batch_position(msg: &[u8]) -> Option<(String, u16, u16)> {
     Some((id.to_string(), i.parse().ok()?, n.parse().ok()?))
 }
 
-/// Checks that the batch is complete and consistent: one id, positions 1..=n each exactly once,
-/// and no output disclosed twice (two receipts for the same output would count one payment
+/// Checks that the batch is complete and consistent: one id, one network, positions 1..=n each
+/// exactly once, and no output disclosed twice (two receipts for the same output would count one payment
 /// twice in the batch total).
 pub fn check_batch(batch: &ReceiptBatch) -> Result<String, String> {
     let n = batch.receipts.len();
     let mut id = None;
     let mut seen = vec![false; n];
     let mut outputs = std::collections::BTreeSet::new();
+    let coin_type = batch.receipts.first().map(|r| r.unsigned.coin_type);
     for r in &batch.receipts {
         let u = &r.unsigned;
+        if Some(u.coin_type) != coin_type {
+            return Err("receipts for different networks in one batch".into());
+        }
         let pool = u.output_pool.unwrap_or(u.pool) as u8;
         for index in u.outputs.iter().map(|o| o.index).chain(u.opened.iter().map(|o| o.index)) {
             if !outputs.insert((u.txid, pool, index)) {

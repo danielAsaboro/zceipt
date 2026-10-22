@@ -304,6 +304,18 @@ fn batch_refuses_one_output_counted_twice() {
 }
 
 #[test]
+fn batch_refuses_mixed_networks() {
+    use receipts_core::{check_batch, ReceiptBatch};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mk = |i: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/2").as_bytes());
+    let mut second = mk(2);
+    second.unsigned.txid[0] ^= 1;
+    second.unsigned.coin_type = 133;
+    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), second] }).unwrap_err();
+    assert!(err.contains("different networks"), "{err}");
+}
+
+#[test]
 fn address_proof_roundtrip_and_rejections() {
     let s = scenario(BundleVersion::ironwood_v3());
     let fvk = FullViewingKey::from(&s.sender_sk);

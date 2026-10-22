@@ -157,20 +157,18 @@ export async function fetchBlockTxids(endpoint, height) {
 
 /**
  * Fetches `displayTxid` without telling the server which transaction you care about: lists the
- * shielded transactions in block `height`, then fetches up to `maxSet` of them (always including
- * yours) in random order. Resolves to `{ raw, height, anonymitySet, blockTxs }`.
+ * shielded transactions in block `height`, then fetches the run of up to `maxSet` of them that
+ * holds yours (the same run every time), in random order. Resolves to `{ raw, height, anonymitySet, blockTxs }`.
  * Throws if the transaction is not in that block.
  */
 export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64 } = {}) {
   const ids = await fetchBlockTxids(endpoint, height);
   const want = displayTxid.toLowerCase();
   if (!ids.includes(want)) throw new Error(`transaction ${want.slice(0, 12)}… is not in block ${height}`);
-  const others = ids.filter((t) => t !== want);
-  for (let i = others.length - 1; i > 0; i--) {
-    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
-    [others[i], others[j]] = [others[j], others[i]];
-  }
-  const set = [want, ...others.slice(0, maxSet - 1)];
+  // The run of maxSet transactions (in block order) that holds ours: the same set every time,
+  // so checking one receipt twice can't be intersected down to it.
+  const start = Math.floor(ids.indexOf(want) / maxSet) * maxSet;
+  const set = ids.slice(start, start + maxSet);
   for (let i = set.length - 1; i > 0; i--) {
     const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
     [set[i], set[j]] = [set[j], set[i]];

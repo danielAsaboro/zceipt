@@ -109,6 +109,62 @@ pub fn extract(text: &str, prefix: &str) -> Option<String> {
     Some(text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect())
 }
 
+/// What kind of receipt a request carries.
+#[derive(Debug, PartialEq)]
+pub enum Kind {
+    Receipt,
+    Batch,
+    Incoming,
+}
+
+/// Classifies the input by the one receipt prefix it contains. Inputs with none, or with more
+/// than one receipt (of any kind), are refused, so no input can be routed past a check.
+pub fn receipt_kind(text: &str) -> Result<Kind, ApiError> {
+    let count = |p: &str| text.matches(p).count();
+    let (r, b, i) = (count("zip311r1"), count("zip311b1"), count(receipts_core::incoming::INCOMING_TEXT_PREFIX));
+    match (r, b, i) {
+        (1, 0, 0) => Ok(Kind::Receipt),
+        (0, 1, 0) => Ok(Kind::Batch),
+        (0, 0, 1) => Ok(Kind::Incoming),
+        (0, 0, 0) => Err(ApiError::invalid("receipt_malformed", "no zip311r1…, zip311b1… or zrcin1… receipt found").param("receipt")),
+        _ => Err(ApiError::invalid("receipt_malformed", "the input holds more than one receipt; send one per request").param("receipt")),
+    }
+}
+
+/// Checks a caller asks for on top of validity.
+#[derive(Clone, Copy, Default)]
+pub struct Expect<'a> {
+    pub address: Option<&'a str>,
+    pub min_zatoshis: Option<u64>,
+    pub challenge: Option<&'a str>,
+}
+
+/// Verifies a batch and applies `expect`: the expected address must have received at least
+/// `min_zatoshis` across the batch, and every receipt in it must sign the challenge.
+pub async fn verify_batch_checked(net: Net, server: Option<&str>, text: &str, expect: Expect<'_>) -> Result<serde_json::Value, ApiError> {
+    let (mut body, results) = verify_batch_results(net, server, text).await?;
+    if let Some(c) = expect.challenge {
+        if results.iter().any(|v| v.challenge.as_deref() != Some(c)) {
+            return Err(ApiError::verification("challenge_mismatch", "not every receipt in the batch signs this challenge"));
+        }
+        body["checks"] = serde_json::json!({ "challenge": "matched" });
+    }
+    if let Some(addr) = expect.address {
+        let mut paid = 0u64;
+        for v in &results {
+            paid += paid_to(v, addr, "expect_address")?;
+        }
+        if paid == 0 {
+            return Err(ApiError::verification("wrong_payee", "no disclosed output in the batch paid expect_address"));
+        }
+        if expect.min_zatoshis.is_some_and(|m| paid < m) {
+            return Err(ApiError::verification("insufficient_amount", format!("the batch paid {paid} zatoshis to expect_address, less than {}", expect.min_zatoshis.unwrap())));
+        }
+        body["paid_to_expected"] = paid.into();
+    }
+    Ok(body)
+}
+
 /// Verifies one receipt. `net` is the network the API key's mode serves.
 pub async fn verify_receipt(net: Net, server: Option<&str>, text: &str) -> Result<Verification, ApiError> {
     let body = extract(text, "zip311r1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zip311r1… receipt found").param("receipt"))?;
@@ -240,13 +296,17 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
 }
 
 /// Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid).
-pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_address: Option<&str>, challenge: Option<&str>) -> Result<serde_json::Value, ApiError> {
+pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_address: Option<&str>, challenge: Option<&str>, min_zatoshis: Option<u64>) -> Result<serde_json::Value, ApiError> {
     let body = extract(text, receipts_core::incoming::INCOMING_TEXT_PREFIX).ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcin1… receipt found").param("receipt"))?;
     let r = receipts_core::incoming::IncomingReceipt::from_text(&body).ok_or_else(|| ApiError::invalid("receipt_malformed", "malformed incoming receipt").param("receipt"))?;
     if (r.coin_type == COIN_TYPE_MAINNET) != (net == Net::Main) {
         return Err(ApiError::invalid("receipt_network_mismatch", "this receipt is for another network than the key serves").param("receipt"));
     }
-    let (tx, height) = chain::fetch_mined_tx(net, server, r.txid).await.map_err(|e| ApiError::verification("transaction_not_found", e.to_string()))?;
+    let fetched = match chain::height_hint(text) {
+        Some(h) => chain::fetch_mined_tx_in_block(net, server, r.txid, h).await.map(|(tx, height, _)| (tx, height)),
+        None => chain::fetch_mined_tx(net, server, r.txid).await,
+    };
+    let (tx, height) = fetched.map_err(|e| ApiError::verification("transaction_not_found", e.to_string()))?;
     let bundle = match r.pool {
         Pool::Orchard => tx.orchard_bundle().cloned(),
         Pool::Ironwood => tx.ironwood_bundle().cloned(),
@@ -270,6 +330,10 @@ pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_
             return Err(ApiError::verification("address_mismatch", "the receipt proves a different receiving address"));
         }
     }
+    let total: u64 = v.outputs.iter().map(|o| o.value).sum();
+    if min_zatoshis.is_some_and(|m| total < m) {
+        return Err(ApiError::verification("insufficient_amount", format!("the receipt shows {total} zatoshis received, less than {}", min_zatoshis.unwrap())));
+    }
     let tip = chain::chain_tip(net, server).await.ok();
     let (verdict, _) = levels(height, tip, v.outputs.len(), 0, challenge_of(&message).as_deref(), challenge, 1);
     Ok(serde_json::json!({
@@ -291,14 +355,21 @@ pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_
 
 /// Verifies a `zip311b1…` batch: completeness first, then every receipt.
 pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<serde_json::Value, ApiError> {
+    Ok(verify_batch_results(net, server, text).await?.0)
+}
+
+async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Result<(serde_json::Value, Vec<Verification>), ApiError> {
     let body = extract(text, "zip311b1").ok_or_else(|| ApiError::invalid("receipt_malformed", "no zip311b1… batch found").param("receipt"))?;
     let batch = ReceiptBatch::from_text(&body).map_err(|e| ApiError::invalid("receipt_malformed", e.to_string()).param("receipt"))?;
     let id = receipts_core::check_batch(&batch).map_err(|e| ApiError::verification("batch_invalid", e))?;
     // Fetch and verify the receipts concurrently (proof checks are bounded by verify_slots).
+    // `h=` block hints, one per receipt, keep the chain server from learning the batch's txids.
+    let hints = chain::height_hints(text).filter(|h| h.len() == batch.receipts.len());
     let mut set = tokio::task::JoinSet::new();
     for (i, r) in batch.receipts.iter().cloned().enumerate() {
         let server = server.map(str::to_string);
-        set.spawn(async move { (i, verify_parsed(net, server.as_deref(), &r).await) });
+        let hint = hints.as_ref().map(|h| h[i]);
+        set.spawn(async move { (i, verify_parsed_hinted(net, server.as_deref(), &r, hint).await) });
     }
     let mut slots: Vec<Option<Verification>> = vec![None; batch.receipts.len()];
     while let Some(done) = set.join_next().await {
@@ -313,7 +384,7 @@ pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<
             totals.insert(o.recipient.clone(), (cur + o.zatoshis).into());
         }
     }
-    Ok(serde_json::json!({
+    let body = serde_json::json!({
         "object": "batch_verification",
         "valid": true,
         "livemode": net == Net::Main,
@@ -321,7 +392,8 @@ pub async fn verify_batch(net: Net, server: Option<&str>, text: &str) -> Result<
         "total_zatoshis": results.iter().flat_map(|v| v.outputs.iter()).map(|o| o.zatoshis).sum::<u64>(),
         "totals_by_recipient": totals,
         "receipts": results,
-    }))
+    });
+    Ok((body, results))
 }
 
 /// Total paid to `payee` (compared by Orchard receiver) in a verification.
@@ -345,6 +417,18 @@ pub fn parse_display_txid(s: &str) -> Result<[u8; 32], ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_receipt_per_request_routed_by_its_own_prefix() {
+        assert_eq!(receipt_kind("https://x/verify/#zip311r1Abc&h=1").unwrap(), Kind::Receipt);
+        assert_eq!(receipt_kind("zip311b1Abc").unwrap(), Kind::Batch);
+        assert_eq!(receipt_kind("zrcin1Abc").unwrap(), Kind::Incoming);
+        // A receipt with a batch pasted after it used to take the batch path and skip the
+        // caller's expect_address / min_zatoshis / challenge checks.
+        assert_eq!(receipt_kind("zip311r1Abc zip311b1Def").unwrap_err().code, "receipt_malformed");
+        assert_eq!(receipt_kind("zip311r1Abc zip311r1Def").unwrap_err().code, "receipt_malformed");
+        assert_eq!(receipt_kind("nothing").unwrap_err().code, "receipt_malformed");
+    }
 
     #[test]
     fn validity_levels() {

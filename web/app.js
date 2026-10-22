@@ -181,13 +181,18 @@ function bytesToHex(b) {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+// The currency on the result being shown: testnet coins are TAZ, not ZEC.
+let UNIT = "ZEC";
+const unitFor = (network) => (network === "mainnet" ? "ZEC" : "TAZ");
+
 function render(v, net) {
+  UNIT = unitFor(v.network);
   const rows = v.outputs
     .map(
       (o) => `
       <div class="line paid">
         <span class="k">PAID</span>
-        <span class="v amount">${zec(o.zatoshis)} <small>ZEC</small></span>
+        <span class="v amount">${zec(o.zatoshis)} <small>${UNIT}</small></span>
       </div>
       <div class="line"><span class="k">TO</span><span class="v mono addr" title="${o.recipient}">${short(o.recipient, 14)}</span></div>
       ${o.memo ? `<div class="line"><span class="k">MEMO</span><span class="v memo">“${escapeHtml(o.memo)}”</span></div>` : o.memo_withheld ? `<div class="line"><span class="k">MEMO</span><span class="v"><small>withheld by the sender (the receipt can't open it)</small></span></div>` : ""}
@@ -209,12 +214,12 @@ function render(v, net) {
       <p class="fine">Offline check: this receipt matches the transaction you pasted. Whether that transaction was mined was not checked; fetch it from a server to confirm.</p>`
         : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>`}
       ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(proven)</small></span></div>`).join("")}
-      ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ZEC note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
-      ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ZEC from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
+      ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ${UNIT} note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
+      ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ${UNIT} from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
       ${s.transparent_inputs.length ? "" : `<div class="line"><span class="k"></span><span class="v"><small>that transaction was itself funded from shielded notes (not shown)</small></span></div>`}`).join("")}
       ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v">${escapeHtml(v.message.split("\n").filter((l) => !/^(tex-deposit|second-tx):/.test(l)).join("\n"))}</span></div>` : ""}
       ${v.deposit ? `<div class="dash"></div>
-      <div class="line paid"><span class="k">DEPOSIT</span><span class="v amount">${zec(v.deposit.deposit_zatoshis)} <small>ZEC</small></span></div>
+      <div class="line paid"><span class="k">DEPOSIT</span><span class="v amount">${zec(v.deposit.deposit_zatoshis)} <small>${UNIT}</small></span></div>
       <div class="line"><span class="k">EXCHANGE</span><span class="v mono addr" title="${v.deposit.tex_address}">${short(v.deposit.tex_address, 14)}</span></div>
       <div class="line"><span class="k">VIA</span><span class="v mono">${short(v.deposit.first_tx, 6)} → ${short(v.deposit.second_tx, 6)}</span></div>
       <div class="local" data-mode="txid"><strong>Exchange deposit (ZIP 320).</strong> The sender proved they made this two-step deposit to the exchange's TEX address. ${escapeHtml(v.deposit.warning)}</div>` : ""}
@@ -267,8 +272,8 @@ async function renderRequestChecks(v) {
       const paid = [];
       for (const o of v.outputs) if ((await quick("receiver", { ua: o.recipient })) === want) paid.push(o.zatoshis);
       const total = paid.reduce((s, z) => s + z, 0);
-      row(paid.length > 0, paid.length ? `Paid ${zec(total)} ZEC to the requested address` : "Nothing was paid to the requested address");
-      if (req.min) row(total >= req.min, `${total >= req.min ? "At least" : "Less than"} the requested ${zec(req.min)} ZEC`);
+      row(paid.length > 0, paid.length ? `Paid ${zec(total)} ${UNIT} to the requested address` : "Nothing was paid to the requested address");
+      if (req.min) row(total >= req.min, `${total >= req.min ? "At least" : "Less than"} the requested ${zec(req.min)} ${UNIT}`);
     } catch (e) {
       row(false, `Could not check the payee: ${e.message}`);
     }
@@ -372,7 +377,7 @@ function provenanceHtml(results) {
     if (seen.has(v.txid)) return;
     seen.add(v.txid);
     for (const s of v.sources || []) {
-      rows.push(`<div class="line"><span class="k">${depth ? "" : "FUNDS"}</span><span class="v" style="padding-left:${depth * 12}px"><small>${short(v.txid, 6)} spent a note${s.zatoshis != null ? ` of ${zec(s.zatoshis)} ZEC` : ""} from ${short(s.source_txid, 6)}</small></span></div>`);
+      rows.push(`<div class="line"><span class="k">${depth ? "" : "FUNDS"}</span><span class="v" style="padding-left:${depth * 12}px"><small>${short(v.txid, 6)} spent a note${s.zatoshis != null ? ` of ${zec(s.zatoshis)} ${UNIT}` : ""} from ${short(s.source_txid, 6)}</small></span></div>`);
       const next = byTx.get(s.source_txid);
       if (next) walk(next, depth + 1, seen);
       else rows.push(`<div class="line"><span class="k"></span><span class="v" style="padding-left:${(depth + 1) * 12}px"><small>${s.transparent_inputs.length ? `funded in the clear by ${short(s.source_txid, 6)}'s transparent inputs` : `${short(s.source_txid, 6)} was funded from shielded notes not shown`}</small></span></div>`);
@@ -438,6 +443,7 @@ async function runBatch(batchText) {
     setStep("verify", "fail", e.message);
     return showError(`Payment ${results.length + 1} of the batch failed: ${e.message}`);
   }
+  UNIT = unitFor(results[0].network);
   const lines = results.flatMap((v) => v.outputs.map((o) => ({ v, o })));
   const total = lines.reduce((s, l) => s + l.o.zatoshis, 0);
   const recipients = new Set(lines.map((l) => l.o.recipient)).size;
@@ -451,7 +457,7 @@ async function runBatch(batchText) {
       ${lines.map(({ v, o }) => `
         <div class="line"><span class="k">${zec(o.zatoshis)}</span><span class="v">${o.memo ? escapeHtml(o.memo) : `<span class="mono">${short(o.recipient, 10)}</span>`}<br><span class="mono" style="font-size:11px;color:var(--ink-2)">${short(o.recipient, 10)} · block ${v.mined_height.toLocaleString()}</span></span></div>`).join("")}
       <div class="dash"></div>
-      <div class="line paid"><span class="k">TOTAL</span><span class="v amount">${zec(total)} <small>ZEC</small></span></div>
+      <div class="line paid"><span class="k">TOTAL</span><span class="v amount">${zec(total)} <small>${UNIT}</small></span></div>
       <div class="line"><span class="k">TO</span><span class="v">${recipients} recipient${recipients === 1 ? "" : "s"}</span></div>
       ${provenanceHtml(results)}
       <div class="dash"></div>
@@ -502,8 +508,9 @@ async function runIncoming(text) {
     setStep("verify", "busy", "checking the recipient's address proof, signature and each output");
     const v = await call("incoming", { receipt: text, rawTx: tx.raw, height: tx.height, regtest: regtest() });
     setStep("verify", "done", "address proof, signature and outputs valid");
+    UNIT = unitFor(regtest() ? "regtest" : s.network);
     const rows = v.outputs.map((o) => `
-      <div class="line paid"><span class="k">RECEIVED</span><span class="v amount">${zec(o.zatoshis)} <small>ZEC</small></span></div>
+      <div class="line paid"><span class="k">RECEIVED</span><span class="v amount">${zec(o.zatoshis)} <small>${UNIT}</small></span></div>
       ${o.memo ? `<div class="line"><span class="k">MEMO</span><span class="v memo">“${escapeHtml(o.memo)}”</span></div>` : ""}
       <div class="dash"></div>`).join("");
     $("#result").hidden = false;

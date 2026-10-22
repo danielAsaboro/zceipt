@@ -406,12 +406,19 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
             return Err(ApiError::invalid("receipt_network_mismatch", "sandbox fixtures only work with rcpt_test_ keys").param("receipt"));
         }
         sandbox::resolve(&text, req.expect_address.as_deref(), req.min_zatoshis, req.challenge.as_deref())?
-    } else if text.contains("zip311b1") {
-        return Ok(Json(verify::verify_batch(net, server.as_deref(), &text).await?));
-    } else if text.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) {
-        return Ok(Json(verify::verify_incoming(net, server.as_deref(), &text, req.expect_address.as_deref(), req.challenge.as_deref()).await?));
     } else {
-        verify::verify_receipt(net, server.as_deref(), &text).await?
+        // Exactly one receipt per request, routed by its own prefix: a single receipt with a
+        // batch pasted after it must not take the batch path (or skip any check).
+        match verify::receipt_kind(&text)? {
+            verify::Kind::Batch => {
+                let checks = verify::Expect { address: req.expect_address.as_deref(), min_zatoshis: req.min_zatoshis, challenge: req.challenge.as_deref() };
+                return Ok(Json(verify::verify_batch_checked(net, server.as_deref(), &text, checks).await?));
+            }
+            verify::Kind::Incoming => {
+                return Ok(Json(verify::verify_incoming(net, server.as_deref(), &text, req.expect_address.as_deref(), req.challenge.as_deref(), req.min_zatoshis).await?));
+            }
+            verify::Kind::Receipt => verify::verify_receipt(net, server.as_deref(), &text).await?,
+        }
     };
     if let Some(c) = &req.challenge {
         if v.challenge.as_deref() != Some(c.as_str()) {

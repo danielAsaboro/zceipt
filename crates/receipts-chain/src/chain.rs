@@ -67,8 +67,8 @@ async fn fetch_mined_tx_with(client: &mut CompactTxStreamerClient<Channel>, net:
 pub const PRIVATE_FETCH_SET: usize = 64;
 
 /// Fetches `txid` without telling the server which transaction is wanted: lists the shielded
-/// transactions in block `height`, then fetches up to [`PRIVATE_FETCH_SET`] of them (always
-/// including `txid`) in random order. Returns the transaction, its height and how many were
+/// transactions in block `height`, then fetches the run of up to [`PRIVATE_FETCH_SET`] of them
+/// that holds `txid` (the same run every time), in random order. Returns the transaction, its height and how many were
 /// fetched (the anonymity set; 1 means the block hid nothing). Same scheme as the browser's.
 pub async fn fetch_mined_tx_in_block(
     net: Net,
@@ -87,10 +87,12 @@ pub async fn fetch_mined_tx_in_block(
     if !ids.contains(&txid) {
         bail!("transaction {} is not in block {height}", display_txid(&txid));
     }
-    let mut others: Vec<[u8; 32]> = ids.into_iter().filter(|t| *t != txid).collect();
-    shuffle(&mut others)?;
-    others.truncate(PRIVATE_FETCH_SET - 1);
-    others.push(txid);
+    // The set is the block's run of PRIVATE_FETCH_SET transactions that holds ours, fixed by
+    // block order, so checking the same receipt twice asks for the same set: random decoys would
+    // differ each time and their intersection would point at the target.
+    let pos = ids.iter().position(|t| *t == txid).expect("checked above");
+    let start = pos / PRIVATE_FETCH_SET * PRIVATE_FETCH_SET;
+    let mut others: Vec<[u8; 32]> = ids[start..(start + PRIVATE_FETCH_SET).min(ids.len())].to_vec();
     shuffle(&mut others)?;
     let set = others.len();
     let mut mine = None;
@@ -123,6 +125,13 @@ pub fn height_hint(link: &str) -> Option<u32> {
     let i = link.find("&h=").or_else(|| link.find("?h=")).or_else(|| link.find("#h="))?;
     let digits: String = link[i + 3..].chars().take_while(|c| c.is_ascii_digit()).collect();
     (1..=9).contains(&digits.len()).then(|| digits.parse().ok()).flatten()
+}
+
+/// A batch link's block hints (`…&h=12,40,41`), one per receipt in order, if any.
+pub fn height_hints(link: &str) -> Option<Vec<u32>> {
+    let i = link.find("&h=").or_else(|| link.find("?h=")).or_else(|| link.find("#h="))?;
+    let list: String = link[i + 3..].chars().take_while(|c| c.is_ascii_digit() || *c == ',').collect();
+    list.split(',').map(|d| if (1..=9).contains(&d.len()) { d.parse().ok() } else { None }).collect()
 }
 
 #[derive(Serialize)]
@@ -195,8 +204,14 @@ pub struct ReportOutput {
     pub memo_withheld: bool,
 }
 
+/// The currency name for amounts on `network` ("TAZ" on testnet and regtest).
+pub fn unit(network: &str) -> &'static str {
+    if network == "mainnet" { "ZEC" } else { "TAZ" }
+}
+
 impl Report {
     pub fn print(&self) {
+        let u = unit(self.network);
         println!("VALID receipt");
         println!("  network   {}", self.network);
         if self.chain_checked {
@@ -214,22 +229,22 @@ impl Report {
             println!("  from      {a} (proven by the sender)");
         }
         for src in &self.sources {
-            let value = src.zec.as_ref().map(|z| format!("a {z} ZEC note")).unwrap_or_else(|| "the note".into());
+            let value = src.zec.as_ref().map(|z| format!("a {z} {u} note")).unwrap_or_else(|| "the note".into());
             println!("  source    action {} spent {value} created by tx {} action {} (height {})", src.spend_action, src.source_txid, src.source_action, src.source_height);
             for t in &src.transparent_inputs {
                 match (&t.address, t.zatoshis) {
-                    (Some(a), Some(z)) => println!("            that tx was funded in the clear: {} ZEC from {a}", zec(z)),
+                    (Some(a), Some(z)) => println!("            that tx was funded in the clear: {} {u} from {a}", zec(z)),
                     _ => println!("            that tx spent transparent output {}:{}", t.prevout_txid, t.prevout_index),
                 }
             }
             if src.transparent_inputs.is_empty() {
                 println!("            that tx had no transparent inputs: its own funding was shielded and is not shown");
             } else if src.net_into_shielded_zatoshis > 0 {
-                println!("            it moved {} ZEC from transparent into the shielded pool", zec(src.net_into_shielded_zatoshis as u64));
+                println!("            it moved {} {u} from transparent into the shielded pool", zec(src.net_into_shielded_zatoshis as u64));
             }
         }
         for o in &self.outputs {
-            println!("  paid      {} ZEC to {}", o.zec, o.recipient);
+            println!("  paid      {} {u} to {}", o.zec, o.recipient);
             if let Some(m) = &o.memo {
                 println!("            memo: {m}");
             } else if o.memo_withheld {
@@ -610,7 +625,7 @@ impl IncomingReport {
         }
         println!("  recipient {} (proven: the presenter controls this address)", self.recipient);
         for o in &self.outputs {
-            println!("  received  {} ZEC", o.zec);
+            println!("  received  {} {}", o.zec, unit(self.network));
             if let Some(m) = &o.memo {
                 println!("            memo: {m}");
             }
@@ -805,7 +820,7 @@ impl ReserveReport {
         if !self.message.is_empty() {
             println!("  message   {}", self.message.replace('\n', "\n            "));
         }
-        println!("  holds     {} ZEC in {} note(s), all unspent as of block {}", self.total_zec, self.notes, self.unspent_as_of);
+        println!("  holds     {} {} in {} note(s), all unspent as of block {}", self.total_zec, unit(self.network), self.notes, self.unspent_as_of);
         println!("  proven    against the {} tree at block {}; {} blocks of nullifiers scanned", self.pool, self.anchor_height, self.blocks_scanned);
         println!("  revealed  each note's value and nullifier (so whoever holds this can see when they are spent); not the address or anything else");
     }
@@ -855,6 +870,14 @@ pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReservePro
 #[cfg(test)]
 mod window_tests {
     use super::*;
+
+    #[test]
+    fn batch_height_hints_are_read_from_links() {
+        assert_eq!(height_hints("x#zip311b1Ab&h=12,40,41"), Some(vec![12, 40, 41]));
+        assert_eq!(height_hints("x#zip311b1Ab&h=12"), Some(vec![12]));
+        assert_eq!(height_hints("x#zip311b1Ab&h=12,,4"), None);
+        assert_eq!(height_hints("x#zip311b1Ab"), None);
+    }
 
     #[test]
     fn height_hints_are_read_from_links() {

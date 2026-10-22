@@ -443,9 +443,11 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
     let batch = receipts_core::ReceiptBatch::from_text(&body)?;
     let id = receipts_core::check_batch(&batch).map_err(|e| anyhow!("batch is inconsistent: {e}"))?;
+    // `h=` block hints, one per receipt: fetch each payment by block, not by txid.
+    let hints = chain::height_hints(text).filter(|h| h.len() == batch.receipts.len());
     let mut reports = Vec::new();
-    for r in &batch.receipts {
-        reports.push(chain::verify_against_chain(r, server, regtest).await?);
+    for (i, r) in batch.receipts.iter().enumerate() {
+        reports.push(chain::verify_against_chain_hinted(r, server, regtest, hints.as_ref().map(|h| h[i])).await?);
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&reports)?);
@@ -456,11 +458,11 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     for rep in &reports {
         for o in &rep.outputs {
             *totals.entry(o.recipient.clone()).or_default() += o.zatoshis;
-            println!("  {} ZEC  tx {}…  {}", o.zec, &rep.txid[..12], o.memo.clone().unwrap_or_default());
+            println!("  {} {}  tx {}…  {}", o.zec, chain::unit(rep.network), &rep.txid[..12], o.memo.clone().unwrap_or_default());
         }
     }
     let sum: u64 = totals.values().sum();
-    println!("  total {} ZEC to {} recipient(s)", chain::zec(sum), totals.len());
+    println!("  total {} {} to {} recipient(s) (sum of the outputs the senders disclosed)", chain::zec(sum), chain::unit(reports[0].network), totals.len());
     for line in provenance_lines(&reports) {
         println!("{line}");
     }

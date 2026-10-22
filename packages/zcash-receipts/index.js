@@ -244,9 +244,10 @@ const b64urlEncode = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).repl
  * its keys are fetched from `<issuer>/.well-known/jwks.json` and the token's `iss` must match)
  * or `jwks` (that key set, as an object or URL). A token naming some other issuer is refused,
  * since anyone can sign a token and host keys. Resolves to the signed claims, with any revealed
- * hidden claims under `revealed`. Throws if anything doesn't check out.
+ * hidden claims under `revealed`. Throws if anything doesn't check out, and for test-mode or
+ * sandbox attestations unless `allowTest` is set.
  */
-export async function verifyAttestation(presentation, { issuer, jwks } = {}) {
+export async function verifyAttestation(presentation, { issuer, jwks, allowTest = false } = {}) {
   if (!issuer && !jwks) throw new Error("verifyAttestation needs { issuer } or { jwks }: the server you trust");
   const [jwt, ...disclosures] = String(presentation).trim().split("~");
   const [h, p, s] = jwt.split(".");
@@ -270,6 +271,11 @@ export async function verifyAttestation(presentation, { issuer, jwks } = {}) {
     const [, name, value] = JSON.parse(new TextDecoder().decode(b64urlDecode(d)));
     if (Object.prototype.hasOwnProperty.call(revealed, name)) throw new Error("duplicate disclosure");
     revealed[name] = value;
+  }
+  // Test-mode and sandbox attestations are signed with the same key as live ones; the signed
+  // claims say which they are, so refuse them unless the caller asks for test facts.
+  if (!allowTest && (claims.livemode === false || claims.sandbox === true)) {
+    throw new Error("test-mode attestation (issued with a test key or paid with a sandbox fixture); pass { allowTest: true } to accept it");
   }
   delete claims._sd;
   delete claims._sd_alg;

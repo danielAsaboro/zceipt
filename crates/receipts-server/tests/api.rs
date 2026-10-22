@@ -491,7 +491,7 @@ async fn payment_links_are_checked_and_our_own_pass() {
 
 #[tokio::test]
 async fn attestations_state_minimal_facts_and_disclose_selectively() {
-    let (app, test, _) = app().await;
+    let (app, test, live) = app().await;
     let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234567, "label": "Grant round 3" })), None).await;
     let id = r["id"].as_str().unwrap();
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
@@ -518,6 +518,9 @@ async fn attestations_state_minimal_facts_and_disclose_selectively() {
     // Changing a stated fact, or adding a foreign disclosure, breaks it.
     let forged = pres.replacen('.', ".x", 1);
     let (s, v, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": forged })), None).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("attestation_invalid")));
+    // A live key refuses a test-mode (sandbox-paid) attestation signed by the same key.
+    let (s, v, _) = call(&app, "POST", "/v1/attestations/verify", Some(&live), Some(json!({ "attestation": pres })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("attestation_invalid")));
     let (_, other, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
     let mixed = format!("{pres}{}~", other["disclosures"]["txid"].as_str().unwrap());

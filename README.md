@@ -52,7 +52,8 @@ works too.
 | The payer's spend authority made the payment | yes | A fresh Halo 2 Action proof for the spent note (same anchor, same nullifier as on chain, fresh `rk` and `cv_net`) and a spend-authorization signature over the whole receipt |
 | A message (invoice number, verifier's challenge) | yes | Covered by the signature |
 | Payer's address, balance, other notes and transactions | no | Never included |
-| That the transaction was mined | checked by the verifier | The verifier fetches it from a lightwalletd server and checks its block |
+| That the transaction was mined | on a lightwalletd server's word | The verifier fetches it from a lightwalletd server; `receipts verify --cross-check <server>` confirms the block with a second one |
+| That the payee is someone else | no | The sender chooses which outputs to disclose (change discloses like any output); verifiers check the recipient they expect |
 
 Output disclosure alone (an `ock`, or a note opening) can be made by anyone who saw the payment
 with a viewing key. The spend proof is what makes it the payer's receipt: ZIP 311 calls a

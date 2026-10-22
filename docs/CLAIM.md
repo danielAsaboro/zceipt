@@ -24,10 +24,10 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    receipt that a verifier accepts, by editing, merging or truncating receipts they hold.
 4. **Sender address (optional).** For every spend that carries an address proof for `A`, the same
    `ask` (same `rk`) also controls `A`: `A = (d, [ivk] g_d)` for an `ivk` derived from that `ak`.
-2b. **Outputs without memo (optional).** For every opened output `j`, action `j` of the outputs'
+5. **Outputs without memo (optional).** For every opened output `j`, action `j` of the outputs'
    bundle carries a note to `(d, pk_d)` with value `v` (no claim about the memo or about who can
    decrypt it).
-5. **Source of funds (optional).** For every spend that carries a source proof naming output `k`
+6. **Source of funds (optional).** For every spend that carries a source proof naming output `k`
    of transaction `S`, the note spent by action `i` of `T` is the note whose commitment `S`
    published at output `k`; if the proof reveals a value `v`, that note carried exactly `v`.
 
@@ -39,8 +39,14 @@ signer's spend authority controls `A` (the address-proof argument (4) below, und
 
 It does **not** claim:
 
-- that `T` was mined: the verifier must establish that separately (the chain verifier fetches it
-  from lightwalletd and counts confirmations; offline verification says it did not check);
+- that `T` was mined: the verifier must establish that separately. The chain verifier fetches it
+  from a lightwalletd server and counts confirmations, so "mined" rests on that server's word
+  (`receipts verify --cross-check <second server>` asks a second one); offline verification says
+  it did not check;
+- that a disclosed output went to someone other than the payer: the sender chooses which outputs
+  to disclose, and change or a payment to itself discloses like any other output. What binds a
+  receipt to a payee is the verifier's own check of the recipient (`expect_address`, "was it paid
+  to you?", a proof request), and a batch total is the sum of the outputs its senders disclosed;
 - that the signer *created* the disclosed outputs: the receipt shows that the spend-authority
   holder knew each output's `ock`. In a transaction built by one wallet (every wallet today) that
   is the payer; in a transaction assembled by several parties (a PCZT with several signers) it is
@@ -127,7 +133,7 @@ verifier on its own (rule "cv_net is not ValueCommit_0(1)"); one that writes the
 fails the Halo 2 check, which the spec verifier does not run, and the two verifiers agree on the
 public inputs that check uses.
 
-**Source of funds (5).** A third Action proof under the same `rk` uses the anchor the verifier
+**Source of funds (6).** A third Action proof under the same `rk` uses the anchor the verifier
 builds from `cmx_k`, read from `S`: the root of a one-leaf tree. As for (1), the extracted note has
 nullifier `nf_i`, so it is the note `T` spent (unique nullifiers). The verifier fixes `cv` with a
 zero trapdoor, `ValueCommit_0(1)` or `ValueCommit_0(v)`, so `v_old ≥ 1` and the circuit enforces

@@ -262,9 +262,14 @@ pub struct VerifyAttestation {
 }
 
 /// POST /v1/attestations/verify — checks an attestation this server issued.
-pub async fn verify(State(st): State<Shared>, _auth: Auth, Body(req, _): Body<VerifyAttestation>) -> Result<Json<Value>, ApiError> {
+pub async fn verify(State(st): State<Shared>, auth: Auth, Body(req, _): Body<VerifyAttestation>) -> Result<Json<Value>, ApiError> {
     let text = req.attestation.ok_or_else(|| ApiError::missing("attestation"))?;
     let claims = verify_presentation(&text, &public_keys(&st)?).map_err(|e| ApiError::verification("attestation_invalid", e).param("attestation"))?;
+    // A live key only accepts live facts: test-mode and sandbox attestations are signed with the
+    // same key, so the claims themselves say which they are.
+    if auth.mode == crate::Mode::Live && (claims["livemode"] != true || claims["sandbox"] == true) {
+        return Err(ApiError::verification("attestation_invalid", "this attestation was issued in test mode (or paid with a sandbox fixture); a live key accepts only live ones").param("attestation"));
+    }
     Ok(Json(json!({ "object": "attestation_verification", "valid": true, "claims": claims })))
 }
 

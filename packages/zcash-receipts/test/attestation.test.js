@@ -33,3 +33,13 @@ test("attestations verify, reveal selectively, and reject tampering", async () =
   // A disclosure from elsewhere is refused.
   await assert.rejects(verifyAttestation(`${jwt}~${enc(["s", "txid", "ff"])}~`, { jwks }), /not part/);
 });
+
+test("test-mode and sandbox attestations are refused unless allowTest", async () => {
+  for (const extra of [{ livemode: false }, { livemode: true, sandbox: true }]) {
+    const { jwt, jwks } = await issue({ iss: "https://x", paid_at_least_zatoshis: 1, paid_on_or_before: "2026-10-14", ...extra }, {});
+    await assert.rejects(verifyAttestation(`${jwt}~`, { jwks }), /test-mode/);
+    assert.equal((await verifyAttestation(`${jwt}~`, { jwks, allowTest: true })).paid_at_least_zatoshis, 1);
+  }
+  const { jwt, jwks } = await issue({ iss: "https://x", paid_at_least_zatoshis: 1, paid_on_or_before: "2026-10-14", livemode: true, sandbox: false }, {});
+  assert.equal((await verifyAttestation(`${jwt}~`, { jwks })).livemode, true);
+});

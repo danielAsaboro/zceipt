@@ -22,7 +22,7 @@ Needs Rust 1.89 or newer; `rust-toolchain.toml` pins 1.95, which rustup installs
 cargo install --locked --path crates/receipts-cli   # installs `receipts`
 receipts serve                                       # http://127.0.0.1:8723, data in ./receipts.db
 #   test key  rcpt_test_…    (testnet)
-#   live key  rcpt_live_…    (mainnet)
+#   live key  rcpt_live_…    (mainnet; printed shortened, the full key is in receipts.db.keys)
 export RECEIPTS_KEY=rcpt_test_…
 ```
 

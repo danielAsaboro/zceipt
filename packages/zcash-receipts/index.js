@@ -4,9 +4,9 @@
 //   const r = await verifyReceipt("https://…#zip311r1…", { expectAddress: "u1…" });
 //   r.valid, r.outputs[0].zatoshis, r.outputs[0].memo, r.message
 //
-// Everything runs locally (Rust compiled to WebAssembly). The only network request fetches
-// the public transaction from a lightwalletd grpc-web server, which you can override or skip
-// entirely by passing the raw transaction.
+// Everything runs locally (Rust compiled to WebAssembly). The only network requests go to one
+// lightwalletd grpc-web server (the transaction, or its block's list and transactions with an
+// h= hint), which you can override or skip entirely by passing the raw transaction.
 
 import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
@@ -92,7 +92,7 @@ export async function verifyReceipt(input, options = {}) {
     if (hint && options.privateFetch !== false) {
       const r = await fetchTransactionPrivately(endpoint, summary.txid, hint, { maxSet: options.maxAnonymitySet });
       ({ raw, height } = r);
-      fetchInfo = { mode: "block", server: endpoint, anonymity_set: r.anonymitySet, sees: `block ${hint} and ${r.anonymitySet} of its ${r.blockTxs} shielded transactions, not which one you checked` };
+      fetchInfo = { mode: "block", server: endpoint, anonymity_set: r.anonymitySet, sees: `block ${hint} and ${r.anonymitySet} of its transactions that could carry a receipt (each checked to exist there), not which one you checked` };
     } else {
       ({ raw, height } = await fetchTransaction(endpoint, summary.txid));
       fetchInfo = { mode: "txid", server: endpoint, sees: "the transaction id you checked (add the h= hint or pass rawTx to avoid this)" };
@@ -141,8 +141,7 @@ export async function verifyReceipt(input, options = {}) {
     v.deposit = JSON.parse(check_tex_deposit(receipt, raw, Number(height), tx2.raw, Number(tx2.height), !!options.regtest));
   }
   if (options.challenge != null) {
-    const m = /(?:^|\n)challenge:([0-9a-f]{6,64})(?:\n|$)/.exec(v.message || "");
-    if (!m || m[1] !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");
+    if (challengeIn(v.message) !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");
   }
   if (options.minZatoshis != null && !options.expectAddress) throw new Error("minZatoshis needs expectAddress: the minimum is checked against what that address received");
   if (options.expectAddress) {
@@ -157,6 +156,14 @@ export async function verifyReceipt(input, options = {}) {
 // What verified receipts paid `ua`, by Orchard receiver. The address must be on the payments'
 // network (receiver bytes carry none), and outputs disclosed without their memo don't count:
 // they don't show the payee can receive the note.
+// The challenge a receipt signs: the first line starting "challenge:", if its value is 6 to 64
+// lowercase hex digits (the API reads it the same way; lines end at \n or \r\n).
+function challengeIn(message) {
+  const line = String(message || "").split("\n").map((l) => l.replace(/\r$/, "")).find((l) => l.startsWith("challenge:"));
+  const c = line ? line.slice("challenge:".length) : "";
+  return /^[0-9a-f]{6,64}$/.test(c) ? c : null;
+}
+
 // Testnet and regtest share a coin type, so only mainnet versus the test networks is checked.
 const sameNet = (a, b) => (a === "mainnet") === (b === "mainnet");
 
@@ -217,7 +224,11 @@ export async function verifyBatch(input, options = {}) {
   const { rawTx, height, expectAddress, minZatoshis, ...rest } = options;
   const results = [];
   // Fetches overlap; each proof is checked as its transaction arrives.
-  results.push(...(await Promise.all(receipts.map((r) => verifyReceipt(r, rest)))));
+  // The link's block hints (`&h=a,b,c`, one per receipt): fetch each payment by block, not txid.
+  const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(decodeURIComponent(String(input)));
+  const hints = m ? m[1].split(",").map(Number) : [];
+  const useHints = hints.length === receipts.length;
+  results.push(...(await Promise.all(receipts.map((r, i) => verifyReceipt(useHints ? `${r}&h=${hints[i]}` : r, rest)))));
   const totals = {};
   for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
   const out = { id, results, totals };

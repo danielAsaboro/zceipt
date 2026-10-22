@@ -83,7 +83,24 @@ pub fn policy_summary(p: Option<&str>) -> Value {
 
 /// Checks a verified receipt against the policy. Errors if a spend lacks a source proof (the
 /// payer must resend); otherwise returns the provenance record, `cleared` or `review`.
-pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64) -> Result<Value, ApiError> {
+/// Zatoshis each source transaction already funded in deposits this desk credited (other than
+/// `except`): the clear funding of one source can't be counted for several deposits.
+pub fn prior_claims(c: &rusqlite::Connection, except: &str) -> std::collections::BTreeMap<String, u64> {
+    let mut out = std::collections::BTreeMap::new();
+    let Ok(mut stmt) = c.prepare("SELECT provenance FROM requests WHERE provenance IS NOT NULL AND status = 'fulfilled' AND id != ?1") else { return out };
+    let rows: Vec<String> = stmt.query_map([except], |r| r.get(0)).map(|it| it.flatten().collect()).unwrap_or_default();
+    for p in rows {
+        let Ok(p) = serde_json::from_str::<Value>(&p) else { continue };
+        for s in p["sources"].as_array().into_iter().flatten() {
+            if let (Some(t), Some(z)) = (s["source_txid"].as_str(), s["zatoshis"].as_u64()) {
+                *out.entry(t.to_string()).or_default() += z;
+            }
+        }
+    }
+    out
+}
+
+pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64, prior: &std::collections::BTreeMap<String, u64>) -> Result<Value, ApiError> {
     let p: Value = serde_json::from_str(policy).unwrap_or(json!({}));
     let blocked: std::collections::BTreeSet<&str> = p["blocked_addresses"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
     let spends = v.checks["spend_authority"]["actions"].as_u64().unwrap_or(0) as usize;
@@ -131,8 +148,13 @@ pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64) -> Res
         screened += value;
     }
     for (stx, (claimed, moved_in)) in &per_source {
-        if (*claimed as i64) > *moved_in {
-            reasons.push(format!("transaction {stx} moved {moved_in} zatoshis in from the clear, less than the {claimed} zatoshis of notes it funded here: the rest came from shielded notes the payer didn't show"));
+        let earlier = prior.get(stx).copied().unwrap_or(0);
+        if (*claimed + earlier) as i64 > *moved_in {
+            reasons.push(if earlier > 0 {
+                format!("transaction {stx} moved {moved_in} zatoshis in from the clear; {earlier} of that already funded earlier deposits here, so it can't also cover the {claimed} zatoshis of notes in this one")
+            } else {
+                format!("transaction {stx} moved {moved_in} zatoshis in from the clear, less than the {claimed} zatoshis of notes it funded here: the rest came from shielded notes the payer didn't show")
+            });
         }
     }
     if screened < paid && reasons.is_empty() {

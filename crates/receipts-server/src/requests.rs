@@ -338,7 +338,14 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         // Deposit desks: the receipt must prove where every spent note came from; then screen it.
         let provenance = match r.source_policy.as_deref() {
             None => None,
-            Some(p) => Some(crate::deposits::evaluate(p, &v, paid)?),
+            Some(p) => {
+                // What earlier credited deposits already claimed from each source transaction.
+                let prior = {
+                    let c = st.db.0.lock().unwrap();
+                    crate::deposits::prior_claims(&c, &r.id)
+                };
+                Some(crate::deposits::evaluate(p, &v, paid, &prior)?)
+            }
         };
         Ok((v, paid, actions, provenance))
     }

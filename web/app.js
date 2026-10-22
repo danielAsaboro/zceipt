@@ -1,6 +1,7 @@
 // Receipts verifier page. The receipt lives in the URL fragment (#zip311r1…), which browsers
-// never send to any server. The only network request is fetching the public transaction
-// from a lightwalletd server of the viewer's choice.
+// never send to any server. The page talks to one lightwalletd server of the viewer's choice
+// (the block's transaction list and the transactions themselves); the explorer link is only
+// followed if clicked.
 
 const ENDPOINTS = {
   mainnet: "https://zcash-mainnet.chainsafe.dev",
@@ -141,9 +142,12 @@ function requestFromUrl() {
   if (!code) return null;
   return { code, to: q.get("to") || "", min: Number(q.get("min") || 0), label: q.get("label") || "" };
 }
+// The challenge a receipt signs: the first line starting "challenge:", if its value is 6 to 64
+// lowercase hex digits (the API reads it the same way; lines end at \n or \r\n).
 function challengeIn(message) {
-  const m = /(?:^|\n)challenge:([0-9a-f]{6,64})(?:\n|$)/.exec(message || "");
-  return m ? m[1] : null;
+  const line = String(message || "").split("\n").map((l) => l.replace(/\r$/, "")).find((l) => l.startsWith("challenge:"));
+  const c = line ? line.slice("challenge:".length) : "";
+  return /^[0-9a-f]{6,64}$/.test(c) ? c : null;
 }
 
 // ---------- UI ----------
@@ -497,7 +501,8 @@ async function runBatch(batchText) {
   }
   UNIT = unitFor(results[0].network);
   const lines = results.flatMap((v) => v.outputs.map((o) => ({ v, o })));
-  const total = lines.reduce((s, l) => s + l.o.zatoshis, 0);
+  // Outputs disclosed without their memo don't show the payee can receive the note: listed, not counted.
+  const total = lines.filter((l) => !l.o.memo_withheld).reduce((s, l) => s + l.o.zatoshis, 0);
   const recipients = new Set(lines.map((l) => l.o.recipient)).size;
   const note = (results[0].message || "").split("\n").filter((l) => !l.startsWith("batch:")).join(" ");
   revealResult();
@@ -520,7 +525,8 @@ async function runBatch(batchText) {
         <li><strong>Not revealed:</strong> the treasury's address, balance, or any other transaction.</li>
       </ul>
     </div>
-    ${localBadge()}`;
+    ${localBadge()}
+    ${requestFromUrl() ? `<div class="reqbox" data-ok="false"><div class="reqhead">REQUEST NOT SATISFIED</div><ul><li data-ok="false">✗ This is a batch of payments. It doesn't answer a payment request: ask for a receipt made with the request link.</li></ul></div>` : ""}`;
 }
 
 // ---------- incoming receipts (the recipient proves it was paid) ----------

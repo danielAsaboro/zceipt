@@ -97,10 +97,12 @@ pub fn levels(mined_height: u32, tip: Option<u32>, outputs: usize, spends: usize
 }
 
 /// The `challenge:<hex>` line a receipt signs, if any.
+/// The challenge a receipt signs: the first line starting `challenge:`, if its value is 6 to 64
+/// lowercase hex digits (the page and npm read it the same way; lines end at `\n` or `\r\n`).
 pub fn challenge_of(msg: &str) -> Option<String> {
     msg.lines()
         .find_map(|l| l.strip_prefix("challenge:"))
-        .filter(|c| (6..=64).contains(&c.len()) && c.chars().all(|x| x.is_ascii_hexdigit()))
+        .filter(|c| (6..=64).contains(&c.len()) && c.bytes().all(|x| matches!(x, b'0'..=b'9' | b'a'..=b'f')))
         .map(str::to_string)
 }
 
@@ -380,7 +382,7 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
     let results: Vec<Verification> = slots.into_iter().map(|v| v.expect("every task reports")).collect();
     let mut totals = serde_json::Map::new();
     for v in &results {
-        for o in &v.outputs {
+        for o in v.outputs.iter().filter(|o| !o.memo_withheld) {
             let cur = totals.get(&o.recipient).and_then(|x| x.as_u64()).unwrap_or(0);
             totals.insert(o.recipient.clone(), (cur + o.zatoshis).into());
         }
@@ -390,7 +392,8 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
         "valid": true,
         "livemode": net == Net::Main,
         "id": id,
-        "total_zatoshis": results.iter().flat_map(|v| v.outputs.iter()).map(|o| o.zatoshis).sum::<u64>(),
+        // Outputs disclosed without their memo are listed but not counted.
+        "total_zatoshis": results.iter().flat_map(|v| v.outputs.iter()).filter(|o| !o.memo_withheld).map(|o| o.zatoshis).sum::<u64>(),
         "totals_by_recipient": totals,
         "receipts": results,
     });

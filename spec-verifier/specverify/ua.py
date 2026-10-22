@@ -88,6 +88,9 @@ def decode(ua: str):
         value = m[i + 2:i + 2 + length]
         if len(value) != length:
             raise ValueError("truncated item")
+        # ZIP 316: items in ascending typecode order, each typecode at most once.
+        if items and typecode <= max(items):
+            raise ValueError("typecodes out of order or repeated")
         items[typecode] = value
         i += 2 + length
     return NETWORKS[hrp], items

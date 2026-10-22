@@ -183,9 +183,13 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
     const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
     [set[i], set[j]] = [set[j], set[i]];
   }
-  const results = await Promise.all(set.map((t) => fetchTransaction(endpoint, t)));
+  // Every request completes before any failure is reported, and a decoy only counts if the server
+  // really has it in this block: a hostile server could list made-up txids around ours.
+  const results = await Promise.allSettled(set.map((t) => fetchTransaction(endpoint, t)));
   const mine = results[set.indexOf(want)];
-  return { ...mine, anonymitySet: set.length, blockTxs: ids.length, blockTime: ids.time };
+  if (mine.status === "rejected") throw mine.reason;
+  const real = results.filter((r, i) => set[i] !== want && r.status === "fulfilled" && r.value.height === height).length;
+  return { ...mine.value, anonymitySet: real + 1, blockTxs: ids.length, blockTime: ids.time };
 }
 
 /** The block-height hint in a receipt link (`…&h=4500997`), or null. Unsigned: only a fetch hint. */

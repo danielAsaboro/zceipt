@@ -112,17 +112,22 @@ pub async fn fetch_mined_tx_in_block(
     let start = pos / PRIVATE_FETCH_SET * PRIVATE_FETCH_SET;
     let mut others: Vec<[u8; 32]> = ids[start..(start + PRIVATE_FETCH_SET).min(ids.len())].to_vec();
     shuffle(&mut others)?;
-    let set = others.len();
     let mut mine = None;
+    let mut real_decoys = 0;
     for t in others {
         // Every transaction is fetched and checked the same way, and every one is fetched even if
         // ours fails, so neither the requests nor where they stop point at ours.
         let fetched = fetch_mined_tx_with(&mut client, net, t).await;
         if t == txid {
             mine = Some(fetched);
+        } else if fetched.is_ok_and(|(tx, h)| h == height && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some())) {
+            // A decoy only counts if the server really has it, in this block, with Orchard or
+            // Ironwood actions: a hostile server could list made-up txids around ours.
+            real_decoys += 1;
         }
     }
     let (tx, h) = mine.expect("txid is in the set")?;
+    let set = real_decoys + 1;
     if h != height {
         bail!("the server put transaction {} at block {h}, not {height}", display_txid(&txid));
     }
@@ -332,8 +337,9 @@ pub fn orchard_receiver_on(network: &str, ua: &str) -> anyhow::Result<[u8; 43]> 
 
 /// What a verified receipt paid `ua`: the sum of its disclosed outputs to that address's Orchard
 /// receiver. The address must be on the receipt's network, and outputs disclosed without their
-/// memo don't count (they don't show the payee can receive the note). Every "was I paid" check
-/// in the CLI and the conformance vectors goes through this.
+/// memo don't count (they don't show the payee can receive the note). The CLI's "was I paid"
+/// checks and the Rust run of the conformance vectors go through this; the server, npm and page
+/// apply the same rule (and the shared expectation vectors check they agree).
 pub fn paid_to_address(report: &Report, ua: &str) -> anyhow::Result<u64> {
     let want = orchard_receiver_on(report.network, ua)?;
     Ok(report.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum())

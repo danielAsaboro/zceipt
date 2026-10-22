@@ -433,6 +433,20 @@ enum Cmd {
     },
 }
 
+/// `--expect-address`: the shared "was I paid" rule (the address on the payment's network; outputs
+/// disclosed without their memo don't count). Every receipt path, deposits included, runs it.
+fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow::Result<()> {
+    let Some(addr) = expect else { return Ok(()) };
+    if chain::paid_to_address(report, addr)? == 0 {
+        let want = chain::orchard_receiver_of(addr)?;
+        if report.outputs.iter().any(|o| o.recipient_raw == want) {
+            bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
+        }
+        bail!("no disclosed output pays {addr}");
+    }
+    Ok(())
+}
+
 /// How many receipts of any kind (receipt, batch, incoming receipt, proof of funds) the input holds.
 fn count_receipts(text: &str) -> usize {
     [receipts_core::TEXT_PREFIX, receipts_core::BATCH_TEXT_PREFIX, receipts_core::incoming::INCOMING_TEXT_PREFIX, receipts_core::reserve::RESERVE_TEXT_PREFIX]
@@ -499,7 +513,9 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     println!("VALID batch {id}: {} payments, each proven by its sender", reports.len());
     for rep in &reports {
         for o in &rep.outputs {
-            *totals.entry(o.recipient.clone()).or_default() += o.zatoshis;
+            if !o.memo_withheld {
+                *totals.entry(o.recipient.clone()).or_default() += o.zatoshis;
+            }
             println!("  {} {}  tx {}…  {}", o.zec, chain::unit(rep.network), &rep.txid[..12], o.memo.clone().unwrap_or_default());
         }
     }
@@ -775,19 +791,11 @@ async fn main() -> anyhow::Result<()> {
                 }
                 let tx2 = read(&std::fs::read_to_string(&second)?, h2)?;
                 let d = receipts_chain::deposit::check(&receipt, &report.message, receipts_chain::deposit::network_type(net), &tx1, &tx2).map_err(|e| anyhow!(e))?;
+                check_expected_payee(&report, expect_address.as_deref())?;
                 print_deposit(&report, &d, json)?;
                 return Ok(());
             }
-            if let Some(addr) = &expect_address {
-                // The shared "was I paid" rule (network, memo-withheld outputs don't count).
-                if chain::paid_to_address(&report, addr)? == 0 {
-                    let want = chain::orchard_receiver_of(addr)?;
-                    if report.outputs.iter().any(|o| o.recipient_raw == want) {
-                        bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
-                    }
-                    bail!("no disclosed output pays {addr}");
-                }
-            }
+            check_expected_payee(&report, expect_address.as_deref())?;
             let _ = server;
             if json { println!("{}", serde_json::to_string_pretty(&report)?); } else { report.print(); }
         }
@@ -805,6 +813,7 @@ async fn main() -> anyhow::Result<()> {
             let receipt = read_receipt_arg(&receipt)?;
             if receipts_chain::deposit::deposit_claim(&String::from_utf8_lossy(&receipt.unsigned.msg)).is_some() {
                 let (report, d) = receipts_chain::deposit::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
+                check_expected_payee(&report, expect_address.as_deref())?;
                 print_deposit(&report, &d, json)?;
                 return Ok(());
             }
@@ -821,16 +830,7 @@ async fn main() -> anyhow::Result<()> {
                     None => eprintln!("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)"),
                 }
             }
-            if let Some(addr) = &expect_address {
-                // The shared "was I paid" rule (network, memo-withheld outputs don't count).
-                if chain::paid_to_address(&report, addr)? == 0 {
-                    let want = chain::orchard_receiver_of(addr)?;
-                    if report.outputs.iter().any(|o| o.recipient_raw == want) {
-                        bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
-                    }
-                    bail!("no disclosed output pays {addr}");
-                }
-            }
+            check_expected_payee(&report, expect_address.as_deref())?;
             if let Some(second) = &cross_check {
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
                 let conf = chain::cross_check(net, server.as_deref(), second, receipt.unsigned.txid, report.mined_height, hint.is_some()).await?;
@@ -876,8 +876,25 @@ async fn main() -> anyhow::Result<()> {
             let (app, keys) = receipts_server::build(&db, config).await?;
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("Receipts API on http://{listen}  (test mode: {}, live mode: mainnet)", test_net.name());
+            // The live key moves real money's paperwork: keep it out of logs. It goes to a file only
+            // the owner can read, next to the database; the test key is printed.
+            let key_file = format!("{db}.keys");
+            let mut lines = String::new();
             for (k, mode) in &keys {
-                eprintln!("  {mode:<4} key  {k}");
+                lines.push_str(&format!("{mode} {k}\n"));
+                if mode == "live" {
+                    eprintln!("  live key  {}…  (full key in {key_file})", &k[..14.min(k.len())]);
+                } else {
+                    eprintln!("  {mode:<4} key  {k}");
+                }
+            }
+            if !keys.is_empty() {
+                std::fs::write(&key_file, lines)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600))?;
+                }
             }
             eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
             axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;

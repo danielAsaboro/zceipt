@@ -699,6 +699,7 @@ const DOCS: &[(&str, &str)] = &[
     ("SANDBOX.md", include_str!("../../../docs/SANDBOX.md")),
     ("SDKS.md", include_str!("../../../docs/SDKS.md")),
     ("SPEC.md", include_str!("../../../docs/SPEC.md")),
+    ("ZIP311-ORCHARD.md", include_str!("../../../docs/ZIP311-ORCHARD.md")),
     ("REGTEST.md", include_str!("../../../docs/REGTEST.md")),
     ("THREAT-MODEL.md", include_str!("../../../docs/THREAT-MODEL.md")),
     ("ZIP311-TODOS.md", include_str!("../../../docs/ZIP311-TODOS.md")),

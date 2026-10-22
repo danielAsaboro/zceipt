@@ -91,9 +91,11 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
 - **Inside a wallet:** `crates/receipts-wallet` makes receipts from a zcash-devtool wallet
   database, and `zcash-devtool wallet receipt --txid …` is a 137-line command on top of it
   ([integrations/zcash-devtool](integrations/zcash-devtool)).
-- **The spec:** [SPEC.md](docs/SPEC.md) is the Orchard/Ironwood instantiation, written as ZIP
-  text. [ZIP311-TODOS.md](docs/ZIP311-TODOS.md) maps each open item in ZIP 311 to what we
-  chose, and [SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md) lists where the specs are silent.
+- **The spec:** [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md) is the normative core (encoding,
+  creation, every verification rule, rationale) written as text for ZIP 311's Orchard `TODO`;
+  [SPEC.md](docs/SPEC.md) adds the extensions. [ZIP311-TODOS.md](docs/ZIP311-TODOS.md) maps each
+  open item in ZIP 311 to what we chose, and [SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md)
+  lists where the specs are silent.
 - **Conformance:** [270 vectors](conformance/README.md) from real Orchard and Ironwood receipts,
   run by the native and WebAssembly builds and the npm package.
 - **A second verifier written from the protocol specification** in Python, with no shared code

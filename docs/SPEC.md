@@ -6,6 +6,9 @@ and leaves Orchard as `TODO`. This document describes the Orchard instantiation 
 repository implements. It applies unchanged to Ironwood (NU6.3), which uses the Orchard
 protocol with version-3 note plaintexts.
 
+The normative core (encoding, creation and every verification rule, with MUST/SHOULD) is in
+[ZIP311-ORCHARD.md](ZIP311-ORCHARD.md). This document explains it and specifies the extensions.
+
 ## Goals (from ZIP 311)
 
 - Disclose zero or more outputs of one transaction.

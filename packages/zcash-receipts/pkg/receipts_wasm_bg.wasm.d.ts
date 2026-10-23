@@ -11,6 +11,7 @@ export const orchard_receiver_hex: (a: number, b: number) => [number, number, nu
 export const secret_kind: (a: number, b: number) => [number, number];
 export const source_txids: (a: number, b: number) => [number, number, number, number];
 export const transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const txid_of: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const verify: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
 export const verify_incoming: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const verify_payment_request: (a: number, b: number, c: number) => [number, number, number, number];

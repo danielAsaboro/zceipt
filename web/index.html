@@ -6,6 +6,7 @@
   <title>Receipts · prove one Zcash payment</title>
   <meta name="description" content="Prove one shielded Zcash payment to one person, and reveal nothing else. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
   <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='3' width='20' height='26' rx='2' fill='%23f3efe4'/><path d='M10 10h12M10 15h12M10 20h7' stroke='%23161513' stroke-width='2'/></svg>">
   <style>
@@ -209,10 +210,6 @@ receipts verify 'https://…#zip311r1…'</div>
     </section>
   </main>
   <footer>Open source · ZIP 311 (Draft) with a proposed Orchard/Ironwood instantiation · Built for ZECATHON 2026</footer>
-  <script type="module">
-    const r = document.getElementById("result");
-    new MutationObserver(() => { document.getElementById("empty").hidden = !r.hidden; }).observe(r, { attributes: true, attributeFilter: ["hidden"] });
-  </script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

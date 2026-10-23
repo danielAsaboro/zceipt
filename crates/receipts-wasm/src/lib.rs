@@ -165,6 +165,15 @@ pub fn transparent_output(raw_tx: &[u8], height: u32, index: u32, coin_type: u32
     Ok(serde_json::json!({ "address": address, "zatoshis": u64::from(out.value()) }).to_string())
 }
 
+/// The txid (block-explorer hex) of `raw_tx`, mined at `height`: lets the block-level fetch
+/// check that each transaction a server sent is the one asked for, not a stand-in.
+#[wasm_bindgen]
+pub fn txid_of(raw_tx: &[u8], height: u32, coin_type: u32) -> Result<String, JsError> {
+    let (net, _, _) = net_of(coin_type)?;
+    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    Ok(tx.txid().to_string())
+}
+
 /// Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
 /// `regtest` marks a local test chain (receipts there carry the testnet coin type).
 /// `sources`, for receipts with source proofs, is JSON `[{ "raw": "<hex>", "height": n }]`

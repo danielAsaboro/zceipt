@@ -108,6 +108,9 @@ pub async fn fetch_mined_tx_in_block(
     // The set is the block's run of PRIVATE_FETCH_SET transactions that holds ours, fixed by
     // block order, so checking the same receipt twice asks for the same set: random decoys would
     // differ each time and their intersection would point at the target.
+    // A txid listed twice counts once.
+    let mut seen = std::collections::HashSet::new();
+    ids.retain(|t| seen.insert(*t));
     let pos = ids.iter().position(|t| *t == txid).expect("checked above");
     let start = pos / PRIVATE_FETCH_SET * PRIVATE_FETCH_SET;
     let mut others: Vec<[u8; 32]> = ids[start..(start + PRIVATE_FETCH_SET).min(ids.len())].to_vec();
@@ -120,9 +123,10 @@ pub async fn fetch_mined_tx_in_block(
         let fetched = fetch_mined_tx_with(&mut client, net, t).await;
         if t == txid {
             mine = Some(fetched);
-        } else if fetched.is_ok_and(|(tx, h)| h == height && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some())) {
-            // A decoy only counts if the server really has it, in this block, with Orchard or
-            // Ironwood actions: a hostile server could list made-up txids around ours.
+        } else if fetched.is_ok_and(|(tx, h)| h == height && tx.txid().as_ref() == &t && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some())) {
+            // A decoy only counts if the server really has it (its bytes hash to the txid asked
+            // for), in this block, with Orchard or Ironwood actions: a hostile server could list
+            // made-up txids around ours, or answer them all with one real transaction.
             real_decoys += 1;
         }
     }
@@ -250,6 +254,26 @@ pub fn unit(network: &str) -> &'static str {
     if network == "mainnet" { "ZEC" } else { "TAZ" }
 }
 
+/// Text a sender chose (messages, memos), made safe to print: control characters and bidi
+/// overrides are shown as `\u{..}` escapes, so a memo can't move the cursor, recolour or reorder
+/// what the verifier prints, and each line break is followed by `indent`.
+pub fn shown(text: &str, indent: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\n' => {
+                out.push('\n');
+                out.push_str(indent);
+            }
+            c if c.is_control() || matches!(c, '\u{200e}' | '\u{200f}' | '\u{061c}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') => {
+                out.push_str(&c.escape_unicode().to_string());
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 impl Report {
     pub fn print(&self) {
         let u = unit(self.network);
@@ -263,11 +287,11 @@ impl Report {
         }
         println!("  pool      {}", self.pool);
         if !self.message.is_empty() {
-            println!("  message   {}", self.message.replace('\n', "\n            "));
+            println!("  message   {}", shown(&self.message, "            "));
         }
         println!("  sender    proved spend authority for action(s) {:?}", self.proven_spend_actions);
         for a in &self.sender_addresses {
-            println!("  from      {a} (proven by the sender)");
+            println!("  from      {a} (the receipt's signer controls it)");
         }
         for src in &self.sources {
             let value = src.zec.as_ref().map(|z| format!("a {z} {u} note")).unwrap_or_else(|| "the note".into());
@@ -287,7 +311,7 @@ impl Report {
         for o in &self.outputs {
             println!("  paid      {} {u} to {}", o.zec, o.recipient);
             if let Some(m) = &o.memo {
-                println!("            memo: {m}");
+                println!("            memo: {}", shown(m, "                  "));
             } else if o.memo_withheld {
                 println!("            memo: withheld by the sender (not in the receipt)");
             }
@@ -425,7 +449,16 @@ fn transparent_address(net: Net, out: &zcash_transparent::bundle::TxOut) -> Opti
 /// Fetches the source transactions a receipt's source proofs name, and the previous outputs
 /// their transparent inputs spent (at most `MAX_FUNDING_INPUTS` per source).
 pub async fn fetch_sources(receipt: &Receipt, net: Net, server: Option<&str>) -> anyhow::Result<std::collections::BTreeMap<[u8; 32], SourceTx>> {
+    // A budget for what a receipt can make the verifier fetch: an edited receipt fails its
+    // signatures first, and a made-up one can't turn one check into thousands of requests.
+    const MAX_SOURCES: usize = 8;
     const MAX_FUNDING_INPUTS: usize = 16;
+    receipt.check_signatures().map_err(|e| anyhow!("{e}"))?;
+    let distinct: std::collections::BTreeSet<_> = receipt.unsigned.spends.iter().filter_map(|s| s.source.as_ref().map(|s| s.txid)).collect();
+    if distinct.len() > MAX_SOURCES {
+        bail!("the receipt names {} source transactions; a verifier fetches at most {MAX_SOURCES}", distinct.len());
+    }
+    let mut funding_fetched = 0;
     let mut map = std::collections::BTreeMap::new();
     for s in receipt.unsigned.spends.iter().filter_map(|s| s.source.as_ref()) {
         if map.contains_key(&s.txid) {
@@ -435,7 +468,8 @@ pub async fn fetch_sources(receipt: &Receipt, net: Net, server: Option<&str>) ->
         let mut transparent_inputs = Vec::new();
         for (i, (t, n)) in outpoints(&tx).into_iter().enumerate() {
             let mut f = FundingInput { prevout_txid: display_txid(&t), prevout_index: n, address: None, zatoshis: None };
-            if i < MAX_FUNDING_INPUTS {
+            if i < MAX_FUNDING_INPUTS && funding_fetched < MAX_FUNDING_INPUTS {
+                funding_fetched += 1;
                 if let Ok((prev, _)) = fetch_mined_tx(net, server, t).await {
                     if let Some(out) = prev.transparent_bundle().and_then(|b| b.vout.get(n as usize)) {
                         f.address = transparent_address(net, out);
@@ -595,14 +629,19 @@ pub async fn rebuild_witness(
     // window the spent note was created in (docs/ASSURANCE.md, "What the chain server sees").
     let start = witness_window_start(note_height);
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
-    let ts = client
-        .get_tree_state(BlockId { height: u64::from(start - 1), hash: vec![] })
-        .await
-        .map_err(|e| anyhow!("tree state at {}: {}", start - 1, e.message()))?
-        .into_inner();
-    let mut tree = match pool {
-        Pool::Ironwood => ts.ironwood_tree()?,
-        Pool::Orchard => ts.orchard_tree()?,
+    // From the first block the tree starts empty (servers have no tree state for genesis).
+    let mut tree = if start <= 1 {
+        incrementalmerkletree::frontier::CommitmentTree::empty()
+    } else {
+        let ts = client
+            .get_tree_state(BlockId { height: u64::from(start - 1), hash: vec![] })
+            .await
+            .map_err(|e| anyhow!("tree state at {}: {}", start - 1, e.message()))?
+            .into_inner();
+        match pool {
+            Pool::Ironwood => ts.ironwood_tree()?,
+            Pool::Orchard => ts.orchard_tree()?,
+        }
     };
     let target = MerkleHashOrchard::from_cmx(&cmx);
     let want_root = MerkleHashOrchard::from_bytes(&anchor.to_bytes()).into_option().ok_or_else(|| anyhow!("bad anchor"))?;
@@ -697,13 +736,13 @@ impl IncomingReport {
         }
         println!("  pool      {}", self.pool);
         if !self.message.is_empty() {
-            println!("  message   {}", self.message.replace('\n', "\n            "));
+            println!("  message   {}", shown(&self.message, "            "));
         }
         println!("  recipient {} (proven: the presenter controls this address)", self.recipient);
         for o in &self.outputs {
             println!("  received  {} {}", o.zec, unit(self.network));
             if let Some(m) = &o.memo {
-                println!("            memo: {m}");
+                println!("            memo: {}", shown(m, "                  "));
             }
         }
         println!("  nothing else about the recipient's wallet (balance, other payments, when it spends) is revealed");
@@ -901,7 +940,7 @@ impl ReserveReport {
         println!("  network   {}", self.network);
         println!("  pool      {}", self.pool);
         if !self.message.is_empty() {
-            println!("  message   {}", self.message.replace('\n', "\n            "));
+            println!("  message   {}", shown(&self.message, "            "));
         }
         println!("  holds     {} {} in {} note(s), all unspent as of block {}", self.total_zec, unit(self.network), self.notes, self.unspent_as_of);
         println!("  proven    against the {} tree at block {}; {} blocks of nullifiers scanned", self.pool, self.anchor_height, self.blocks_scanned);
@@ -953,6 +992,15 @@ pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReservePro
 #[cfg(test)]
 mod window_tests {
     use super::*;
+
+    #[test]
+    fn sender_text_cannot_steer_the_terminal() {
+        let evil = "Order 7\x1b[1A\x1b[2K  paid      25 TAZ\r\u{202e}gnp.exe\nrefund-to:x";
+        let out = shown(evil, "  ");
+        assert!(!out.chars().any(|c| c.is_control() && c != '\n'));
+        assert!(!out.contains('\u{202e}'));
+        assert!(out.contains("\\u{1b}") && out.contains("\\u{202e}") && out.contains("\n  refund-to:x"));
+    }
 
     #[test]
     fn expected_addresses_must_be_on_the_payments_network() {

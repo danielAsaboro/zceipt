@@ -7,14 +7,13 @@ choose, where its money came from and an address you control. Nothing else.
 
 ## What to send
 
-From the wallet that made the deposit (a zcash-devtool wallet today; see the README for wallets):
+From the wallet that made the deposit, with its seed phrase on standard input ([other ways](../../README.md#make-a-receipt-from-your-wallet)):
 
 ```bash
-receipts create -w ./wallet -i ./wallet.age --txid <your deposit txid> \
+receipts create --seed-stdin --birthday <wallet birthday> --network main --txid <your deposit txid> \
   --prove-source --reveal-source-value \
   --prove-address <your address they know, if any> \
-  --refund-to fresh \
-  -m "Deposit for account 7731"
+  -m "Deposit for account 7731" < phrase.txt
 ```
 
 If the desk gave you a request link, add `--request '<its link>'` so the receipt answers that
@@ -28,7 +27,7 @@ browsers don't send to the page's host.
 | `--prove-source` | which earlier transaction output created each note you spent; if that transaction was you shielding an exchange withdrawal, its transparent addresses and amounts | the desk doesn't ask where the money came from |
 | `--reveal-source-value` | each spent note's exact value, so the desk can check the clear funding covers it | you only need to show the link, not the amounts |
 | `--prove-address` | that the same spend authority controls an address you name (one they already know) | you don't want to link the deposit to an address |
-| `--refund-to fresh` | a new address of your wallet, signed into the receipt, for a refund only you could have chosen | |
+| `--refund-to <address>` | an address of yours, signed into the receipt, for a refund only you could have chosen (`fresh` makes a new one, with a wallet directory) | |
 
 What it never shows: your balance, your other notes or transactions, your viewing key.
 

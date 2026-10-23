@@ -8,7 +8,7 @@
 // lightwalletd grpc-web server (the transaction, or its block's list and transactions with an
 // h= hint), which you can override or skip entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -27,6 +27,9 @@ async function load() {
   }
   return ready;
 }
+
+// The txid check for block-level fetches (see fetchTransactionPrivately).
+const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
 
 /** The kind of secret (viewing key, spending key, seed phrase) in `text`, or null. Never echo it. */
 export async function detectSecret(text) {
@@ -90,7 +93,7 @@ export async function verifyReceipt(input, options = {}) {
     if (!endpoint) throw new Error(`no lightwalletd endpoint for ${summary.network}`);
     const hint = options.height ?? heightHint(input);
     if (hint && options.privateFetch !== false) {
-      const r = await fetchTransactionPrivately(endpoint, summary.txid, hint, { maxSet: options.maxAnonymitySet });
+      const r = await fetchTransactionPrivately(endpoint, summary.txid, hint, { maxSet: options.maxAnonymitySet, txidOf: txidOf(summary.network) });
       ({ raw, height } = r);
       fetchInfo = { mode: "block", server: endpoint, anonymity_set: r.anonymitySet, sees: `block ${hint} and ${r.anonymitySet} of its transactions that could carry a receipt (each checked to exist there), not which one you checked` };
     } else {
@@ -190,7 +193,7 @@ export async function verifyIncoming(input, options = {}) {
   if (raw == null) {
     const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
     const hint = options.height ?? heightHint(input);
-    ({ raw, height } = hint ? await fetchTransactionPrivately(endpoint, summary.txid, hint) : await fetchTransaction(endpoint, summary.txid));
+    ({ raw, height } = hint ? await fetchTransactionPrivately(endpoint, summary.txid, hint, { txidOf: txidOf(summary.network) }) : await fetchTransaction(endpoint, summary.txid));
   } else if (typeof raw === "string") {
     raw = hexToBytes(raw.trim());
   }

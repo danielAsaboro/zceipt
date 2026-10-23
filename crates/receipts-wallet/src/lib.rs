@@ -315,6 +315,60 @@ fn viewing_key(wallet: &Path) -> anyhow::Result<(Net, FullViewingKey)> {
     Ok((net, fvk))
 }
 
+/// A spent note this account owns, found in the wallet database or by scanning the chain.
+struct SpentNote {
+    note: Note,
+    /// Tree position, when the wallet database knows it (lets its checkpoints give the path).
+    position: Option<u64>,
+    mined_height: Option<u32>,
+    source_txid: [u8; 32],
+    source_action: u32,
+    /// The commitment the source transaction published for this note.
+    source_cmx: [u8; 32],
+}
+
+/// The account's spent notes in `tx`, by pool and nullifier, from the wallet database.
+fn spent_notes_in_db(
+    db: &WalletDb<rusqlite::Connection, Net, SystemClock, rand::rand_core::UnwrapErr<rand::rngs::SysRng>>,
+    conn: &rusqlite::Connection,
+    fvk: &FullViewingKey,
+    tx: &zcash_primitives::transaction::Transaction,
+) -> anyhow::Result<std::collections::HashMap<(Pool, [u8; 32]), SpentNote>> {
+    let mut found = std::collections::HashMap::new();
+    for pool in [Pool::Orchard, Pool::Ironwood] {
+        let Some(b) = (match pool {
+            Pool::Ironwood => tx.ironwood_bundle(),
+            Pool::Orchard => tx.orchard_bundle(),
+        }) else {
+            continue;
+        };
+        for a in b.actions() {
+            let nf = a.nullifier().to_bytes();
+            let Some(stored) = find_spent_note(conn, pool, fvk, &nf)? else { continue };
+            // Read the source output's cmx from the wallet's own copy of that transaction. A
+            // wallet that found the note in compact blocks may not keep the full transaction;
+            // then the note's own commitment stands in, with no network request (so no server
+            // learns which transaction is being proven), and every verifier checks it anyway.
+            let source_cmx = match db.get_transaction(TxId::from_bytes(stored.source_txid))? {
+                Some(stx) => {
+                    let sb = match pool {
+                        Pool::Ironwood => stx.ironwood_bundle(),
+                        Pool::Orchard => stx.orchard_bundle(),
+                    };
+                    sb.and_then(|b| receipts_core::output_cmx(b, stored.source_action))
+                        .ok_or_else(|| anyhow!("the source transaction has no such output"))?
+                }
+                None => orchard::note::ExtractedNoteCommitment::from(stored.note.commitment()).to_bytes(),
+            };
+            found.insert(
+                (pool, nf),
+                SpentNote { note: stored.note, position: Some(stored.position), mined_height: stored.mined_height, source_txid: stored.source_txid, source_action: stored.source_action, source_cmx },
+            );
+        }
+    }
+    Ok(found)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn prepare_with(
     wallet: &Path,
@@ -325,6 +379,184 @@ async fn prepare_with(
     outputs: &[u32],
     pool: Option<Pool>,
     witness_source: WitnessSource,
+    server: Option<&str>,
+    prove_address: Option<&str>,
+    prove_source: Option<SourceMode>,
+    withhold_memo: bool,
+) -> anyhow::Result<(PreparedReceipt, u32)> {
+    let db_path = wallet.join("data.sqlite");
+    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    let tx = db
+        .get_transaction(TxId::from_bytes(txid))?
+        .ok_or_else(|| anyhow!("this wallet has no record of that transaction; sync it first"))?;
+    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mined: Option<u32> = conn.query_row(
+        "SELECT mined_height FROM transactions WHERE txid = ?1",
+        [txid.as_slice()],
+        |r| r.get(0),
+    )?;
+    let mined = mined.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?;
+    let spent = spent_notes_in_db(&db, &conn, &fvk, &tx)?;
+    let mut local = |pool: Pool, position: u64, anchor: orchard::Anchor| {
+        if witness_source == WitnessSource::Auto {
+            witness_at_anchor(&mut db, pool, position, anchor, BlockHeight::from_u32(mined)).ok()
+        } else {
+            None
+        }
+    };
+    build_prepared(net, &fvk, txid, &tx, mined, &spent, &mut local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo).await
+}
+
+/// A wallet held as keys alone, such as the seed phrase or viewing key of Zodl, Zingo or
+/// YWallet: its notes are found by scanning compact blocks from its birthday, so no wallet
+/// database is needed.
+pub struct KeysWallet {
+    pub net: Net,
+    fvk: FullViewingKey,
+    sk: Option<SpendingKey>,
+    /// The wallet's birthday height: no note of it is older.
+    pub birthday: u32,
+}
+
+impl KeysWallet {
+    /// From a BIP 39 seed phrase (ZIP 32 account [`set_account`], default 0).
+    pub fn from_phrase(net: Net, phrase: &str, birthday: u32) -> anyhow::Result<Self> {
+        let phrase = secrecy::SecretString::new(phrase.split_whitespace().collect::<Vec<_>>().join(" "));
+        let mnemonic = <bip0039::Mnemonic<bip0039::English>>::from_phrase(phrase.expose_secret())
+            // Never echo the error: it can quote a word of the phrase.
+            .map_err(|_| anyhow!("that doesn't decode as a BIP 39 seed phrase"))?;
+        let seed = secrecy::SecretVec::new(mnemonic.to_seed("").to_vec());
+        let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+        let sk = usk.orchard().clone();
+        Ok(KeysWallet { net, fvk: FullViewingKey::from(&sk), sk: Some(sk), birthday })
+    }
+
+    /// From a unified full viewing key: makes the proofs, not the signature.
+    pub fn from_ufvk(net: Net, ufvk: &str, birthday: u32) -> anyhow::Result<Self> {
+        let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&net, ufvk.trim()).map_err(|e| anyhow!("that isn't a unified full viewing key for {}: {e}", net.name()))?;
+        let fvk = ufvk.orchard().cloned().ok_or_else(|| anyhow!("that viewing key has no Orchard part"))?;
+        Ok(KeysWallet { net, fvk, sk: None, birthday })
+    }
+
+    /// Signs a prepared receipt with this wallet's spend key (only when made from a phrase).
+    pub fn sign(&self, prepared: PreparedReceipt) -> anyhow::Result<Receipt> {
+        let sk = self.sk.as_ref().ok_or_else(|| anyhow!("a viewing key can't sign; sign with the seed phrase"))?;
+        if prepared.unsigned().coin_type != self.net.coin_type() {
+            bail!("this receipt is for another network than the wallet");
+        }
+        let asks = vec![SpendAuthorizingKey::from(sk); prepared.unsigned().spends.len()];
+        prepared.sign(&asks, OsRng).map_err(|e| match e {
+            receipts_core::Error::BadSignature(_) => anyhow!("this wallet's key did not make these spends"),
+            e => e.into(),
+        })
+    }
+}
+
+/// Like [`prepare_receipt`], for a [`KeysWallet`]: fetches the payment (among its block's
+/// transactions when `height` is given), then finds the spent notes by trial-decrypting every
+/// Orchard and Ironwood output from the wallet's birthday up to the payment.
+#[allow(clippy::too_many_arguments)]
+pub async fn prepare_receipt_from_keys(
+    w: &KeysWallet,
+    txid: [u8; 32],
+    height: Option<u32>,
+    msg: &[u8],
+    outputs: &[u32],
+    pool: Option<Pool>,
+    server: Option<&str>,
+    prove_address: Option<&str>,
+    prove_source: Option<SourceMode>,
+    withhold_memo: bool,
+) -> anyhow::Result<(PreparedReceipt, u32)> {
+    let (tx, mined) = match height {
+        Some(h) => {
+            let (tx, mined, _) = receipts_chain::chain::fetch_mined_tx_in_block(w.net, server, txid, h).await?;
+            (tx, mined)
+        }
+        None => {
+            eprintln!("Fetching the payment by its txid (pass --height <block> to fetch it among its block's transactions instead).");
+            receipts_chain::chain::fetch_mined_tx(w.net, server, txid).await?
+        }
+    };
+    if w.birthday >= mined {
+        bail!("the birthday {} is not before the payment's block {mined}", w.birthday);
+    }
+    let mut wanted = std::collections::HashSet::new();
+    for (pool, b) in [(Pool::Orchard, tx.orchard_bundle()), (Pool::Ironwood, tx.ironwood_bundle())] {
+        for a in b.map(|b| b.actions().iter().collect::<Vec<_>>()).unwrap_or_default() {
+            wanted.insert((pool, a.nullifier().to_bytes()));
+        }
+    }
+    let spent = scan_for_spent_notes(w, server, mined, &wanted).await?;
+    if spent.is_empty() {
+        bail!("none of this wallet's notes from block {} on were spent in that transaction (wrong wallet, account or birthday?)", w.birthday);
+    }
+    let mut no_local = |_: Pool, _: u64, _: orchard::Anchor| None;
+    build_prepared(w.net, &w.fvk, txid, &tx, mined, &spent, &mut no_local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo).await
+}
+
+/// Trial-decrypts the compact blocks from the birthday up to (not including) `mined` and keeps
+/// the notes whose nullifiers are in `wanted`. The server sees the block range only.
+async fn scan_for_spent_notes(
+    w: &KeysWallet,
+    server: Option<&str>,
+    mined: u32,
+    wanted: &std::collections::HashSet<(Pool, [u8; 32])>,
+) -> anyhow::Result<std::collections::HashMap<(Pool, [u8; 32]), SpentNote>> {
+    use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
+    use zcash_note_encryption::try_compact_note_decryption;
+    let ivks = [
+        PreparedIncomingViewingKey::new(&w.fvk.to_ivk(Scope::External)),
+        PreparedIncomingViewingKey::new(&w.fvk.to_ivk(Scope::Internal)),
+    ];
+    let mut client = receipts_chain::chain::connect(server.unwrap_or(w.net.default_server())).await?;
+    eprintln!("Scanning blocks {}..{} for this wallet's notes (trial decryption, done here)…", w.birthday, mined - 1);
+    let mut stream = client
+        .get_block_range(BlockRange {
+            start: Some(BlockId { height: u64::from(w.birthday), hash: vec![] }),
+            end: Some(BlockId { height: u64::from(mined - 1), hash: vec![] }),
+            pool_types: vec![PoolType::Orchard as i32, PoolType::Ironwood as i32],
+        })
+        .await
+        .map_err(|e| anyhow!("block range: {}", e.message()))?
+        .into_inner();
+    let mut found = std::collections::HashMap::new();
+    while let Some(block) = stream.message().await? {
+        for ctx in &block.vtx {
+            let source_txid: [u8; 32] = ctx.txid.as_slice().try_into().map_err(|_| anyhow!("bad txid in compact block"))?;
+            for (pool, actions) in [(Pool::Orchard, &ctx.actions), (Pool::Ironwood, &ctx.ironwood_actions)] {
+                for (i, ca) in actions.iter().enumerate() {
+                    let Ok(action) = orchard::note_encryption::CompactAction::try_from(ca) else { continue };
+                    let note = ivks.iter().find_map(|ivk| match pool {
+                        Pool::Orchard => try_compact_note_decryption(&OrchardDomain::for_compact_action(&action), ivk, &action),
+                        Pool::Ironwood => try_compact_note_decryption(&IronwoodDomain::for_compact_action(&action), ivk, &action),
+                    });
+                    let Some((note, _)) = note else { continue };
+                    let nf = note.nullifier(&w.fvk).to_bytes();
+                    if wanted.contains(&(pool, nf)) {
+                        let source_cmx = orchard::note::ExtractedNoteCommitment::from(note.commitment()).to_bytes();
+                        found.insert((pool, nf), SpentNote { note, position: None, mined_height: Some(block.height as u32), source_txid, source_action: i as u32, source_cmx });
+                    }
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Everything after the spent notes are known, whichever way they were found.
+#[allow(clippy::too_many_arguments)]
+async fn build_prepared(
+    net: Net,
+    fvk: &FullViewingKey,
+    txid: [u8; 32],
+    tx: &zcash_primitives::transaction::Transaction,
+    mined: u32,
+    spent: &std::collections::HashMap<(Pool, [u8; 32]), SpentNote>,
+    local_witness: &mut dyn FnMut(Pool, u64, orchard::Anchor) -> Option<MerklePath>,
+    msg: &[u8],
+    outputs: &[u32],
+    pool: Option<Pool>,
     server: Option<&str>,
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
@@ -343,39 +575,17 @@ async fn prepare_with(
             Some(addr)
         }
     };
-
-    let db_path = wallet.join("data.sqlite");
-    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
-    let tx = db
-        .get_transaction(TxId::from_bytes(txid))?
-        .ok_or_else(|| anyhow!("this wallet has no record of that transaction; sync it first"))?;
-    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-    let mined: Option<u32> = conn.query_row(
-        "SELECT mined_height FROM transactions WHERE txid = ?1",
-        [txid.as_slice()],
-        |r| r.get(0),
-    )?;
-    let mined = mined.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?;
-
     let bundle_of = |p: Pool| match p {
         Pool::Ironwood => tx.ironwood_bundle(),
         Pool::Orchard => tx.orchard_bundle(),
     };
     // The spends' pool: where this wallet's nullifiers are. After NU6.3 a wallet spending
     // Orchard notes pays into Ironwood outputs, so spends and outputs can be in different pools.
-    let spends_in = |p: Pool| -> anyhow::Result<bool> {
-        let Some(b) = bundle_of(p) else { return Ok(false) };
-        for a in b.actions() {
-            if find_spent_note(&conn, p, &fvk, &a.nullifier().to_bytes())?.is_some() {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    };
+    let spends_in = |p: Pool| spent.keys().any(|(q, _)| *q == p);
     let pool = match pool {
         Some(p) => p,
-        None if spends_in(Pool::Ironwood)? => Pool::Ironwood,
-        None if spends_in(Pool::Orchard)? => Pool::Orchard,
+        None if spends_in(Pool::Ironwood) => Pool::Ironwood,
+        None if spends_in(Pool::Orchard) => Pool::Orchard,
         None => bail!("this wallet did not spend any notes in that transaction, so it cannot prove it sent it"),
     };
     let bundle = bundle_of(pool).ok_or_else(|| anyhow!("transaction has no {pool:?} bundle"))?;
@@ -383,50 +593,26 @@ async fn prepare_with(
     // Spends: every action that spent one of our notes.
     let mut spends = Vec::new();
     for (i, action) in bundle.actions().iter().enumerate() {
-        if let Some(stored) = find_spent_note(&conn, pool, &fvk, &action.nullifier().to_bytes())? {
-            let local = if witness_source == WitnessSource::Auto {
-                witness_at_anchor(&mut db, pool, stored.position, *bundle.anchor(), BlockHeight::from_u32(mined)).ok()
-            } else {
-                None
-            };
-            let path = match local {
-                Some(p) => p,
-                None => {
-                    let h = stored
-                        .mined_height
-                        .ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
-                    eprintln!(
-                        "Rebuilding the note's Merkle path from chain data (blocks {}..={}, whole 1,000-block windows)…",
-                        receipts_chain::chain::witness_window_start(h),
-                        receipts_chain::chain::witness_window_end(mined)
-                    );
-                    receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
-                }
-            };
-            let source = match prove_source {
-                None => None,
-                Some(mode) => {
-                    // Read the source output's cmx from the wallet's own copy of that transaction.
-                    // A wallet that found the note in compact blocks may not keep the full
-                    // transaction; then the note's own commitment stands in, with no network
-                    // request (so no server learns which transaction is being proven), and every
-                    // verifier checks it against the chain anyway.
-                    let cmx = match db.get_transaction(TxId::from_bytes(stored.source_txid))? {
-                        Some(stx) => {
-                            let sb = match pool {
-                                Pool::Ironwood => stx.ironwood_bundle(),
-                                Pool::Orchard => stx.orchard_bundle(),
-                            };
-                            sb.and_then(|b| receipts_core::output_cmx(b, stored.source_action))
-                                .ok_or_else(|| anyhow!("the source transaction has no such output"))?
-                        }
-                        None => orchard::note::ExtractedNoteCommitment::from(stored.note.commitment()).to_bytes(),
-                    };
-                    Some(receipts_core::SourceWitness { txid: stored.source_txid, index: stored.source_action, cmx, reveal_value: mode == SourceMode::RevealValue })
-                }
-            };
-            spends.push(ViewingSpendWitness { index: i, fvk: fvk.clone(), note: stored.note, merkle_path: path, prove_address, source });
-        }
+        let Some(stored) = spent.get(&(pool, action.nullifier().to_bytes())) else { continue };
+        let path = match stored.position.and_then(|p| local_witness(pool, p, *bundle.anchor())) {
+            Some(p) => p,
+            None => {
+                let h = stored.mined_height.ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
+                eprintln!(
+                    "Rebuilding the note's Merkle path from chain data (blocks {}..={}, whole 1,000-block windows)…",
+                    receipts_chain::chain::witness_window_start(h),
+                    receipts_chain::chain::witness_window_end(mined)
+                );
+                receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
+            }
+        };
+        let source = prove_source.map(|mode| receipts_core::SourceWitness {
+            txid: stored.source_txid,
+            index: stored.source_action,
+            cmx: stored.source_cmx,
+            reveal_value: mode == SourceMode::RevealValue,
+        });
+        spends.push(ViewingSpendWitness { index: i, fvk: fvk.clone(), note: stored.note, merkle_path: path, prove_address, source });
     }
     if spends.is_empty() {
         bail!("this wallet did not spend any notes in that transaction, so it cannot prove it sent it");
@@ -771,6 +957,21 @@ fn percent_decode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn keys_wallets_from_a_phrase_or_a_viewing_key_agree_and_never_echo_the_phrase() {
+        use super::{KeysWallet, Net};
+        let Err(e) = KeysWallet::from_phrase(Net::Test, "abandon secretword abandon", 1) else { panic!("bad phrase accepted") };
+        assert!(!e.to_string().contains("secretword"));
+        // The BIP 39 test phrase: the viewing-key wallet derived from it is the same account.
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let w = KeysWallet::from_phrase(Net::Test, phrase, 1).unwrap();
+        let seed = <bip0039::Mnemonic<bip0039::English>>::from_phrase(phrase).unwrap().to_seed("");
+        let ufvk = zcash_keys::keys::UnifiedSpendingKey::from_seed(&Net::Test, &seed, zip32::AccountId::ZERO).unwrap().to_unified_full_viewing_key();
+        let v = KeysWallet::from_ufvk(Net::Test, &ufvk.encode(&Net::Test).unwrap(), 1).unwrap();
+        assert_eq!(w.fvk.to_bytes(), v.fvk.to_bytes());
+        assert!(v.sk.is_none() && w.sk.is_some());
+    }
+
     #[test]
     fn request_links() {
         let to = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";

@@ -37,8 +37,10 @@ const warmed = call("warm")
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
+// Block-level fetches check each transaction the server sends hashes to the txid asked for.
+const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
 const quick = async (op, args) => {
   await local;
   if (op === "inspect") return JSON.parse(inspectLocal(args.receipt));
@@ -148,6 +150,8 @@ function challengeIn(message) {
 }
 
 // ---------- UI ----------
+// The placeholder shows only while there is no result.
+new MutationObserver(() => { $("#empty").hidden = !$("#result").hidden; }).observe($("#result"), { attributes: true, attributeFilter: ["hidden"] });
 // Blocks on top of a payment before it counts as settled (the CLI and API use the same number).
 const FINAL = 10;
 const confirmations = (v) => (fetchMode && fetchMode.tip && v.mined_height ? Math.max(0, fetchMode.tip - v.mined_height + 1) : null);
@@ -206,8 +210,12 @@ function friendlyAddressError(e) {
   return m;
 }
 
+// Also shows control characters and bidi overrides as \u{..}, so text a sender chose (a memo,
+// a message) can't reorder or hide what the page prints.
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  return String(s)
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200e\u200f\u061c\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u{${c.charCodeAt(0).toString(16)}}`)
+    .replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
 function localBadge() {
@@ -265,7 +273,7 @@ function render(v, net) {
         ? `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()} <small>(as you gave it, not checked)</small></span></div>
       <p class="fine">Offline check: this receipt matches the transaction you pasted. Whether that transaction was mined was not checked; fetch it from a server to confirm.</p>`
         : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}${confirmations(v) != null ? ` <small>(${confirmations(v).toLocaleString()} confirmation${confirmations(v) === 1 ? "" : "s"}${confirmations(v) < FINAL ? ", not final yet" : ""})</small>` : ""}</span></div>${fetchMode && fetchMode.time ? `<div class="line"><span class="k">DATE</span><span class="v">${new Date(fetchMode.time * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></div>` : ""}`}
-      ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(proven)</small></span></div>`).join("")}
+      ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(the signer controls it)</small></span></div>`).join("")}
       ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ${UNIT} note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
       ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ${UNIT} from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
       ${s.transparent_inputs.length ? "" : `<div class="line"><span class="k"></span><span class="v"><small>that transaction was itself funded from shielded notes (not shown)</small></span></div>`}`).join("")}
@@ -281,19 +289,22 @@ function render(v, net) {
         <li>The sender proved they authorized this payment (zero-knowledge proof + signature over this receipt).</li>
         ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from the transaction on chain.</li>` : ""}
         ${(v.sources || []).length ? `<li>The sender proved where the spent money came from (FUNDS above): only that link, read from the chain.</li>` : ""}
-        ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>The sender also proved they control the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
-        ${challengeIn(v.message) ? "" : `<li><strong>Check before relying on it:</strong> the sender chose which outputs to show, and anyone holding this receipt can show it. Check the recipient below is you, or ask for a receipt that answers your own request.</li>`}
+        ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>Whoever signed this receipt also controls the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
+        ${challengeIn(v.message) && challengeIn(v.message) === requestFromUrl()?.code
+          ? `<li><strong>Made for one request:</strong> it answers the request in this link, so it was made for you only if you created that request.</li>`
+          : `<li><strong>Check before relying on it:</strong> the sender chose which outputs to show, and anyone holding this receipt can show it. Check the recipient below is you, or ask for a receipt that answers your own request.</li>`}
       </ul>
       ${localBadge()}
       <div id="reqChecks"></div>
-      <p class="fine"><button type="button" class="ghost" onclick="window.print()">Print or save as PDF</button></p>
+      <p class="fine"><button type="button" class="ghost" id="printBtn">Print or save as PDF</button></p>
       <div class="check">
-        <label for="mine">Was it paid to you? Paste your address</label>
+        <label for="mine">Was it paid to you? Your address (remembered on this device)</label>
         <div class="row"><input id="mine" placeholder="u1…" autocomplete="off" spellcheck="false"><button id="mineBtn">Check</button></div>
         <div id="mineOut" class="fine"></div>
       </div>
     </div>`;
   renderRequestChecks(v);
+  $("#printBtn").onclick = () => window.print();
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
     if (!ua) return;
@@ -302,13 +313,30 @@ function render(v, net) {
       // Compare by Orchard receiver: a unified address can carry other receivers too. Outputs
       // disclosed without their memo don't show the note can be received, so they don't count.
       const got = await Promise.all(v.outputs.filter((o) => !o.memo_withheld).map((o) => quick("receiver", { ua: o.recipient })));
-      $("#mineOut").textContent = got.includes(want) ? "Yes. This payment went to that address." : "No. None of the disclosed outputs went to that address.";
-      $("#mineOut").dataset.ok = got.includes(want);
+      const paid = got.includes(want);
+      $("#mineOut").textContent = paid ? "Yes. This payment went to that address." : "No. None of the disclosed outputs went to that address.";
+      $("#mineOut").dataset.ok = paid;
+      // Remembered on this device only, so the next receipt answers "was I paid?" by itself.
+      try { localStorage.setItem(MY_ADDRESS, ua); } catch { /* private mode */ }
+      // The verdict then leads with the answer, keeping any "not final yet".
+      const stamp = $("#result .stamp");
+      if (stamp && stamp.textContent.startsWith("VERIFIED")) {
+        stamp.textContent = paid ? stamp.textContent.replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
+        if (!paid) stamp.className = "stamp warn";
+        document.title = `${stamp.textContent} · Receipts`;
+      }
     } catch (e) {
       $("#mineOut").textContent = friendlyAddressError(e);
     }
   };
+  $("#mine").onkeydown = (e) => { if (e.key === "Enter") $("#mineBtn").click(); };
+  const saved = (() => { try { return localStorage.getItem(MY_ADDRESS) || ""; } catch { return ""; } })();
+  if (saved) {
+    $("#mine").value = saved;
+    $("#mineBtn").click();
+  }
 }
+const MY_ADDRESS = "receipts.myAddress";
 
 async function renderRequestChecks(v) {
   const fromUrl = requestFromUrl();
@@ -323,7 +351,7 @@ async function renderRequestChecks(v) {
   // so the sender could have written it. Its checks still run, under a different heading.
   if (mine) row(true, `You created request ${code} in this browser${mine.label ? ` (“${mine.label}”)` : ""}`);
   else rows.push(`<li data-ok="info">ℹ Request ${code} wasn't made in this browser, so these checks compare the receipt with the request written in the link. Trust them only if you made that request.</li>`);
-  row(signed === code, signed === code ? "The sender signed your challenge, so this receipt was made for this request" : "The receipt does not sign this request's challenge");
+  row(signed === code, signed === code ? "The sender signed this request's challenge, so the receipt was made for this request" : "The receipt does not sign this request's challenge");
   if (req && req.to) {
     try {
       const want = await quick("receiverOn", { ua: req.to, network: v.network });
@@ -379,7 +407,8 @@ async function run(receiptText) {
           if (hint) {
             // Fetch the payment among up to 64 shielded transactions of its block: the server learns
             // the block, not which transaction is checked.
-            tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
+            await local;
+            tx = await fetchTransactionPrivately(endpoint, summary.txid, hint, { txidOf: txidOf(summary.network) });
             fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, time: tx.blockTime };
             ok() && setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
           } else {
@@ -415,6 +444,9 @@ async function run(receiptText) {
     // Source proofs: fetch the earlier transactions the sender says the money came from.
     await local;
     const needed = JSON.parse(source_txids(receiptText));
+    // A budget, so a made-up receipt can't make this page fetch thousands of transactions.
+    if (needed.length > 8) throw new Error(`the receipt names ${needed.length} source transactions; this page fetches at most 8`);
+    let funding = 16;
     let sources;
     const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[summary.network]);
     if (needed.length) {
@@ -426,6 +458,7 @@ async function run(receiptText) {
     // Who funded each source transaction in the clear: the outputs its transparent inputs spent.
     for (const s of v.sources || []) {
       for (const i of s.transparent_inputs.slice(0, 16)) {
+        if (funding-- <= 0) break;
         try {
           const prev = await fetchRawTx(endpoint, i.prevout_txid);
           Object.assign(i, JSON.parse(transparent_output(prev.raw, prev.height, i.prevout_index, summary.network === "mainnet" ? 133 : 1, regtest())));
@@ -506,7 +539,7 @@ async function runBatch(batchText) {
       const s = await quick("inspect", { receipt: r });
       const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
       host = new URL(endpoint).host;
-      const tx = useHints ? await fetchTransactionPrivately(endpoint, s.txid, hints[i]) : await fetchRawTx(endpoint, s.txid);
+      const tx = useHints ? await fetchTransactionPrivately(endpoint, s.txid, hints[i], { txidOf: txidOf(s.network) }) : await fetchRawTx(endpoint, s.txid);
       set += tx.anonymitySet || 0;
       txs[i] = tx;
     }));
@@ -595,7 +628,7 @@ async function runIncoming(text) {
     ok() && setStep("fetch", "busy");
     const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
     const hint = heightHint(location.hash);
-    tx = hint ? await fetchTransactionPrivately(endpoint, s.txid, hint) : await fetchRawTx(endpoint, s.txid);
+    tx = hint ? await fetchTransactionPrivately(endpoint, s.txid, hint, { txidOf: txidOf(s.network) }) : await fetchRawTx(endpoint, s.txid);
     fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint } : { mode: "txid", host: new URL(endpoint).host };
     ok() && setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
   } catch (e) {
@@ -760,11 +793,14 @@ async function checkSignedRequest(text) {
     const domainLine = listed === true ? `<strong>${escapeHtml(r.domain)}</strong> lists this address.`
       : listed === false ? `<strong>Refuse it:</strong> ${escapeHtml(r.domain)} does not list this address.`
       : `Confirm that <a href="${escapeHtml(r.well_known)}" target="_blank" rel="noreferrer noopener">${escapeHtml(r.domain)}'s list</a> contains this address before paying.`;
-    out.innerHTML = `<div class="reqbox" data-ok="${listed !== false}"><div class="reqhead">${listed === false ? "DO NOT PAY" : "SIGNED BY THE PAYEE"}</div><ul>
-      <li>Pay ${zec(r.amount_zatoshis)} ZEC to <span class="mono">${escapeHtml(short(r.payee, 14))}</span> (${escapeHtml(r.network)})</li>
+    // Only the shop's own list ties the signing key to the shop: unread, it's unconfirmed.
+    const state = listed === true ? "true" : listed === false ? "false" : "info";
+    const head = { true: "SIGNED BY THE PAYEE", false: "DO NOT PAY", info: "SIGNED, SHOP NOT CONFIRMED" }[state];
+    out.innerHTML = `<div class="reqbox" data-ok="${state}"><div class="reqhead">${head}</div><ul>
+      <li>Pay ${zec(r.amount_zatoshis)} ${r.network === "mainnet" ? "ZEC" : "TAZ"} to <span class="mono">${escapeHtml(short(r.payee, 14))}</span> (${escapeHtml(r.network)})</li>
       ${r.memo ? `<li>Memo “${escapeHtml(r.memo)}”</li>` : ""}
       <li>Request ${escapeHtml(r.code)}, valid until ${new Date(r.expires_at * 1000).toLocaleString()}</li>
-      <li>Nobody changed the address, amount or memo: the payee's own key signed them.</li>
+      <li>Nobody changed the address, amount or memo: ${listed === true ? "the payee's own key signed them" : "the key behind this address signed them"}.</li>
       <li>${domainLine}</li></ul></div>`;
   } catch (e) {
     out.innerHTML = `<div class="reqbox" data-ok="false"><div class="reqhead">DO NOT PAY</div><ul><li>${escapeHtml(e.message)}</li></ul></div>`;

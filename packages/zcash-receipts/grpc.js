@@ -175,12 +175,14 @@ export async function fetchBlockTxids(endpoint, height, { shieldedOnly = false }
  * holds yours (the same run every time), in random order. Resolves to `{ raw, height, anonymitySet, blockTxs }`.
  * Throws if the transaction is not in that block.
  */
-export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64 } = {}) {
+export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64, txidOf = null } = {}) {
   const want = displayTxid.toLowerCase();
   // Cover is only transactions that could carry a receipt: shielded, not the coinbase. If the
-  // server's compact data doesn't show ours as shielded, fall back to every transaction.
-  let ids = await fetchBlockTxids(endpoint, height, { shieldedOnly: true });
-  if (!ids.includes(want)) ids = await fetchBlockTxids(endpoint, height);
+  // server's compact data doesn't show ours as shielded, fall back to every transaction. A txid
+  // listed twice counts once.
+  const unique = (xs) => Object.assign([...new Set(xs)], { time: xs.time });
+  let ids = unique(await fetchBlockTxids(endpoint, height, { shieldedOnly: true }));
+  if (!ids.includes(want)) ids = unique(await fetchBlockTxids(endpoint, height));
   if (!ids.includes(want)) throw new Error(`transaction ${want.slice(0, 12)}… is not in block ${height}`);
   // The run of maxSet transactions (in block order) that holds ours: the same set every time,
   // so checking one receipt twice can't be intersected down to it.
@@ -195,7 +197,11 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   const results = await Promise.allSettled(set.map((t) => fetchTransaction(endpoint, t)));
   const mine = results[set.indexOf(want)];
   if (mine.status === "rejected") throw mine.reason;
-  const real = results.filter((r, i) => set[i] !== want && r.status === "fulfilled" && r.value.height === height).length;
+  // With `txidOf(raw, height)` (the wasm `txid_of`), each answer must hash to the txid asked for:
+  // a server can't pass one transaction off as many. Heights remain the server's word.
+  const isThe = (t, r) => !txidOf || (() => { try { return txidOf(r.raw, r.height) === t; } catch { return false; } })();
+  if (!isThe(want, mine.value)) throw new Error("the server sent a different transaction than the one asked for");
+  const real = results.filter((r, i) => set[i] !== want && r.status === "fulfilled" && r.value.height === height && isThe(set[i], r.value)).length;
   return { ...mine.value, anonymitySet: real + 1, blockTxs: ids.length, blockTime: ids.time };
 }
 

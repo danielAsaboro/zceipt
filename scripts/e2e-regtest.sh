@@ -91,8 +91,16 @@ T1=$(send sender "$MERCHANT" 42000000 "Invoice 7: Orchard espresso") || { bad "O
 rm -rf watch signer; cp -R sender watch; mkdir signer; cp sender/keys.toml signer/
 awk '/^mnemonic = """/{skip=1;next} skip&&/^"""/{skip=0;next} !skip' sender/keys.toml > watch/keys.toml
 "$R" create -w ./watch --unsigned prepared.txt --txid "$T1" -m "Order 7 (watch-only)" -s "127.0.0.1:$GRPC" >/dev/null 2>&1 && ! grep -q mnemonic watch/keys.toml && ok "a wallet with no mnemonic made the proofs" || bad "watch-only prepare"
-"$R" sign prepared.txt -w ./merchant -i ./merchant.age > other-sign.log 2>&1 || true; grep -q "did not make these spends" other-sign.log && ok "another wallet's key refuses to sign" || bad "another wallet's key was not refused"
-"$R" sign prepared.txt -w ./signer -i ./sender.age --out signed.txt >/dev/null 2>&1 && "$R" verify @signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "signed with keys.toml alone (no wallet database), and it verifies" || bad "offline sign"
+"$R" sign prepared.txt --yes -w ./merchant -i ./merchant.age > other-sign.log 2>&1 || true; grep -q "did not make these spends" other-sign.log && ok "another wallet's key refuses to sign" || bad "another wallet's key was not refused"
+[ "$(stat -f %Lp prepared.txt 2>/dev/null || stat -c %a prepared.txt)" = 600 ] && ok "the prepared file is readable only by its owner" || bad "prepared file permissions"
+echo no | "$R" sign prepared.txt -w ./signer -i ./sender.age > declined.log 2>&1 || true; grep -q "not signed" declined.log && [ -f prepared.txt ] && ok "the signer shows what it signs and stops unless told yes" || bad "sign prompt"
+"$R" sign prepared.txt --yes -w ./signer -i ./sender.age --out signed.txt >/dev/null 2>&1 && [ ! -f prepared.txt ] && "$R" verify @signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "signed with keys.toml alone (no wallet database), and it verifies" || bad "offline sign"
+
+# Keys only: a viewing key and a birthday, no wallet files (how Zodl, Zingo or YWallet users would do it).
+UFVK=$(sqlite3 sender/data.sqlite "SELECT ufvk FROM accounts WHERE hd_account_index = 0")
+BDAY=$(sed -n 's/^birthday = //p' sender/keys.toml)
+"$R" create --ufvk "$UFVK" --birthday "$BDAY" --regtest ./heights.toml --unsigned keys-prepared.txt --txid "$T1" -m "Order 7 (keys only)" -s "127.0.0.1:$GRPC" > keys.log 2>&1 && ok "a viewing key alone found the spent note on chain and made the proofs" || { bad "keys-only prepare"; tail -3 keys.log; }
+"$R" sign keys-prepared.txt --yes -w ./signer -i ./sender.age --out keys-signed.txt >/dev/null 2>&1 && "$R" verify @keys-signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "the keys-only receipt signs and verifies" || bad "keys-only sign/verify"
 
 echo "== NU6.3 / Ironwood (mining past $NU63)"
 mine $((NU63 - $(height) + 5)); mine 4 "$SENDER"; mine 101; sync sender; sync merchant

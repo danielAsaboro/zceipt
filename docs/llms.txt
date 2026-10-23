@@ -1,6 +1,6 @@
 # Receipts
 
-> Prove one shielded Zcash payment, reveal nothing else. Receipts is ZIP 311 (payment disclosure) for Orchard and Ironwood: a Rust library, CLI, REST API with signed webhooks, SDKs (TypeScript, Python, Rust), a WASM verifier and a web component.
+> Prove one shielded Zcash payment, reveal nothing else. Receipts is ZIP 311 (payment disclosure) for Orchard and Ironwood: a Rust library, CLI, REST API with signed webhooks, SDKs (TypeScript, Python, Go, Rust), a WASM verifier and a web component.
 
 Key facts for agents:
 - A receipt is a `zip311r1…` string (or `zip311b1…` for a batch). It carries a Halo 2 proof that the sender spent a note in the transaction, plus `ock` keys that open only the disclosed outputs.
@@ -14,7 +14,7 @@ Key facts for agents:
 - [Errors](/docs/ERRORS.md): every code, HTTP status and meaning
 - [Webhooks](/docs/WEBHOOKS.md): events, signatures, retries, local testing
 - [Sandbox](/docs/SANDBOX.md): deterministic fixtures
-- [SDKs](/docs/SDKS.md): TypeScript, Python, Rust, browser, web component
+- [SDKs](/docs/SDKS.md): TypeScript, Python, Go, Rust, browser, web component
 - [Spec](/docs/SPEC.md): the cryptography (ZIP 311 for Orchard/Ironwood)
 - [OpenAPI](/openapi.yaml): machine-readable API
 

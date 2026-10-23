@@ -1546,7 +1546,7 @@ fn prepare_with_viewing_key_then_sign_elsewhere() {
     // Another wallet's key: the signer refuses (its rk doesn't match), and a signature made with
     // it anyway is refused when attached.
     let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
-    assert!(matches!(receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[other.clone()], OsRng), Err(Error::BadSignature(_))));
+    assert!(matches!(receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), std::slice::from_ref(&other), OsRng), Err(Error::BadSignature(_))));
     let digest = receipts_core::signing_digest(prepared.unsigned());
     let bad: [u8; 64] = (&other.randomize(&prepared.alphas()[0]).sign(OsRng, &digest)).into();
     assert!(matches!(prepared.apply_signatures(vec![bad]), Err(Error::BadSignature(_))));

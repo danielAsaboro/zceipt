@@ -59,6 +59,21 @@ real receipt and refuses the edited one, then tours the payment API on sandbox f
 first build takes about ten minutes; `docker compose run --build --rm receipts demo --no-wait`
 works too.
 
+## Make a receipt from your wallet
+
+Any Orchard or Ironwood wallet works, by its seed phrase or its viewing key; the CLI finds the
+spent notes by scanning the chain from the wallet's birthday, here on your machine.
+
+| You have | Command |
+|---|---|
+| A seed phrase (Zodl, Zingo, YWallet, Zallet…) | `receipts create --seed-stdin --birthday <height> --txid <txid> --height <block> < phrase.txt` |
+| A viewing key here, the seed elsewhere | `receipts create --ufvk <uview…> --birthday <height> --txid <txid> --unsigned r.txt`, then `receipts sign r.txt --seed-stdin --yes` on the other machine |
+| A zcash-devtool wallet | `receipts create -w <wallet> -i <key.age> --txid <txid>` |
+
+The phrase is read from standard input, never from the command line. Add `--network main` for
+mainnet. Wallets with a "Prove this payment" button would call the same Rust function
+(`receipts_wallet::prepare_receipt_from_keys`); none ships one yet.
+
 ## What a receipt proves
 
 | | Revealed | How it is checked |
@@ -175,8 +190,8 @@ are in [FEATURES.md](docs/FEATURES.md).
 ## Related work
 
 Three other projects started on ZIP 311 output disclosure this autumn: zreceipt,
-zcash-delivery-proof and auzum197's `zcash_disclosure`. Their products disclose outputs; zreceipt
-added a test prototype of a spend-authority proof on Oct 20, six days after Receipts shipped one. [RELATED-WORK.md](docs/RELATED-WORK.md) compares them. Receipts' links start `zip311r1`; the
+zcash-delivery-proof and auzum197's `zcash_disclosure`. Their products disclose outputs; zreceipt also
+has a test prototype of a spend-authority proof (Oct 20). [RELATED-WORK.md](docs/RELATED-WORK.md) compares them. Receipts' links start `zip311r1`; the
 verifier recognises a zreceipt link (`zrcpt1…`) and says what it is. Next to viewing-key
 payment processors: [COMPARISON.md](docs/COMPARISON.md).
 
@@ -192,7 +207,7 @@ payment processors: [COMPARISON.md](docs/COMPARISON.md).
 | A batch of three payments as one link | [examples/testnet/batch.txt](examples/testnet/batch.txt), total 0.022 ZEC |
 | Source of funds, memo withheld, incoming receipt, signed request, refund, TEX deposit | [examples/testnet](examples/testnet) and its README |
 
-`./scripts/check-all.sh` runs every check that needs no build, including the verifier page in headless Chrome, in about a minute.
+`./scripts/check-all.sh` runs every check that needs no build, including the verifier page in headless Chrome, in about two minutes.
 `./scripts/e2e-regtest.sh` replays the whole story on a private Zebra regtest chain (needs
 Docker, lightwalletd and zcash-devtool). Everything else runs with `cargo test --release`.
 

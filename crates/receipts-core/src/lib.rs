@@ -57,7 +57,7 @@ pub const COIN_TYPE_TESTNET: u32 = 1;
 pub const RECEIPT_CIRCUIT: OrchardCircuitVersion = OrchardCircuitVersion::PostNu6_3;
 
 /// Which shielded pool the disclosed bundle belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Pool {
     Orchard,
     Ironwood,
@@ -303,6 +303,23 @@ impl PreparedReceipt {
             rk.verify(&digest, &redpallas::Signature::<SpendAuth>::from(*sig)).map_err(|_| Error::BadSignature(s.index))?;
         }
         Ok(Receipt { unsigned: self.unsigned, spend_auth_sigs: sigs })
+    }
+}
+
+impl Receipt {
+    /// Checks only the spend-authorization signatures, under the `rk`s the receipt carries. It
+    /// needs no chain data and proves nothing on its own (anyone can sign under a key they made
+    /// up), but an edited receipt fails here, before a verifier asks a server for anything.
+    pub fn check_signatures(&self) -> Result<(), Error> {
+        if self.spend_auth_sigs.len() != self.unsigned.spends.len() {
+            return Err(Error::SignatureCount);
+        }
+        let digest = signing_digest(&self.unsigned);
+        for (s, sig) in self.unsigned.spends.iter().zip(&self.spend_auth_sigs) {
+            let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
+            rk.verify(&digest, &redpallas::Signature::<SpendAuth>::from(*sig)).map_err(|_| Error::BadSignature(s.index))?;
+        }
+        Ok(())
     }
 }
 

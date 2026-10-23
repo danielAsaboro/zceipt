@@ -26,4 +26,4 @@ It is wired in through `[patch.crates-io]` in the workspace `Cargo.toml`, and us
 receipts-core's `orchard-ext` feature, which this workspace's binaries turn on. A wallet that
 depends on receipts-core without that feature builds on stock orchard 0.16 and gets receipts
 v1-v4, batches, source proofs, sign-in, payment requests and proof of funds;
-`scripts/check-stock-orchard.sh` checks it.
+`scripts/check-stock-orchard.sh` builds it and runs real testnet receipts through it.

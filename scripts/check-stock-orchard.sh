@@ -10,6 +10,7 @@ mkdir -p "$WORK/crates"
 cp -R crates/receipts-core "$WORK/crates/"
 rm -rf "$WORK/crates/receipts-core/fuzz"
 cp Cargo.lock rust-toolchain.toml "$WORK/"
+mkdir -p "$WORK/examples" && cp -R examples/testnet "$WORK/examples/"
 python3 - "$WORK/Cargo.toml" <<'PY'
 import re, sys
 s = open("Cargo.toml").read()
@@ -17,7 +18,11 @@ s = re.sub(r'members = \[[^\]]*\]', 'members = ["crates/receipts-core"]', s)
 s = s[: s.index("[patch.crates-io]")]
 open(sys.argv[1], "w").write(s)
 PY
+# The crate's own dev-dependency turns orchard-ext on for its tests; drop it here.
+sed -i.bak '/^receipts-core = { path = "\.", features = \["orchard-ext"\] }/d' "$WORK/crates/receipts-core/Cargo.toml"
 cd "$WORK"
 cargo check --lib -p receipts-core --no-default-features
 cargo tree -p receipts-core -i orchard --depth 0 | head -1
-echo "receipts-core builds on stock orchard (no orchard-ext feature)."
+# Real testnet receipts through the public API, on stock orchard: valid, edited, altered proof.
+cargo test --release -q -p receipts-core --no-default-features --test stock_orchard
+echo "receipts-core builds and verifies real receipts on stock orchard (no orchard-ext feature)."

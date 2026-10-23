@@ -25,7 +25,8 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   From the CLI: `receipts create -w <watch-only wallet> --txid … --unsigned r.txt` makes the
   proofs with no key, and `receipts sign r.txt -w <wallet> -i <identity>` signs on the machine
   that holds it, from `keys.toml` alone. The core builds on stock
-  `orchard` 0.16 (`scripts/check-stock-orchard.sh`). `crates/receipts-wallet` makes receipts from
+  `orchard` 0.16 and verifies real testnet receipts there, refusing the edited one and the one
+  with an altered proof (`scripts/check-stock-orchard.sh`). `crates/receipts-wallet` makes receipts from
   a seed phrase or viewing key (`prepare_receipt_from_keys`) or a zcash-devtool wallet database.
   A `zcash-devtool wallet receipt --txid …` command is 137 lines on top of it, but devtool itself
   first needs a port to the NU7 librustzcash this workspace pins: together they are a 6,628-line

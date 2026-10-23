@@ -45,7 +45,7 @@ pub mod reserve;
 pub mod preflight;
 pub mod signin;
 pub mod tripwire;
-pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX, TEXT_PREFIX};
+pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX, PREPARED_TEXT_PREFIX, TEXT_PREFIX};
 
 /// SLIP-44 coin type for Zcash mainnet (index form).
 pub const COIN_TYPE_MAINNET: u32 = 133;
@@ -271,6 +271,10 @@ pub struct PreparedReceipt {
 }
 
 impl PreparedReceipt {
+    pub(crate) fn from_parts(unsigned: UnsignedReceipt, alphas: Vec<pallas::Scalar>) -> Self {
+        PreparedReceipt { unsigned, alphas }
+    }
+
     /// The unsigned receipt, to show the user and give the signer.
     pub fn unsigned(&self) -> &UnsignedReceipt {
         &self.unsigned

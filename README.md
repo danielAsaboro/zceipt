@@ -107,7 +107,10 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   spend authorizing key signs afterwards, so the key can stay on a hardware wallet. The device is
   given the unsigned receipt and the randomizers, never a digest: it computes the digest itself,
   checks each `rk` against its key and shows what it signs (`receipts_core::sign_prepared` is the
-  reference signer). A device that signed digests handed to it could be made to authorize a spend. The core builds on stock
+  reference signer). A device that signed digests handed to it could be made to authorize a spend.
+  From the CLI: `receipts create -w <watch-only wallet> --txid … --unsigned r.txt` makes the
+  proofs with no key, and `receipts sign r.txt -w <wallet> -i <identity>` signs on the machine
+  that holds it, from `keys.toml` alone. The core builds on stock
   `orchard` 0.16 (`scripts/check-stock-orchard.sh`). `crates/receipts-wallet` makes receipts from
   a zcash-devtool wallet database, and `zcash-devtool wallet receipt --txid …` is a 137-line
   command on top of it ([integrations/zcash-devtool](integrations/zcash-devtool)).

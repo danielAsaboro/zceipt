@@ -362,6 +362,55 @@ impl Receipt {
     }
 }
 
+/// Prefix of the text encoding of a prepared (proved, not yet signed) receipt.
+pub const PREPARED_TEXT_PREFIX: &str = "zip311u1";
+
+/// A prepared receipt as it travels from the watch-only machine that made the proofs to the
+/// signer. It holds each spend's `alpha`, which links the receipt to its spends: keep it between
+/// the two machines.
+///
+/// ```text
+/// prepared := unsigned | { alpha[32] } * n_spends
+/// text     := "zip311u1" || base64url_nopad(prepared)
+/// ```
+impl crate::PreparedReceipt {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v = self.unsigned().encode();
+        for a in self.alphas() {
+            v.extend_from_slice(&ff::PrimeField::to_repr(a));
+        }
+        v
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let mut r = Reader { buf: bytes };
+        let unsigned = UnsignedReceipt::read(&mut r)?;
+        let consumed = bytes.len() - r.buf.len();
+        if unsigned.encode() != bytes[..consumed] {
+            return Err(DecodeError::NonCanonical);
+        }
+        let mut alphas = Vec::with_capacity(unsigned.spends.len());
+        for _ in 0..unsigned.spends.len() {
+            let repr = r.arr32()?;
+            alphas.push(Option::from(<pasta_curves::pallas::Scalar as ff::PrimeField>::from_repr(repr)).ok_or(DecodeError::NonCanonical)?);
+        }
+        if !r.buf.is_empty() {
+            return Err(DecodeError::TrailingBytes);
+        }
+        Ok(crate::PreparedReceipt::from_parts(unsigned, alphas))
+    }
+
+    pub fn to_text(&self) -> String {
+        format!("{PREPARED_TEXT_PREFIX}{}", URL_SAFE_NO_PAD.encode(self.to_bytes()))
+    }
+
+    pub fn from_text(s: &str) -> Result<Self, DecodeError> {
+        let body = s.trim().strip_prefix(PREPARED_TEXT_PREFIX).ok_or(DecodeError::BadMagic)?;
+        let bytes = URL_SAFE_NO_PAD.decode(body).map_err(|_| DecodeError::Base64)?;
+        Self::from_bytes(&bytes)
+    }
+}
+
 /// Prefix of the text encoding of a batch of receipts.
 pub const BATCH_TEXT_PREFIX: &str = "zip311b1";
 const BATCH_MAGIC: &[u8; 4] = b"ZRCB";

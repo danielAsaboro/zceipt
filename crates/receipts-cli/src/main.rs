@@ -38,8 +38,12 @@ enum Cmd {
         #[arg(short, long)]
         wallet: PathBuf,
         /// age identity file that decrypts the wallet's mnemonic.
-        #[arg(short, long)]
-        identity: PathBuf,
+        #[arg(short, long, required_unless_present = "unsigned")]
+        identity: Option<PathBuf>,
+        /// Make the proofs with the viewing key only and write the unsigned receipt to this file,
+        /// for `receipts sign` on the machine that holds the key. No identity is read.
+        #[arg(long, conflicts_with = "identity")]
+        unsigned: Option<PathBuf>,
         /// Transaction id (as shown by block explorers). Repeat it to make one batch link that
         /// proves several payments, e.g. a whole payroll or grant round.
         #[arg(long = "txid", required = true)]
@@ -102,6 +106,23 @@ enum Cmd {
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
         request: Option<String>,
+    },
+    /// Sign a receipt prepared with `create --unsigned`, on the machine that holds the key.
+    ///
+    /// Needs the wallet's keys.toml and identity, not its database or a network connection.
+    /// Shows what it is about to sign, computes the digest itself and checks that this key
+    /// made the spends before signing.
+    #[command(display_order = 2)]
+    Sign {
+        /// The file `create --unsigned` wrote.
+        prepared: PathBuf,
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// Write the receipt text to this file as well.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
     /// Verify a receipt against the chain.
     #[command(display_order = 2)]
@@ -648,7 +669,27 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     receipts_wallet::set_account(cli.account)?;
     match cli.cmd {
-        Cmd::Create { wallet, identity, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx } => {
+        Cmd::Sign { prepared, wallet, identity, out } => {
+            let text = std::fs::read_to_string(&prepared).with_context(|| format!("reading {}", prepared.display()))?;
+            let mut lines = text.lines();
+            let p = receipts_core::PreparedReceipt::from_text(lines.next().unwrap_or("")).map_err(|e| anyhow!("not a prepared receipt: {e}"))?;
+            let field = |k: &str| text.lines().find_map(|l| l.strip_prefix(k)).unwrap_or("").to_string();
+            let u = p.unsigned();
+            eprintln!("Signing a receipt for transaction {}:", receipts_core::display_txid(&u.txid));
+            eprintln!("  {} output(s) disclosed, {} spend(s)", u.outputs.len() + u.opened.len(), u.spends.len());
+            if !u.msg.is_empty() {
+                eprintln!("  message: {}", String::from_utf8_lossy(&u.msg).replace('\n', "\n           "));
+            }
+            let receipt = wallet::sign_prepared(&wallet, &identity, p)?;
+            let text = receipt.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!("\nShare this link (check it first with `receipts verify`):");
+            println!("{}", answer_link(&field("link="), &text, &field("h=")));
+        }
+        Cmd::Create { wallet, identity, unsigned, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
@@ -659,7 +700,7 @@ async fn main() -> anyhow::Result<()> {
                 lines.push(format!("second-tx:{}", t2.trim().to_lowercase()));
             }
             if let Some(a) = refund_to {
-                let a = if a == "fresh" { wallet::fresh_address(&wallet, &identity)? } else { a };
+                let a = if a == "fresh" { wallet::fresh_address(&wallet)? } else { a };
                 receipts_chain::chain::orchard_receiver_of(&a).map_err(|e| anyhow::anyhow!("--refund-to: {e}"))?;
                 lines.push(format!("refund-to:{a}"));
             }
@@ -687,6 +728,22 @@ async fn main() -> anyhow::Result<()> {
                 (true, false) => Some(wallet::SourceMode::HideValue),
                 (true, true) => Some(wallet::SourceMode::RevealValue),
             };
+            if let Some(file) = unsigned {
+                if txids.len() > 1 {
+                    bail!("--unsigned prepares one receipt at a time");
+                }
+                let (p, h) = wallet::prepare_receipt(&wallet, parse_txid(&txids[0])?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
+                std::fs::write(&file, format!("{}\nh={h}\nlink={link_base}\n", p.to_text()))?;
+                eprintln!(
+                    "Proofs made with the viewing key: {} output(s), {} spend(s). Wrote {}.\nIt holds the spends' randomizers, so move it only to the signing machine, then run:\n  receipts sign {} -w <wallet> -i <identity>",
+                    p.unsigned().outputs.len() + p.unsigned().opened.len(),
+                    p.unsigned().spends.len(),
+                    file.display(),
+                    file.display()
+                );
+                return Ok(());
+            }
+            let identity = identity.expect("clap requires it without --unsigned");
             if txids.len() > 1 {
                 if !outputs.is_empty() {
                     bail!("--output selects actions of one transaction; omit it for a batch");
@@ -1103,7 +1160,7 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
 #[allow(clippy::too_many_arguments)]
 async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool, paid_txid: Option<String>, yes: bool) -> anyhow::Result<()> {
     let refund_to = match refund_to.as_deref() {
-        Some("fresh") => Some(wallet::fresh_address(&wallet_dir, &identity)?),
+        Some("fresh") => Some(wallet::fresh_address(&wallet_dir)?),
         _ => refund_to,
     };
     if let Some(a) = &refund_to {

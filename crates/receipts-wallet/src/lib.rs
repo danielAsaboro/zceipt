@@ -13,7 +13,7 @@
 use anyhow::{anyhow, bail, Context};
 use incrementalmerkletree::Position;
 use orchard::{
-    keys::{Diversifier, FullViewingKey, PreparedIncomingViewingKey, Scope, SpendingKey},
+    keys::{Diversifier, FullViewingKey, PreparedIncomingViewingKey, Scope, SpendAuthorizingKey, SpendingKey},
     note::{NoteVersion, RandomSeed, Rho},
     note_encryption::{IronwoodDomain, OrchardDomain},
     tree::MerklePath,
@@ -39,7 +39,7 @@ fn account() -> zip32::AccountId {
 #[allow(non_upper_case_globals)]
 const OsRng: rand::rand_core::UnwrapErr<rand::rngs::SysRng> = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
 use receipts_chain::net::{Heights, Net};
-use receipts_core::{Pool, Receipt, SpendWitness};
+use receipts_core::{Pool, PreparedReceipt, Receipt, ViewingSpendWitness};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use shardtree::error::ShardTreeError;
@@ -259,11 +259,78 @@ pub async fn create_receipt(
     withhold_memo: bool,
 ) -> anyhow::Result<(Receipt, u32)> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
-    let coin_type = net.coin_type();
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
-    let fvk = FullViewingKey::from(&sk);
+    let (prepared, mined) = prepare_with(wallet, net, FullViewingKey::from(&sk), txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo).await?;
+    let asks = vec![SpendAuthorizingKey::from(&sk); prepared.unsigned().spends.len()];
+    Ok((prepared.sign(&asks, OsRng)?, mined))
+}
+
+/// Makes every proof of a receipt with the wallet's viewing key only (the identity file is not
+/// read), for signing on another machine with [`sign_prepared`]. The viewing key comes from the
+/// wallet database, so a viewing-only wallet works too.
+#[allow(clippy::too_many_arguments)]
+pub async fn prepare_receipt(
+    wallet: &Path,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[u32],
+    pool: Option<Pool>,
+    witness_source: WitnessSource,
+    server: Option<&str>,
+    prove_address: Option<&str>,
+    prove_source: Option<SourceMode>,
+    withhold_memo: bool,
+) -> anyhow::Result<(PreparedReceipt, u32)> {
+    let (net, fvk) = viewing_key(wallet)?;
+    prepare_with(wallet, net, fvk, txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo).await
+}
+
+/// Signs a prepared receipt with the wallet's spend authorizing key. Needs only `keys.toml`
+/// and the identity, not the wallet database or a network connection. The digest is computed
+/// here from the unsigned receipt, and each spend's `rk` is checked against this key first.
+pub fn sign_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt) -> anyhow::Result<Receipt> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    if prepared.unsigned().coin_type != net.coin_type() {
+        bail!("this receipt is for another network than the wallet");
+    }
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let asks = vec![SpendAuthorizingKey::from(usk.orchard()); prepared.unsigned().spends.len()];
+    prepared.sign(&asks, OsRng).map_err(|e| match e {
+        receipts_core::Error::BadSignature(_) => anyhow!("this wallet's key did not make these spends"),
+        e => e.into(),
+    })
+}
+
+/// The account's Orchard full viewing key, from the wallet database.
+fn viewing_key(wallet: &Path) -> anyhow::Result<(Net, FullViewingKey)> {
+    let net = wallet_network(wallet)?;
+    let conn = rusqlite::Connection::open_with_flags(wallet.join("data.sqlite"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let ufvk: String = conn
+        .query_row("SELECT ufvk FROM accounts WHERE hd_account_index = ?1 AND ufvk IS NOT NULL", [u32::from(account())], |r| r.get(0))
+        .context("this wallet database has no viewing key for the account")?;
+    let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&net, &ufvk).map_err(|e| anyhow!("decoding the wallet's viewing key: {e}"))?;
+    let fvk = ufvk.orchard().cloned().ok_or_else(|| anyhow!("the wallet's viewing key has no Orchard part"))?;
+    Ok((net, fvk))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn prepare_with(
+    wallet: &Path,
+    net: Net,
+    fvk: FullViewingKey,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[u32],
+    pool: Option<Pool>,
+    witness_source: WitnessSource,
+    server: Option<&str>,
+    prove_address: Option<&str>,
+    prove_source: Option<SourceMode>,
+    withhold_memo: bool,
+) -> anyhow::Result<(PreparedReceipt, u32)> {
+    let coin_type = net.coin_type();
     let prove_address = match prove_address {
         None => None,
         Some(ua) => {
@@ -358,7 +425,7 @@ pub async fn create_receipt(
                     Some(receipts_core::SourceWitness { txid: stored.source_txid, index: stored.source_action, cmx, reveal_value: mode == SourceMode::RevealValue })
                 }
             };
-            spends.push(SpendWitness { index: i, sk: sk.clone(), note: stored.note, merkle_path: path, prove_address, source });
+            spends.push(ViewingSpendWitness { index: i, fvk: fvk.clone(), note: stored.note, merkle_path: path, prove_address, source });
         }
     }
     if spends.is_empty() {
@@ -412,7 +479,7 @@ pub async fn create_receipt(
     let out_bundle = bundle_of(output_pool).ok_or_else(|| anyhow!("transaction has no {output_pool:?} bundle"))?;
     // With `withhold_memo`, every disclosed output shows its recipient and value only.
     let (with_memo, without): (&[_], &[_]) = if withhold_memo { (&[], &selected) } else { (&selected, &[]) };
-    Ok((receipts_core::create_cross_ext(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?, mined))
+    Ok((receipts_core::prepare(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?, mined))
 }
 
 trait RecoverExt {
@@ -441,12 +508,9 @@ pub fn mined_height_in_wallet(wallet: &Path, txid: [u8; 32]) -> Option<u32> {
 /// A fresh Orchard address of the wallet's account (a random diversifier), for a `refund-to:`
 /// line: reusing one address in every receipt would let merchants link the receipts. The wallet
 /// finds payments to it like any other of its addresses (Orchard decryption doesn't depend on
-/// the diversifier).
-pub fn fresh_address(wallet: &Path, identity: &Path) -> anyhow::Result<String> {
-    let (net, seed) = decrypt_seed(wallet, identity)?;
-    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
-        .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
-    let fvk = FullViewingKey::from(usk.orchard());
+/// the diversifier). Needs only the viewing key.
+pub fn fresh_address(wallet: &Path) -> anyhow::Result<String> {
+    let (net, fvk) = viewing_key(wallet)?;
     let mut index = [0u8; 11];
     let mut rng = OsRng;
     rand::Rng::fill_bytes(&mut rng, &mut index);

@@ -42,7 +42,7 @@ unset RECEIPTS_URL RECEIPTS_KEY
 
 if [ -n "${ZCASH_DEVTOOL:-}" ] && [ -n "${LIGHTWALLETD:-}" ]; then
   step "regtest end to end"
-  RECEIPTS="$R" ./scripts/e2e-regtest.sh 2>&1 | tail -3 || fail=1
+  RECEIPTS="$R" ./scripts/e2e-regtest.sh > target/e2e.log 2>&1 || fail=1; grep -E -A3 "^  FAIL" target/e2e.log; grep -E "passed, " target/e2e.log
 else
   step "regtest end to end skipped (set ZCASH_DEVTOOL and LIGHTWALLETD)"
 fi

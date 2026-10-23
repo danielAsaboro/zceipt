@@ -1524,6 +1524,18 @@ fn prepare_with_viewing_key_then_sign_elsewhere() {
     )
     .unwrap();
 
+    // It travels to the signer as `zip311u1…` text and comes back the same; a changed byte is refused.
+    let text = prepared.to_text();
+    assert!(text.starts_with(receipts_core::PREPARED_TEXT_PREFIX));
+    let back = receipts_core::PreparedReceipt::from_text(&text).unwrap();
+    assert_eq!(back.unsigned(), prepared.unsigned());
+    assert_eq!(back.alphas(), prepared.alphas());
+    let mut bytes = prepared.to_bytes();
+    bytes.push(0);
+    assert!(receipts_core::PreparedReceipt::from_bytes(&bytes).is_err());
+    bytes.truncate(bytes.len() - 2);
+    assert!(receipts_core::PreparedReceipt::from_bytes(&bytes).is_err());
+
     // The "hardware wallet": given the unsigned receipt and the randomizers, it computes the
     // digest itself and checks each rk before signing.
     let ask = SpendAuthorizingKey::from(&s.sender_sk);

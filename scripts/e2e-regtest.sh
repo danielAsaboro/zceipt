@@ -87,6 +87,13 @@ T1=$(send sender "$MERCHANT" 42000000 "Invoice 7: Orchard espresso") || { bad "O
 "$R" create -w ./sender -i ./sender.age --txid "$T1" -m "Order 7 (Orchard)" -s "127.0.0.1:$GRPC" --out orchard.txt >/dev/null 2>&1 && ok "Orchard receipt created for $T1" || bad "Orchard receipt"
 "$R" verify @orchard.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "Orchard receipt verifies against the chain" || bad "Orchard verify"
 
+# Watch-only machine makes the proofs; the key holder signs from keys.toml alone.
+rm -rf watch signer; cp -R sender watch; mkdir signer; cp sender/keys.toml signer/
+awk '/^mnemonic = """/{skip=1;next} skip&&/^"""/{skip=0;next} !skip' sender/keys.toml > watch/keys.toml
+"$R" create -w ./watch --unsigned prepared.txt --txid "$T1" -m "Order 7 (watch-only)" -s "127.0.0.1:$GRPC" >/dev/null 2>&1 && ! grep -q mnemonic watch/keys.toml && ok "a wallet with no mnemonic made the proofs" || bad "watch-only prepare"
+"$R" sign prepared.txt -w ./merchant -i ./merchant.age > other-sign.log 2>&1 || true; grep -q "did not make these spends" other-sign.log && ok "another wallet's key refuses to sign" || bad "another wallet's key was not refused"
+"$R" sign prepared.txt -w ./signer -i ./sender.age --out signed.txt >/dev/null 2>&1 && "$R" verify @signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "signed with keys.toml alone (no wallet database), and it verifies" || bad "offline sign"
+
 echo "== NU6.3 / Ironwood (mining past $NU63)"
 mine $((NU63 - $(height) + 5)); mine 4 "$SENDER"; mine 101; sync sender; sync merchant
 "$R" serve --listen "127.0.0.1:$API" --db ./api.db --test-network regtest --heights ./heights.toml --test-lightwalletd "127.0.0.1:$GRPC" --verifier-url "http://127.0.0.1:$API/verify/" 2> api.log &

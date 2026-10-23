@@ -1,22 +1,26 @@
 # Receipts
 
-**ZIP 311 payment disclosures for Orchard and Ironwood: the wallet that paid proves one payment,
-and nothing else about itself.**
+**Prove one Zcash payment without handing over your viewing key.**
 
-Proving a shielded payment today means handing over a viewing key, which shows every payment
-the wallet ever made or received. A receipt replaces the key. It shows one transaction's
-recipient, amount and memo, and carries a zero-knowledge proof that the payer's spend authority
-made the payment. It says nothing about the payer's address, balance or other transactions.
+You get a link. Opening it shows who was paid, how much and the memo, and proves the wallet that
+paid made it. Change one character and it fails. Nothing else about the payer's wallet is in it.
 
-To our knowledge it is the first ZIP 311 implementation for Orchard and Ironwood that includes
-the spend-authority proof: output-only disclosures ([related work](docs/RELATED-WORK.md)) show
-what a transaction paid, which anyone holding a viewing key can do; a receipt shows the payer
-made it.
+<img src="docs/img/key-vs-receipt.svg" width="640" alt="A viewing key shows every payment, past and future; a receipt shows one payment and that you made it">
 
-Who needs this on Monday:
-- **a customer in a dispute** ("I paid you on Tuesday") or a support desk checking a claim;
-- **an exchange or compliance desk** asking where a shielded deposit came from;
-- **a grant program, payroll or DAO** proving it paid everyone, without opening its treasury.
+It is ZIP 311 (payment disclosures) for Orchard and Ironwood, including the spend-authority
+proof that output-only disclosures leave out ([related work](docs/RELATED-WORK.md)).
+
+Who needs it now:
+- **Exchanges and bridges holding a shielded deposit.** In July 2026 a user's $589K from a
+  shielded ZEC swap was held for 50+ days; they offered to "sign a verification message", and
+  there was no Zcash-native way to do that ([forum](https://forum.zcashcommunity.com/t/my-experience-exiting-shielded-zec-from-zodl-to-near-intents-589k-usdt-still-held-50-days-despite-a-written-compliance-clearance/57497)).
+  See [the held-deposit guide](docs/guides/held-deposit.md).
+- **Wallets.** Zodl's open issue for an authenticated reply-to address backed by a spend proof
+  ([zodl-project#42](https://github.com/zodl-inc/zodl-project/issues/42)) is what a receipt with
+  `--prove-address` and `refund-to:` does.
+- **Merchants and payment processors** proving a payment without the merchant's viewing key
+  (asked of CipherPay in [its forum thread](https://forum.zcashcommunity.com/t/cipherpay-yes-another-zcash-payment-processor-sorry-live/54830)),
+  and **grant programs, payroll or DAOs** proving they paid everyone with one link.
 
 Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
@@ -140,6 +144,9 @@ Sapling is out of scope: wallets now pay from Orchard and Ironwood, and ZIP 311 
 specifies Sapling.
 
 ## Status and upstream plan
+
+Reviewers: [OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) states the three things to check and
+answers the open questions about spend authority for Orchard, each with its test.
 
 The construction is unaudited: it has been reviewed only by its author ([CRYPTO-REVIEW.md](docs/CRYPTO-REVIEW.md),
 which found and fixed one forgery), checked by a second verifier written from the protocol

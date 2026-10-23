@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 220" width="720" height="220" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="720" height="220" fill="#f4efe4"/>
+  <text x="180" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#1d1b17">Viewing key</text>
+  <text x="540" y="34" text-anchor="middle" font-size="17" font-weight="700" fill="#1d1b17">Receipt</text>
+  <g font-size="13" fill="#1d1b17">
+    <g>
+      <rect x="40" y="52" width="280" height="26" rx="5" fill="#e3c9c4"/><text x="52" y="70">0.01 ZEC to the coffee shop</text>
+      <rect x="40" y="84" width="280" height="26" rx="5" fill="#e3c9c4"/><text x="52" y="102">0.50 ZEC to a friend</text>
+      <rect x="40" y="116" width="280" height="26" rx="5" fill="#e3c9c4"/><text x="52" y="134">2.00 ZEC received from work</text>
+      <rect x="40" y="148" width="280" height="26" rx="5" fill="#e3c9c4"/><text x="52" y="166">…and every future payment</text>
+    </g>
+    <g>
+      <rect x="400" y="52" width="280" height="26" rx="5" fill="#c9dccb"/><text x="412" y="70">0.01 ZEC to the coffee shop ✓ you paid</text>
+      <rect x="400" y="84" width="280" height="26" rx="5" fill="#ece6d8"/><text x="412" y="102" fill="#9a9384">hidden</text>
+      <rect x="400" y="116" width="280" height="26" rx="5" fill="#ece6d8"/><text x="412" y="134" fill="#9a9384">hidden</text>
+      <rect x="400" y="148" width="280" height="26" rx="5" fill="#ece6d8"/><text x="412" y="166" fill="#9a9384">hidden</text>
+    </g>
+  </g>
+  <text x="180" y="204" text-anchor="middle" font-size="13" fill="#5c574d">shows everything, forever</text>
+  <text x="540" y="204" text-anchor="middle" font-size="13" fill="#5c574d">shows one payment, and that you made it</text>
+</svg>

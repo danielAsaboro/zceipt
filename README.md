@@ -55,9 +55,8 @@ receipts (192 with one byte flipped, 29 edited and re-signed or forged, 11 hones
 that only the Halo 2 check tells apart it derives the same public inputs).
 
 With Rust, `cargo install --locked --path crates/receipts-cli && receipts demo` verifies the same
-real receipt and refuses the edited one, then tours the payment API on sandbox fixtures. The
-first build takes about ten minutes; `docker compose run --build --rm receipts demo --no-wait`
-works too.
+real receipt and refuses the edited one. The first build takes about ten minutes;
+`docker compose run --build --rm receipts demo` works too.
 
 ## Make a receipt from your wallet
 
@@ -100,7 +99,7 @@ disclosure complete only with it. Exact claim, assumptions and limits:
 |---|---|---|
 | The person you give the receipt to | the disclosed outputs, your message, that you paid | your address (unless you add `--prove-address`), balance, other payments |
 | The chain server, when someone verifies | one block, and a fetch of up to 64 of its transactions that could carry a receipt (links carry an `h=` block hint), or the txid without the hint; the verifier's IP | which of those transactions; anything in the receipt. On mainnet a receipt shares its block with about 4.6 such transactions on average and is alone about 10% of the time; the page and CLI say when the block is that quiet |
-| The chain server, when you make a receipt | whole 1,000-block windows (only if your wallet pruned the note's witness) | which note or block |
+| The chain server, when you make a receipt | from a wallet directory: whole 1,000-block windows (only if the wallet pruned the note's witness). From a seed phrase or viewing key: the block range from your birthday to the tip, then the payment's block (with its other transactions) | which note, payment or transaction |
 | Anyone else | nothing | |
 
 Opt-in features reveal more, and say so where they are used: `--prove-source` links your
@@ -113,10 +112,13 @@ What the server receives, recorded byte for byte: [ASSURANCE.md](docs/ASSURANCE.
 The core is one Rust crate on top of `orchard` and `zcash_primitives`:
 
 ```rust
-// The sender, after paying: disclose output 1, prove the spend in action 0.
-let receipt = receipts_core::create(&pk, coin_type, Pool::Ironwood, txid, &bundle, b"Invoice 42",
-    &[(1, ovk)], &[SpendWitness { index: 0, sk, note, merkle_path, prove_address: None, source: None }], rng)?;
-let link = receipt.to_text(); // "zip311r1…"
+// The sender's wallet, after paying: every proof, from the full viewing key alone.
+let witness = ViewingSpendWitness { index: 0, fvk, note, merkle_path, prove_address: None, source: None };
+let prepared = receipts_core::prepare(&pk, coin_type, Pool::Ironwood, &bundle, Pool::Ironwood, &bundle,
+    txid, b"Invoice 42", &[(1, ovk)], &[], &[witness], &mut rng)?;
+// The signer (here, or a hardware wallet given the unsigned receipt and the randomizers).
+let sigs = receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?;
+let link = prepared.apply_signatures(sigs)?.to_text(); // "zip311r1…"
 
 // Anyone, with the mined transaction's bundle:
 let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool::Ironwood, txid, &bundle)?;

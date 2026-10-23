@@ -196,7 +196,7 @@
           <li>For the spend, the sender makes a fresh Halo 2 proof that they own the note this transaction spent (same anchor, same nullifier), under a new randomized key, and signs the whole receipt with it.</li>
           <li>An optional note binds a challenge such as an invoice number, so a receipt can't be reused for something else.</li>
         </ol>
-        <div class="cli">receipts create -w wallet -i key.age --txid &lt;txid&gt; -m "Invoice 42"
+        <div class="cli">receipts create --seed-stdin --network main --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" &lt; phrase.txt
 receipts verify 'https://…#zip311r1…'</div>
       </div>
     </section>

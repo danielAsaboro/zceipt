@@ -10,7 +10,8 @@ transparent addresses. A receipt lets the arbitrator check the one payment and n
 
 1. When the trade opens, the platform gives it an id of 6 to 64 lowercase hex digits, for
    example `7f3a9c21e0b4`. It also records the seller's shielded address and the amount.
-2. The buyer pays from any wallet. Then the buyer makes a receipt that signs the trade id:
+2. The buyer pays from any wallet, with the trade id in the payment's memo. Then the buyer
+   makes a receipt that signs the trade id too:
 
    ```bash
    receipts create --seed-stdin --birthday <wallet birthday> --network main \
@@ -24,7 +25,8 @@ transparent addresses. A receipt lets the arbitrator check the one payment and n
 The arbitrator runs one command:
 
 ```bash
-receipts verify '<link>' --challenge 7f3a9c21e0b4 --expect-address <seller's address> --min <amount>
+receipts verify '<link>' --challenge 7f3a9c21e0b4 --memo-contains 7f3a9c21e0b4 \
+  --expect-address <seller's address> --min <amount>
 ```
 
 The verdict is either valid or one specific reason. The command exits 0 only when all of
@@ -33,7 +35,9 @@ these hold:
 - the payment is mined;
 - the buyer's wallet authorized it (spend authority, not just an output);
 - the seller's address received at least the amount;
-- the receipt was made for this trade.
+- the receipt was made for this trade;
+- the payment itself names this trade (its memo), so an older payment to the same seller can't
+  be passed off as this one.
 
 A receipt made for another trade, or one forwarded by someone else, fails on the challenge.
 

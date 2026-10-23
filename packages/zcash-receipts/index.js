@@ -13,6 +13,15 @@ import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightH
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
 
+// Links can carry other text with a stray "%" (`&note=50%off`): never let that stop a check.
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 let ready;
 async function load() {
   if (!ready) {
@@ -39,14 +48,14 @@ export async function detectSecret(text) {
 
 /** Extracts a `zip311b1…` batch from a link, a fragment or bare text, or returns null. */
 export function extractBatch(input) {
-  const s = decodeURIComponent(String(input).trim());
+  const s = safeDecode(String(input).trim());
   const i = s.indexOf("zip311b1");
   return i < 0 ? null : s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
 }
 
 /** Extracts the `zip311r1…` receipt from a link, a fragment or bare text. */
 export function extractReceipt(input) {
-  const s = decodeURIComponent(String(input).trim());
+  const s = safeDecode(String(input).trim());
   const i = s.indexOf("zip311r1");
   if (i < 0) throw new Error("no zip311r1 receipt found");
   return s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
@@ -184,7 +193,7 @@ function paidTo(results, ua) {
  */
 export async function verifyIncoming(input, options = {}) {
   await load();
-  const s = decodeURIComponent(String(input).trim());
+  const s = safeDecode(String(input).trim());
   const i = s.indexOf("zrcin1");
   if (i < 0) throw new Error("no zrcin1 incoming receipt found");
   const text = s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
@@ -228,7 +237,7 @@ export async function verifyBatch(input, options = {}) {
   const results = [];
   // Fetches overlap; each proof is checked as its transaction arrives.
   // The link's block hints (`&h=a,b,c`, one per receipt): fetch each payment by block, not txid.
-  const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(decodeURIComponent(String(input)));
+  const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(safeDecode(String(input)));
   const hints = m ? m[1].split(",").map(Number) : [];
   const useHints = hints.length === receipts.length;
   results.push(...(await Promise.all(receipts.map((r, i) => verifyReceipt(useHints ? `${r}&h=${hints[i]}` : r, rest)))));
@@ -247,7 +256,7 @@ export async function verifyBatch(input, options = {}) {
 
 /** Extracts a `zsig1…` sign-in from a link, a fragment or bare text, or returns null. */
 export function extractSignIn(input) {
-  const s = decodeURIComponent(String(input).trim());
+  const s = safeDecode(String(input).trim());
   const i = s.indexOf("zsig1");
   return i < 0 ? null : s.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
 }

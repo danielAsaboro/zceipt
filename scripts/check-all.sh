@@ -20,10 +20,11 @@ if [ -n "$R" ]; then
   echo "== CLI: a receipt checked against the request it answers (payee, amount, challenge)"
   L=$(tr -d '\n' < examples/testnet/request-answer-link.txt); TO=$(echo "$L" | grep -o 'to=[a-z0-9]*' | cut -c4-)
   "$R" verify "$L" --challenge e1e14a5d182a --expect-address "$TO" --min 0.01 >/dev/null 2>&1 && ! "$R" verify "$L" --challenge ffffff >/dev/null 2>&1 && ! "$R" verify "$L" --expect-address "$TO" --min 0.02 >/dev/null 2>&1 && echo "request checks: right one passes, other challenge and higher minimum refused" || { echo "request checks failed"; exit 1; }
+  ! "$R" verify @examples/testnet/batch-link.txt --challenge 7f3a9c21e0b4 >/dev/null 2>&1 && echo "request checks on a batch: refused, not skipped" || { echo "a batch passed --challenge"; exit 1; }
   echo "== CLI: both into a spreadsheet and a case file"
   REC=$(mktemp -d)
   "$R" export @examples/testnet/receipt-link.txt @examples/testnet/receipt-edited.txt --records "$REC" 2>/dev/null > "$REC/out.csv" || true
-  grep -q '^examples/testnet/receipt-link.txt,verified,571de6e4' "$REC/out.csv" && grep -q '^examples/testnet/receipt-edited.txt,invalid' "$REC/out.csv" && [ -f "$REC/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73.json" ] && echo "export: 1 verified row, 1 invalid row, 1 record" || { echo "export check failed"; cat "$REC/out.csv"; exit 1; }
+  grep -q '^examples/testnet/receipt-link.txt,verified,571de6e4' "$REC/out.csv" && grep -q '^examples/testnet/receipt-edited.txt,invalid' "$REC/out.csv" && [ -f "$REC/001-571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73.json" ] && echo "export: 1 verified row, 1 invalid row, 1 record" || { echo "export check failed"; cat "$REC/out.csv"; exit 1; }
 else
   echo "== CLI skipped (no receipts binary; cargo install --locked --path crates/receipts-cli)"
 fi

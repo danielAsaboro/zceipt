@@ -9,6 +9,15 @@ const ENDPOINT_LISTS = {
 };
 const ENDPOINTS = Object.fromEntries(Object.entries(ENDPOINT_LISTS).map(([k, v]) => [k, v[0]]));
 
+// Links can carry other text with a stray "%" (`&note=50%off`): never let that stop a check.
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 const $ = (s) => document.querySelector(s);
 const worker = new Worker("./worker.js", { type: "module" });
 let seq = 0;
@@ -88,7 +97,7 @@ async function fetchRawTx(endpoint, displayTxid) {
   });
   if (!res.ok) throw new Error(`lightwalletd answered HTTP ${res.status}`);
   const status = res.headers.get("grpc-status");
-  if (status && status !== "0") throw new Error(decodeURIComponent(res.headers.get("grpc-message") || `grpc-status ${status}`));
+  if (status && status !== "0") throw new Error(safeDecode(res.headers.get("grpc-message") || `grpc-status ${status}`));
   const body = new Uint8Array(await res.arrayBuffer());
   let pos = 0, data = null, height = 0n, trailer = "";
   while (pos + 5 <= body.length) {
@@ -114,7 +123,7 @@ async function fetchRawTx(endpoint, displayTxid) {
   const m = trailer.match(/grpc-status:\s*(\d+)/);
   if (m && m[1] !== "0") {
     const why = (trailer.match(/grpc-message:\s*(.*)/) || [])[1] || "";
-    throw new Error(`lightwalletd: ${decodeURIComponent(why.trim()) || "status " + m[1]}`);
+    throw new Error(`lightwalletd: ${safeDecode(why.trim()) || "status " + m[1]}`);
   }
   if (!data) throw new Error("lightwalletd returned no transaction");
   return { raw: data, height: Number(height) };
@@ -150,6 +159,12 @@ function challengeIn(message) {
 }
 
 // ---------- UI ----------
+// The tab title carries the verdict of whatever card is showing (and any later change to it,
+// such as PAID TO YOU).
+new MutationObserver(() => {
+  const stamp = $("#result").hidden ? "" : $("#result .stamp")?.textContent.trim();
+  document.title = stamp ? `${stamp} · Receipts` : "Receipts · prove one Zcash payment";
+}).observe($("#result"), { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true, characterData: true });
 // The placeholder shows only while there is no result.
 new MutationObserver(() => { $("#empty").hidden = !$("#result").hidden; }).observe($("#result"), { attributes: true, attributeFilter: ["hidden"] });
 // Blocks on top of a payment before it counts as settled (the CLI and API use the same number).
@@ -175,12 +190,7 @@ const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 function revealResult() {
   $("#result").hidden = false;
   document.body.classList.add("has-result");
-  // Screen readers and the tab title get the verdict too, once the card is filled in.
-  requestAnimationFrame(() => {
-    const stamp = $("#result .stamp")?.textContent.trim();
-    if (stamp) document.title = `${stamp} · Receipts`;
-    $("#result").focus({ preventScroll: true });
-  });
+  $("#result").focus({ preventScroll: true });
   if (window.matchMedia("(max-width: 860px)").matches) $("#right")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -188,18 +198,19 @@ function revealResult() {
 // chain couldn't be reached; the receipt was altered or forged.
 function showError(msg, kind = "notice") {
   revealResult();
-  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID" }[kind];
+  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID", other: "OTHER FORMAT" }[kind];
   const plain = {
     forged: "This receipt was changed after it was made, or it was never made by the wallet that paid. Don't rely on it.",
     unreadable: "The link may be cut off (some apps shorten long links), or what was pasted isn't a receipt. Ask for the whole link, or the receipt as a file.",
     network: "The receipt wasn't checked: the chain server couldn't be reached or doesn't have the transaction yet. Try again in a minute, or pick another server in Settings.",
     notice: "",
+    other: "",
   }[kind];
   $("#result").innerHTML = `
     <div class="ticket invalid" data-kind="${kind}">
-      <div class="stamp ${kind === "network" ? "warn" : "bad"}">${head}</div>
+      <div class="stamp ${kind === "network" || kind === "other" ? "warn" : "bad"}">${head}</div>
       ${plain ? `<p class="why">${escapeHtml(plain)}</p><p class="fine">Detail: ${escapeHtml(msg)}</p>` : `<p class="why">${escapeHtml(msg)}</p>`}
-      <p class="fine">A receipt is only valid if the sender's proof, signature and the on-chain transaction all agree.</p>
+      ${kind === "other" ? "" : `<p class="fine">A receipt is only valid if the sender's proof, signature and the on-chain transaction all agree.</p>`}
     </div>`;
 }
 // Address errors in words a shop owner can act on.
@@ -323,7 +334,6 @@ function render(v, net) {
       if (stamp && stamp.textContent.startsWith("VERIFIED")) {
         stamp.textContent = paid ? stamp.textContent.replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
         if (!paid) stamp.className = "stamp warn";
-        document.title = `${stamp.textContent} · Receipts`;
       }
     } catch (e) {
       $("#mineOut").textContent = friendlyAddressError(e);
@@ -371,7 +381,7 @@ async function renderRequestChecks(v) {
 
 // zreceipt (a separate project) also writes links as zip311r1 + base64url, but of JSON. Say so
 // instead of failing with a decode error.
-const ZRECEIPT_NOTE = "This is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it. Open it with zreceipt's verifier. See docs/RELATED-WORK.md.";
+const ZRECEIPT_NOTE = "This is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it. Open it with zreceipt's verifier.";
 
 async function run(receiptText) {
   const gen = ++runGen;
@@ -602,7 +612,7 @@ async function runBatch(batchText) {
 
 // ---------- incoming receipts (the recipient proves it was paid) ----------
 function incomingFromHash() {
-  const h = decodeURIComponent(location.hash.slice(1));
+  const h = safeDecode(location.hash.slice(1));
   const i = h.indexOf("zrcin1");
   return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
 }
@@ -670,21 +680,21 @@ async function runIncoming(text) {
 }
 
 function batchFromHash() {
-  const h = decodeURIComponent(location.hash.slice(1));
+  const h = safeDecode(location.hash.slice(1));
   const i = h.indexOf("zip311b1");
   return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
 }
 
 /** A batch link's block hints (`&h=12,40,41`), one per receipt in order, or null. */
 function batchHeightHints(input) {
-  const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(decodeURIComponent(String(input)));
+  const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(safeDecode(String(input)));
   return m ? m[1].split(",").map(Number) : null;
 }
 
 function receiptFromHash() {
-  const h = decodeURIComponent(location.hash.slice(1));
+  const h = safeDecode(location.hash.slice(1));
   if (h.includes("zip311b1")) return "";
-  if (!h.includes("zip311r1") && h.includes("zrcpt1eyJ")) { showError(ZRECEIPT_NOTE); return ""; }
+  if (!h.includes("zip311r1") && h.includes("zrcpt1eyJ")) { showError(ZRECEIPT_NOTE, "other"); return ""; }
   const i = h.indexOf("zip311r1");
   return i >= 0 ? h.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "") : "";
 }
@@ -696,7 +706,7 @@ for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#
   const b = $(id);
   if (b) b.onclick = () => {
     const h = `${text}&h=${hint}`;
-    if (decodeURIComponent(location.hash.slice(1)) === h) (text.startsWith("zip311b1") ? runBatch(text) : run(text));
+    if (safeDecode(location.hash.slice(1)) === h) (text.startsWith("zip311b1") ? runBatch(text) : run(text));
     else location.hash = h;
   };
 }
@@ -729,7 +739,7 @@ $("#verifyBtn").onclick = async () => {
     return runBatch(bt);
   }
   const i = t.indexOf("zip311r1");
-  if (i < 0) return t.includes("zrcpt1eyJ") ? showError(ZRECEIPT_NOTE) : showError("no zip311r1… receipt in what was pasted", "unreadable");
+  if (i < 0) return t.includes("zrcpt1eyJ") ? showError(ZRECEIPT_NOTE, "other") : showError("no zip311r1… receipt in what was pasted", "unreadable");
   const r = t.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
   const h = heightHint(t);
   history.replaceState(null, "", "#" + r + (h ? `&h=${h}` : ""));
@@ -767,6 +777,15 @@ if (initial) {
 }
 
 // A request link opened on its own: say what is being asked, and how to answer it.
+// The command a payer runs to answer a request, from any wallet's seed phrase, with a copy button.
+function answerCommand(link, to) {
+  const net = regtest() ? "test" : /^u1/.test(to || "") ? "main" : "test";
+  const cmd = `receipts create --seed-stdin --network ${net} --birthday <wallet birthday> --txid <txid> --request '${link}' < phrase.txt`;
+  const id = `cmd${Math.random().toString(36).slice(2, 8)}`;
+  setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = () => navigator.clipboard.writeText(cmd).then(() => { b.textContent = "Copied"; }); });
+  return `<div class="cli">${escapeHtml(cmd)}</div><p class="fine"><button type="button" class="ghost" id="${id}">Copy command</button></p>`;
+}
+
 const askedFor = requestFromUrl();
 if (askedFor && !initial && !initialBatch && !initialIncoming) {
   const answer = location.href;
@@ -774,8 +793,7 @@ if (askedFor && !initial && !initialBatch && !initialIncoming) {
     <div class="big">PAYMENT REQUEST</div>
     <p>You're asked to prove a payment${askedFor.min ? ` of at least <strong>${zec(askedFor.min)}</strong>` : ""}${askedFor.to ? ` to <span class="mono" title="${escapeHtml(askedFor.to)}">${escapeHtml(short(askedFor.to, 10))}</span>` : ""}${askedFor.label ? ` (“${escapeHtml(askedFor.label)}”)` : ""}.</p>
     <p class="hint">Pay it from your wallet, then make a receipt that answers this request and send back the link it prints:</p>
-    <div class="cli">receipts create -w &lt;wallet&gt; -i &lt;key.age&gt; --txid &lt;txid&gt; --request '${escapeHtml(answer)}'</div>
-    <p class="hint">or, to pay and answer in one step: <span class="mono">receipts pay '${escapeHtml(answer)}' -w &lt;wallet&gt; -i &lt;key.age&gt;</span></p>`;
+    ${answerCommand(answer, askedFor.to)}`;
 }
 
 // ---------- signed payment requests (zreq1) ----------
@@ -815,7 +833,7 @@ $("#linkBtn").onclick = async () => {
   if (uri.includes("zreq1")) return checkSignedRequest(uri.slice(uri.indexOf("zreq1")).replace(/[^A-Za-z0-9_-].*$/s, ""));
   const v = JSON.parse(check_payment_uri(uri, regtest() ? "regtest" : ""));
   const pays = v.payments.map((p) =>
-    `<li>${escapeHtml(p.network || "unknown network")} ${escapeHtml(p.address_kind)} address · ${p.amount_zatoshis != null ? zec(p.amount_zatoshis) + " ZEC" : "no amount"}${p.memo ? ` · memo “${escapeHtml(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : p.address_kind === "tex" ? "provable with a deposit receipt" : "<strong>not provable with a receipt</strong>"}</li>`).join("");
+    `<li>${escapeHtml(p.network || "unknown network")} ${escapeHtml(p.address_kind)} address · ${p.amount_zatoshis != null ? `${zec(p.amount_zatoshis)} ${p.network === "mainnet" ? "ZEC" : "TAZ"}` : "no amount"}${p.memo ? ` · memo “${escapeHtml(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : p.address_kind === "tex" ? "provable with a deposit receipt" : "<strong>not provable with a receipt</strong>"}</li>`).join("");
   const finds = v.findings.map((f) => `<li data-level="${f.level}">${escapeHtml(f.message)}</li>`).join("");
   $("#linkOut").innerHTML = `<div class="verdict">${v.ok ? (v.findings.some((f) => f.level === "warning") ? "Works, with warnings" : "Looks good") : "Fix before printing"}</div>
     <ul>${pays}${v.qr ? `<li>QR version ${v.qr.version} (${v.qr.modules}×${v.qr.modules})</li>` : ""}${finds}</ul>`;
@@ -841,6 +859,6 @@ $("#reqBtn").onclick = () => {
     <p class="hint">Send this to the person who paid you. Their receipt must answer challenge <code>${code}</code>.</p>
     <textarea readonly id="reqLink">${escapeHtml(link)}</textarea>
     <p class="hint">They run:</p>
-    <div class="cli">receipts create -w &lt;wallet&gt; -i &lt;key.age&gt; --txid &lt;txid&gt; --request '${escapeHtml(link)}'</div>
+    ${answerCommand(link, to)}
     <p class="hint">and send back the link it prints. Opening it here checks the challenge, the payee and the amount.</p>`;
 };

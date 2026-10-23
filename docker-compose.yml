@@ -1,5 +1,5 @@
 # One command: `docker compose up`, then open http://127.0.0.1:8723 (the API keys are in the log).
-# The tour: `docker compose run --rm receipts demo --no-wait`.
+# The demo: `docker compose run --rm receipts demo` (the payment API tour: `demo --shop --no-wait`).
 services:
   receipts:
     build: .

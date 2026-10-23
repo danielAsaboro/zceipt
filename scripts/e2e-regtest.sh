@@ -21,6 +21,8 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/receipts-e2e.XXXXXX")
 NAME=receipts-e2e-$$
 PASS=(); FAIL=()
 ok() { PASS+=("$1"); echo "  ok   $1"; }
+# A chain read can race the miner (lightwalletd briefly behind): try a read-only check up to 3 times.
+retry3() { for _ in 1 2 3; do "$@" 2>/dev/null && return 0; sleep 3; done; return 1; }
 bad() { FAIL+=("$1"); echo "  FAIL $1"; }
 cleanup() {
   [ -n "${MINER:-}" ] && kill "$MINER" 2>/dev/null || true
@@ -94,7 +96,7 @@ awk '/^mnemonic = """/{skip=1;next} skip&&/^"""/{skip=0;next} !skip' sender/keys
 "$R" sign prepared.txt --yes -w ./merchant -i ./merchant.age > other-sign.log 2>&1 || true; grep -q "did not make these spends" other-sign.log && ok "another wallet's key refuses to sign" || bad "another wallet's key was not refused"
 [ "$(stat -f %Lp prepared.txt 2>/dev/null || stat -c %a prepared.txt)" = 600 ] && ok "the prepared file is readable only by its owner" || bad "prepared file permissions"
 echo no | "$R" sign prepared.txt -w ./signer -i ./sender.age > declined.log 2>&1 || true; grep -q "not signed" declined.log && [ -f prepared.txt ] && ok "the signer shows what it signs and stops unless told yes" || bad "sign prompt"
-"$R" sign prepared.txt --yes -w ./signer -i ./sender.age --out signed.txt >/dev/null 2>&1 && [ ! -f prepared.txt ] && "$R" verify @signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "signed with keys.toml alone (no wallet database), and it verifies" || bad "offline sign"
+"$R" sign prepared.txt --yes -w ./signer -i ./sender.age --out signed.txt >/dev/null 2>&1 && [ ! -f prepared.txt ] && retry3 "$R" verify @signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" > signed-verify.log && grep -q "pool      Orchard" signed-verify.log && ok "signed with keys.toml alone (no wallet database), and it verifies" || { bad "offline sign"; "$R" verify @signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" 2>&1 | tail -2; }
 
 # Keys only: a viewing key and a birthday, no wallet files (how Zodl, Zingo or YWallet users would do it).
 UFVK=$(sqlite3 sender/data.sqlite "SELECT ufvk FROM accounts WHERE hd_account_index = 0")
@@ -106,7 +108,7 @@ BDAY=$(sed -n 's/^birthday = //p' sender/keys.toml)
 SRCS=$(sqlite3 sender/data.sqlite "SELECT DISTINCT hex(t.txid) FROM orchard_received_notes rn JOIN transactions t ON t.id_tx = rn.transaction_id" | python3 -c 'import sys; print(" ".join("--txid " + bytes.fromhex(l.strip())[::-1].hex() for l in sys.stdin if l.strip()))')
 "$R" screened-list $SRCS --regtest ./heights.toml -s "127.0.0.1:$GRPC" > screened.txt 2> screened.log && "$R" screened-list --txid "$T1" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > unscreened.txt 2>>screened.log || bad "screened-list"
 "$R" create -w ./sender -i ./sender.age --txid "$T1" -m "Deposit 12" --screened-set screened.txt --screened-proof screened-proof.txt -s "127.0.0.1:$GRPC" --out screened-receipt.txt > screened-create.log 2>&1 && ok "the payer proved the spent note is in the exchange's screened list ($(grep -vc '^#' screened.txt) outputs)" || { bad "screened-set create"; tail -3 screened-create.log; }
-"$R" verify @screened-receipt.txt --screened-set screened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>/dev/null | grep -q "funds     every spent note came from the screened list" && ok "the verifier accepts it against the published list, without learning which output" || bad "screened-set verify"
+"$R" verify @screened-receipt.txt --screened-set screened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>/dev/null | grep -q "funds     each spend this receipt proves used a note from the screened list" && ok "the verifier accepts it against the published list, without learning which output" || bad "screened-set verify"
 "$R" verify @screened-receipt.txt --screened-set unscreened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > unscreened.log 2>&1 || true; grep -q "not in the screened set" unscreened.log && ok "against a list without that note it is refused" || bad "screened-set refusal"
 
 echo "== NU6.3 / Ironwood (mining past $NU63)"
@@ -192,6 +194,9 @@ sync saver
 HELD=$(grep -o 'Proof of funds: [0-9.]* ZEC' reserve.log | grep -o '[0-9.]*')
 "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-report.txt 2>&1 && grep -q "holds     $HELD TAZ" reserve-report.txt \
   && ok "proof of funds: holds $HELD ZEC, unspent as of the tip (every Ironwood nullifier scanned)" || { bad "verify proof of funds"; tail -3 reserve-report.txt; }
+"$R" reserve -w ./saver -i ./saver.age -m "challenge:otc-e2e" --hide-values --out reserve-hidden.txt > reserve-hidden.log 2>&1 || bad "hidden-value proof of funds"
+"$R" verify @reserve-hidden.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-hidden-report.txt 2>&1 && grep -q "holds     $HELD TAZ" reserve-hidden-report.txt && grep -q "not each note's value" reserve-hidden-report.txt \
+  && ok "proof of funds with values hidden: the same total, no per-note values" || { bad "verify hidden-value proof of funds"; tail -3 reserve-hidden-report.txt; }
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done
 grep -q "has been spent" reserve-after.txt && ok "after the saver spends, the same proof is refused (its nullifier is on chain)" || { bad "spent funds still proven"; tail -3 reserve-after.txt; }

@@ -437,6 +437,8 @@ pub enum Error {
     NotInSet,
     #[error("the screened-set proof for action {0} is invalid")]
     BadScreenedProof(u32),
+    #[error("the notes' value commitments don't add up to the stated total")]
+    BadTotal,
     #[error("the opening for output {0} does not match its note commitment")]
     BadOpening(u32),
     #[error("{0} need receipts-core's `orchard-ext` feature (the orchard patch in vendor/)")]

@@ -6,6 +6,15 @@ export const DEFAULT_ENDPOINTS = {
   testnet: "https://zcash-testnet.chainsafe.dev",
 };
 
+// Links can carry other text with a stray "%" (`&note=50%off`): never let that stop a check.
+function safeDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 function hexToBytes(h) {
   const b = new Uint8Array(h.length / 2);
   for (let i = 0; i < b.length; i++) b[i] = parseInt(h.substr(i * 2, 2), 16);
@@ -44,7 +53,7 @@ export async function fetchTransaction(endpoint, displayTxid) {
   });
   if (!res.ok) throw new Error(`lightwalletd answered HTTP ${res.status}`);
   const status = res.headers.get("grpc-status");
-  if (status && status !== "0") throw new Error(decodeURIComponent(res.headers.get("grpc-message") || `grpc-status ${status}`));
+  if (status && status !== "0") throw new Error(safeDecode(res.headers.get("grpc-message") || `grpc-status ${status}`));
   const body = new Uint8Array(await res.arrayBuffer());
   let pos = 0, data = null, height = 0n, trailer = "";
   while (pos + 5 <= body.length) {
@@ -70,7 +79,7 @@ export async function fetchTransaction(endpoint, displayTxid) {
   const m = trailer.match(/grpc-status:\s*(\d+)/);
   if (m && m[1] !== "0") {
     const why = (trailer.match(/grpc-message:\s*(.*)/) || [])[1] || "";
-    throw new Error(`lightwalletd: ${decodeURIComponent(why.trim()) || "status " + m[1]}`);
+    throw new Error(`lightwalletd: ${safeDecode(why.trim()) || "status " + m[1]}`);
   }
   if (!data) throw new Error("lightwalletd returned no transaction");
   return { raw: data, height: Number(height) };
@@ -124,7 +133,7 @@ async function grpcUnary(endpoint, method, msg) {
   });
   if (!res.ok) throw new Error(`lightwalletd answered HTTP ${res.status}`);
   const status = res.headers.get("grpc-status");
-  if (status && status !== "0") throw new Error(decodeURIComponent(res.headers.get("grpc-message") || `grpc-status ${status}`));
+  if (status && status !== "0") throw new Error(safeDecode(res.headers.get("grpc-message") || `grpc-status ${status}`));
   const body = new Uint8Array(await res.arrayBuffer());
   let pos = 0, data = new Uint8Array(0), trailer = "";
   while (pos + 5 <= body.length) {
@@ -138,7 +147,7 @@ async function grpcUnary(endpoint, method, msg) {
   const m = trailer.match(/grpc-status:\s*(\d+)/);
   if (m && m[1] !== "0") {
     const why = (trailer.match(/grpc-message:\s*(.*)/) || [])[1] || "";
-    throw new Error(`lightwalletd: ${decodeURIComponent(why.trim()) || "status " + m[1]}`);
+    throw new Error(`lightwalletd: ${safeDecode(why.trim()) || "status " + m[1]}`);
   }
   return data;
 }
@@ -207,6 +216,6 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
 
 /** The block-height hint in a receipt link (`…&h=4500997`), or null. Unsigned: only a fetch hint. */
 export function heightHint(input) {
-  const m = /[#?&]h=(\d{1,9})(?:&|$)/.exec(decodeURIComponent(String(input)));
+  const m = /[#?&]h=(\d{1,9})(?:&|$)/.exec(safeDecode(String(input)));
   return m ? Number(m[1]) : null;
 }

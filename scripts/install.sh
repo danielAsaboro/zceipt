@@ -10,6 +10,6 @@ BIN="${CARGO_INSTALL_ROOT:-${CARGO_HOME:-$HOME/.cargo}}/bin"
 command -v receipts >/dev/null || export PATH="$BIN:$PATH"
 echo
 receipts --version 2>/dev/null || true
-receipts demo --no-wait
+receipts demo
 echo
-echo "Installed in $BIN (add it to your PATH if your shell can't find 'receipts'). Next: 'receipts demo' (keeps the server up), 'receipts serve', 'receipts doctor'."
+echo "Installed in $BIN (add it to your PATH if your shell can't find 'receipts'). Next: 'receipts demo --shop' (the payment API, kept running), 'receipts doctor'."

@@ -302,9 +302,28 @@ def verify_reserve(text: str, expected_coin_type: int, chain_anchor: bytes):
             raise Invalid(f"note {i}: rk is not a valid non-zero point")
         if not o.redpallas_verify(n["rk"], digest, sig):
             raise Invalid(f"note {i}: bad signature")
-        src = rc.SourceProof(b"", 0, n["value"], None, n["out_address"], n["out_rseed"], n["proof"])
-        pi = check_source_proof(src, r.pool, n["nf"], b"\0" * 32)  # opened output and fixed cv
+        # The opened zero-value output; with values hidden the cv is the prover's (summed below).
+        src = rc.SourceProof(b"", 0, n["value"] or 1, None, n["out_address"], n["out_rseed"], n["proof"])
+        pi = check_source_proof(src, r.pool, n["nf"], b"\0" * 32)
         pi["anchor"] = r.anchor.hex()
         pi["rk"] = n["rk"].hex()
+        if n["cv"] is not None:
+            pi["cv_net"] = n["cv"].hex()
         out.append({"value": n["value"], "nf": n["nf"].hex(), "proof": "not checked", "public_inputs": pi})
-    return {"total": sum(n["value"] for n in r.notes), "height": r.height, "notes": out}
+    if r.hidden_total is None:
+        return {"total": sum(n["value"] for n in r.notes), "height": r.height, "notes": out}
+    # Version 2: the notes' value commitments must add up to ValueCommit_rcv_sum(total).
+    total, rcv = r.hidden_total
+    rcv = int.from_bytes(rcv, "little")
+    if rcv >= o.R:
+        raise Invalid("rcv_sum is not a canonical scalar")
+    acc = None
+    for i, n in enumerate(r.notes):
+        try:
+            cv = pl.decode_point(n["cv"], allow_zero=True)
+        except ValueError:
+            raise Invalid(f"note {i}: cv is not a valid point")
+        acc = cv if acc is None else pl.add(acc, cv)
+    if pl.repr_p(acc) != pl.repr_p(o.value_commit(rcv, total)):
+        raise Invalid("the notes' value commitments don't add up to the stated total")
+    return {"total": total, "height": r.height, "notes": out}

@@ -1,0 +1,29 @@
+name: release
+# On a version tag: build the receipts CLI for Linux and macOS and attach it, with SHA-256
+# checksums, to the GitHub release, so making or verifying a receipt needs no Rust toolchain.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked -p receipts-cli --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          name=receipts-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir "$name" && cp target/${{ matrix.target }}/release/receipts README.md LICENSE* "$name"/
+          tar czf "$name.tar.gz" "$name"
+          shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: receipts-*.tar.gz*

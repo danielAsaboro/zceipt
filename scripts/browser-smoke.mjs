@@ -39,7 +39,8 @@ try {
   await send("Page.navigate", { url });
   await until(`!!document.querySelector('#sampleReal')`, 20);
   await evaluate(`document.querySelector('#sampleReal').click()`);
-  const real = await until(`(${resultText}).match(/VERIFIED|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0]`, 90);
+  // The first check also loads the verifier (3 to 10 s, longer on a busy machine) and the block.
+  const real = await until(`(${resultText}).match(/VERIFIED|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0]`, 180);
   check(real === "VERIFIED", `real testnet receipt shows VERIFIED (got ${real})`);
   const order = await evaluate(`document.querySelector('#result').getBoundingClientRect().top < document.querySelector('#paste').getBoundingClientRect().top`);
   check(order === true, "at phone width the result is above the form");
@@ -63,6 +64,11 @@ try {
   await send("Page.navigate", { url: url.replace(/#.*$/, "") + "#" + answer.split("#")[1] });
   const req = await until(`document.querySelector('.reqhead')?.innerText || ''`, 90);
   check(req === "MATCHES THE REQUEST IN THIS LINK", `answered request link: ${req}`);
+  // A link with other text carrying a stray "%" still verifies.
+  await evaluate(`(async () => { const m = await import('./samples.js'); location.hash = m.SAMPLE_REAL + '&h=' + m.SAMPLE_HEIGHT + '&note=50%off'; return true })()`);
+  await sleep(500);
+  const pct = await until(`(${resultText}).match(/VERIFIED|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0]`, 90);
+  check(pct === "VERIFIED", `a link with a stray % still verifies (got ${pct})`);
   const errors = await evaluate(`document.querySelector('#progress').innerText.includes('Maximum call stack')`);
   check(!errors, "no script errors in the progress steps");
   ws.close();

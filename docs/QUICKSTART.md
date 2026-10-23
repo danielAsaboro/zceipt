@@ -4,8 +4,8 @@ Receipts lets the sender of a shielded Zcash payment prove that one payment happ
 (recipient, amount, memo) without revealing anything else about their wallet. You can be
 the one *asking* for proof (a shop, an exchange, a grant program) or the one *giving* it.
 
-Just looking? `receipts demo` runs the whole flow in the sandbox in about five seconds and leaves
-the API, dashboard and verifier running.
+Just looking? `receipts demo --shop` runs the whole flow in the sandbox in about five seconds and
+leaves the API, dashboard and verifier running.
 
 Run `receipts doctor` first: it checks the lightwalletd servers, a running API and your
 `RECEIPTS_KEY`, your clock, an optional wallet (`-w`), and how fast this machine builds proof keys,

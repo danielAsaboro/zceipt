@@ -146,7 +146,7 @@ python3 scripts/wire/wire.py decode /tmp/wire
 - `cargo install --locked --path crates/receipts-cli` built in 1 min 47 s (crates already in the
   local cargo cache), then `receipts verify @examples/testnet/receipt.txt` and the sender-address
   receipt verify against testnet, offline verification prints that mining was not checked, and
-  `receipts demo --no-wait` runs the whole tour (exit 0).
+  `receipts demo --shop --no-wait` runs the whole tour (exit 0).
 
 The full workspace suite (`cargo test --workspace`) passes; so does the npm verifier on the 276
 conformance vectors (`node --test packages/zcash-receipts/test/conformance.test.js`).

@@ -318,7 +318,7 @@ impl Report {
         }
         println!("  sender    proved spend authority for action(s) {:?}", self.proven_spend_actions);
         if let Some(set) = &self.screened_set {
-            println!("  funds     every spent note came from the screened list of {} outputs (root {}…), not saying which", set.size, &set.root[..16]);
+            println!("  funds     each spend this receipt proves used a note from the screened list of {} outputs (root {}…), not saying which", set.size, &set.root[..16]);
         }
         for a in &self.sender_addresses {
             println!("  from      {a} (the receipt's signer controls it)");
@@ -571,7 +571,11 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
         receipts_core::output_cmx(bundle, index)
     };
     let v = receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
-        .map_err(|e| anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)))?;
+        .map_err(|e| match e {
+            // An edited or forged receipt: the reason is enough.
+            receipts_core::Error::BadSignature(_) | receipts_core::Error::BadProof(_) => anyhow!("{e}: the receipt was changed after it was made, or not made by the wallet that paid"),
+            e => anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)),
+        })?;
     let report_sources = v
         .sources
         .iter()
@@ -970,6 +974,8 @@ pub struct ReserveReport {
     /// None of the notes is spent as of this block.
     pub unspent_as_of: u32,
     pub blocks_scanned: u32,
+    /// Each note's value was hidden; only the total is shown.
+    pub values_hidden: bool,
 }
 
 impl ReserveReport {
@@ -982,7 +988,11 @@ impl ReserveReport {
         }
         println!("  holds     {} {} in {} note(s), all unspent as of block {}", self.total_zec, unit(self.network), self.notes, self.unspent_as_of);
         println!("  proven    against the {} tree at block {}; {} blocks of nullifiers scanned", self.pool, self.anchor_height, self.blocks_scanned);
-        println!("  revealed  each note's value and nullifier (so whoever holds this can see when they are spent); not the address or anything else");
+        if self.values_hidden {
+            println!("  revealed  the total and each note's nullifier (so whoever holds this can see when they are spent); not each note's value, the address or anything else");
+        } else {
+            println!("  revealed  each note's value and nullifier (so whoever holds this can see when they are spent); not the address or anything else");
+        }
     }
 }
 
@@ -1019,6 +1029,7 @@ pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReservePro
         pool: if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" },
         message: String::from_utf8_lossy(&r.msg).into_owned(),
         notes: r.notes.len(),
+        values_hidden: r.hidden_total.is_some(),
         total_zatoshis: v.total,
         total_zec: zec(v.total),
         anchor_height: r.height,

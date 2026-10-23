@@ -12,7 +12,10 @@ fn receipts(args: &[&str]) -> (bool, String) {
 
 #[test]
 fn demo_runs_every_step() {
-    let (ok, out) = receipts(&["demo", "--no-wait"]);
+    // The default demo: the real receipt and the edited copy, nothing else.
+    let (ok, out) = receipts(&["demo"]);
+    assert!(ok && out.contains("Halo 2 spend proof and signature valid") && out.contains("refused") && !out.contains("[sandbox]"), "{out}");
+    let (ok, out) = receipts(&["demo", "--shop", "--no-wait"]);
     assert!(ok, "{out}");
     for want in ["request.fulfilled ✓", "request.final ✓", "refund.succeeded ✓", "anyone can check it: valid true", "Halo 2 spend proof and signature valid"] {
         assert!(out.contains(want), "missing {want:?} in:\n{out}");

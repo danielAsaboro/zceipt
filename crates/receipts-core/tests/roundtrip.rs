@@ -1588,3 +1588,36 @@ fn screened_set_proof_shows_membership_not_which_member() {
     moved.txid = [9; 32];
     assert!(screened::verify(&keys().1, &receipt, &nf, &moved, &set).is_err());
 }
+
+#[test]
+fn proof_of_funds_can_hide_each_value_and_show_only_the_total() {
+    use receipts_core::reserve::{__resign_for_tests, create_reserve_hiding_values, verify_reserve, ReserveProof, ReserveWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let anchor = s.funding_path.root(s.funding_note.commitment().into());
+    let w = ReserveWitness { note: s.funding_note, merkle_path: s.funding_path.clone() };
+    let r = create_reserve_hiding_values(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"challenge:0tc0ffer", &s.sender_sk, &[w], OsRng).unwrap();
+    let parsed = ReserveProof::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    let chain = anchor.to_bytes();
+    let v = verify_reserve(&keys().1, &parsed, COIN_TYPE_TESTNET, &chain).unwrap();
+    assert_eq!((v.total, v.values.len()), (100_000, 0), "the total, and no per-note value");
+    assert!(r.notes.iter().all(|n| n.value == 0 && n.cv_net.is_some()));
+    // RECEIPTS_WRITE_FIXTURES=1 refreshes the copy the independent Python verifier checks.
+    if std::env::var_os("RECEIPTS_WRITE_FIXTURES").is_some() {
+        std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec-verifier/tests/reserve-hidden.txt"), format!("{}\n{}\n", r.to_text(), chain.iter().map(|b| format!("{b:02x}")).collect::<String>())).unwrap();
+    }
+    // The total can't be overstated or understated, even re-signed.
+    for lie in [99_999u64, 100_001, 1_000_000] {
+        let mut e = r.clone();
+        e.hidden_total.as_mut().unwrap().0 = lie;
+        __resign_for_tests(&mut e, &mut { OsRng });
+        assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadTotal, "total {lie} accepted");
+    }
+    // A note's commitment swapped for one to a bigger value breaks its proof.
+    let mut e = r.clone();
+    e.notes[0].cv_net = Some(orchard::value::ValueCommitment::derive(NoteValue::from_raw(200_000) - NoteValue::ZERO, Option::from(orchard::value::ValueCommitTrapdoor::from_bytes([0; 32])).unwrap()).to_bytes());
+    e.hidden_total.as_mut().unwrap().1 = [0; 32];
+    e.hidden_total.as_mut().unwrap().0 = 200_000;
+    __resign_for_tests(&mut e, &mut { OsRng });
+    assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadProof(0));
+}

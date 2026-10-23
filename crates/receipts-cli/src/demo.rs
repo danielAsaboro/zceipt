@@ -1,4 +1,5 @@
-//! `receipts demo`: the whole product in one command, with no wallet, faucet or setup.
+//! `receipts demo`: a real testnet receipt verified, and an edited copy refused, offline, with no
+//! wallet, faucet or setup. `receipts demo --shop` goes on to tour the payment API:
 //!
 //! Starts the API (dashboard and browser verifier included) on a free local port with a
 //! throwaway database, then walks through what a shop does: ask for a payment, receive a
@@ -28,7 +29,34 @@ fn zec(z: u64) -> String {
     receipts_chain::chain::zec(z).trim_end_matches('0').trim_end_matches('.').to_string() + " ZEC"
 }
 
-pub async fn run(wait: bool) -> anyhow::Result<()> {
+/// The real receipt and its edited copy, checked against the transaction's bytes.
+fn real_receipt(n: u32) -> anyhow::Result<()> {
+    step(n, "A real receipt from the Zcash testnet, checked against the transaction's bytes");
+    let receipt = receipts_core::Receipt::from_text(REAL_RECEIPT.trim())?;
+    let t0 = std::time::Instant::now();
+    let report = receipts_chain::chain::verify_offline(&receipt, REAL_TX, REAL_HEIGHT, None)?;
+    let o = &report.outputs[0];
+    say(&format!("tx {}… block {}: {} TAZ paid, memo “{}”", &report.txid[..12], report.mined_height, o.zec.trim_end_matches('0'), o.memo.clone().unwrap_or_default()));
+    say(&format!("Halo 2 spend proof and signature valid in {} ms; the sender's address, balance and other payments stay private", t0.elapsed().as_millis()));
+    let mut edited = receipt.clone();
+    if let Some(i) = edited.unsigned.msg.iter().position(|b| *b == b'2') {
+        edited.unsigned.msg[i] = b'3';
+    }
+    let refused = receipts_chain::chain::verify_offline(&edited, REAL_TX, REAL_HEIGHT, None).err().map(|e| e.to_string()).unwrap_or_else(|| "accepted (this is a bug)".into());
+    say(&format!("the same receipt with its note changed to “{}”: refused ({refused})", String::from_utf8_lossy(&edited.unsigned.msg)));
+    Ok(())
+}
+
+pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
+    if !shop {
+        println!("\x1b[1mReceipts demo\x1b[0m: prove one shielded Zcash payment without handing over a viewing key.");
+        real_receipt(1)?;
+        step(2, "Next");
+        say("against the live testnet:  receipts verify @examples/testnet/receipt-link.txt");
+        say("make your own:             receipts create --seed-stdin --network test --birthday <height> --txid <txid> < phrase.txt");
+        say("the payment API for shops: receipts demo --shop");
+        return Ok(());
+    }
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     let base = format!("http://{addr}");
@@ -94,19 +122,7 @@ pub async fn run(wait: bool) -> anyhow::Result<()> {
     println!("\x1b[1mReceipts demo\x1b[0m: a shop takes a shielded Zcash payment without ever seeing the customer's wallet.");
     println!("API, dashboard and browser verifier on {base} (testnet sandbox; throwaway database).");
 
-    step(1, "A real receipt from the Zcash testnet, checked against the transaction's bytes");
-    let receipt = receipts_core::Receipt::from_text(REAL_RECEIPT.trim())?;
-    let t0 = std::time::Instant::now();
-    let report = receipts_chain::chain::verify_offline(&receipt, REAL_TX, REAL_HEIGHT, None)?;
-    let o = &report.outputs[0];
-    say(&format!("tx {}… block {}: {} paid, memo “{}”", &report.txid[..12], report.mined_height, o.zec.trim_end_matches('0'), o.memo.clone().unwrap_or_default()));
-    say(&format!("Halo 2 spend proof and signature valid in {} ms; the sender's address, balance and other payments stay private", t0.elapsed().as_millis()));
-    let mut edited = receipt.clone();
-    if let Some(i) = edited.unsigned.msg.iter().position(|b| *b == b'2') {
-        edited.unsigned.msg[i] = b'3';
-    }
-    let refused = receipts_chain::chain::verify_offline(&edited, REAL_TX, REAL_HEIGHT, None).err().map(|e| e.to_string()).unwrap_or_else(|| "accepted (this is a bug)".into());
-    say(&format!("the same receipt with its note changed to “{}”: refused ({refused})", String::from_utf8_lossy(&edited.unsigned.msg)));
+    real_receipt(1)?;
     println!("\nThe rest of the tour runs a shop on the payment API with sandbox fixtures (no wallet or faucet needed).");
 
     let ep = api.create_webhook_endpoint(&hook_url, None).await?;

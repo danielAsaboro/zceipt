@@ -471,26 +471,31 @@ pub async fn prepare_receipt_from_keys(
     withhold_memo: bool,
     screened_set: Option<&[[u8; 32]]>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
-    let (tx, mined) = match height {
-        Some(h) => {
-            let (tx, mined, _) = receipts_chain::chain::fetch_mined_tx_in_block(w.net, server, txid, h).await?;
-            (tx, mined)
-        }
-        None => {
-            eprintln!("Fetching the payment by its txid (pass --height <block> to fetch it among its block's transactions instead).");
-            receipts_chain::chain::fetch_mined_tx(w.net, server, txid).await?
-        }
+    // Without the payment's block, the scan runs to the tip and finds it in the compact blocks,
+    // so no server is ever asked for the payment by its txid.
+    let end = match height {
+        Some(h) => h.saturating_sub(1),
+        None => receipts_chain::chain::chain_tip(w.net, server).await?,
     };
-    if w.birthday >= mined {
-        bail!("the birthday {} is not before the payment's block {mined}", w.birthday);
+    if w.birthday > end {
+        bail!("the birthday {} is after block {end}", w.birthday);
     }
+    let (mut notes, found_at) = scan_wallet_notes(w, server, end, txid).await?;
+    let h = match (height, found_at) {
+        (Some(h), _) => h,
+        (None, Some(h)) => h,
+        (None, None) => bail!("transaction {} is not in blocks {}..={end}; is the birthday right?", receipts_core::display_txid(&txid), w.birthday),
+    };
+    let (tx, mined, _) = receipts_chain::chain::fetch_mined_tx_in_block(w.net, server, txid, h).await?;
     let mut wanted = std::collections::HashSet::new();
     for (pool, b) in [(Pool::Orchard, tx.orchard_bundle()), (Pool::Ironwood, tx.ironwood_bundle())] {
         for a in b.map(|b| b.actions().iter().collect::<Vec<_>>()).unwrap_or_default() {
             wanted.insert((pool, a.nullifier().to_bytes()));
         }
     }
-    let spent = scan_for_spent_notes(w, server, mined, &wanted).await?;
+    // Only notes created before the payment could be spent by it.
+    notes.retain(|k, n| wanted.contains(k) && n.mined_height.is_some_and(|nh| nh < mined));
+    let spent = notes;
     if spent.is_empty() {
         bail!("none of this wallet's notes from block {} on were spent in that transaction (wrong wallet, account or birthday?)", w.birthday);
     }
@@ -498,14 +503,15 @@ pub async fn prepare_receipt_from_keys(
     build_prepared(w.net, &w.fvk, txid, &tx, mined, &spent, &mut no_local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo, screened_set).await
 }
 
-/// Trial-decrypts the compact blocks from the birthday up to (not including) `mined` and keeps
-/// the notes whose nullifiers are in `wanted`. The server sees the block range only.
-async fn scan_for_spent_notes(
+/// Trial-decrypts the compact blocks from the birthday to `end` and returns this wallet's notes,
+/// by pool and nullifier, and the block holding `txid` if it is in the range. The server sees
+/// the block range only.
+async fn scan_wallet_notes(
     w: &KeysWallet,
     server: Option<&str>,
-    mined: u32,
-    wanted: &std::collections::HashSet<(Pool, [u8; 32])>,
-) -> anyhow::Result<std::collections::HashMap<(Pool, [u8; 32]), SpentNote>> {
+    end: u32,
+    txid: [u8; 32],
+) -> anyhow::Result<(std::collections::HashMap<(Pool, [u8; 32]), SpentNote>, Option<u32>)> {
     use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
     use zcash_note_encryption::try_compact_note_decryption;
     let ivks = [
@@ -513,20 +519,24 @@ async fn scan_for_spent_notes(
         PreparedIncomingViewingKey::new(&w.fvk.to_ivk(Scope::Internal)),
     ];
     let mut client = receipts_chain::chain::connect(server.unwrap_or(w.net.default_server())).await?;
-    eprintln!("Scanning blocks {}..{} for this wallet's notes (trial decryption, done here)…", w.birthday, mined - 1);
+    eprintln!("Scanning blocks {}..={end} for this wallet's notes (trial decryption, done here)…", w.birthday);
     let mut stream = client
         .get_block_range(BlockRange {
             start: Some(BlockId { height: u64::from(w.birthday), hash: vec![] }),
-            end: Some(BlockId { height: u64::from(mined - 1), hash: vec![] }),
+            end: Some(BlockId { height: u64::from(end), hash: vec![] }),
             pool_types: vec![PoolType::Orchard as i32, PoolType::Ironwood as i32],
         })
         .await
         .map_err(|e| anyhow!("block range: {}", e.message()))?
         .into_inner();
     let mut found = std::collections::HashMap::new();
+    let mut found_at = None;
     while let Some(block) = stream.message().await? {
         for ctx in &block.vtx {
             let source_txid: [u8; 32] = ctx.txid.as_slice().try_into().map_err(|_| anyhow!("bad txid in compact block"))?;
+            if source_txid == txid {
+                found_at = Some(block.height as u32);
+            }
             for (pool, actions) in [(Pool::Orchard, &ctx.actions), (Pool::Ironwood, &ctx.ironwood_actions)] {
                 for (i, ca) in actions.iter().enumerate() {
                     let Ok(action) = orchard::note_encryption::CompactAction::try_from(ca) else { continue };
@@ -536,15 +546,13 @@ async fn scan_for_spent_notes(
                     });
                     let Some((note, _)) = note else { continue };
                     let nf = note.nullifier(&w.fvk).to_bytes();
-                    if wanted.contains(&(pool, nf)) {
-                        let source_cmx = orchard::note::ExtractedNoteCommitment::from(note.commitment()).to_bytes();
-                        found.insert((pool, nf), SpentNote { note, position: None, mined_height: Some(block.height as u32), source_txid, source_action: i as u32, source_cmx });
-                    }
+                    let source_cmx = orchard::note::ExtractedNoteCommitment::from(note.commitment()).to_bytes();
+                    found.insert((pool, nf), SpentNote { note, position: None, mined_height: Some(block.height as u32), source_txid, source_action: i as u32, source_cmx });
                 }
             }
         }
     }
-    Ok(found)
+    Ok((found, found_at))
 }
 
 /// Everything after the spent notes are known, whichever way they were found.
@@ -819,7 +827,7 @@ pub fn sign_payment_request(wallet: &Path, identity: &Path, domain: &str, amount
 
 /// Makes a proof of funds over this wallet's unspent notes in `pool`, proven against the tree root
 /// of its latest checkpoint. With `at_least`, uses the largest notes until that much is covered.
-pub fn create_reserve_proof(wallet: &Path, identity: &Path, pool: Pool, msg: &[u8], at_least: Option<u64>) -> anyhow::Result<receipts_core::reserve::ReserveProof> {
+pub fn create_reserve_proof(wallet: &Path, identity: &Path, pool: Pool, msg: &[u8], at_least: Option<u64>, hide_values: bool) -> anyhow::Result<receipts_core::reserve::ReserveProof> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
@@ -881,7 +889,8 @@ pub fn create_reserve_proof(wallet: &Path, identity: &Path, pool: Pool, msg: &[u
         witnesses.push(receipts_core::reserve::ReserveWitness { note: n.note, merkle_path: orchard::tree::MerklePath::from(path) });
     }
     eprintln!("Proving {} note(s) against the {pool:?} tree at block {height}…", witnesses.len());
-    Ok(receipts_core::reserve::create_reserve(&receipts_core::proving_key(), net.coin_type(), pool, height, anchor.expect("at least one note"), msg, &sk, &witnesses, OsRng)?)
+    let make = if hide_values { receipts_core::reserve::create_reserve_hiding_values } else { receipts_core::reserve::create_reserve };
+    Ok(make(&receipts_core::proving_key(), net.coin_type(), pool, height, anchor.expect("at least one note"), msg, &sk, &witnesses, OsRng)?)
 }
 
 /// A shop's proof-request link: `…#request=<challenge>&to=<payee>&min=<zatoshis>` (or the older

@@ -136,6 +136,23 @@ class Testnet(unittest.TestCase):
         with self.assertRaisesRegex(v.Invalid, "anchor"):
             v.verify_reserve(t, 1, bytes(32))
 
+    def test_proof_of_funds_with_values_hidden(self):
+        """reserve-hidden.txt (written by roundtrip.rs::proof_of_funds_can_hide_each_value_and_show_only_the_total):
+        only the total is shown, and the notes' value commitments must add up to it."""
+        with open(os.path.join(os.path.dirname(__file__), "reserve-hidden.txt")) as f:
+            t, anchor = f.read().split()
+        rep = v.verify_reserve(t, 1, bytes.fromhex(anchor))
+        self.assertEqual(rep["total"], 100_000)
+        self.assertTrue(all(n["value"] is None for n in rep["notes"]))
+        # A different total (the signature covers it, so re-signing is needed in practice; the sum check refuses it regardless).
+        r = rc.decode_reserve(t)
+        b = bytearray(rc.b64decode(t[5:]))
+        i = r.unsigned_bytes.index(r.msg) + len(r.msg)
+        b[i:i + 8] = (100_001).to_bytes(8, "little")
+        lie = "zrsv1" + rc.base64.urlsafe_b64encode(bytes(b)).decode().rstrip("=")
+        with self.assertRaises(v.Invalid):
+            v.verify_reserve(lie, 1, bytes.fromhex(anchor))
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

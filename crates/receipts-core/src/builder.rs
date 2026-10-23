@@ -8,9 +8,34 @@
 //!     .disclose(1, ovk)
 //!     .spend(witness)
 //!     .prepare(&pk, &mut rng)?;
+//! ```
+//!
+//! The second half, compiled and run as a test: the public demo wallet's prepared receipt
+//! (`examples/testnet/demo`) signed for a new message, then verified against its testnet
+//! transaction.
+//!
+//! ```
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use receipts_core::{sign_prepared, verify_transaction, verifying_key, Network, PreparedReceipt};
+//! use zcash_protocol::consensus::{BlockHeight, BranchId, Network::TestNetwork};
+//! let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/demo/");
+//! let read = |f: &str| std::fs::read_to_string(format!("{dir}{f}")).unwrap();
+//! let bytes = |h: String| (0..h.trim().len()).step_by(2).map(|i| u8::from_str_radix(&h.trim()[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+//!
+//! let prepared = PreparedReceipt::from_text(&read("prepared.txt"))?.with_message(b"challenge:5eed1e55")?;
+//! // On the signer: the spending key (this one is public; never fund it).
+//! let sk = orchard::keys::SpendingKey::from_bytes(bytes(read("orchard-spending-key.hex")).try_into().unwrap()).unwrap();
+//! let ask = orchard::keys::SpendAuthorizingKey::from(&sk);
+//! let mut rng = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
 //! let sigs = sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?;
 //! let receipt = prepared.apply_signatures(sigs)?;
-//! let what = verify_transaction(&vk, &receipt, Network::Testnet.coin_type(), &tx)?;
+//!
+//! let branch = BranchId::for_height(&TestNetwork, BlockHeight::from_u32(4_532_976));
+//! let tx = zcash_primitives::transaction::Transaction::read(&bytes(read("tx.hex"))[..], branch)?;
+//! let shown = verify_transaction(&verifying_key(), &receipt, Network::Testnet.coin_type(), &tx)?;
+//! assert_eq!(shown.msg, b"challenge:5eed1e55");
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::{prepare, Error, Pool, PreparedReceipt, ViewingSpendWitness, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};

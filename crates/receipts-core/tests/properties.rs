@@ -291,3 +291,31 @@ fn the_challenge_rule() {
         assert_eq!(receipts_core::challenge_of(msg).as_deref(), c["challenge"].as_str(), "{msg:?}");
     }
 }
+
+#[test]
+fn only_the_demo_payment_is_public() {
+    let demo = receipts_core::PUBLIC_DEMO_TXIDS[0];
+    let mut txid = [0u8; 32];
+    for (i, b) in txid.iter_mut().rev().enumerate() {
+        *b = u8::from_str_radix(&demo[2 * i..2 * i + 2], 16).unwrap();
+    }
+    assert!(receipts_core::is_public_demo(&txid));
+    txid[0] ^= 1;
+    assert!(!receipts_core::is_public_demo(&txid));
+}
+
+#[test]
+fn prepared_receipts_decode_alike() {
+    // conformance/prepared.json, which the Python verifier reads too.
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/prepared.json")).unwrap();
+    let cases: serde_json::Value = serde_json::from_str(&text).unwrap();
+    for c in cases["cases"].as_array().unwrap() {
+        let got = receipts_core::PreparedReceipt::from_text(c["text"].as_str().unwrap());
+        assert_eq!(got.is_ok(), c["valid"].as_bool().unwrap(), "{}", c["name"]);
+        if let Ok(p) = got {
+            assert_eq!(p.unsigned().spends.len() as u64, c["spends"].as_u64().unwrap());
+            let d: String = receipts_core::signing_digest(p.unsigned()).iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(d, c["signing_digest"].as_str().unwrap(), "{}", c["name"]);
+        }
+    }
+}

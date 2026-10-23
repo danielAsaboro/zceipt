@@ -95,10 +95,21 @@ Encoding
   receipt  := unsigned | { spendAuthSig[64] }^nSpends
   text     := "zip311r1" || base64url without padding (RFC 4648 §5) of receipt
 
+  prepared := unsigned | { alpha[32] }^nSpends
+  ptext    := "zip311u1" || base64url without padding of prepared
+
 $\mathsf{txid}$ is in internal byte order (the reverse of the hex that block explorers
 show). $\mathsf{version}$ MUST be the lowest that can carry the contents: 3 if
 $\mathsf{outputPool} \neq \mathsf{pool}$, else 1. Versions 2, 4 and 5 are reserved for
-extensions that this ZIP does not specify.
+extensions that this ZIP does not specify. Version 3 keeps one flag byte per spend, which MUST
+be 0, so that its spends have the same layout as version 2's; it carries nothing in this ZIP.
+
+A prepared receipt (``zip311u1``) carries a receipt with every proof made but no signature, and
+each spend's $\alpha$ (the canonical 32-byte encoding of a Pallas scalar), from the prover to
+a separate signer. Its decoder MUST apply rules 1 to 4 below to $\mathsf{unsigned}$, MUST
+refuse a non-canonical $\alpha$ and any byte after the last one, and MUST use canonical
+base64url as for the text form. It holds $\alpha$, so it MUST NOT be shared beyond the
+signer.
 
 A decoder MUST refuse a receipt that:
 
@@ -248,7 +259,10 @@ Security and Privacy Considerations (additions)
 
 Bearer proof. Anyone holding a receipt can show it. A verifier that needs to know a receipt
 was made for it issues a challenge, which the sender places in $\mathsf{msg}$ as
-``challenge:<hex>``.
+``challenge:<hex>``. A challenge SHOULD carry at least 64 random bits (16 hex digits): the
+6-digit minimum exists for codes a person reads aloud, which a verifier MUST then use only once
+and only briefly. A verifier SHOULD also require the payment to be mined after it issued the
+challenge, so that an old payment cannot answer a new request.
 
 Chosen outputs. The sender chooses which outputs to disclose; a change output, or a payment to
 itself, discloses like any other. A verifier binds a receipt to a payee by checking the
@@ -266,9 +280,11 @@ the txid, the disclosed outputs and $\mathsf{msg}$ before signing. It MUST NOT s
 supplied by the host: that could be a transaction's sighash, and the signature would authorize
 a real spend. The proofs need only the full viewing key, so a watch-only wallet can prepare a
 receipt for such a signer. The randomizers MUST stay between the prover and the signer and be
-discarded after signing: with the finished receipt, $\alpha$ gives
+discarded once signing is done: with a finished receipt, $\alpha$ gives
 $\mathsf{ak} = \mathsf{rk} - [\alpha]\,\mathcal{G}$, which would link every receipt the wallet
-signs.
+signs. The proofs don't cover $\mathsf{msg}$, so a signer MAY sign one prepared receipt for more
+than one message; those receipts share each $\mathsf{rk}$, so whoever holds two of them can tell
+they disclose the same spends.
 
 Whose spend authority. Spend authority is proven for the signer's spend authorizing key. In a
 transaction several parties built (a PCZT), it is whoever holds that $\mathsf{ask}$ and knew
@@ -331,17 +347,24 @@ Where they differ.
 - Recovery inputs. #1406 runs recovery with the block height, transaction version and pool.
   This text selects the lead byte from the pool and does not take a height.
 
-How they could be merged. One path is to take #1406's $\mathsf{orchardOutputs}$ and
-$\mathsf{ironwoodOutputs}$ as the abstract output fields, and add per-pool spend fields
-($\mathsf{orchardSpends}$, $\mathsf{ironwoodSpends}$) carrying
-$(\mathsf{index}, \mathsf{cvNet}, \mathsf{rk}, \mathsf{cmx}, \mathsf{proof},
-\mathsf{spendAuthSig})$, with this text's creation and verification steps placed beside the
-Sapling ones. ZIP 311's rule that a disclosure proves at least one input would then count
-Orchard and Ironwood spends. The encoding question can be settled separately: either a
-general encoding with a section per pool, or this text's encoding kept as the profile for
-disclosures that contain only Orchard-family spends and outputs, its outputs mapping to
-$\mathsf{orchardOutputs}$ or $\mathsf{ironwoodOutputs}$ by $\mathsf{outputPool}$.
+Mapping onto #1406. With both texts, ZIP 311's payment disclosure has the following fields in
+addition to its Sapling and transparent ones:
 
+- $\mathsf{orchardOutputs}$ and $\mathsf{ironwoodOutputs}$, as #1406 specifies them;
+- $\mathsf{orchardSpends}$ and $\mathsf{ironwoodSpends}$, each a sequence of
+  $(\mathsf{index}, \mathsf{cvNet}, \mathsf{rk}, \mathsf{cmx}, \mathsf{proof},
+  \mathsf{spendAuthSig})$ for Actions of that pool's bundle, created and verified as this ZIP
+  specifies for $\mathsf{spends}$ with $\mathsf{pool}$ set to that pool.
+
+An index MUST NOT appear twice in one list. ZIP 311's rule that a disclosure proves at least
+one input MUST count entries of $\mathsf{orchardSpends}$ and $\mathsf{ironwoodSpends}$, and
+#1406's restriction that Orchard or Ironwood outputs need a Sapling spend or transparent input
+is then lifted. A disclosure whose spends are all in one Orchard-family pool and whose outputs
+are all in one Orchard-family pool MAY be encoded as this ZIP's ``zip311r1`` profile: its
+$\mathsf{spends}$ are the $\mathsf{orchardSpends}$ or $\mathsf{ironwoodSpends}$ selected by
+$\mathsf{pool}$, and its $\mathsf{outputs}$ are the $\mathsf{orchardOutputs}$ or
+$\mathsf{ironwoodOutputs}$ selected by $\mathsf{outputPool}$ (or $\mathsf{pool}$ in
+version 1). Any other disclosure needs ZIP 311's general encoding, which remains a TODO.
 
 Reference implementation
 ========================

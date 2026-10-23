@@ -212,6 +212,9 @@ pub struct Report {
     /// False for offline verification: the transaction and height were supplied, not fetched from
     /// the chain, so the report shows the receipt matches that transaction, not that it was mined.
     pub chain_checked: bool,
+    /// Signed with the public demo wallet's key (`receipts_core::PUBLIC_DEMO_TXIDS`): anyone can.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub public_demo: bool,
     pub message: String,
     pub proven_spend_actions: Vec<u32>,
     /// Public addresses the sender proved they control (empty unless they chose to).
@@ -339,6 +342,9 @@ impl Report {
     pub fn print(&self) {
         let u = unit(self.network);
         println!("{}", if self.chain_checked { "VALID receipt" } else { "VALID receipt for the transaction given (not checked on chain)" });
+        if self.public_demo {
+            println!("  DEMO      signed with the public demo wallet's key: anyone can make these, so it proves nothing about who paid");
+        }
         println!("  network   {}", self.network);
         if self.chain_checked {
             println!("  tx        {} (mined at height {})", self.txid, self.mined_height);
@@ -660,6 +666,7 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
         txid: display_txid(&u.txid),
         mined_height: height,
         chain_checked: true,
+        public_demo: receipts_core::is_public_demo(&u.txid),
         message: String::from_utf8_lossy(&v.msg).into_owned(),
         proven_spend_actions: v.proven_spends,
         sender_addresses: v.proven_addresses.iter().map(|(_, a)| encode_orchard_receiver(net, *a)).collect(),
@@ -921,9 +928,9 @@ pub fn pool_activation(net: Net, pool: Pool) -> u32 {
 /// first server reported (same block hash), and how many confirmations it sees. "VALID" otherwise
 /// rests on one server's word that the transaction is mined. The second server learns the txid,
 /// unless `by_block`.
-pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32, by_block: bool) -> anyhow::Result<u32> {
-    // The same server under another name (a trailing dot, an IP, an alias) is no second opinion:
-    // compare what the names resolve to.
+/// Whether two server names reach the same machine (a trailing dot, an IP, an alias): that is no
+/// second opinion. Compares what the names resolve to; unresolvable names count as different.
+pub fn same_server(a: &str, b: &str) -> bool {
     let addrs = |s: &str| {
         let hostport = s.split("://").last().unwrap_or(s).trim_end_matches('/').to_string();
         let hostport = if hostport.contains(':') { hostport } else { format!("{hostport}:443") };
@@ -931,12 +938,16 @@ pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8;
             .map(|a| a.map(|a| a.ip()).collect::<std::collections::BTreeSet<_>>())
             .unwrap_or_default()
     };
-    let (one, two) = (addrs(first.unwrap_or(net.default_server())), addrs(second));
-    if !one.is_empty() && !one.is_disjoint(&two) {
+    let (one, two) = (addrs(a), addrs(b));
+    !one.is_empty() && !one.is_disjoint(&two)
+}
+
+pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32, by_block: bool) -> anyhow::Result<u32> {
+    if same_server(first.unwrap_or(net.default_server()), second) {
         bail!("--cross-check {second} reaches the same server as the first; give a different one");
     }
     let mut a = connect(first.unwrap_or(net.default_server())).await?;
-    let mut b = connect(second).await?;
+    let mut b = connect(second).await.with_context(|| format!("second server {second}"))?;
     // With a block hint, ask the second server for the block's run of transactions too, so it
     // learns the block, not the txid.
     let h2 = if by_block {
@@ -945,7 +956,7 @@ pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8;
         fetch_mined_tx_with(&mut b, net, txid).await.with_context(|| format!("second server {second}"))?.1
     };
     if h2 != height {
-        bail!("the second server puts the transaction at block {h2}, the first at {height}");
+        bail!("the servers disagree: the second puts the transaction at block {h2}, the first at {height}");
     }
     let (ha, hb) = (block_hash(&mut a, height).await, block_hash(&mut b, height).await);
     if ha.is_none() || ha != hb {

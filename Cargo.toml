@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/receipts-core", "crates/receipts-chain", "crates/receipts-server", "crates/receipts-client", "crates/receipts-cli", "crates/receipts-wallet", "crates/receipts-wasm"]
+members = ["crates/receipts-core", "crates/receipts-chain", "crates/receipts-server", "crates/receipts-client", "crates/receipts-cli", "crates/receipts-wallet", "crates/receipts-wasm", "crates/receipts-ffi"]
 resolver = "2"
 
 [workspace.package]
@@ -20,7 +20,7 @@ blake2b_simd = "1"
 thiserror = "2"
 base64 = "0.22"
 
-# librustzcash main: the first revision that knows NU7 (testnet, Oct 2026; mainnet Nov 5).
+# librustzcash main: the first revision with the NU6.3 upgrade (Ironwood; librustzcash names it NU7). Upstreaming: DEVELOPERS.md.
 zcash_primitives = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6", default-features = false }
 zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
 zcash_address = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }

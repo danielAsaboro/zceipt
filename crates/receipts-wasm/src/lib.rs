@@ -44,6 +44,9 @@ struct Verified {
     pool: &'static str,
     txid: String,
     mined_height: u32,
+    /// Signed with the public demo wallet's key: anyone can.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    public_demo: bool,
     message: String,
     proven_spend_actions: Vec<u32>,
     sender_addresses: Vec<String>,
@@ -228,7 +231,12 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
             let vk = vk.get_or_init(receipts_core::verifying_key);
             receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
         })
-        .map_err(|e| JsError::new(&e.to_string()))?;
+        .map_err(|e| match e {
+            // The signature holds but the spend proof doesn't: whoever signed doesn't hold the
+            // spent note's key (an observer's claim, or a receipt changed before signing).
+            receipts_core::Error::BadProof(_) => JsError::new(&format!("not proven by the payer: {e}")),
+            e => JsError::new(&e.to_string()),
+        })?;
     let sources_out = v
         .sources
         .iter()
@@ -267,6 +275,7 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
         },
         txid: display_txid(&u.txid),
         mined_height: height,
+        public_demo: receipts_core::is_public_demo(&u.txid),
         message: String::from_utf8_lossy(&v.msg).into_owned(),
         proven_spend_actions: v.proven_spends,
         sender_addresses: v
@@ -359,6 +368,42 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
         .map(|a| a.encode(&nt))
         .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(serde_json::json!({ "address": ua, "network": name, "issued_at": s.issued_at }).to_string())
+}
+
+/// The outputs a receipt claims, opened with their `ock`s and nothing else checked (JSON list of
+/// `{ action, recipient, zatoshis, memo }`): what a receipt that failed its spend proof says it
+/// paid. Not a verification.
+#[wasm_bindgen]
+pub fn claimed_outputs(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Result<String, JsError> {
+    let r = parse(receipt)?;
+    let u = &r.unsigned;
+    let (net, mut nt, _) = net_of(u.coin_type)?;
+    if regtest {
+        nt = NetworkType::Regtest;
+    }
+    let tx =
+        Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    if tx.txid().as_ref() != &u.txid {
+        return Err(JsError::new("the fetched transaction does not match the receipt's txid"));
+    }
+    let bundle = match u.output_pool.unwrap_or(u.pool) {
+        Pool::Orchard => tx.orchard_bundle(),
+        Pool::Ironwood => tx.ironwood_bundle(),
+    }
+    .ok_or_else(|| JsError::new("the transaction has no such bundle"))?;
+    let outs: Vec<Output> = receipts_core::claimed_outputs(&r, bundle)
+        .iter()
+        .map(|o| Output {
+            action: o.index,
+            recipient: unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(o.recipient))])
+                .map(|a| a.encode(&nt))
+                .unwrap_or_default(),
+            zatoshis: o.value,
+            memo: memo_text(&o.memo),
+            memo_withheld: false,
+        })
+        .collect();
+    Ok(serde_json::to_string(&outs)?)
 }
 
 /// Signs a prepared `zip311u1…` receipt for `message` with a 32-byte Orchard spending key (hex),

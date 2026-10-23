@@ -106,7 +106,9 @@ def _proof(r):
     return r.take(n)
 
 
-def decode(b: bytes) -> Receipt:
+def decode(b: bytes, prepared: bool = False) -> Receipt:
+    """A receipt; with `prepared`, a zip311u1 prepared receipt, whose spends are followed by
+    each spend's alpha instead of a signature (returned in `sigs`)."""
     r = _R(b)
     if r.take(4) != b"ZRCT":
         raise DecodeError("bad magic")
@@ -171,10 +173,24 @@ def decode(b: bytes) -> Receipt:
         raise DecodeError("non-canonical: version 4 without a source proof")
     if version == 5 and not opened:
         raise DecodeError("non-canonical: version 5 without an opened output")
-    sigs = [r.take(64) for _ in spends]
+    if prepared:
+        from .pallas import R as ORDER
+        sigs = [r.take(32) for _ in spends]
+        if any(int.from_bytes(a, "little") >= ORDER for a in sigs):
+            raise DecodeError("non-canonical alpha")
+    else:
+        sigs = [r.take(64) for _ in spends]
     if r.i != len(b):
         raise DecodeError("trailing bytes")
     return Receipt(version, coin_type, POOLS[pb], output_pool, txid, msg, outputs, spends, sigs, unsigned, opened)
+
+
+def prepared_from_text(s: str) -> Receipt:
+    """A zip311u1 prepared receipt (proofs made, not signed); `sigs` holds each spend's alpha."""
+    s = s.strip()
+    if not s.startswith("zip311u1"):
+        raise DecodeError("not a zip311u1 prepared receipt")
+    return decode(b64decode(s[len("zip311u1"):]), prepared=True)
 
 
 def from_text(s: str) -> Receipt:

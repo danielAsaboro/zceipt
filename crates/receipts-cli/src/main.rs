@@ -665,6 +665,9 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
         }
     }
     if let Some(c) = challenge {
+        if report.public_demo {
+            bail!("the receipt is from the public demo wallet, whose key anyone has: it can't answer challenge {c}");
+        }
         match receipts_server::verify::challenge_of(&report.message) {
             Some(signed) if signed == c.to_lowercase() => {}
             Some(signed) => bail!("the receipt signs challenge {signed}, not {c}: it was made for another request"),
@@ -688,6 +691,7 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
     if let Some(min) = min.filter(|m| paid < *m) {
         bail!("{addr} received {} {}, less than the {} expected", chain::zec(paid), chain::unit(report.network), chain::zec(min));
     }
+    eprintln!("(paid {} {} to the expected address)", chain::zec(paid), chain::unit(report.network));
     Ok(())
 }
 
@@ -957,7 +961,16 @@ fn pool_name(p: Pool) -> &'static str {
 
 /// `verify`'s flags, checked before anything is fetched; also sets what the checks compare.
 fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
-    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, .. } = cmd {
+    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, expect_address, server, cross_check, .. } = cmd {
+        // Before anything is fetched: a mistyped address, or a second server that is the first.
+        if let Some(a) = expect_address {
+            chain::orchard_receiver_of(a).with_context(|| format!("--expect-address {a}"))?;
+        }
+        if let (Some(s), Some(c)) = (server, cross_check) {
+            if chain::same_server(s, c) {
+                bail!("--cross-check {c} reaches the same server as -s {s}; give a different one");
+            }
+        }
         // These checks are about one payment: refuse them for kinds they can't apply to, rather
         // than pass a batch, an incoming receipt or a proof of funds without checking.
         if min.is_some() || challenge.is_some() || memo_contains.is_some() || screened_set.is_some() {
@@ -1044,6 +1057,7 @@ async fn main() -> anyhow::Result<()> {
                     ("canonical", "unreadable"),
                     ("not a receipt", "unreadable"),
                     ("lightwalletd", "chain_unavailable"),
+                    ("second server ", "chain_unavailable"),
                     ("connecting", "chain_unavailable"),
                 ]
                 .iter()

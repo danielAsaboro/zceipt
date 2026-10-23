@@ -199,7 +199,7 @@ validly signed wrong outputs, wrong keys and duplicates refused
 (`only_the_recipient_can_prove_receipt`); a real testnet incoming receipt for the merchant of
 `571de6e4…` ([examples/testnet/incoming](../examples/testnet/incoming)) verified by the CLI, the
 API (`/v1/verify` returns an `incoming_verification`), the browser page, the npm package and the
-independent Python verifier, which opens the output itself; 19 conformance vectors.
+independent Python verifier, which opens the output itself; 278 conformance vectors.
 
 ## 3d. Signed payment requests
 

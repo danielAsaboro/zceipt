@@ -1,5 +1,10 @@
 name: ci
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
 jobs:
   rust:
     runs-on: ubuntu-latest
@@ -32,3 +37,15 @@ jobs:
         with: { go-version: "1.26" }
       - run: cd packages/receipts-python && python3 -m unittest discover -s tests
       - run: cd packages/receipts-go && go test ./...
+  fuzz:
+    # Nightly: each decoder target for five minutes, from the committed corpus.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [decode_receipt, decode_batch, decode_sign_in, decode_text]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: cd crates/receipts-core/fuzz && cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=300

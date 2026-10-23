@@ -154,6 +154,7 @@ impl Db {
             "final_at INTEGER",
             "source_policy TEXT",
             "provenance TEXT",
+            "created_height INTEGER",
         ] {
             let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
         }

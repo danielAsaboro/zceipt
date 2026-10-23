@@ -46,6 +46,9 @@ pub struct Verification {
     pub pool: &'static str,
     pub txid: String,
     pub mined_height: u32,
+    /// Signed with the public demo wallet's key (`receipts_core::PUBLIC_DEMO_TXIDS`): anyone can.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub public_demo: bool,
     pub message: String,
     /// The `challenge:<code>` the receipt signs, if any.
     pub challenge: Option<String>,
@@ -295,6 +298,7 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
         },
         txid: display_txid(&v.txid),
         mined_height: height,
+        public_demo: receipts_core::is_public_demo(&v.txid),
         challenge: challenge_of(&message),
         batch: batch_position(&v.msg).map(|(id, i, n)| serde_json::json!({ "id": id, "position": i, "total": n })),
         message,

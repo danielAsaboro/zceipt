@@ -45,9 +45,9 @@ try {
   const green = await evaluate(`document.querySelector('#result .stamp')?.classList.contains('good')`);
   check(real === "PAID TO YOU" && green, `the real sample opens as its merchant and shows a green PAID TO YOU (got ${real})`);
   // A receipt signed here for the visitor's own message, by the public demo wallet.
-  await evaluate(`document.querySelector('#makeOwn').open = true; document.querySelector('#ownMsg').value = 'Signed in the smoke test'; document.querySelector('#ownBtn').click(); true`);
-  const own = await until(`(${resultText}).includes('Signed in the smoke test') && (${resultText}).match(/PAID TO YOU|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0] || ''`, 120);
-  check(own === "PAID TO YOU", `a receipt signed here for your own message verifies on chain (got ${own})`);
+  await evaluate(`document.querySelector('#ownMsg').value = 'Signed in the smoke test'; document.querySelector('#ownBtn').click(); true`);
+  const own = await until(`(${resultText}).includes('Signed in the smoke test') && (${resultText}).match(/DEMO WALLET|PAID TO YOU|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0] || ''`, 120);
+  check(own === "DEMO WALLET", `a receipt signed here for your own message verifies, labelled as the public demo wallet (got ${own})`);
   const order = await evaluate(`document.querySelector('#result').getBoundingClientRect().top < document.querySelector('#paste').getBoundingClientRect().top`);
   check(order === true, "at phone width the result is above the form");
   await evaluate(`document.querySelector('#sampleEdited').click()`);
@@ -56,7 +56,7 @@ try {
   await evaluate(`document.querySelector('#sampleObserver').click()`);
   await sleep(500);
   const observer = await until(`(${resultText}).includes('NOT PROVEN BY THE PAYER') ? 'NOT PROVEN' : ''`, 60);
-  check(observer === "NOT PROVEN", "a claim by someone who only saw the payment shows NOT PROVEN BY THE PAYER");
+  check(observer === "NOT PROVEN" && (await evaluate(`(${resultText}).includes('CLAIMS')`)), "a claim by someone who only saw the payment shows NOT PROVEN BY THE PAYER, with what it claims");
   // A new link that isn't one of ours, opened in the same tab: nothing of the old check may remain.
   await evaluate(`location.hash = 'zrcpt1eyJub3QtYS1yZWNlaXB0'; true`);
   await sleep(1500);

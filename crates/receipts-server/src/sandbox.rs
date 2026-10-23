@@ -69,6 +69,7 @@ pub fn resolve(text: &str, payee: Option<&str>, amount: Option<u64>, challenge: 
             format!("5a4db0c5{}", hex::encode(b))
         },
         mined_height: 4_500_000,
+        public_demo: false,
         message: challenge.map(|c| format!("challenge:{c}")).unwrap_or_default(),
         challenge: challenge.map(str::to_string),
         batch: None,

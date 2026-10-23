@@ -88,6 +88,8 @@ export async function orchardReceiver(ua) {
  *
  * Resolves to `{ valid: true, network, pool, txid, mined_height, message, proven_spend_actions,
  * outputs: [{ action, recipient, zatoshis, memo }], paidToExpected }` or throws with the reason.
+ * `public_demo: true` marks the public demo wallet's payment: anyone can sign those, so a
+ * receipt for it never answers a challenge.
  */
 export async function verifyReceipt(input, options = {}) {
   await load();
@@ -154,6 +156,7 @@ export async function verifyReceipt(input, options = {}) {
     v.deposit = JSON.parse(check_tex_deposit(receipt, raw, Number(height), tx2.raw, Number(tx2.height), !!options.regtest));
   }
   if (options.challenge != null) {
+    if (v.public_demo) throw new Error("this receipt is from the public demo wallet, whose key anyone has: it can't answer a challenge");
     if (challengeIn(v.message) !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");
   }
   if (options.minZatoshis != null && !options.expectAddress) throw new Error("minZatoshis needs expectAddress: the minimum is checked against what that address received");

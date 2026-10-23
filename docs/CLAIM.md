@@ -88,7 +88,7 @@ the incoming viewing key or created the notes. `nk` stays with the recipient.
 The chain server the verifier asks for `T` learns `txid` (or, with the `h=` hint, only the block);
 `docs/ASSURANCE.md` records what was on the wire.
 
-## The argument
+## The argument (proof sketch)
 
 The verifier takes `nf_i` (and the anchor `rt`) from `T`, never from the receipt, and checks the
 Halo 2 proof `π` for the Action Statement (Orchard) with public inputs

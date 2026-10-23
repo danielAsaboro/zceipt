@@ -116,6 +116,24 @@ are in [FEATURES.md](FEATURES.md).
 `./scripts/e2e-regtest.sh` replays the whole story on a private Zebra regtest chain (needs
 Docker, lightwalletd and zcash-devtool). Everything else runs with `cargo test --release`.
 
+## Upstreaming plan
+
+After the hackathon, in this order:
+
+1. **Pins.** The workspace pins eight librustzcash crates to a git revision because NU6.3
+   (Ironwood) is not in a release yet. When `zcash_primitives` and its siblings release with it,
+   replace each `git`/`rev` with the version, and drop the `zcash-devtool` patch's port.
+2. **orchard.** `vendor/orchard` adds accessors to orchard 0.16 ([vendor/README.md](../vendor/README.md)).
+   Propose the five to orchard upstream as one PR; `build_with_params` and `params_bytes` only
+   speed up the verifier and can stay local. Until they land, the ZIP 311 profile builds on stock
+   orchard (`scripts/check-stock-orchard.sh`).
+3. **ZIP text.** Fold [ZIP311-ORCHARD.md](ZIP311-ORCHARD.md) into ZIP 311 beside zcash/zips#1406,
+   as the draft's "Mapping onto #1406" section specifies, with `conformance/` as its vectors.
+4. **receipts-core** to crates.io with the default (ZIP 311 profile) feature set; the
+   extensions stay behind `extensions` until each has its own ZIP text.
+5. **Wallets.** The two-call surface in [the wallet guide](guides/wallet-integration.md) first,
+   then a uniffi binding for mobile wallets.
+
 ## Repository
 
 | Path | What |

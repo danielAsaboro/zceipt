@@ -233,7 +233,7 @@ attestation and Sign in with Zcash (9 checks; needs Docker, lightwalletd and zca
   proof pointed at another action, the wrong txid and the wrong network;
 - refuses to create a receipt with a key that does not own the spent note.
 
-**On the Zcash public testnet (NU7):**
+**On the Zcash public testnet:**
 
 | Claim | Evidence |
 |---|---|

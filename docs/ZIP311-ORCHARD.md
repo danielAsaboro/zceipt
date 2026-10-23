@@ -33,11 +33,21 @@ unsigned := "ZRCT" | version:u8 | coinType:u32le | pool:u8 | [outputPool:u8 if v
                             | [addrFlag:u8 = 0 if version ∈ {2, 3}] }^nSpends
 receipt  := unsigned | { spendAuthSig[64] }^nSpends
 text     := "zip311r1" || base64url without padding (RFC 4648 §5) of receipt
+
+prepared := unsigned | { alpha[32] }^nSpends
+ptext    := "zip311u1" || base64url without padding of prepared
 ```
 
 `txid` is in internal byte order (the reverse of the hex block explorers show). `version` MUST
 be the lowest that can carry the contents: 3 if `outputPool ≠ pool`, else 1. Versions 2, 4 and 5 are reserved
-for extensions outside this text.
+for extensions outside this text. Version 3 keeps one flag byte per spend, which MUST be 0, so
+that its spends have version 2's layout; it carries nothing here.
+
+A prepared receipt (`zip311u1`) carries a receipt with every proof made but no signature, and
+each spend's `alpha` (a canonical 32-byte Pallas scalar), from the prover to a separate signer.
+Its decoder MUST apply rules 1 to 4 below to `unsigned`, MUST refuse a non-canonical `alpha` and
+any byte after the last one, and MUST use canonical base64url. It holds `alpha`, so it MUST NOT
+be shared beyond the signer.
 
 A decoder MUST refuse a receipt that:
 1. does not start with `ZRCT`, has an unknown version, or a version that is not the lowest for
@@ -148,7 +158,10 @@ defined by ZIP 321.
 
 ## Security considerations
 
-- A receipt is a bearer proof: anyone holding it can show it. Interactive use needs a challenge.
+- A receipt is a bearer proof: anyone holding it can show it. Interactive use needs a challenge,
+  which SHOULD carry at least 64 random bits (16 hex digits); a 6-digit code a person reads
+  aloud MUST be used once and briefly. A verifier SHOULD also require the payment to be mined
+  after it issued the challenge, so an old payment can't answer a new request.
 - The sender chooses the outputs to disclose; a change output discloses like any other. A
   verifier binds a receipt to a payee by checking the recipient it expects.
 - Inclusion rests on the chain source. A verifier SHOULD fetch by block (or from its own node)
@@ -159,9 +172,11 @@ defined by ZIP 321.
   SHOULD display the txid, the disclosed outputs and `msg` before signing. It MUST NOT sign a
   digest supplied by the host: that could be a transaction's sighash, and the signature would
   authorize a real spend. `receipts_core::sign_prepared` is a reference signer that does these
-  checks. The randomizers MUST stay between the prover and the signer and be discarded after
-  signing: with the finished receipt, `alpha` gives `ak = rk - [alpha] G`, which would link
-  every receipt the wallet signs.
+  checks. The randomizers MUST stay between the prover and the signer and be discarded once
+  signing is done: with a finished receipt, `alpha` gives `ak = rk - [alpha] G`, which would
+  link every receipt the wallet signs. The proofs don't cover `msg`, so a signer MAY sign one
+  prepared receipt for more than one message; those receipts share each `rk`, so whoever holds
+  two of them can tell they disclose the same spends.
 - Spend authority is proven for the signer's spend authorizing key. In a transaction several
   parties built (a PCZT), it is whoever holds that `ask` and knew each `ock`.
 

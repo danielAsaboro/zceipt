@@ -21,6 +21,10 @@ if [ -n "$R" ]; then
   L=$(tr -d '\n' < examples/testnet/request-answer-link.txt); TO=$(echo "$L" | grep -o 'to=[a-z0-9]*' | cut -c4-)
   "$R" verify "$L" --challenge e1e14a5d182a --expect-address "$TO" --min 0.01 >/dev/null 2>&1 && ! "$R" verify "$L" --challenge ffffff >/dev/null 2>&1 && ! "$R" verify "$L" --expect-address "$TO" --min 0.02 >/dev/null 2>&1 && echo "request checks: right one passes, other challenge and higher minimum refused" || { echo "request checks failed"; exit 1; }
   ! "$R" verify @examples/testnet/batch-link.txt --challenge 7f3a9c21e0b4 >/dev/null 2>&1 && echo "request checks on a batch: refused, not skipped" || { echo "a batch passed --challenge"; exit 1; }
+  # The public demo wallet: anyone can sign for it, so it shows as a demo and answers no challenge.
+  D=$(mktemp); "$R" demo -m "challenge:abcdef12" 2>/dev/null > "$D"
+  "$R" verify @"$D" 2>/dev/null | grep >/dev/null "public demo wallet" && ! "$R" verify @"$D" --challenge abcdef12 >/dev/null 2>&1 && echo "a demo-wallet receipt says so and answers no challenge" || { echo "a demo-wallet receipt passed as a real one"; exit 1; }
+  rm -f "$D"
   echo "== CLI: both into a spreadsheet and a case file"
   REC=$(mktemp -d)
   "$R" export @examples/testnet/receipt-link.txt @examples/testnet/receipt-edited.txt --records "$REC" 2>/dev/null > "$REC/out.csv" || true

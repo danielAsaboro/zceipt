@@ -55,12 +55,12 @@
     details summary { cursor: pointer; padding: 10px 0; min-height: 24px; }
     :focus-visible { outline: 2px solid var(--good, #3c9); outline-offset: 2px; }
     #result:focus { outline: none; }
-    details .grid { display: grid; gap: 8px; margin-top: 10px; }
+    details .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 10px; }
     .how { margin-top: 36px; border-top: 1px solid #24221f; padding-top: 22px; }
     .how h2 { font-size: 15px; margin: 0 0 10px; }
     .how ol { margin: 0; padding-left: 20px; color: var(--text-2); line-height: 1.65; font-size: 14px; }
     .how code, .cli code { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
-    .cli { margin-top: 18px; background: var(--desk-2); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); overflow-x: auto; white-space: pre; }
+    .cli { margin-top: 18px; background: var(--desk-2); border-radius: 10px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 
     /* the paper receipt */
     .ticket { position: relative; background: var(--paper); color: var(--ink); padding: 34px 26px 36px; font-family: var(--mono); font-size: 14px;
@@ -76,8 +76,9 @@
     .dash { border-top: 2px dashed var(--rule); margin: 16px 0; }
     .line { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 4px 0; align-items: baseline; }
     .line .k { color: var(--ink-2); font-size: 12px; letter-spacing: 0.1em; }
-    .line .v { overflow-wrap: anywhere; }
+    .line .v { overflow-wrap: break-word; }
     .line .v.mono { word-break: break-all; }
+    .line .v.mono small { word-break: normal; overflow-wrap: break-word; }
     .line .v.memo, .line .v.text { word-break: normal; overflow-wrap: anywhere; }
     .line .amount { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
     .line .amount small { font-size: 13px; font-weight: 600; }
@@ -105,6 +106,7 @@
     .samples details.more { width: 100%; }
     .samples details.more summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 6px 0; }
     .samples details.more[open] { display: flex; flex-wrap: wrap; gap: 8px; }
+    #makeOwn { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
     #makeOwn input { flex: 1 1 200px; }
     button.ghost { background: transparent; color: inherit; border: 1px solid currentColor; padding: 8px 12px; font-size: 13px; opacity: .85; }
     .placeholder { border: 2px dashed #2c2a26; border-radius: 14px; padding: 40px 26px; color: var(--text-2); text-align: center; font-size: 14px; line-height: 1.6; }
@@ -120,7 +122,7 @@
     @media print { body > *:not(main), #left, section:first-child, .samples, .check, .actions, #progress { display: none !important; } main { display: block; padding: 0; } }
     .request { margin-top: 22px; color: var(--text-2); font-size: 14px; }
     .request summary { cursor: pointer; color: var(--text); font-weight: 600; }
-    .request .grid { display: grid; gap: 8px; margin-top: 10px; }
+    .request .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 10px; }
     .request code { font-family: var(--mono); color: var(--text); }
     #linkOut ul { margin: 6px 0 0; padding-left: 18px; }
     #linkOut li[data-level="error"] { color: #e0796f; }
@@ -136,10 +138,10 @@
     <section>
       <div class="eyebrow">Receipts · ZIP 311 for Orchard &amp; Ironwood</div>
       <h1>Prove one Zcash payment. <em>Keep your viewing key.</em></h1>
-      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. The proof is checked in this browser; only public chain data is fetched.</p>
+      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves it was signed by the key that spent the money. No viewing key changes hands. The proof is checked in this browser; only public chain data is fetched.</p>
 
       <label class="hint" for="paste">Receipt or link</label>
-      <textarea id="paste" placeholder="zip311r1… (paste a link, or drop a saved file)" spellcheck="false"></textarea>
+      <textarea id="paste" placeholder="zip311r1… (paste a link, or open a saved file)" spellcheck="false"></textarea>
       <div class="actions">
         <button id="verifyBtn">Verify receipt</button>
         <button type="button" class="ghost" id="openFile">Open a file</button>
@@ -149,10 +151,10 @@
         <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>
         <button type="button" class="ghost" id="sampleEdited">Try an edited copy</button>
         <button type="button" class="ghost" id="sampleObserver">Try a claim by someone who only saw it</button>
-        <details class="more" id="makeOwn"><summary>Make one with your own message</summary>
-          <input id="ownMsg" placeholder="Your message" maxlength="500" autocomplete="off">
-          <button type="button" id="ownBtn">Sign with the demo wallet</button>
-        </details>
+        <div class="row" id="makeOwn">
+          <input id="ownMsg" placeholder="Your own message" maxlength="500" autocomplete="off" aria-label="Your own message">
+          <button type="button" class="ghost" id="ownBtn">Sign it with the demo wallet</button>
+        </div>
         <details class="more"><summary>More examples</summary>
           <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
           <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>
@@ -162,16 +164,16 @@
 
       <div id="progress" role="status" aria-live="polite" hidden>
         <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>
-        <div class="step" data-step="fetch"><span class="dot"></span><span>Fetch the transaction from the chain<span class="detail"></span></span></div>
+        <div class="step" data-step="fetch"><span class="dot"></span><span>Get the transaction<span class="detail"></span></span></div>
         <div class="step" data-step="verify"><span class="dot"></span><span>Check the proof and open the payment<span class="detail"></span></span></div>
       </div>
 
       <details>
-        <summary>Settings: lightwalletd server, or verify fully offline</summary>
+        <summary>Settings: server, or offline</summary>
         <div class="grid">
           <label class="hint" for="endpoint">grpc-web lightwalletd (default for mainnet: zcash-mainnet.chainsafe.dev)</label>
           <input id="endpoint" placeholder="https://zcash-mainnet.chainsafe.dev" spellcheck="false">
-          <label class="hint"><input type="checkbox" id="regtest" style="width:auto;margin-right:6px">Local regtest chain (served by scripts/dev-server.mjs)</label>
+          <label class="hint" id="regtestRow" hidden><input type="checkbox" id="regtest" style="width:auto;margin-right:6px">Local regtest chain (served by scripts/dev-server.mjs)</label>
           <label class="hint" for="rawTx">Or paste the raw transaction hex and its block height, and nothing is fetched at all</label>
           <textarea id="rawTx" placeholder="raw transaction hex" spellcheck="false"></textarea>
           <input id="rawHeight" placeholder="block height" inputmode="numeric" aria-label="Block height of the pasted transaction">
@@ -193,7 +195,7 @@
       </details>
 
       <details class="request" id="linkPanel">
-        <summary>Check a payment link before you print it</summary>
+        <summary>Check a payment link</summary>
         <div class="grid">
           <label class="hint" for="linkIn">A <code>zcash:</code> link, as you'd put in an invoice or QR code, or a signed request (<code>zreq1…</code>) to check before paying</label>
           <input id="linkIn" placeholder="zcash:u1…?amount=0.01&amp;memo=…" spellcheck="false" autocomplete="off">
@@ -206,7 +208,7 @@
         <h2>How it works</h2>
         <ol>
           <li>Each disclosed output comes with the one key that opens only that output. Your browser opens it from the transaction on chain and checks the two match.</li>
-          <li>The payer's wallet makes a fresh zero-knowledge proof that it owned the money the transaction spent, and signs the whole receipt with the same key. Someone who only saw the payment can't make that proof.</li>
+          <li>The payer's wallet proves, with a fresh zero-knowledge proof, that it holds the key that spent the money in this transaction, and signs the whole receipt with that key. Someone who only saw the payment can't.</li>
           <li>A signed message, such as an invoice number or your request's code, ties the receipt to one purpose.</li>
         </ol>
         <div class="cli">receipts create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt

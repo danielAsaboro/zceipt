@@ -345,6 +345,15 @@ impl Receipt {
     }
 }
 
+/// Transactions whose spender's key is public (examples/testnet/demo): anyone can sign a receipt
+/// for them with any message, so their receipts show how receipts work, not who paid.
+pub const PUBLIC_DEMO_TXIDS: [&str; 1] = ["d2d4c90445cb714e0ca8da14d881be4fb606cdcd9bd6b658ec3da76fb44252f4"];
+
+/// Whether `txid` (internal byte order) is one of [`PUBLIC_DEMO_TXIDS`].
+pub fn is_public_demo(txid: &[u8; 32]) -> bool {
+    PUBLIC_DEMO_TXIDS.contains(&display_txid(txid).as_str())
+}
+
 /// The verifier's challenge a receipt's message carries: the rest of the first line starting
 /// `challenge:` (lines end at LF; a trailing CR is ignored), if that is 6 to 64 lowercase hex
 /// digits; otherwise none. A request's challenge matches only if equal.
@@ -1170,6 +1179,22 @@ fn verify_cross<A: Authorization, V>(
         sources: proven_sources,
         outputs,
     })
+}
+
+/// The outputs a receipt claims, opened from `output_bundle` with their `ock`s and nothing else
+/// checked. Not a verification: for showing what a receipt that failed its spend proof says it
+/// paid (an output-only claim anyone who saw the payment could make). Unopenable ones are skipped.
+pub fn claimed_outputs<A: Authorization, V>(receipt: &Receipt, output_bundle: &Bundle<A, V>) -> Vec<VerifiedOutput> {
+    let u = &receipt.unsigned;
+    let pool = u.output_pool.unwrap_or(u.pool);
+    u.outputs
+        .iter()
+        .filter_map(|o| {
+            let action = output_bundle.actions().get(o.index as usize)?;
+            let (note, addr, memo) = recover_with_ock(pool, &OutgoingCipherKey(o.ock), action)?;
+            Some(VerifiedOutput { index: o.index, recipient: addr.to_raw_address_bytes(), value: note.value().inner(), memo, memo_withheld: false })
+        })
+        .collect()
 }
 
 /// Displays a txid the way block explorers do (byte-reversed hex).

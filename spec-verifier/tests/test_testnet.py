@@ -170,6 +170,21 @@ class Testnet(unittest.TestCase):
         with self.assertRaisesRegex(v.Invalid, "root"):
             v.check_screened(fx["proof"], list(reversed(leaves)), *args)
 
+    def test_prepared_receipts(self):
+        """conformance/prepared.json, shared with the Rust tests."""
+        import json as _json, hashlib as _h
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "conformance", "prepared.json")) as f:
+            for case in _json.load(f)["cases"]:
+                try:
+                    p = rc.prepared_from_text(case["text"])
+                except rc.DecodeError:
+                    self.assertFalse(case["valid"], case["name"])
+                    continue
+                self.assertTrue(case["valid"], case["name"])
+                self.assertEqual(len(p.spends), case["spends"])
+                person = b"ZIP311Signed" + p.coin_type.to_bytes(4, "little")
+                self.assertEqual(_h.blake2b(p.unsigned_bytes, digest_size=32, person=person).hexdigest(), case["signing_digest"])
+
     def test_challenge_rule(self):
         """conformance/challenge.json, shared with the Rust and npm tests."""
         import json as _json

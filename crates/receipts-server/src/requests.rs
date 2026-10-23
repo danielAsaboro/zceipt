@@ -55,9 +55,11 @@ pub struct RequestRec {
     /// Deposit desks: the source-of-funds policy (JSON) and the checked provenance (JSON).
     pub source_policy: Option<String>,
     pub provenance: Option<String>,
+    /// The chain tip when the request was made, once known: a payment must be mined after it.
+    pub created_height: Option<i64>,
 }
 
-const COLS: &str = "id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification, received_zatoshis, client_secret, test_clock, (SELECT frozen_time FROM test_clocks WHERE test_clocks.id = requests.test_clock), final_at, source_policy, provenance";
+const COLS: &str = "id, mode, kind, challenge, payee, amount_zatoshis, label, metadata, status, created, expires_at, fulfilled_at, txid, paid_zatoshis, verification, received_zatoshis, client_secret, test_clock, (SELECT frozen_time FROM test_clocks WHERE test_clocks.id = requests.test_clock), final_at, source_policy, provenance, created_height";
 
 fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RequestRec> {
     Ok(RequestRec {
@@ -83,6 +85,7 @@ fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RequestRec> {
         final_at: r.get(19)?,
         source_policy: r.get(20)?,
         provenance: r.get(21)?,
+        created_height: r.get(22)?,
     })
 }
 
@@ -273,6 +276,20 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
                 params![id, mode.as_str(), kind, challenge, payee, req.amount_zatoshis.map(|a| a as i64), req.label, Value::Object(req.metadata.unwrap_or_default()).to_string(), created, req.expires_in.map(|e| created + e), client_secret, req.public_min_contributions.unwrap_or(3), req.test_clock, policy_json],
             )?;
         }
+        // The tip now, fetched in the background: a payment mined at or before it can't answer
+        // this request (an old payment shown again). Until it is known, the challenge and the
+        // used-payment check still apply.
+        if req.test_clock.is_none() {
+            let (st3, id3) = (st2.clone(), id.clone());
+            tokio::spawn(async move {
+                let net = mode.net(&st3.config);
+                let server = mode.server(&st3.config);
+                if let Ok(Ok(tip)) = tokio::time::timeout(std::time::Duration::from_secs(20), receipts_chain::chain::chain_tip(net, server.as_deref())).await {
+                    let c = st3.db.0.lock().unwrap();
+                    let _ = c.execute("UPDATE requests SET created_height = ?1 WHERE id = ?2 AND created_height IS NULL", params![tip as i64, id3]);
+                }
+            });
+        }
         let obj = to_json(&st2, &load(&st2, Some(mode), &id)?);
         emit(&st2, mode, "request.created", obj.clone())?;
         Ok((StatusCode::CREATED, obj))
@@ -339,6 +356,18 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         }
         let mut v = v;
         v.checks["challenge"] = "matched".into();
+        if !sandbox::is_fixture(text) && r.created_height.is_some_and(|h| i64::from(v.mined_height) <= h) {
+            return Err(ApiError::verification(
+                "paid_before_request",
+                format!("the payment was mined at block {}, before this request was made (block {})", v.mined_height, r.created_height.unwrap()),
+            ));
+        }
+        if v.public_demo {
+            return Err(ApiError::verification(
+                "public_demo_key",
+                "this receipt is from the public demo wallet, whose key anyone has; it proves nothing about who paid",
+            ));
+        }
         let want = receipts_chain::chain::orchard_receiver_of(&r.payee).map_err(|e| ApiError::internal(e.to_string()))?;
         // Outputs disclosed with the memo withheld (format v5) prove the recipient and amount but
         // not that the recipient's wallet can decrypt and spend the note, so they don't settle.

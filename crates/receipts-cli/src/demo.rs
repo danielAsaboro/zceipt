@@ -83,7 +83,7 @@ pub fn sign_own(msg: &str) -> anyhow::Result<()> {
     eprintln!("{} for testnet tx {}… (block {}), signed by the public demo wallet and checked offline:", bold("Your receipt"), &report.txid[..12], DEMO_HEIGHT);
     eprintln!("   message “{}”; the proofs were made once, the signature now, for your message.", msg);
     eprintln!("   Check it against the chain:  receipts verify @<file holding it>");
-    println!("{}", receipt.to_text());
+    println!("{}&h={DEMO_HEIGHT}", receipt.to_text());
     Ok(())
 }
 

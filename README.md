@@ -2,8 +2,8 @@
 
 **Prove one Zcash payment without handing over your viewing key.**
 
-You get a link. Opening it shows who was paid, how much and the memo, and proves it was signed with the key to money
-the payment spent. Change one character and it fails. Nothing else about the payer's wallet is in it.
+You get a link. Opening it shows who was paid, how much and the memo, and proves it was signed by the key that spent
+the money. Change one character and it fails. Nothing else about the payer's wallet is in it.
 
 <img src="docs/img/key-vs-receipt.svg" width="640" alt="A viewing key shows every payment, past and future; a receipt shows one payment and that you made it">
 
@@ -24,6 +24,11 @@ Who needs it now:
   a receipt supplies one.
 - **Grant programs, payroll and DAOs** proving they paid everyone, with one link.
 
+The contribution is ZIP 311 spend authority for Orchard and Ironwood: the spec text, the
+`receipts-core` crate and a second verifier written from the spec. The verifier page and CLI use
+it; the payment API for shops (`receipts shop`) and its SDKs are optional tooling around it.
+Sapling and transparent spends are out of scope (ZIP 311 already covers Sapling).
+
 Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
 ## See it work (no Rust, no wallet)
@@ -41,7 +46,8 @@ shows **NOT VALID**. Click **Try a claim by someone who only saw it**: the same 
 with another key shows **NOT PROVEN BY THE PAYER**, which is what an output-only disclosure can't
 tell apart. **Make one with your own message** signs a real testnet payment from a public demo
 wallet ([`examples/testnet/demo`](examples/testnet/demo)) for whatever you type, in the browser,
-then verifies it; `receipts demo -m "…"` does the same. The first check also loads the verifier (3 to 10 seconds).
+then verifies it (shown as the demo wallet, since its key is public); `receipts demo -m "…"`
+prints one to check with `receipts verify`. The first check also loads the verifier (3 to 10 seconds).
 
 <p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a real receipt for 0.01 TAZ (testnet), memo Invoice 42: two coffees, checked as PAID TO YOU">
 <img src="docs/img/refused.png" width="420" alt="The same receipt with its signed message edited, shown as NOT VALID: changed after it was made"></p>
@@ -75,12 +81,13 @@ record of each check for a case file.
 | | Shown | How it is checked |
 |---|---|---|
 | Who was paid, how much, the memo | yes | Opened from the transaction on chain with a key that opens only that output |
-| That the payer's wallet made the payment | yes | A fresh zero-knowledge proof for the note the payment spent, and a signature over the whole receipt |
+| That it was signed by the key that spent the money | yes | A fresh zero-knowledge proof for the note the payment spent, and a signature over the whole receipt |
 | A message (invoice number, a verifier's challenge) | yes | Signed with the receipt |
 | The payer's address, balance, other payments | no | Never included |
 | That the payment is on chain | on a chain server's word | `--cross-check <host:port>` asks a second server of your choice (it learns the txid) |
 
-The payer chooses which outputs to show, so a verifier checks the recipient it expects
+A link is about 7 KB; some chat apps cut long links, so the page also saves a receipt as a file
+and opens one. The payer chooses which outputs to show, so a verifier checks the recipient it expects
 (`--expect-address`, or the page's "Was it paid to you?"). Exact claim, assumptions and limits:
 [CLAIM.md](docs/CLAIM.md).
 
@@ -117,13 +124,13 @@ let shown = verify_transaction(&vk, &receipt, Network::Mainnet.coin_type(), &tx)
 ```
 
 - [docs/README.md](docs/README.md): which document to read for what.
-- [DEVELOPERS.md](docs/DEVELOPERS.md): the Rust crate, signing on a hardware wallet, bindings,
+- [DEVELOPERS.md](docs/DEVELOPERS.md): the Rust crate, signing on a separate device (the reference signer), bindings,
   everything beyond one payment, testnet evidence, and the repository layout.
 - [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md): the proposed text for ZIP 311's Orchard `TODO`
   (also in ZIP form: [docs/zip/zip-0311-orchard-draft.rst](docs/zip/zip-0311-orchard-draft.rst)).
 - [OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md): where a reviewer starts, with the public questions
   about spend authority for Orchard answered, each with its test.
-- `./scripts/check-all.sh` runs every check that needs no build (about two minutes);
+- `./scripts/check-all.sh` runs the checks that need no Rust build, given the prebuilt `receipts` binary for the last three (about two minutes);
   `./scripts/test-all.sh` runs every suite, including the regtest chain end to end.
 
 ## Status

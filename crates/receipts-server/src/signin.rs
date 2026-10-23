@@ -1,7 +1,12 @@
 //! Sign in with Zcash: the API issues a single-use nonce bound to a domain, the wallet answers
 //! with a `zsig1…` proof of control of a shielded address, and the API checks it once.
 
-use crate::{db::{new_id, now}, error::ApiError, verify::extract, Auth, Body, Mode, Shared};
+use crate::{
+    db::{new_id, now},
+    error::ApiError,
+    verify::extract,
+    Auth, Body, Mode, Shared,
+};
 use axum::{extract::State, Json};
 use receipts_chain::chain;
 use receipts_core::{signin::SignIn, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
@@ -19,7 +24,11 @@ fn vk() -> &'static orchard::circuit::VerifyingKey {
 }
 
 fn coin_type(mode: Mode) -> u32 {
-    if mode == Mode::Live { COIN_TYPE_MAINNET } else { COIN_TYPE_TESTNET }
+    if mode == Mode::Live {
+        COIN_TYPE_MAINNET
+    } else {
+        COIN_TYPE_TESTNET
+    }
 }
 
 #[derive(Deserialize)]
@@ -51,8 +60,12 @@ fn challenge_json(id: &str, mode: &str, domain: &str, nonce: &str, created: i64,
 pub async fn create_challenge(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateChallenge>) -> Result<Json<Value>, ApiError> {
     let domain = req.domain.unwrap_or_else(|| host_of(&st.config.public_url));
     let host = domain.split(':').next().unwrap_or("");
-    let port_ok = domain.split(':').nth(1).is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit())) && domain.matches(':').count() <= 1;
-    let labels_ok = !host.is_empty() && host.split('.').all(|l| !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    let port_ok =
+        domain.split(':').nth(1).is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit())) && domain.matches(':').count() <= 1;
+    let labels_ok = !host.is_empty()
+        && host
+            .split('.')
+            .all(|l| !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
     if domain.len() > 253 || !port_ok || !labels_ok {
         return Err(ApiError::invalid("parameter_invalid", "domain must be a host name such as shop.example").param("domain"));
     }
@@ -83,13 +96,12 @@ pub async fn verify(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Ver
         .0
         .lock()
         .unwrap()
-        .query_row(
-            "SELECT id, domain, expires_at, used_at FROM sign_in_challenges WHERE mode = ?1 AND nonce = ?2",
-            params![mode, s.nonce],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        )
+        .query_row("SELECT id, domain, expires_at, used_at FROM sign_in_challenges WHERE mode = ?1 AND nonce = ?2", params![mode, s.nonce], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
         .optional()?;
-    let (id, domain, expires_at, used_at) = row.ok_or_else(|| ApiError::not_found("sign_in_challenge_not_found", "no sign-in challenge with this nonce for this key's mode"))?;
+    let (id, domain, expires_at, used_at) =
+        row.ok_or_else(|| ApiError::not_found("sign_in_challenge_not_found", "no sign-in challenge with this nonce for this key's mode"))?;
     if used_at.is_some() {
         return Err(ApiError::conflict("sign_in_challenge_used", "this challenge was already used; ask for a new one"));
     }
@@ -103,10 +115,7 @@ pub async fn verify(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Ver
         .map_err(|e| ApiError::internal(e.to_string()))?
         .map_err(|e| ApiError::verification("sign_in_invalid", format!("the sign-in does not check out for {domain}: {e}")).param("sign_in"))?;
     // Spend the challenge atomically: a second, concurrent verify loses.
-    let n = st.db.0.lock().unwrap().execute(
-        "UPDATE sign_in_challenges SET used_at = ?1 WHERE id = ?2 AND used_at IS NULL",
-        params![now(), id],
-    )?;
+    let n = st.db.0.lock().unwrap().execute("UPDATE sign_in_challenges SET used_at = ?1 WHERE id = ?2 AND used_at IS NULL", params![now(), id])?;
     if n == 0 {
         return Err(ApiError::conflict("sign_in_challenge_used", "this challenge was already used; ask for a new one"));
     }

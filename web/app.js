@@ -200,19 +200,20 @@ function revealResult() {
 // chain couldn't be reached; the receipt was altered or forged.
 function showError(msg, kind = "notice") {
   revealResult();
-  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID", other: "OTHER FORMAT" }[kind];
+  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID", other: "OTHER FORMAT", secret: "DON'T SHARE THAT" }[kind];
   const plain = {
     forged: "This receipt was changed after it was made, or it was never made by the wallet that paid. Don't rely on it.",
     unreadable: "The link may be cut off (some apps shorten long links), or what was pasted isn't a receipt. Ask for the whole link, or the receipt as a file.",
     network: "The receipt wasn't checked: the chain server couldn't be reached or doesn't have the transaction yet. Try again in a minute, or pick another server in Settings.",
     notice: "",
     other: "",
+    secret: "",
   }[kind];
   $("#result").innerHTML = `
     <div class="ticket invalid" data-kind="${kind}">
-      <div class="stamp ${kind === "network" || kind === "other" ? "warn" : "bad"}">${head}</div>
+      <div class="stamp ${kind === "network" || kind === "other" || kind === "secret" ? "warn" : "bad"}">${head}</div>
       ${plain ? `<p class="why">${escapeHtml(plain)}</p><p class="fine">Detail: ${escapeHtml(msg)}</p>` : `<p class="why">${escapeHtml(msg)}</p>`}
-      ${kind === "other" ? "" : `<p class="fine">A receipt is only valid if the sender's proof, signature and the on-chain transaction all agree.</p>`}
+      ${kind === "other" || kind === "secret" ? "" : `<p class="fine">A receipt is only valid if the sender's proof, signature and the on-chain transaction all agree.</p>`}
     </div>`;
 }
 // A refusal in words first; the technical reason stays in the card's detail line.
@@ -327,6 +328,11 @@ function render(v, net) {
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
     if (!ua) return;
+    if (secret_kind(ua)) {
+      $("#mine").value = "";
+      $("#mineOut").textContent = "That looks like a key or seed phrase, not an address. It was cleared and not stored or sent.";
+      return;
+    }
     try {
       const want = await quick("receiverOn", { ua, network: v.network });
       // Compare by Orchard receiver: a unified address can carry other receivers too. Outputs
@@ -337,7 +343,7 @@ function render(v, net) {
       $("#mineOut").dataset.ok = paid;
       // Only if asked, and only an address this receipt paid: then the next receipt answers
       // "was I paid?" by itself.
-      try { if ($("#rememberMine").checked && paid) localStorage.setItem(MY_ADDRESS, ua); } catch { /* private mode */ }
+      try { if ($("#rememberMine").checked && paid && !secret_kind(ua)) localStorage.setItem(MY_ADDRESS, ua); } catch { /* private mode */ }
       // The verdict then leads with the answer, recomputed from the card's own verdict each time.
       const stamp = $("#result .stamp");
       if (stamp) {
@@ -737,7 +743,7 @@ $("#verifyBtn").onclick = async () => {
   const leak = secret_kind(t);
   if (leak) {
     $("#paste").value = "";
-    return showError(`That looks like a ${leak}. Never paste it anywhere: it reveals your whole wallet. It was cleared and not sent. Paste only the zip311r1… receipt.`);
+    return showError(`That looks like a ${leak}. Never paste it anywhere: it reveals your whole wallet. It was cleared and not sent. Paste only the zip311r1… receipt.`, "secret");
   }
   const ii = t.indexOf("zrcin1");
   if (ii >= 0) {
@@ -754,6 +760,7 @@ $("#verifyBtn").onclick = async () => {
     return runBatch(bt);
   }
   const i = t.indexOf("zip311r1");
+  if (i < 0 && /zrsv1|zip311s1/.test(t)) return showError(`That is a ${t.includes("zrsv1") ? "proof of funds" : "screened-set proof"}. This page checks payment receipts; check it with receipts verify.`, "other");
   if (i < 0) return t.includes("zrcpt1eyJ") ? showError(ZRECEIPT_NOTE, "other") : showError("no zip311r1… receipt in what was pasted", "unreadable");
   const r = t.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
   const h = heightHint(t);

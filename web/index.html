@@ -100,6 +100,9 @@
     .check input { background: #fff; color: var(--ink); border-color: var(--rule); }
     .check button { background: var(--ink); color: var(--paper); padding: 10px 14px; }
     .samples { margin-top: 8px; flex-wrap: wrap; }
+    .samples details.more { width: 100%; }
+    .samples details.more summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 6px 0; }
+    .samples details.more[open] { display: flex; flex-wrap: wrap; gap: 8px; }
     button.ghost { background: transparent; color: inherit; border: 1px solid currentColor; padding: 8px 12px; font-size: 13px; opacity: .85; }
     .placeholder { border: 2px dashed #2c2a26; border-radius: 14px; padding: 40px 26px; color: var(--text-2); text-align: center; font-size: 14px; line-height: 1.6; }
     .placeholder .big { font-family: var(--mono); color: var(--text); font-size: 13px; letter-spacing: 0.24em; margin-bottom: 8px; }
@@ -141,8 +144,10 @@
         <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>
         <button type="button" class="ghost" id="sampleEdited">Try an edited copy</button>
         <button type="button" class="ghost" id="sampleObserver">Try a claim by someone who only saw it</button>
-        <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
-        <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>
+        <details class="more"><summary>More examples</summary>
+          <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
+          <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>
+        </details>
       </div>
       <div id="warm" class="warm" data-state="busy">Preparing the verifier in the background (a few seconds)…</div>
 
@@ -195,7 +200,8 @@
           <li>For the spend, the sender makes a fresh Halo 2 proof that they own the note this transaction spent (same anchor, same nullifier), under a new randomized key, and signs the whole receipt with it.</li>
           <li>An optional note binds a challenge such as an invoice number, so a receipt can't be reused for something else.</li>
         </ol>
-        <div class="cli">receipts create --seed-stdin --network main --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42"
+        <div class="cli">receipts create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt
+receipts sign r.txt --seed-stdin
 receipts verify 'https://…#zip311r1…'</div>
       </div>
     </section>

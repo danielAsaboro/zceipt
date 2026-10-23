@@ -7,7 +7,13 @@
 //! Real requests become final when the chain tip is FINALITY_CONFIRMATIONS past the payment;
 //! `finality_sweeper` checks that and emits `request.final`.
 
-use crate::{db::{new_id, now}, emit, error::ApiError, requests::{load as load_request, to_json}, AppState, Auth, Body, Mode, Shared};
+use crate::{
+    db::{new_id, now},
+    emit,
+    error::ApiError,
+    requests::{load as load_request, to_json},
+    AppState, Auth, Body, Mode, Shared,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -113,7 +119,10 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
     // Expiry, by clock time.
     let expired: Vec<String> = {
         let c = st.db.0.lock().unwrap();
-        let rows = c.prepare("SELECT id FROM requests WHERE test_clock = ?1 AND status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?2 AND expired_notified = 0")?
+        let rows = c
+            .prepare(
+                "SELECT id FROM requests WHERE test_clock = ?1 AND status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?2 AND expired_notified = 0",
+            )?
             .query_map(params![id, t], |r| r.get(0))?
             .collect::<Result<Vec<String>, _>>()?;
         rows
@@ -126,13 +135,14 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
     // Finality, by clock height.
     let due: Vec<String> = {
         let c = st.db.0.lock().unwrap();
-        let rows = c.prepare(
-            "SELECT r.id FROM requests r WHERE r.test_clock = ?1 AND r.status = 'fulfilled' AND r.final_at IS NULL
+        let rows = c
+            .prepare(
+                "SELECT r.id FROM requests r WHERE r.test_clock = ?1 AND r.status = 'fulfilled' AND r.final_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM request_payments p WHERE p.request_id = r.id AND p.mined_height IS NULL)
              AND (SELECT MAX(mined_height) FROM request_payments p WHERE p.request_id = r.id) + ?2 - 1 <= ?3",
-        )?
-        .query_map(params![id, FINALITY_CONFIRMATIONS as i64, h], |r| r.get(0))?
-        .collect::<Result<Vec<String>, _>>()?;
+            )?
+            .query_map(params![id, FINALITY_CONFIRMATIONS as i64, h], |r| r.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
         rows
     };
     for rid in due {
@@ -178,10 +188,11 @@ pub async fn reorg(State(st): State<Shared>, auth: Auth, Path(id): Path<String>,
     };
     let mut fired = Vec::new();
     for rid in hit {
-        st.db.0.lock().unwrap().execute(
-            "UPDATE request_payments SET mined_height = NULL WHERE request_id = ?1 AND mined_height > ?2",
-            params![rid, new_tip],
-        )?;
+        st.db
+            .0
+            .lock()
+            .unwrap()
+            .execute("UPDATE request_payments SET mined_height = NULL WHERE request_id = ?1 AND mined_height > ?2", params![rid, new_tip])?;
         let ev = emit(&st, Mode::Test, "request.payment_reorged", to_json(&st, &load_request(&st, Some(Mode::Test), &rid)?))?;
         fired.push(json!({ "type": "request.payment_reorged", "request": rid, "event": ev["id"] }));
     }

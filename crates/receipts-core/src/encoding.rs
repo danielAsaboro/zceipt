@@ -240,10 +240,7 @@ impl UnsignedReceipt {
         let n_out = r.u8()? as usize;
         let mut outputs = Vec::with_capacity(n_out);
         for _ in 0..n_out {
-            outputs.push(OutputDisclosure {
-                index: r.u32()?,
-                ock: r.arr32()?,
-            });
+            outputs.push(OutputDisclosure { index: r.u32()?, ock: r.arr32()? });
         }
         let mut opened = Vec::new();
         if version == VERSION_OPENED {
@@ -295,26 +292,9 @@ impl UnsignedReceipt {
             } else {
                 None
             };
-            spends.push(SpendDisclosure {
-                index,
-                cv_net,
-                rk,
-                cmx,
-                proof,
-                address,
-                source,
-            });
+            spends.push(SpendDisclosure { index, cv_net, rk, cmx, proof, address, source });
         }
-        Ok(UnsignedReceipt {
-            coin_type,
-            pool,
-            output_pool,
-            txid,
-            msg,
-            outputs,
-            opened,
-            spends,
-        })
+        Ok(UnsignedReceipt { coin_type, pool, output_pool, txid, msg, outputs, opened, spends })
     }
 }
 
@@ -343,10 +323,7 @@ impl Receipt {
         if !r.buf.is_empty() {
             return Err(DecodeError::TrailingBytes);
         }
-        Ok(Receipt {
-            unsigned,
-            spend_auth_sigs,
-        })
+        Ok(Receipt { unsigned, spend_auth_sigs })
     }
 
     /// `zip311r1…` text form, safe to put in a URL fragment.

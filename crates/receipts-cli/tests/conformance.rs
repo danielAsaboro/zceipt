@@ -14,13 +14,18 @@ fn run(v: &Value) -> Result<Value, String> {
             let r = Receipt::from_text(&s("receipt")).map_err(|e| e.to_string())?;
             let heights = Path::new(ROOT).join(v["heights"].as_str().unwrap_or("examples/regtest/heights.toml"));
             let regtest = v["regtest"].as_bool().unwrap().then_some(heights.as_path());
-            let sources: Vec<(String, u32)> = v["source_txs"].as_array().map(|a| a.iter().map(|t| (t["raw_tx"].as_str().unwrap().to_string(), t["height"].as_u64().unwrap() as u32)).collect()).unwrap_or_default();
-            let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &sources, regtest).map_err(|e| e.to_string())?;
+            let sources: Vec<(String, u32)> = v["source_txs"]
+                .as_array()
+                .map(|a| a.iter().map(|t| (t["raw_tx"].as_str().unwrap().to_string(), t["height"].as_u64().unwrap() as u32)).collect())
+                .unwrap_or_default();
+            let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &sources, regtest)
+                .map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(&rep).unwrap())
         }
         Some("incoming") => {
             let r = receipts_core::incoming::IncomingReceipt::from_text(&s("receipt")).ok_or("malformed")?;
-            let rep = receipts_chain::chain::verify_incoming_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, None).map_err(|e| e.to_string())?;
+            let rep =
+                receipts_chain::chain::verify_incoming_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, None).map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(&rep).unwrap())
         }
         Some("sign_in") => {
@@ -31,7 +36,8 @@ fn run(v: &Value) -> Result<Value, String> {
         }
         Some("expectation") => {
             let r = Receipt::from_text(&s("receipt")).map_err(|e| e.to_string())?;
-            let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &[], None).map_err(|e| e.to_string())?;
+            let rep = receipts_chain::chain::verify_offline_with_sources(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, &[], None)
+                .map_err(|e| e.to_string())?;
             let paid = receipts_chain::chain::paid_to_address(&rep, &s("expect_address"));
             let satisfied = matches!(paid, Ok(p) if p > 0 && v["min_zatoshis"].as_u64().is_none_or(|m| p >= m));
             Ok(serde_json::json!({ "satisfied": satisfied }))
@@ -99,21 +105,18 @@ fn decoders_never_panic() {
         x ^= x << 17;
         x
     };
-    let seeds: Vec<Vec<u8>> = [("examples/testnet/receipt.txt", "zip311r1"), ("examples/testnet/sign-in.txt", "zsig1"), ("examples/testnet/batch.txt", "zip311b1")]
-        .iter()
-        .map(|(p, pre)| {
-            let t = std::fs::read_to_string(format!("{ROOT}/{p}")).unwrap();
-            let i = t.find(pre).unwrap();
-            let body: String = t[i + pre.len()..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
-            URL_SAFE_NO_PAD.decode(body).unwrap()
-        })
-        .collect();
+    let seeds: Vec<Vec<u8>> =
+        [("examples/testnet/receipt.txt", "zip311r1"), ("examples/testnet/sign-in.txt", "zsig1"), ("examples/testnet/batch.txt", "zip311b1")]
+            .iter()
+            .map(|(p, pre)| {
+                let t = std::fs::read_to_string(format!("{ROOT}/{p}")).unwrap();
+                let i = t.find(pre).unwrap();
+                let body: String = t[i + pre.len()..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+                URL_SAFE_NO_PAD.decode(body).unwrap()
+            })
+            .collect();
     for round in 0..20_000 {
-        let mut b = if round % 5 == 0 {
-            (0..(rnd() % 600) as usize).map(|_| rnd() as u8).collect::<Vec<u8>>()
-        } else {
-            seeds[round % seeds.len()].clone()
-        };
+        let mut b = if round % 5 == 0 { (0..(rnd() % 600) as usize).map(|_| rnd() as u8).collect::<Vec<u8>>() } else { seeds[round % seeds.len()].clone() };
         for _ in 0..1 + rnd() % 4 {
             if b.is_empty() {
                 break;

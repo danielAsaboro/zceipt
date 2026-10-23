@@ -49,9 +49,8 @@ pub struct PaymentRequest {
 }
 
 fn valid_fields(domain: &str, memo: &str, code: &str, amount: u64) -> bool {
-    let domain_ok = !domain.is_empty()
-        && domain.len() <= 253
-        && domain.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-' || c == ':');
+    let domain_ok =
+        !domain.is_empty() && domain.len() <= 253 && domain.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-' || c == ':');
     domain_ok && memo.len() <= MAX_MEMO && (6..=64).contains(&code.len()) && code.chars().all(|c| c.is_ascii_hexdigit()) && amount > 0
 }
 
@@ -124,7 +123,17 @@ impl PaymentRequest {
         if !valid_fields(&domain, &memo, &code, amount) {
             return None;
         }
-        Some(PaymentRequest { coin_type, domain, amount, memo, code, expires_at, rk, address: AddressProof { address, rho, rseed, nf, cv_net, cmx, proof }, sig })
+        Some(PaymentRequest {
+            coin_type,
+            domain,
+            amount,
+            memo,
+            code,
+            expires_at,
+            rk,
+            address: AddressProof { address, rho, rseed, nf, cv_net, cmx, proof },
+            sig,
+        })
     }
 
     pub fn to_text(&self) -> String {
@@ -165,7 +174,17 @@ pub fn sign_request(
     let rsk = SpendAuthorizingKey::from(sk).randomize(&alpha);
     let rk = redpallas::VerificationKey::<SpendAuth>::from(&rsk);
     let a = address_proof(pk, Pool::Ironwood, &fvk, payee, alpha, &rk, &mut rng)?;
-    let mut r = PaymentRequest { coin_type, domain, amount, memo: memo.into(), code: code.to_ascii_lowercase(), expires_at, rk: (&rk).into(), address: a, sig: [0; 64] };
+    let mut r = PaymentRequest {
+        coin_type,
+        domain,
+        amount,
+        memo: memo.into(),
+        code: code.to_ascii_lowercase(),
+        expires_at,
+        rk: (&rk).into(),
+        address: a,
+        sig: [0; 64],
+    };
     r.sig = (&rsk.sign(&mut rng, &signing_digest(&r))).into();
     Ok(r)
 }

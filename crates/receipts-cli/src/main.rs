@@ -6,7 +6,6 @@ use receipts_wallet as wallet;
 
 use receipts_chain::{chain, net};
 
-
 use anyhow::{anyhow, bail, Context};
 use clap::{CommandFactory, Parser, Subcommand};
 use receipts_core::{Pool, Receipt};
@@ -18,7 +17,12 @@ use std::path::PathBuf;
 const DEFAULT_LINK_BASE: &str = "http://127.0.0.1:8723/verify/";
 
 #[derive(Parser)]
-#[command(name = "receipts", version, about = "ZIP 311 payment disclosures for Orchard and Ironwood: prove one shielded payment without a viewing key.", after_help = "Start with `receipts demo`. `receipts shop` lists the payment API commands for shops and exchanges.")]
+#[command(
+    name = "receipts",
+    version,
+    about = "ZIP 311 payment disclosures for Orchard and Ironwood: prove one shielded payment without a viewing key.",
+    after_help = "Start with `receipts demo`. `receipts shop` lists the payment API commands for shops and exchanges."
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -52,7 +56,9 @@ enum Cmd {
         /// signs them where the seed is.
         #[arg(long, conflicts_with_all = ["wallet", "identity"], requires_all = ["birthday", "unsigned"])]
         ufvk: Option<String>,
-        /// With --seed-stdin or --ufvk: the wallet's birthday height (its first block).
+        /// With --seed-stdin or --ufvk: the wallet's birthday height, its first block (wallets show
+        /// it with the seed backup or in their settings). If unsure, any height before the wallet
+        /// first received funds works; earlier only means a longer scan.
         #[arg(long)]
         birthday: Option<u32>,
         /// With --seed-stdin: main or test. With --ufvk it is read from the key.
@@ -212,8 +218,9 @@ enum Cmd {
         /// Fail unless this unified address received a disclosed output.
         #[arg(long)]
         expect_address: Option<String>,
-        /// With --expect-address: fail unless it received at least this much (ZEC).
-        #[arg(long, requires = "expect_address")]
+        /// Fail unless at least this much (ZEC) was paid to --expect-address, or, for a proof of
+        /// funds, is held.
+        #[arg(long)]
         min: Option<String>,
         /// Fail unless the receipt signs this challenge (the code of your proof request, or a
         /// trade id): a receipt made for someone else's request can't be passed off as yours.
@@ -229,6 +236,10 @@ enum Cmd {
         /// The screened-set proof (`zip311s1…` or `@file`) sent with the receipt.
         #[arg(long, requires = "screened_set")]
         screened_proof: Option<String>,
+        /// With --screened-set: fail unless the proof shows at least this much (ZEC) of the spent
+        /// value came from the list.
+        #[arg(long, requires = "screened_set")]
+        screened_min: Option<String>,
         /// Print the result as JSON.
         #[arg(long)]
         json: bool,
@@ -602,7 +613,9 @@ impl Cli {
 /// `verify --min` and `--challenge`, set once from the command line.
 static VERIFY_EXPECT: std::sync::OnceLock<(Option<u64>, Option<String>, Option<String>)> = std::sync::OnceLock::new();
 /// `verify --screened-set` and `--screened-proof`, read once from the command line.
-static VERIFY_SCREENED: std::sync::OnceLock<(Vec<[u8; 32]>, Vec<receipts_core::screened::ScreenedProof>)> = std::sync::OnceLock::new();
+/// The list, the proofs, and the minimum the proofs must show came from the list.
+type ScreenedCheck = (Vec<[u8; 32]>, Vec<receipts_core::screened::ScreenedProof>, Option<u64>);
+static VERIFY_SCREENED: std::sync::OnceLock<ScreenedCheck> = std::sync::OnceLock::new();
 
 /// A screened list: one note commitment (64 hex digits) per line; blank lines and `#` comments skipped.
 fn read_screened_set(path: &std::path::Path) -> anyhow::Result<Vec<[u8; 32]>> {
@@ -629,8 +642,12 @@ fn read_screened_proofs(arg: &str) -> anyhow::Result<Vec<receipts_core::screened
 
 /// Checks `verify --screened-set` (when given) and records the result in the report.
 fn with_screened(mut report: chain::Report, receipt: &Receipt) -> anyhow::Result<chain::Report> {
-    if let Some((set, proofs)) = VERIFY_SCREENED.get() {
+    if let Some((set, proofs, min)) = VERIFY_SCREENED.get() {
         chain::check_screened(&mut report, receipt, proofs, set)?;
+        let covered = report.screened_set.as_ref().map(|s| s.covered_zatoshis).unwrap_or(0);
+        if let Some(min) = min.filter(|m| covered < *m) {
+            bail!("the screened-set proof shows {} from the list, less than the {} required", chain::zec(covered), chain::zec(min));
+        }
     }
     Ok(report)
 }
@@ -649,7 +666,12 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
             None => bail!("the receipt signs no challenge, so it wasn't made for request {c}"),
         }
     }
-    let Some(addr) = expect else { return Ok(()) };
+    let Some(addr) = expect else {
+        if min.is_some() {
+            bail!("--min checks what --expect-address received: give the address too");
+        }
+        return Ok(());
+    };
     let paid = chain::paid_to_address(report, addr)?;
     if paid == 0 {
         let want = chain::orchard_receiver_of(addr)?;
@@ -751,7 +773,7 @@ fn warn_if_local(base: &str) {
 }
 
 fn answer_link(base: &str, text: &str, h: &str) -> String {
-    let base = match base.find("#zip311") .or_else(|| base.find("&zip311")).or_else(|| base.find("#zrcin1")) {
+    let base = match base.find("#zip311").or_else(|| base.find("&zip311")).or_else(|| base.find("#zrcin1")) {
         Some(i) => &base[..i],
         None => base,
     };
@@ -763,11 +785,7 @@ fn answer_link(base: &str, text: &str, h: &str) -> String {
 }
 
 fn read_arg_text(arg: &str) -> anyhow::Result<String> {
-    Ok(if let Some(path) = arg.strip_prefix('@') {
-        std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
-    } else {
-        arg.to_string()
-    })
+    Ok(if let Some(path) = arg.strip_prefix('@') { std::fs::read_to_string(path).with_context(|| format!("reading {path}"))? } else { arg.to_string() })
 }
 
 async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::path::Path>, json: bool, expect_address: Option<&str>) -> anyhow::Result<()> {
@@ -820,7 +838,13 @@ fn provenance_lines(reports: &[chain::Report]) -> Vec<String> {
         return out;
     }
     out.push("  source of funds (proven hop by hop):".into());
-    fn walk(txid: &str, depth: usize, by: &std::collections::BTreeMap<&str, &chain::Report>, out: &mut Vec<String>, seen: &mut std::collections::BTreeSet<String>) {
+    fn walk(
+        txid: &str,
+        depth: usize,
+        by: &std::collections::BTreeMap<&str, &chain::Report>,
+        out: &mut Vec<String>,
+        seen: &mut std::collections::BTreeSet<String>,
+    ) {
         let pad = "    ".repeat(depth + 1);
         let Some(r) = by.get(txid) else { return };
         if !seen.insert(txid.to_string()) {
@@ -829,11 +853,18 @@ fn provenance_lines(reports: &[chain::Report]) -> Vec<String> {
         let unproven = r.proven_spend_actions.len().saturating_sub(r.sources.len());
         for s in &r.sources {
             let v = s.zec.as_ref().map(|z| format!(" ({z} ZEC)")).unwrap_or_default();
-            out.push(format!("{pad}tx {}… action {} spent a note{v} from tx {}… output {}", &r.txid[..12], s.spend_action, &s.source_txid[..12], s.source_action));
+            out.push(format!(
+                "{pad}tx {}… action {} spent a note{v} from tx {}… output {}",
+                &r.txid[..12],
+                s.spend_action,
+                &s.source_txid[..12],
+                s.source_action
+            ));
             if by.contains_key(s.source_txid.as_str()) {
                 walk(&s.source_txid, depth + 1, by, out, seen);
             } else if seen.insert(format!("funded:{}", s.source_txid)) {
-                let funded: Vec<String> = s.transparent_inputs.iter().filter_map(|t| Some(format!("{} ZEC from {}", chain::zec(t.zatoshis?), t.address.clone()?))).collect();
+                let funded: Vec<String> =
+                    s.transparent_inputs.iter().filter_map(|t| Some(format!("{} ZEC from {}", chain::zec(t.zatoshis?), t.address.clone()?))).collect();
                 if funded.is_empty() {
                     out.push(format!("{pad}    tx {}… was itself funded from shielded notes not shown", &s.source_txid[..12]));
                 } else {
@@ -888,11 +919,7 @@ fn read_receipt_arg(arg: &str) -> anyhow::Result<Receipt> {
     if let Some(kind) = receipts_core::tripwire::secret_kind(&read_arg_text(arg)?) {
         bail!("refusing: the input contains what looks like a {kind}. Never share it; a zip311r1… receipt is all that's needed.");
     }
-    let text = if let Some(path) = arg.strip_prefix('@') {
-        std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?
-    } else {
-        arg.to_string()
-    };
+    let text = if let Some(path) = arg.strip_prefix('@') { std::fs::read_to_string(path).with_context(|| format!("reading {path}"))? } else { arg.to_string() };
     let text = text.trim();
     let body = match text.find("zip311r1") {
         Some(i) => &text[i..],
@@ -911,9 +938,7 @@ fn parse_request(link: &str) -> anyhow::Result<Request> {
 }
 
 fn parse_txid(s: &str) -> anyhow::Result<[u8; 32]> {
-    let mut b: [u8; 32] = hex::decode(s.trim())?
-        .try_into()
-        .map_err(|_| anyhow!("a txid is 32 bytes of hex"))?;
+    let mut b: [u8; 32] = hex::decode(s.trim())?.try_into().map_err(|_| anyhow!("a txid is 32 bytes of hex"))?;
     b.reverse();
     Ok(b)
 }
@@ -936,21 +961,26 @@ async fn main() -> anyhow::Result<()> {
     }
     let cli = Cli::parse();
     receipts_wallet::set_account(cli.account)?;
-    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, .. } = &cli.cmd {
+    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, .. } = &cli.cmd {
         // These checks are about one payment: refuse them for kinds they can't apply to, rather
         // than pass a batch, an incoming receipt or a proof of funds without checking.
         if min.is_some() || challenge.is_some() || memo_contains.is_some() || screened_set.is_some() {
             let text = read_arg_text(receipt)?;
-            for (prefix, what) in [(receipts_core::BATCH_TEXT_PREFIX, "a batch"), (receipts_core::incoming::INCOMING_TEXT_PREFIX, "an incoming receipt"), (receipts_core::reserve::RESERVE_TEXT_PREFIX, "a proof of funds")] {
+            for (prefix, what) in [(receipts_core::BATCH_TEXT_PREFIX, "a batch"), (receipts_core::incoming::INCOMING_TEXT_PREFIX, "an incoming receipt")] {
                 if text.contains(prefix) {
-                    bail!("--min, --challenge, --memo-contains and --screened-set check one payment receipt; this is {what}. Verify each payment's own receipt.");
+                    bail!(
+                        "--min, --challenge, --memo-contains and --screened-set check one payment receipt; this is {what}. Verify each payment's own receipt."
+                    );
                 }
+            }
+            if text.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) && (memo_contains.is_some() || screened_set.is_some()) {
+                bail!("a proof of funds has no memo or spends to check: use --challenge and --min with it");
             }
         }
         let min = min.as_deref().map(parse_zec).transpose()?;
         VERIFY_EXPECT.set((min, challenge.clone(), memo_contains.clone())).ok();
         if let (Some(set), Some(proof)) = (screened_set, screened_proof) {
-            VERIFY_SCREENED.set((read_screened_set(set)?, read_screened_proofs(proof)?)).ok();
+            VERIFY_SCREENED.set((read_screened_set(set)?, read_screened_proofs(proof)?, screened_min.as_deref().map(parse_zec).transpose()?)).ok();
         }
     }
     // `verify --json` answers in JSON whatever happens, so scripts never parse an error line.
@@ -959,13 +989,14 @@ async fn main() -> anyhow::Result<()> {
     if let (true, Err(e)) = (json_verify, &result) {
         let m = e.to_string();
         let code = [
+            ("screened", "not_screened"),
+            ("proof of funds", "funds_check_failed"),
             ("signature", "bad_signature"),
             ("proof", "bad_proof"),
             ("no disclosed output pays", "wrong_payee"),
             ("less than", "underpaid"),
             ("challenge", "wrong_challenge"),
             ("memo contains", "memo_mismatch"),
-            ("screened", "not_screened"),
             ("base64", "unreadable"),
             ("not a receipt", "unreadable"),
             ("lightwalletd", "chain_unavailable"),
@@ -1008,7 +1039,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let h: String = text.lines().find_map(|l| l.strip_prefix("h=")).unwrap_or("").chars().filter(|c| c.is_ascii_digit()).take(9).collect();
             // The receipt says its own network; --network only has to agree with it.
             let own = if p.unsigned().coin_type == receipts_core::COIN_TYPE_MAINNET { "main" } else { "test" };
-            let keys = if seed_stdin { Some(wallet::KeysWallet::from_phrase(keys_net(network.as_deref().or(Some(own)), regtest.as_deref())?, &read_stdin_secret()?, 0)?) } else { None };
+            let keys = if seed_stdin {
+                Some(wallet::KeysWallet::from_phrase(keys_net(network.as_deref().or(Some(own)), regtest.as_deref())?, &read_stdin_secret()?, 0)?)
+            } else {
+                None
+            };
             let net = match (&keys, &wallet) {
                 (Some(k), _) => k.net,
                 (None, Some(w)) => wallet::wallet_network(w)?,
@@ -1037,7 +1072,12 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                         receipts_core::SourceValue::Revealed { value, .. } => format!(", a note of {} {}", chain::zec(*value), chain::unit(net.name())),
                         receipts_core::SourceValue::Hidden { .. } => String::new(),
                     };
-                    eprintln!("  REVEALS     that the note spent in action {} came from tx {} output {}{value}", s.index, receipts_core::display_txid(&src.txid), src.index);
+                    eprintln!(
+                        "  REVEALS     that the note spent in action {} came from tx {} output {}{value}",
+                        s.index,
+                        receipts_core::display_txid(&src.txid),
+                        src.index
+                    );
                 }
             }
             for line in String::from_utf8_lossy(&u.msg).lines() {
@@ -1083,7 +1123,37 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("\nShare this link (check it first with `receipts verify`):");
             println!("{}", answer_link(&link_base, &text, &h));
         }
-        Cmd::Create { wallet, identity, seed_stdin, ufvk, birthday, network, regtest, height, unsigned, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx, screened_set, screened_proof, screened_amount } => {
+        Cmd::Create {
+            wallet,
+            identity,
+            seed_stdin,
+            ufvk,
+            birthday,
+            network,
+            regtest,
+            height,
+            unsigned,
+            txids,
+            msg,
+            outputs,
+            pool,
+            link_base,
+            out,
+            from_chain,
+            server,
+            request,
+            prove_address,
+            prove_source,
+            reveal_source_value,
+            withhold_memo,
+            public_note,
+            refund_to,
+            tex_deposit,
+            second_tx,
+            screened_set,
+            screened_proof,
+            screened_amount,
+        } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
@@ -1127,6 +1197,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 (true, true) => Some(wallet::SourceMode::RevealValue),
             };
             let screened_list = screened_set.as_deref().map(read_screened_set).transpose()?;
+            if let Some(l) = screened_list.as_ref().filter(|l| l.len() < 16) {
+                eprintln!("Warning: the screened list has only {} outputs, so whoever published it can narrow the source down to those.", l.len());
+            }
             let screened_amount = screened_amount.as_deref().map(parse_zec).transpose()?;
             let screened_set = screened_list.as_deref().map(|set| wallet::Screened { set, amount: screened_amount });
             let write_screened = |proofs: &[receipts_core::screened::ScreenedProof]| -> anyhow::Result<()> {
@@ -1150,11 +1223,28 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     Some(_) => wallet::KeysWallet::from_ufvk(net, ufvk_text.as_deref().unwrap_or_default(), birthday)?,
                     None => wallet::KeysWallet::from_phrase(net, &read_stdin_secret()?, birthday)?,
                 };
-                let (p, h, screened) = wallet::prepare_receipt_from_keys(&keys, parse_txid(&txids[0])?, height, msg.as_bytes(), &outputs, pool, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo, screened_set).await?;
+                let (p, h, screened) = wallet::prepare_receipt_from_keys(
+                    &keys,
+                    parse_txid(&txids[0])?,
+                    height,
+                    msg.as_bytes(),
+                    &outputs,
+                    pool,
+                    server.as_deref(),
+                    prove_address.as_deref(),
+                    prove_source,
+                    withhold_memo,
+                    screened_set,
+                )
+                .await?;
                 write_screened(&screened)?;
                 if let Some(file) = unsigned {
                     write_private(&file, &format!("{}\nh={h}\n", p.to_text()))?;
-                    eprintln!("Proofs made with the viewing key. Wrote {} (readable only by you); sign it where the seed is:\n  receipts sign {} --seed-stdin --yes", file.display(), file.display());
+                    eprintln!(
+                        "Proofs made with the viewing key. Wrote {} (readable only by you); sign it where the seed is:\n  receipts sign {} --seed-stdin --yes",
+                        file.display(),
+                        file.display()
+                    );
                     return Ok(());
                 }
                 let receipt = keys.sign(p)?;
@@ -1173,7 +1263,20 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 if txids.len() > 1 {
                     bail!("--unsigned prepares one receipt at a time");
                 }
-                let (p, h, screened) = wallet::prepare_receipt(&wallet, parse_txid(&txids[0])?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo, screened_set).await?;
+                let (p, h, screened) = wallet::prepare_receipt(
+                    &wallet,
+                    parse_txid(&txids[0])?,
+                    msg.as_bytes(),
+                    &outputs,
+                    pool,
+                    source,
+                    server.as_deref(),
+                    prove_address.as_deref(),
+                    prove_source,
+                    withhold_memo,
+                    screened_set,
+                )
+                .await?;
                 write_screened(&screened)?;
                 write_private(&file, &format!("{}\nh={h}\n", p.to_text()))?;
                 eprintln!(
@@ -1197,7 +1300,20 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    let (r, h) = wallet::create_receipt(&wallet, &identity, parse_txid(t)?, m.as_bytes(), &[], pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
+                    let (r, h) = wallet::create_receipt(
+                        &wallet,
+                        &identity,
+                        parse_txid(t)?,
+                        m.as_bytes(),
+                        &[],
+                        pool,
+                        source,
+                        server.as_deref(),
+                        prove_address.as_deref(),
+                        prove_source,
+                        withhold_memo,
+                    )
+                    .await?;
                     receipts.push(r);
                     heights.push(h.to_string());
                 }
@@ -1217,11 +1333,39 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let (receipt, mined_height) = match screened_set {
                 // The screened-set proofs need the spends' randomizers: prove, then sign here.
                 Some(set) => {
-                    let (p, h, screened) = wallet::prepare_receipt(&wallet, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo, Some(set)).await?;
+                    let (p, h, screened) = wallet::prepare_receipt(
+                        &wallet,
+                        parse_txid(txid)?,
+                        msg.as_bytes(),
+                        &outputs,
+                        pool,
+                        source,
+                        server.as_deref(),
+                        prove_address.as_deref(),
+                        prove_source,
+                        withhold_memo,
+                        Some(set),
+                    )
+                    .await?;
                     write_screened(&screened)?;
                     (wallet::sign_prepared(&wallet, &identity, p)?, h)
                 }
-                None => wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?,
+                None => {
+                    wallet::create_receipt(
+                        &wallet,
+                        &identity,
+                        parse_txid(txid)?,
+                        msg.as_bytes(),
+                        &outputs,
+                        pool,
+                        source,
+                        server.as_deref(),
+                        prove_address.as_deref(),
+                        prove_source,
+                        withhold_memo,
+                    )
+                    .await?
+                }
             };
             let text = receipt.to_text();
             if let Some(r) = &req {
@@ -1260,24 +1404,71 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let r = receipts_core::reserve::ReserveProof::from_text(&body).ok_or_else(|| anyhow!("malformed proof of funds"))?;
             // Nullifiers already downloaded are cached, so the next check only fetches new blocks.
             let net = net::for_receipt(r.coin_type, regtest.as_deref())?;
-            let cache = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache/receipts").join(format!("{}-{}-{}-nullifiers.bin", net.name(), if r.pool == Pool::Orchard { "orchard" } else { "ironwood" }, server.as_deref().unwrap_or("default").replace([':', '/'], "_"))));
-            eprintln!("Checking the proofs and scanning the {} pool's nullifiers (cached after the first run)…", if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" });
+            let cache = std::env::var_os("HOME").map(|h| {
+                PathBuf::from(h).join(".cache/receipts").join(format!(
+                    "{}-{}-{}-nullifiers.bin",
+                    net.name(),
+                    if r.pool == Pool::Orchard { "orchard" } else { "ironwood" },
+                    server.as_deref().unwrap_or("default").replace([':', '/'], "_")
+                ))
+            });
+            eprintln!(
+                "Checking the proofs and scanning the {} pool's nullifiers (cached after the first run)…",
+                if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" }
+            );
             let rep = chain::verify_reserve_against_chain(&r, server.as_deref(), regtest.as_deref(), cache.as_deref()).await?;
-            if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
+            let (min, challenge, _) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
+            if let Some(c) = challenge {
+                if receipts_server::verify::challenge_of(&rep.message).as_deref() != Some(c.to_lowercase().as_str()) {
+                    bail!("the proof of funds doesn't sign challenge {c}: it was made for someone else, or earlier");
+                }
+            }
+            if let Some(min) = min.filter(|m| rep.total_zatoshis < *m) {
+                bail!("the proof of funds shows {} {}, less than the {} required", rep.total_zec, chain::unit(rep.network), chain::zec(min));
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rep)?);
+            } else {
+                rep.print();
+            }
         }
-        Cmd::Verify { receipt, json, regtest, raw_tx: Some(raw), height: Some(height), expect_address, .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, json, regtest, raw_tx: Some(raw), height: Some(height), expect_address, .. }
+            if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) =>
+        {
             let r = read_incoming_arg(&receipt)?;
             let rep = chain::verify_incoming_offline(&r, &std::fs::read_to_string(&raw)?, height, regtest.as_deref())?;
             check_incoming_recipient(&rep, expect_address.as_deref())?;
-            if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rep)?);
+            } else {
+                rep.print();
+            }
         }
-        Cmd::Verify { receipt, server, json, regtest, expect_address, .. } if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, json, regtest, expect_address, .. }
+            if read_arg_text(&receipt)?.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) =>
+        {
             let r = read_incoming_arg(&receipt)?;
             let rep = chain::verify_incoming_against_chain(&r, server.as_deref(), regtest.as_deref()).await?;
             check_incoming_recipient(&rep, expect_address.as_deref())?;
-            if json { println!("{}", serde_json::to_string_pretty(&rep)?); } else { rep.print(); }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rep)?);
+            } else {
+                rep.print();
+            }
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, raw_tx: Some(raw), height: Some(height), second_raw_tx, second_height, source_raw_txs, .. } => {
+        Cmd::Verify {
+            receipt,
+            server,
+            expect_address,
+            json,
+            regtest,
+            raw_tx: Some(raw),
+            height: Some(height),
+            second_raw_tx,
+            second_height,
+            source_raw_txs,
+            ..
+        } => {
             let receipt = read_receipt_arg(&receipt)?;
             let raw1 = std::fs::read_to_string(&raw)?;
             let mut sources = Vec::new();
@@ -1287,11 +1478,16 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             }
             let report = chain::verify_offline_with_sources(&receipt, &raw1, height, &sources, regtest.as_deref())?;
             if receipts_chain::deposit::deposit_claim(&report.message).is_some() {
-                let second = second_raw_tx.ok_or_else(|| anyhow!("this is an exchange-deposit receipt: pass the second step with --second-raw-tx (and --second-height if it is in another block)"))?;
+                let second = second_raw_tx.ok_or_else(|| {
+                    anyhow!("this is an exchange-deposit receipt: pass the second step with --second-raw-tx (and --second-height if it is in another block)")
+                })?;
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
                 let read = |hex_text: &str, h: u32| -> anyhow::Result<zcash_primitives::transaction::Transaction> {
                     let bytes = hex::decode(hex_text.trim())?;
-                    Ok(zcash_primitives::transaction::Transaction::read(&bytes[..], zcash_protocol::consensus::BranchId::for_height(&net, zcash_protocol::consensus::BlockHeight::from_u32(h)))?)
+                    Ok(zcash_primitives::transaction::Transaction::read(
+                        &bytes[..],
+                        zcash_protocol::consensus::BranchId::for_height(&net, zcash_protocol::consensus::BlockHeight::from_u32(h)),
+                    )?)
                 };
                 let tx1 = read(&raw1, height)?;
                 let h2 = second_height.unwrap_or(height);
@@ -1299,7 +1495,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     bail!("--second-height {h2} is before the first transaction's block {height}; the second step can't be mined first");
                 }
                 let tx2 = read(&std::fs::read_to_string(&second)?, h2)?;
-                let d = receipts_chain::deposit::check(&receipt, &report.message, receipts_chain::deposit::network_type(net), &tx1, &tx2).map_err(|e| anyhow!(e))?;
+                let d = receipts_chain::deposit::check(&receipt, &report.message, receipts_chain::deposit::network_type(net), &tx1, &tx2)
+                    .map_err(|e| anyhow!(e))?;
                 let report = with_screened(report, &receipt)?;
                 check_expected_payee(&report, expect_address.as_deref())?;
                 print_deposit(&report, &d, json)?;
@@ -1308,7 +1505,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let report = with_screened(report, &receipt)?;
             check_expected_payee(&report, expect_address.as_deref())?;
             let _ = server;
-            if json { println!("{}", serde_json::to_string_pretty(&report)?); } else { report.print(); }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                report.print();
+            }
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, .. } => {
             let text = read_arg_text(&receipt)?;
@@ -1360,7 +1561,12 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 if let Ok(tip) = chain::chain_tip(net, server.as_deref()).await {
                     let c = tip.saturating_sub(report.mined_height) + 1;
                     let fin = chain::FINALITY_CONFIRMATIONS;
-                    println!("  mined     {c} confirmation{} on {}{}", if c == 1 { "" } else { "s" }, server.as_deref().unwrap_or(net.default_server()), if c < fin { ", not final yet" } else { "" });
+                    println!(
+                        "  mined     {c} confirmation{} on {}{}",
+                        if c == 1 { "" } else { "s" },
+                        server.as_deref().unwrap_or(net.default_server()),
+                        if c < fin { ", not final yet" } else { "" }
+                    );
                 }
                 if expect_address.is_none() {
                     println!("  recipient not checked: pass --expect-address <your address> to require that you were paid");
@@ -1395,7 +1601,13 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 n => bail!("--test-network must be test or regtest, not {n}"),
             };
             let verifier_url = verifier_url.unwrap_or_else(|| format!("http://{listen}/verify/"));
-            let config = receipts_server::Config { test_lightwalletd, live_lightwalletd, rate_limit, public_url: format!("http://{listen}"), ..receipts_server::Config::new(test_net, verifier_url) };
+            let config = receipts_server::Config {
+                test_lightwalletd,
+                live_lightwalletd,
+                rate_limit,
+                public_url: format!("http://{listen}"),
+                ..receipts_server::Config::new(test_net, verifier_url)
+            };
             let (app, keys) = receipts_server::build(&db, config).await?;
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("Receipts API on http://{listen}  (test mode: {}, live mode: mainnet)", test_net.name());
@@ -1420,7 +1632,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
             eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
-            axum::serve(listener, app).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+                .await?;
         }
         Cmd::Mcp { api_key, base_url } => mcp::run(api_key, base_url).await?,
         Cmd::Listen { forward_to, api_key, base_url, events } => listen(forward_to, api_key, base_url, events).await?,
@@ -1457,7 +1673,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
         Cmd::Demo { shop, no_wait } => demo::run(!no_wait, shop).await?,
-        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes } => pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes).await?,
+        Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes } => {
+            pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes).await?
+        }
         Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = receipts_core::preflight::check_payment_uri(&uri, network.as_deref());
@@ -1470,18 +1688,41 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                         p["index"],
                         p["network"].as_str().unwrap_or("unknown-network"),
                         p["address_kind"].as_str().unwrap_or_default(),
-                        p["amount_zatoshis"].as_u64().map(|z| format!("{} {}", receipts_chain::chain::zec(z), if p["network"].as_str() == Some("mainnet") { "ZEC" } else { "TAZ" })).unwrap_or_else(|| "no amount".into()),
-                        if p["receipt_provable"] == true { ", provable with a receipt" } else if p["address_kind"] == "tex" { ", provable with a deposit receipt (--tex-deposit)" } else { ", NOT provable with a receipt" },
+                        p["amount_zatoshis"]
+                            .as_u64()
+                            .map(|z| format!("{} {}", receipts_chain::chain::zec(z), if p["network"].as_str() == Some("mainnet") { "ZEC" } else { "TAZ" }))
+                            .unwrap_or_else(|| "no amount".into()),
+                        if p["receipt_provable"] == true {
+                            ", provable with a receipt"
+                        } else if p["address_kind"] == "tex" {
+                            ", provable with a deposit receipt (--tex-deposit)"
+                        } else {
+                            ", NOT provable with a receipt"
+                        },
                     );
                 }
                 if let Some(q) = v["qr"].as_object() {
                     println!("QR: version {} ({}×{} modules)", q["version"], q["modules"], q["modules"]);
                 }
                 for f in v["findings"].as_array().into_iter().flatten() {
-                    println!("{:7} {}: {}", f["level"].as_str().unwrap_or_default().to_uppercase(), f["code"].as_str().unwrap_or_default(), f["message"].as_str().unwrap_or_default());
+                    println!(
+                        "{:7} {}: {}",
+                        f["level"].as_str().unwrap_or_default().to_uppercase(),
+                        f["code"].as_str().unwrap_or_default(),
+                        f["message"].as_str().unwrap_or_default()
+                    );
                 }
                 let warned = v["findings"].as_array().is_some_and(|f| f.iter().any(|f| f["level"] == "warning"));
-                println!("{}", if v["ok"] != true { "PROBLEMS FOUND" } else if warned { "OK, WITH WARNINGS" } else { "OK" });
+                println!(
+                    "{}",
+                    if v["ok"] != true {
+                        "PROBLEMS FOUND"
+                    } else if warned {
+                        "OK, WITH WARNINGS"
+                    } else {
+                        "OK"
+                    }
+                );
             }
             if v["ok"] != true {
                 std::process::exit(1);
@@ -1501,7 +1742,10 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 eprintln!("wrote {}", out.display());
             }
             eprintln!("Proof of funds: {} ZEC in {} note(s) at block {}, {} bytes.", chain::zec(r.total()), r.notes.len(), r.height, r.to_bytes().len());
-            eprintln!("It reveals {} and each note's nullifier (the verifier can see when they are spent), nothing else.", if hide_values { "the total" } else { "each note's value" });
+            eprintln!(
+                "It reveals {} and each note's nullifier (the verifier can see when they are spent), nothing else.",
+                if hide_values { "the total" } else { "each note's value" }
+            );
             println!("{text}");
         }
         Cmd::Request { wallet, identity, domain, amount, memo, code, expires_in, payee } => {
@@ -1522,13 +1766,19 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 Some("orchard") => Some(Pool::Orchard),
                 Some(other) => bail!("unknown pool {other}"),
             };
-            let (r, height) = wallet::create_incoming_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, server.as_deref()).await?;
+            let (r, height) =
+                wallet::create_incoming_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs, pool, server.as_deref()).await?;
             let text = r.to_text();
             if let Some(out) = out {
                 std::fs::write(&out, &text)?;
                 eprintln!("wrote {}", out.display());
             }
-            eprintln!("Incoming receipt for {}: {} output(s) you received, {} bytes.", receipts_core::display_txid(&r.txid), r.outputs.len(), r.to_bytes().len());
+            eprintln!(
+                "Incoming receipt for {}: {} output(s) you received, {} bytes.",
+                receipts_core::display_txid(&r.txid),
+                r.outputs.len(),
+                r.to_bytes().len()
+            );
             eprintln!("It shows the receiving address and these payments, and nothing else about your wallet.\n\nShare this link:");
             println!("{}", answer_link(&link_base, &text, &height.to_string()));
         }
@@ -1572,7 +1822,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             // payer's text: "=HYPERLINK(…)" must stay text).
             let csv = |f: &str| {
                 let f = if f.starts_with(['=', '+', '-', '@', '\t', '\r']) { format!("'{f}") } else { f.to_string() };
-                if f.contains([',', '"', '\n', '\r']) { format!("\"{}\"", f.replace('"', "\"\"")) } else { f }
+                if f.contains([',', '"', '\n', '\r']) {
+                    format!("\"{}\"", f.replace('"', "\"\""))
+                } else {
+                    f
+                }
             };
             let mut seen = std::collections::HashSet::new();
             if let Some(dir) = &records {
@@ -1583,10 +1837,13 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             for (n, arg) in receipts.iter().enumerate() {
                 let input = csv(arg.strip_prefix('@').map(str::to_string).unwrap_or_else(|| format!("#{}", n + 1)).as_str());
                 let text = read_arg_text(arg)?;
-                if let Some(kind) = [(receipts_core::BATCH_TEXT_PREFIX, "a batch: export each payment's receipt"), (receipts_core::incoming::INCOMING_TEXT_PREFIX, "an incoming receipt: verify it with receipts verify")]
-                    .iter()
-                    .find(|(p, _)| text.contains(p))
-                    .map(|(_, k)| *k)
+                if let Some(kind) = [
+                    (receipts_core::BATCH_TEXT_PREFIX, "a batch: export each payment's receipt"),
+                    (receipts_core::incoming::INCOMING_TEXT_PREFIX, "an incoming receipt: verify it with receipts verify"),
+                ]
+                .iter()
+                .find(|(p, _)| text.contains(p))
+                .map(|(_, k)| *k)
                 {
                     println!("{input},{},,,,,,,,,,", csv(&format!("skipped: {kind}")));
                     continue;
@@ -1715,17 +1972,23 @@ async fn listen(forward_to: Option<String>, api_key: String, base_url: String, e
     );
     axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
     // Remove the temporary endpoint on exit (Ctrl-C or SIGTERM).
-    let _ = reqwest::Client::new()
-        .delete(format!("{}/v1/webhook_endpoints/{ep_id}", base_url.trim_end_matches('/')))
-        .bearer_auth(&api_key)
-        .send()
-        .await;
+    let _ = reqwest::Client::new().delete(format!("{}/v1/webhook_endpoints/{ep_id}", base_url.trim_end_matches('/'))).bearer_auth(&api_key).send().await;
     eprintln!("Removed temporary endpoint {ep_id}.");
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: String, server: Option<String>, refund_to: Option<String>, dry_run: bool, paid_txid: Option<String>, yes: bool) -> anyhow::Result<()> {
+async fn pay(
+    link: String,
+    wallet_dir: PathBuf,
+    identity: PathBuf,
+    devtool: String,
+    server: Option<String>,
+    refund_to: Option<String>,
+    dry_run: bool,
+    paid_txid: Option<String>,
+    yes: bool,
+) -> anyhow::Result<()> {
     let refund_to = match refund_to.as_deref() {
         Some("fresh") => Some(wallet::fresh_address(&wallet_dir)?),
         _ => refund_to,
@@ -1737,8 +2000,18 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let link = link.trim().to_string();
     let parsed = reqwest::Url::parse(&link).ok();
     let hosted = parsed.as_ref().filter(|u| u.path().starts_with("/pay/") && u.path().len() > 5);
-    let host = parsed.as_ref().and_then(|u| u.host_str().map(|h| match u.port() { Some(p) => format!("{h}:{p}"), None => h.to_string() })).unwrap_or_else(|| "(no host)".into());
-    let signed = link.find(receipts_core::payreq::REQUEST_TEXT_PREFIX).map(|i| link[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect::<String>());
+    let host = parsed
+        .as_ref()
+        .and_then(|u| {
+            u.host_str().map(|h| match u.port() {
+                Some(p) => format!("{h}:{p}"),
+                None => h.to_string(),
+            })
+        })
+        .unwrap_or_else(|| "(no host)".into());
+    let signed = link
+        .find(receipts_core::payreq::REQUEST_TEXT_PREFIX)
+        .map(|i| link[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect::<String>());
     let mut memo_to_send: Option<String> = None;
     let mut need_source = false;
     let mut host = host;
@@ -1746,7 +2019,8 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         let r = receipts_core::payreq::PaymentRequest::from_text(&text).ok_or_else(|| anyhow!("malformed signed request"))?;
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
         let wallet_net = wallet::wallet_network(&wallet_dir)?;
-        let raw = receipts_core::payreq::verify_request(&receipts_core::verifying_key(), &r, wallet_net.coin_type(), now).map_err(|e| anyhow!("refusing the request: {e}"))?;
+        let raw = receipts_core::payreq::verify_request(&receipts_core::verifying_key(), &r, wallet_net.coin_type(), now)
+            .map_err(|e| anyhow!("refusing the request: {e}"))?;
         let ua = chain::encode_orchard_receiver(wallet_net, raw);
         match domain_lists(&r.domain, &raw).await {
             Ok(true) => println!("Signed by the payee, and {} lists this address.", r.domain),
@@ -1780,7 +2054,10 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
         let rl = info["receipt_link"].as_str().unwrap_or_default().to_string();
         let r = parse_request(&rl)?;
         need_source = info["source_of_funds"]["required"] == true;
-        let amount = info["remaining_zatoshis"].as_u64().or(info["amount_zatoshis"].as_u64()).ok_or_else(|| anyhow!("the request has no amount; pay it from your wallet and use `receipts create --request`"))?;
+        let amount = info["remaining_zatoshis"]
+            .as_u64()
+            .or(info["amount_zatoshis"].as_u64())
+            .ok_or_else(|| anyhow!("the request has no amount; pay it from your wallet and use `receipts create --request`"))?;
         (info["payee"].as_str().unwrap_or_default().to_string(), amount, r.code, Some((base.to_string(), id.to_string(), secret.to_string())), rl)
     } else {
         let r = parse_request(&link)?;
@@ -1840,8 +2117,23 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
             eprintln!("Syncing the wallet…");
             devtool_run(vec!["sync".into()]).await?;
             eprintln!("Sending…");
-            let out = devtool_run(vec!["send".into(), "-i".into(), identity.display().to_string(), "--address".into(), payee.clone(), "--value".into(), amount.to_string(), "--memo".into(), memo_to_send.clone().unwrap_or_else(|| format!("Receipts request {code}"))]).await?;
-            let txid = out.split_whitespace().rfind(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit())).ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?.to_string();
+            let out = devtool_run(vec![
+                "send".into(),
+                "-i".into(),
+                identity.display().to_string(),
+                "--address".into(),
+                payee.clone(),
+                "--value".into(),
+                amount.to_string(),
+                "--memo".into(),
+                memo_to_send.clone().unwrap_or_else(|| format!("Receipts request {code}")),
+            ])
+            .await?;
+            let txid = out
+                .split_whitespace()
+                .rfind(|w| w.len() == 64 && w.chars().all(|c| c.is_ascii_hexdigit()))
+                .ok_or_else(|| anyhow!("the wallet did not send: {}", out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")))?
+                .to_string();
             eprintln!("Sent {txid}.");
             txid
         }
@@ -1872,7 +2164,21 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     let mut attempt = 0;
     let (receipt, height) = loop {
         devtool_run(vec!["sync".into()]).await?;
-        match wallet::create_receipt(&wallet_dir, &identity, id, msg.as_bytes(), &[], None, wallet::WitnessSource::Auto, server.as_deref(), None, need_source.then_some(wallet::SourceMode::RevealValue), false).await {
+        match wallet::create_receipt(
+            &wallet_dir,
+            &identity,
+            id,
+            msg.as_bytes(),
+            &[],
+            None,
+            wallet::WitnessSource::Auto,
+            server.as_deref(),
+            None,
+            need_source.then_some(wallet::SourceMode::RevealValue),
+            false,
+        )
+        .await
+        {
             Ok(x) => break x,
             Err(e) if attempt < 12 && e.to_string().contains("not mined") => {
                 attempt += 1;
@@ -1885,7 +2191,11 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
     match submit_to {
         Some((base, rid, secret)) => {
             // With the block hint, the shop's server fetches the payment by block, not by txid.
-            let res = reqwest::Client::new().post(format!("{base}/v1/public/requests/{rid}/receipts")).json(&serde_json::json!({ "receipt": format!("{text}&h={height}"), "client_secret": secret })).send().await?;
+            let res = reqwest::Client::new()
+                .post(format!("{base}/v1/public/requests/{rid}/receipts"))
+                .json(&serde_json::json!({ "receipt": format!("{text}&h={height}"), "client_secret": secret }))
+                .send()
+                .await?;
             let ok = res.status().is_success();
             let body: serde_json::Value = res.json().await.unwrap_or_default();
             if ok {
@@ -1910,7 +2220,11 @@ async fn pay(link: String, wallet_dir: PathBuf, identity: PathBuf, devtool: Stri
 async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: String, quick: bool) -> anyhow::Result<()> {
     let mut problems = 0;
     let mut line = |ok: Option<bool>, what: &str, detail: String| {
-        let mark = match ok { Some(true) => "ok  ", Some(false) => "FIX ", None => "--  " };
+        let mark = match ok {
+            Some(true) => "ok  ",
+            Some(false) => "FIX ",
+            None => "--  ",
+        };
         if ok == Some(false) {
             problems += 1;
         }
@@ -1920,8 +2234,12 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
     for net in [net::Net::Main, net::Net::Test] {
         let t0 = std::time::Instant::now();
         match tokio::time::timeout(std::time::Duration::from_secs(15), chain::chain_tip(net, None)).await {
-            Ok(Ok(h)) => line(Some(true), &format!("lightwalletd {}", net.name()), format!("{} at height {h} ({} ms)", net.default_server(), t0.elapsed().as_millis())),
-            Ok(Err(e)) => line(Some(false), &format!("lightwalletd {}", net.name()), format!("{}: {e}. Pass -s host:port to use another server", net.default_server())),
+            Ok(Ok(h)) => {
+                line(Some(true), &format!("lightwalletd {}", net.name()), format!("{} at height {h} ({} ms)", net.default_server(), t0.elapsed().as_millis()))
+            }
+            Ok(Err(e)) => {
+                line(Some(false), &format!("lightwalletd {}", net.name()), format!("{}: {e}. Pass -s host:port to use another server", net.default_server()))
+            }
             Err(_) => line(Some(false), &format!("lightwalletd {}", net.name()), format!("{} did not answer in 15 s", net.default_server())),
         }
     }
@@ -1930,17 +2248,36 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
         Ok(res) => {
             let date = res.headers().get("date").and_then(|d| d.to_str().ok()).map(str::to_string);
             let health: serde_json::Value = res.json().await.unwrap_or_default();
-            line(Some(health["ok"] == true), "Receipts API", format!("{base_url} (version {}; test keys use {}, live keys {})", health["version"].as_str().unwrap_or("?"), health["test_network"].as_str().unwrap_or("?"), health["live_network"].as_str().unwrap_or("mainnet")));
+            line(
+                Some(health["ok"] == true),
+                "Receipts API",
+                format!(
+                    "{base_url} (version {}; test keys use {}, live keys {})",
+                    health["version"].as_str().unwrap_or("?"),
+                    health["test_network"].as_str().unwrap_or("?"),
+                    health["live_network"].as_str().unwrap_or("mainnet")
+                ),
+            );
             if let Some(d) = date.and_then(|d| httpdate_to_unix(&d)) {
                 let skew = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64 - d).abs();
-                line(Some(skew < 120), "clock", if skew < 120 { format!("within {skew} s of the API") } else { format!("{skew} s off the API; webhook signatures allow 300 s, fix your clock") });
+                line(
+                    Some(skew < 120),
+                    "clock",
+                    if skew < 120 {
+                        format!("within {skew} s of the API")
+                    } else {
+                        format!("{skew} s off the API; webhook signatures allow 300 s, fix your clock")
+                    },
+                );
             }
             match &api_key {
                 None => line(None, "API key", "RECEIPTS_KEY not set (only needed for the API, listen, trigger and mcp)".into()),
                 Some(k) => {
                     let r = http.get(format!("{}/v1/requests?limit=1", base_url.trim_end_matches('/'))).bearer_auth(k).send().await;
                     match r {
-                        Ok(r) if r.status().is_success() => line(Some(true), "API key", format!("accepted ({} mode)", if k.starts_with("rcpt_live_") { "live" } else { "test" })),
+                        Ok(r) if r.status().is_success() => {
+                            line(Some(true), "API key", format!("accepted ({} mode)", if k.starts_with("rcpt_live_") { "live" } else { "test" }))
+                        }
                         Ok(r) => line(Some(false), "API key", format!("refused ({}); use a key `receipts serve` printed", r.status())),
                         Err(e) => line(Some(false), "API key", e.to_string()),
                     }
@@ -1959,18 +2296,33 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
         match std::fs::read_to_string(&keys) {
             Err(_) => line(Some(false), "wallet", format!("{} not found; -w must be a zcash-devtool wallet directory", keys.display())),
             Ok(t) => {
-                let netname = t.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"').to_string()).unwrap_or_else(|| "test".into());
+                let netname =
+                    t.lines().find_map(|l| l.trim().strip_prefix("network = ")).map(|s| s.trim_matches('"').to_string()).unwrap_or_else(|| "test".into());
                 let db = w.join("data.sqlite");
                 let synced: Option<u32> = rusqlite_height(&db);
-                let net = match netname.as_str() { "main" => Some(net::Net::Main), "test" => Some(net::Net::Test), _ => None };
-                let tip = match net { Some(n) => chain::chain_tip(n, None).await.ok(), None => None };
-                let behind = match (synced, tip) { (Some(s), Some(t)) => Some(t.saturating_sub(s)), _ => None };
+                let net = match netname.as_str() {
+                    "main" => Some(net::Net::Main),
+                    "test" => Some(net::Net::Test),
+                    _ => None,
+                };
+                let tip = match net {
+                    Some(n) => chain::chain_tip(n, None).await.ok(),
+                    None => None,
+                };
+                let behind = match (synced, tip) {
+                    (Some(s), Some(t)) => Some(t.saturating_sub(s)),
+                    _ => None,
+                };
                 let ok = db.exists() && synced.is_some() && behind.is_none_or(|b| b <= 10);
-                line(Some(ok), "wallet", match (synced, behind) {
-                    (None, _) => format!("{} ({netname}): sync height unknown; run `zcash-devtool wallet sync`", w.display()),
-                    (Some(s), Some(b)) if b > 10 => format!("{} ({netname}) is {b} blocks behind (at {s}); run `zcash-devtool wallet sync`", w.display()),
-                    (Some(s), _) => format!("{} ({netname}), synced to {s}", w.display()),
-                });
+                line(
+                    Some(ok),
+                    "wallet",
+                    match (synced, behind) {
+                        (None, _) => format!("{} ({netname}): sync height unknown; run `zcash-devtool wallet sync`", w.display()),
+                        (Some(s), Some(b)) if b > 10 => format!("{} ({netname}) is {b} blocks behind (at {s}); run `zcash-devtool wallet sync`", w.display()),
+                        (Some(s), _) => format!("{} ({netname}), synced to {s}", w.display()),
+                    },
+                );
                 if t.contains("AGE-SECRET-KEY") {
                     line(Some(false), "wallet secrets", "keys.toml contains an age secret key; keep identities in a separate file".into());
                 }
@@ -2038,7 +2390,17 @@ async fn trigger(event: String, api_key: String, base_url: String, payee: Option
     if !api_key.starts_with("rcpt_test_") {
         bail!("trigger only works with rcpt_test_ keys");
     }
-    const EVENTS: &[&str] = &["request.created", "request.fulfilled", "request.final", "receipt.rejected", "request.expired", "request.payment_received", "refund.created", "refund.succeeded", "request.payment_reorged"];
+    const EVENTS: &[&str] = &[
+        "request.created",
+        "request.fulfilled",
+        "request.final",
+        "receipt.rejected",
+        "request.expired",
+        "request.payment_received",
+        "refund.created",
+        "refund.succeeded",
+        "request.payment_reorged",
+    ];
     if !EVENTS.contains(&event.as_str()) {
         bail!("unknown event {event}; use one of {}", EVENTS.join(", "));
     }

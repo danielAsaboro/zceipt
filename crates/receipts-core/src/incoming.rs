@@ -225,7 +225,17 @@ pub fn create_incoming<A: Authorization, V>(
 /// tests that need a validly signed receipt with wrong contents. Not part of the API.
 #[doc(hidden)]
 #[allow(clippy::too_many_arguments)]
-pub fn __sign_unchecked_for_tests(pk: &ProvingKey, coin_type: u32, pool: Pool, txid: [u8; 32], msg: &[u8], sk: &SpendingKey, recipient: Address, outputs: Vec<IncomingOutput>, mut rng: impl CryptoRng) -> Result<IncomingReceipt, Error> {
+pub fn __sign_unchecked_for_tests(
+    pk: &ProvingKey,
+    coin_type: u32,
+    pool: Pool,
+    txid: [u8; 32],
+    msg: &[u8],
+    sk: &SpendingKey,
+    recipient: Address,
+    outputs: Vec<IncomingOutput>,
+    mut rng: impl CryptoRng,
+) -> Result<IncomingReceipt, Error> {
     let fvk = FullViewingKey::from(sk);
     let alpha = random_scalar(&mut rng);
     let rsk = SpendAuthorizingKey::from(sk).randomize(&alpha);
@@ -238,7 +248,13 @@ pub fn __sign_unchecked_for_tests(pk: &ProvingKey, coin_type: u32, pool: Pool, t
 
 /// Verifies an incoming receipt against the bundle of `r.pool` in transaction `txid`. The caller
 /// checks that the transaction was mined.
-pub fn verify_incoming<A: Authorization, V>(vk: &VerifyingKey, r: &IncomingReceipt, expected_coin_type: u32, txid: [u8; 32], bundle: &Bundle<A, V>) -> Result<VerifiedIncoming, Error> {
+pub fn verify_incoming<A: Authorization, V>(
+    vk: &VerifyingKey,
+    r: &IncomingReceipt,
+    expected_coin_type: u32,
+    txid: [u8; 32],
+    bundle: &Bundle<A, V>,
+) -> Result<VerifiedIncoming, Error> {
     if r.coin_type != expected_coin_type {
         return Err(Error::CoinTypeMismatch(r.coin_type, expected_coin_type));
     }

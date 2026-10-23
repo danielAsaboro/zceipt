@@ -89,8 +89,7 @@ impl Heights {
 }
 
 pub fn regtest_from_file(path: &Path) -> anyhow::Result<Net> {
-    let h: Heights = toml::from_str(&std::fs::read_to_string(path)?)
-        .map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
+    let h: Heights = toml::from_str(&std::fs::read_to_string(path)?).map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
     Ok(Net::Regtest(h.to_local()))
 }
 

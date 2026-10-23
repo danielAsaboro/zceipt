@@ -59,3 +59,22 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="internal_error"></a>`internal_error` | 500 | Unexpected server error. Safe to retry. |
 
 Retry `transaction_not_mined`, `chain_unavailable` and `internal_error`. Retries with the same `Idempotency-Key` are safe; the SDKs set one automatically.
+
+## The CLI: `receipts verify --json`
+
+`verify --json` always prints one JSON object. A refusal exits 1 with
+`{"valid": false, "code": …, "error": "<the reason in words>"}`:
+
+| `code` | Meaning |
+|---|---|
+| `bad_signature` | The receipt was changed after it was signed. |
+| `bad_proof` | A zero-knowledge proof fails: the receipt wasn't made by the wallet that paid, or was altered before signing. |
+| `wrong_payee` | No disclosed output pays `--expect-address`. |
+| `underpaid` | It paid less than `--min`. |
+| `wrong_challenge` | It doesn't sign the `--challenge` given: made for another request. |
+| `memo_mismatch` | No disclosed memo contains `--memo-contains`. |
+| `not_screened` | The screened-set proof doesn't hold for the list, or shows less than `--screened-min`. |
+| `funds_check_failed` | A proof of funds misses `--challenge` or `--min`. |
+| `unreadable` | Not a receipt, or cut off. |
+| `chain_unavailable` | The chain server couldn't be reached or doesn't have the transaction. |
+| `invalid` | Anything else; `error` says what. |

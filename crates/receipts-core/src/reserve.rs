@@ -26,6 +26,7 @@
 use crate::{note_to_throwaway, pool_note_version, random_scalar, signing_personal, source_output_cmx, source_proof_cv_net, Error, Pool};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use blake2b_simd::Params;
+use ff::PrimeField;
 use orchard::{
     builder::SpendInfo,
     bundle::Flags,
@@ -37,7 +38,6 @@ use orchard::{
     value::{NoteValue, ValueCommitTrapdoor, ValueCommitment},
     Anchor, Note, Proof,
 };
-use ff::PrimeField;
 use rand_core::CryptoRng;
 
 pub const RESERVE_TEXT_PREFIX: &str = "zrsv1";
@@ -280,7 +280,11 @@ fn create(
         let rcv_scalar = if hide { random_scalar(&mut rng) } else { pasta_curves::pallas::Scalar::zero() };
         rcv_sum += rcv_scalar;
         let rcv = Option::<ValueCommitTrapdoor>::from(ValueCommitTrapdoor::from_bytes(rcv_scalar.to_repr())).ok_or(Error::Proving)?;
-        let cv_net = if hide { ValueCommitment::derive(NoteValue::from_raw(v) - NoteValue::ZERO, rcv.clone()) } else { source_proof_cv_net(Some(v)).ok_or(Error::ZeroValueSource)? };
+        let cv_net = if hide {
+            ValueCommitment::derive(NoteValue::from_raw(v) - NoteValue::ZERO, rcv.clone())
+        } else {
+            source_proof_cv_net(Some(v)).ok_or(Error::ZeroValueSource)?
+        };
         let cv_bytes = cv_net.to_bytes();
         let cmx: ExtractedNoteCommitment = out.commitment().into();
         let circuit = Circuit::from_action_context(spend, out, alpha, rcv, crate::RECEIPT_CIRCUIT).ok_or(Error::Proving)?;

@@ -8,7 +8,12 @@
 //! salted, hashed disclosures: the holder can reveal any of them later, one by one, and the
 //! signature still checks. Public keys are at `/.well-known/jwks.json`.
 
-use crate::{db::{new_id, now}, error::ApiError, requests::load, AppState, Auth, Body, Shared};
+use crate::{
+    db::{new_id, now},
+    error::ApiError,
+    requests::load,
+    AppState, Auth, Body, Shared,
+};
 use axum::{
     extract::{Path, State},
     Json,
@@ -143,7 +148,8 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
     let step = if paid >= 1_000_000 { 1_000_000 } else { 100_000 };
     let floor = req.at_least_zatoshis.unwrap_or(paid / step * step);
     if floor > paid {
-        return Err(ApiError::invalid("attestation_overclaims", format!("at_least_zatoshis is more than the {paid} zatoshis paid (net of refunds)")).param("at_least_zatoshis"));
+        return Err(ApiError::invalid("attestation_overclaims", format!("at_least_zatoshis is more than the {paid} zatoshis paid (net of refunds)"))
+            .param("at_least_zatoshis"));
     }
     let (paid_day, paid_day_start) = utc_date(paid_at);
     let before = match &req.before {
@@ -268,7 +274,11 @@ pub async fn verify(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Ver
     // A live key only accepts live facts: test-mode and sandbox attestations are signed with the
     // same key, so the claims themselves say which they are.
     if auth.mode == crate::Mode::Live && (claims["livemode"] != true || claims["sandbox"] == true) {
-        return Err(ApiError::verification("attestation_invalid", "this attestation was issued in test mode (or paid with a sandbox fixture); a live key accepts only live ones").param("attestation"));
+        return Err(ApiError::verification(
+            "attestation_invalid",
+            "this attestation was issued in test mode (or paid with a sandbox fixture); a live key accepts only live ones",
+        )
+        .param("attestation"));
     }
     Ok(Json(json!({ "object": "attestation_verification", "valid": true, "claims": claims })))
 }

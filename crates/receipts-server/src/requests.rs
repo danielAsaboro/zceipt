@@ -13,7 +13,11 @@
 //! payment could be proven again for a second request with a fresh challenge.
 
 use crate::{
-    check_payee, db::{new_id, now}, emit, error::ApiError, idempotent, sandbox, urlenc, verify, zec, AppState, Auth, Body, ListQuery, Mode, Shared,
+    check_payee,
+    db::{new_id, now},
+    emit,
+    error::ApiError,
+    idempotent, sandbox, urlenc, verify, zec, AppState, Auth, Body, ListQuery, Mode, Shared,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -104,7 +108,9 @@ pub fn load(st: &AppState, mode: Option<Mode>, id: &str) -> Result<RequestRec, A
 
 fn payments(st: &AppState, id: &str) -> Result<Vec<Value>, ApiError> {
     let c = st.db.0.lock().unwrap();
-    let mut stmt = c.prepare("SELECT txid, zatoshis, mined_height, memo, sender_addresses, created, refund_address FROM request_payments WHERE request_id = ?1 ORDER BY id")?;
+    let mut stmt = c.prepare(
+        "SELECT txid, zatoshis, mined_height, memo, sender_addresses, created, refund_address FROM request_payments WHERE request_id = ?1 ORDER BY id",
+    )?;
     let rows = stmt
         .query_map([id], |r| {
             Ok(json!({
@@ -161,7 +167,13 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "expires_at": r.expires_at,
         "payment_uri": uri,
         "receipt_link": link,
-        "cli_command": format!("receipts create -w <wallet> -i <key.age> --txid <txid>{} --request '{link}'", if r.source_policy.is_some() { " --prove-source" } else { "" }),
+        // From any wallet's seed phrase (asked for, not shown); the link is shell-quoted.
+        "cli_command": format!(
+            "receipts create --seed-stdin --network {} --birthday <wallet birthday> --txid <txid>{} --request '{}'",
+            if r.mode == "live" { "main" } else { "test" },
+            if r.source_policy.is_some() { " --prove-source" } else { "" },
+            link.replace('\'', "'\\''")
+        ),
         "source_of_funds": crate::deposits::policy_summary(r.source_policy.as_deref()),
         "provenance": r.provenance.as_deref().and_then(|p| serde_json::from_str::<Value>(p).ok()),
         "client_secret": r.client_secret,
@@ -291,7 +303,9 @@ pub async fn get_request(State(st): State<Shared>, auth: Auth, Path(id): Path<St
 /// Verifies `text` against request `r` and records it. Shared by the API and the hosted page.
 pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str) -> Result<Value, ApiError> {
     match r.effective_status() {
-        "fulfilled" | "held_for_review" | "rejected" => return Err(ApiError::conflict("request_already_fulfilled", format!("{} was already {}", r.id, r.status))),
+        "fulfilled" | "held_for_review" | "rejected" => {
+            return Err(ApiError::conflict("request_already_fulfilled", format!("{} was already {}", r.id, r.status)))
+        }
         "expired" => return Err(ApiError::conflict("request_expired", format!("{} expired", r.id))),
         _ => {}
     }
@@ -316,7 +330,10 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             verify::verify_receipt(net, mode.server(&st.config).as_deref(), text).await?
         };
         if v.challenge.as_deref() != Some(r.challenge.as_str()) {
-            return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this request's challenge; create it with `--request <receipt_link>`"));
+            return Err(ApiError::verification(
+                "challenge_mismatch",
+                "the receipt does not sign this request's challenge; create it with `--request <receipt_link>`",
+            ));
         }
         let mut v = v;
         v.checks["challenge"] = "matched".into();
@@ -326,7 +343,10 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         let outs: Vec<&verify::Output> = v.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).collect();
         let paid: u64 = outs.iter().map(|o| o.zatoshis).sum();
         if paid == 0 && v.outputs.iter().any(|o| o.recipient_raw == want && o.memo_withheld) {
-            return Err(ApiError::verification("delivery_unproven", "the output to the payee was disclosed with its memo withheld, which doesn't show the note can be received; disclose it with its memo"));
+            return Err(ApiError::verification(
+                "delivery_unproven",
+                "the output to the payee was disclosed with its memo withheld, which doesn't show the note can be received; disclose it with its memo",
+            ));
         }
         if paid == 0 {
             return Err(ApiError::verification("wrong_payee", "no disclosed output paid the request's payee"));
@@ -375,10 +395,16 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         }
         for (action, _) in &actions {
             let used: Option<String> = tx
-                .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, action], |x| x.get(0))
+                .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, action], |x| {
+                    x.get(0)
+                })
                 .optional()?;
             if let Some(other) = used {
-                let msg = if other == r.id { "this payment was already counted for this request".to_string() } else { "this payment was already used to settle another request".to_string() };
+                let msg = if other == r.id {
+                    "this payment was already counted for this request".to_string()
+                } else {
+                    "this payment was already used to settle another request".to_string()
+                };
                 drop(tx);
                 drop(c);
                 let e = ApiError::conflict("payment_already_used", msg).param("receipt");
@@ -387,9 +413,13 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             }
         }
         for (action, z) in &actions {
-            tx.execute("INSERT INTO payments_used (mode, txid, action, request_id, zatoshis, created) VALUES (?1,?2,?3,?4,?5,?6)", params![mode.as_str(), v.txid, action, r.id, *z as i64, now()])?;
+            tx.execute(
+                "INSERT INTO payments_used (mode, txid, action, request_id, zatoshis, created) VALUES (?1,?2,?3,?4,?5,?6)",
+                params![mode.as_str(), v.txid, action, r.id, *z as i64, now()],
+            )?;
         }
-        let memo = v.outputs.iter().find(|o| o.recipient_raw == receipts_chain::chain::orchard_receiver_of(&r.payee).unwrap_or([0; 43])).and_then(|o| o.memo.clone());
+        let memo =
+            v.outputs.iter().find(|o| o.recipient_raw == receipts_chain::chain::orchard_receiver_of(&r.payee).unwrap_or([0; 43])).and_then(|o| o.memo.clone());
         // A public note only if the contributor signed one into the receipt.
         let public_note = v.message.lines().find_map(|l| l.strip_prefix("public-note:")).map(|s| s.trim().chars().take(140).collect::<String>());
         // A refund address only if the payer signed one into the receipt.
@@ -419,7 +449,12 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
     };
     let obj = to_json(st, &load(st, Some(mode), &r.id)?);
     if r.kind != "single" {
-        emit(st, mode, "request.payment_received", json!({ "object": "payment", "request": r.id, "txid": v.txid, "zatoshis": paid, "received_zatoshis": received }))?;
+        emit(
+            st,
+            mode,
+            "request.payment_received",
+            json!({ "object": "payment", "request": r.id, "txid": v.txid, "zatoshis": paid, "received_zatoshis": received }),
+        )?;
     }
     if fulfilled && obj["status"] == "held_for_review" {
         emit(st, mode, "request.held_for_review", obj.clone())?;
@@ -470,7 +505,11 @@ fn qr_for(st: &AppState, r: &RequestRec) -> Result<Response, ApiError> {
 // ---------- hosted pages (no API key; a per-request client secret) ----------
 
 fn mode_of(r: &RequestRec) -> Mode {
-    if r.mode == "live" { Mode::Live } else { Mode::Test }
+    if r.mode == "live" {
+        Mode::Live
+    } else {
+        Mode::Test
+    }
 }
 
 fn check_secret(r: &RequestRec, secret: Option<&str>) -> Result<(), ApiError> {
@@ -538,7 +577,9 @@ pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> 
         _ => {
             let (count, total, mut notes): (i64, i64, Vec<String>) = {
                 let c = st.db.0.lock().unwrap();
-                let (count, total) = c.query_row("SELECT COUNT(*), COALESCE(SUM(zatoshis), 0) FROM request_payments WHERE request_id = ?1", [&id], |x| Ok((x.get(0)?, x.get(1)?)))?;
+                let (count, total) = c.query_row("SELECT COUNT(*), COALESCE(SUM(zatoshis), 0) FROM request_payments WHERE request_id = ?1", [&id], |x| {
+                    Ok((x.get(0)?, x.get(1)?))
+                })?;
                 let mut stmt = c.prepare("SELECT public_note FROM request_payments WHERE request_id = ?1 AND public_note IS NOT NULL")?;
                 let notes = stmt.query_map([&id], |x| x.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
                 (count, total, notes)

@@ -52,7 +52,8 @@ pub fn validate(net: Net, p: &SourcePolicy) -> Result<String, ApiError> {
         Net::Regtest(_) => zcash_protocol::consensus::NetworkType::Test,
     };
     for a in &p.blocked_addresses {
-        let ok = zcash_address::ZcashAddress::try_from_encoded(a).is_ok_and(|z| z.is_transparent_only() && z.can_receive_as(zcash_protocol::PoolType::Transparent))
+        let ok = zcash_address::ZcashAddress::try_from_encoded(a)
+            .is_ok_and(|z| z.is_transparent_only() && z.can_receive_as(zcash_protocol::PoolType::Transparent))
             && net_of_taddr(a) == Some(want);
         if !ok {
             return Err(ApiError::invalid("parameter_invalid", format!("{a} is not a transparent address for this network")).param("source_of_funds"));
@@ -102,7 +103,8 @@ pub fn prior_claims(c: &rusqlite::Connection, except: &str) -> std::collections:
 
 pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64, prior: &std::collections::BTreeMap<String, u64>) -> Result<Value, ApiError> {
     let p: Value = serde_json::from_str(policy).unwrap_or(json!({}));
-    let blocked: std::collections::BTreeSet<&str> = p["blocked_addresses"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
+    let blocked: std::collections::BTreeSet<&str> =
+        p["blocked_addresses"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
     let spends = v.checks["spend_authority"]["actions"].as_u64().unwrap_or(0) as usize;
     if v.sources.len() < spends.max(1) {
         return Err(ApiError::verification(
@@ -158,7 +160,9 @@ pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64, prior:
         }
     }
     if screened < paid && reasons.is_empty() {
-        reasons.push(format!("the screened notes hold {screened} zatoshis, less than the {paid} zatoshis deposited: the rest came from spends the receipt doesn't show"));
+        reasons.push(format!(
+            "the screened notes hold {screened} zatoshis, less than the {paid} zatoshis deposited: the rest came from spends the receipt doesn't show"
+        ));
     }
     reasons.dedup();
     Ok(json!({

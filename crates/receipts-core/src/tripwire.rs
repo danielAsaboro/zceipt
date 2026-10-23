@@ -89,9 +89,13 @@ mod tests {
         assert_eq!(secret_kind(&format!("uview1{}", "q".repeat(60))), Some("unified full viewing key")); // privacy-lint: allow (test fixture)
         assert_eq!(secret_kind(&format!("{{\"receipt\":\"uviewtest1{}\"}}", "x".repeat(80))), Some("unified full viewing key")); // privacy-lint: allow (test fixture)
         assert_eq!(secret_kind("abandon ability able about above absent absorb abstract absurd abuse access accident"), Some("seed phrase")); // privacy-lint: allow (test fixture)
-        assert_eq!(secret_kind(r#"{"payee":"utest1x","label":"abandon ability able about above absent absorb abstract absurd abuse access accident"}"#), Some("seed phrase")); // privacy-lint: allow (test fixture)
+        assert_eq!(
+            secret_kind(r#"{"payee":"utest1x","label":"abandon ability able about above absent absorb abstract absurd abuse access accident"}"#),
+            Some("seed phrase")
+        ); // privacy-lint: allow (test fixture)
         assert_eq!(secret_kind("5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ"), Some("transparent private key (WIF)")); // privacy-lint: allow (test fixture)
-        assert_eq!(secret_kind(&format!("AGE-SECRET-KEY-1{}", "Q".repeat(58))), Some("age secret key (wallet seed encryption)")); // privacy-lint: allow (test fixture)
+        assert_eq!(secret_kind(&format!("AGE-SECRET-KEY-1{}", "Q".repeat(58))), Some("age secret key (wallet seed encryption)"));
+        // privacy-lint: allow (test fixture)
     }
 
     #[test]
@@ -112,7 +116,12 @@ mod tests {
         assert_eq!(secret_kind("utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa"), None);
         assert_eq!(secret_kind("Order #42 at Kemi's Coffee, two flat whites please"), None);
         assert_eq!(secret_kind("571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73"), None);
-        assert_eq!(secret_kind("What you learn: that this order was paid, how much, and the memo. What you don't: who the customer is, their balance or their other payments."), None);
+        assert_eq!(
+            secret_kind(
+                "What you learn: that this order was paid, how much, and the memo. What you don't: who the customer is, their balance or their other payments."
+            ),
+            None
+        );
         assert_eq!(secret_kind("Every contribution is a shielded Zcash payment whose sender proved it with a zero-knowledge receipt."), None);
     }
 }

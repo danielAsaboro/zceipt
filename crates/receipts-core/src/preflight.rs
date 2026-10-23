@@ -123,7 +123,12 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
             _ => {}
         }
         if receivers.contains(&"p2pkh") && kind == "unified" {
-            f.add("info", "transparent_receiver", Some(i), "the unified address also carries a transparent receiver; good wallets will still pay the shielded one".into());
+            f.add(
+                "info",
+                "transparent_receiver",
+                Some(i),
+                "the unified address also carries a transparent receiver; good wallets will still pay the shielded one".into(),
+            );
         }
         match p.amount() {
             None => f.add("warning", "amount_missing", Some(i), "no amount: the payer types it, and typos happen. Set `amount=`".into()),
@@ -144,7 +149,12 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
         }
         for (k, _) in p.other_params() {
             if k.starts_with("req-") {
-                f.add("error", "required_param_unsupported", Some(i), format!("`{k}` is a required parameter; ZIP-321 wallets must refuse URIs with requirements they don't know"));
+                f.add(
+                    "error",
+                    "required_param_unsupported",
+                    Some(i),
+                    format!("`{k}` is a required parameter; ZIP-321 wallets must refuse URIs with requirements they don't know"),
+                );
             } else {
                 f.add("info", "unknown_param", Some(i), format!("`{k}` is not a ZIP-321 parameter; wallets ignore it"));
             }
@@ -173,7 +183,16 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
                 qrcode::Version::Micro(n) => n,
             };
             if v > QR_COMFORT_VERSION {
-                f.add("warning", "dense_qr", None, format!("the QR code needs version {v} ({}×{} modules); phones struggle above {QR_COMFORT_VERSION}. Shorten the memo, label or message", code.width(), code.width()));
+                f.add(
+                    "warning",
+                    "dense_qr",
+                    None,
+                    format!(
+                        "the QR code needs version {v} ({}×{} modules); phones struggle above {QR_COMFORT_VERSION}. Shorten the memo, label or message",
+                        code.width(),
+                        code.width()
+                    ),
+                );
             }
             json!({ "version": v, "modules": code.width(), "error_correction": "M" })
         }
@@ -186,7 +205,9 @@ pub fn check_payment_uri(uri: &str, expected_network: Option<&str>) -> Value {
     let total_findings = f.0.len();
     if total_findings > 50 {
         f.0.truncate(50);
-        f.0.push(json!({ "level": "info", "code": "findings_truncated", "payment": null, "message": format!("{} more findings not shown", total_findings - 50) }));
+        f.0.push(
+            json!({ "level": "info", "code": "findings_truncated", "payment": null, "message": format!("{} more findings not shown", total_findings - 50) }),
+        );
     }
     json!({ "ok": ok, "uri_length": uri.len(), "payments": out, "total_zatoshis": total, "qr": qr, "findings": f.0 })
 }

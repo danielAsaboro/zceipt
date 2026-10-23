@@ -55,7 +55,10 @@ async fn every_operation() {
     let clock = op!("createTestClock", c.create_test_clock(None));
     let cid = clock["id"].as_str().unwrap().to_string();
     op!("getTestClock", c.get_test_clock(&cid));
-    let req = op!("createRequest", c.create_request(&CreateRequest { payee: payee.clone(), amount_zatoshis: Some(1_000_000), test_clock: Some(cid.clone()), ..Default::default() }));
+    let req = op!(
+        "createRequest",
+        c.create_request(&CreateRequest { payee: payee.clone(), amount_zatoshis: Some(1_000_000), test_clock: Some(cid.clone()), ..Default::default() })
+    );
     let (id, secret) = (req["id"].as_str().unwrap().to_string(), req["client_secret"].as_str().unwrap().to_string());
     op!("getRequest", c.get_request(&id));
     op!("listRequests", c.list_requests(None, Some(2)));
@@ -87,7 +90,8 @@ async fn every_operation() {
     let ev = op!("listEvents", c.list_events(Some(1)));
     op!("resendEvent", c.resend_event(ev["data"][0]["id"].as_str().unwrap()));
     op!("listDeliveries", c.list_deliveries(Some(1)));
-    let table: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/sdk-parity.json")).unwrap()).unwrap();
+    let table: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/sdk-parity.json")).unwrap()).unwrap();
     let want: std::collections::BTreeSet<&str> = table.as_object().unwrap().keys().filter(|k| !k.starts_with('_')).map(String::as_str).collect();
     assert_eq!(want.difference(&done).collect::<Vec<_>>(), Vec::<&&str>::new());
 }

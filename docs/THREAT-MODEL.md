@@ -160,6 +160,13 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Colluding holders | Each note is proven under its own fresh `rk`, so the proof shows the notes are unspent and were known to their holders, not that one person holds them all: several holders can pool notes into one proof, or answer a challenge for someone else. Use it to show funds exist, not who owns them | by design |
 | Holder after spending | Can't keep using the proof: once a nullifier is on chain, verification fails | `scripts/e2e-regtest.sh` ("after the saver spends, the same proof is refused") |
 
+## 11e2. Screened-set proofs (`zip311s1`)
+
+| Party | Learns | Backed by |
+|---|---|---|
+| Whoever published the list | That each proven spend's note is one of the list's outputs and held at least its floor. The hiding set is the list's outputs that could hold that much: a short list, or a floor equal to a note's whole value (which the publisher may know), can narrow it to one. The CLI warns under 16 outputs; keep floors below the values when you can | `src/screened.rs`; `roundtrip.rs::screened_set_proof_shows_membership_not_which_member` |
+| A verifier | The same, for the spends the receipt proves; nothing about other parties' inputs | CLAIM.md item 7 |
+
 ## 11f. Deposit desks (`source_of_funds` requests)
 
 | Party | Learns | Backed by |

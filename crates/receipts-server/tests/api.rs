@@ -28,7 +28,14 @@ fn rand_suffix() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() as u64
 }
 
-async fn call(app: &axum::Router, method: &str, path: &str, key: Option<&str>, body: Option<Value>, idem: Option<&str>) -> (StatusCode, Value, axum::http::HeaderMap) {
+async fn call(
+    app: &axum::Router,
+    method: &str,
+    path: &str,
+    key: Option<&str>,
+    body: Option<Value>,
+    idem: Option<&str>,
+) -> (StatusCode, Value, axum::http::HeaderMap) {
     let mut b = Request::builder().method(method).uri(path);
     if let Some(k) = key {
         b = b.header("authorization", format!("Bearer {k}"));
@@ -63,14 +70,16 @@ async fn auth_and_validation_errors() {
 #[tokio::test]
 async fn proof_request_lifecycle_with_fixtures() {
     let (app, test, live) = app().await;
-    let (s, req, h) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 500000, "label": "t" })), Some("k1")).await;
+    let (s, req, h) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 500000, "label": "t" })), Some("k1")).await;
     assert_eq!(s, StatusCode::CREATED);
     assert_eq!(h.get("receipts-version").unwrap(), receipts_server::API_VERSION);
     assert!(req["payment_uri"].as_str().unwrap().starts_with(&format!("zcash:{PAYEE}?amount=0.005")));
     let id = req["id"].as_str().unwrap().to_string();
 
     // Idempotent replay returns the same object; a different body with the same key is refused.
-    let (_, again, h) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 500000, "label": "t" })), Some("k1")).await;
+    let (_, again, h) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 500000, "label": "t" })), Some("k1")).await;
     assert_eq!(again["id"], req["id"]);
     assert_eq!(h.get("idempotent-replayed").unwrap(), "true");
     let (s, v, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), Some("k1")).await;
@@ -121,7 +130,12 @@ async fn webhook_signature_helper_roundtrip() {
 #[tokio::test]
 async fn unsupported_version_is_refused() {
     let (app, test, _) = app().await;
-    let req = Request::builder().uri("/v1/requests").header("authorization", format!("Bearer {test}")).header("receipts-version", "2001-01-01").body(Body::empty()).unwrap();
+    let req = Request::builder()
+        .uri("/v1/requests")
+        .header("authorization", format!("Bearer {test}"))
+        .header("receipts-version", "2001-01-01")
+        .body(Body::empty())
+        .unwrap();
     let res = app.oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
@@ -164,7 +178,8 @@ async fn webhooks_are_signed_and_delivered() {
     let (_, ep, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": url, "events": ["request.fulfilled"] })), None).await;
     let secret = ep["secret"].as_str().unwrap().to_string();
     let (_, req, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
-    call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None)
+        .await;
     wait_for(|| !seen.lock().unwrap().is_empty()).await;
     let (sig, body) = seen.lock().unwrap()[0].clone();
     assert!(receipts_server::webhooks::verify_signature(&secret, &sig, &body, 300), "signature must verify with the endpoint secret");
@@ -218,8 +233,13 @@ async fn real_receipt_replay_is_refused() {
     let payee = std::fs::read_to_string(format!("{dir}/merchant.ua")).unwrap();
     let answered = std::fs::read_to_string(format!("{dir}/request-answer-link.txt")).unwrap();
     let (_, req, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": payee.trim(), "amount_zatoshis": 1000000 })), None).await;
-    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": answered })), None).await;
-    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("challenge_mismatch")), "a receipt answering another request must not satisfy this one");
+    let (s, v, _) =
+        call(&app, "POST", &format!("/v1/requests/{}/receipts", req["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": answered })), None).await;
+    assert_eq!(
+        (s, v["error"]["code"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("challenge_mismatch")),
+        "a receipt answering another request must not satisfy this one"
+    );
     // The same receipt still verifies on its own.
     let (s, v, _) = call(&app, "POST", "/v1/verify", Some(&test), Some(json!({ "receipt": answered })), None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
@@ -230,9 +250,25 @@ async fn one_payment_settles_one_request() {
     let (app, test, _) = app().await;
     let (_, a, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
     let (_, b, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
-    let (s, _, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", a["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_same_payment" })), None).await;
+    let (s, _, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/requests/{}/receipts", a["id"].as_str().unwrap()),
+        Some(&test),
+        Some(json!({ "receipt": "zip311_test_same_payment" })),
+        None,
+    )
+    .await;
     assert_eq!(s, StatusCode::OK);
-    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{}/receipts", b["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_same_payment" })), None).await;
+    let (s, v, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/requests/{}/receipts", b["id"].as_str().unwrap()),
+        Some(&test),
+        Some(json!({ "receipt": "zip311_test_same_payment" })),
+        None,
+    )
+    .await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("payment_already_used")));
 }
 
@@ -257,7 +293,8 @@ async fn partial_payments_add_up() {
 #[tokio::test]
 async fn hosted_pay_page_needs_the_client_secret() {
     let (app, test, _) = app().await;
-    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "metadata": { "order_id": "42" } })), None).await;
+    let (_, r, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "metadata": { "order_id": "42" } })), None).await;
     let id = r["id"].as_str().unwrap();
     let secret = r["client_secret"].as_str().unwrap();
     assert!(r["hosted_url"].as_str().unwrap().contains(&format!("/pay/{id}?secret={secret}")));
@@ -266,9 +303,13 @@ async fn hosted_pay_page_needs_the_client_secret() {
     let (s, v, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret={secret}"), None, None, None).await;
     assert_eq!(s, StatusCode::OK);
     assert!(v.get("metadata").is_none() && v.get("client_secret").is_none(), "payers never see merchant metadata");
-    let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": "nope", "receipt": "zip311_test_valid" })), None).await;
+    let (s, _, _) =
+        call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": "nope", "receipt": "zip311_test_valid" })), None)
+            .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
-    let (s, v, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zip311_test_valid" })), None).await;
+    let (s, v, _) =
+        call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zip311_test_valid" })), None)
+            .await;
     assert_eq!((s, v["status"].as_str()), (StatusCode::OK, Some("fulfilled")));
 }
 
@@ -277,7 +318,15 @@ async fn campaigns_publish_aggregates_only() {
     let mut cfg = receipts_server::Config::new(Net::Test, "http://verifier.test/");
     cfg.campaign_snapshot_secs = 0; // refresh on every read in this test
     let (app, test, _) = app_with(cfg).await;
-    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 5_000_000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })), None).await;
+    let (_, r, _) = call(
+        &app,
+        "POST",
+        "/v1/requests",
+        Some(&test),
+        Some(json!({ "payee": PAYEE, "amount_zatoshis": 5_000_000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })),
+        None,
+    )
+    .await;
     let id = r["id"].as_str().unwrap();
     let pay = |fixture: &'static str| {
         let app = app.clone();
@@ -310,7 +359,8 @@ async fn campaigns_publish_aggregates_only() {
 #[tokio::test]
 async fn campaign_numbers_update_in_batches() {
     let (app, test, _) = app().await; // default: refresh every 600 s
-    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign", "public_min_contributions": 1 })), None).await;
+    let (_, r, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign", "public_min_contributions": 1 })), None).await;
     let id = r["id"].as_str().unwrap();
     call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     let (_, a, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
@@ -375,11 +425,9 @@ async fn sign_in_with_zcash() {
 
     let good = sign("shop.example", nonce.clone()).await.unwrap();
     // A live key can't use a test challenge.
-    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&live), Some(json!({ "sign_in": good }))
-        , None).await;
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&live), Some(json!({ "sign_in": good })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::NOT_FOUND, Some("sign_in_challenge_not_found")));
-    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": good }))
-        , None).await;
+    let (s, v, _) = call(&app, "POST", "/v1/sign_in/verify", Some(&test), Some(json!({ "sign_in": good })), None).await;
     assert_eq!(s, StatusCode::OK, "{v}");
     assert_eq!((v["verified"].as_bool(), v["domain"].as_str()), (Some(true), Some("shop.example")));
     assert!(v["address"].as_str().unwrap().starts_with("utest1"));
@@ -406,10 +454,19 @@ async fn refunds_go_to_the_signed_address_and_need_proof() {
     // The payer signed refund-to: the merchant can refund part, then the rest, never more.
     let (_, r2, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 300000 })), None).await;
     let id2 = r2["id"].as_str().unwrap();
-    let (s, paid, _) = call(&app, "POST", &format!("/v1/requests/{id2}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_refund_to" })), None).await;
+    let (s, paid, _) =
+        call(&app, "POST", &format!("/v1/requests/{id2}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_refund_to" })), None).await;
     assert_eq!(s, StatusCode::OK, "{paid}");
     assert_eq!(paid["payments"][0]["refund_address"].as_str(), Some(refund_to));
-    let (s, rf, _) = call(&app, "POST", &format!("/v1/requests/{id2}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 100000, "reason": "one coffee was cold" })), Some("rf1")).await;
+    let (s, rf, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/requests/{id2}/refunds"),
+        Some(&test),
+        Some(json!({ "amount_zatoshis": 100000, "reason": "one coffee was cold" })),
+        Some("rf1"),
+    )
+    .await;
     assert_eq!(s, StatusCode::CREATED, "{rf}");
     assert_eq!((rf["status"].as_str(), rf["address"].as_str()), (Some("pending"), Some(refund_to)));
     assert!(rf["payment_uri"].as_str().unwrap().starts_with(&format!("zcash:{refund_to}?amount=0.001&")));
@@ -418,9 +475,11 @@ async fn refunds_go_to_the_signed_address_and_need_proof() {
 
     // Settling needs a receipt that signs the refund's challenge and pays the refund address.
     let rid = rf["id"].as_str().unwrap();
-    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_challenge_mismatch" })), None).await;
+    let (s, v, _) =
+        call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_challenge_mismatch" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("challenge_mismatch")));
-    let (s, v, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_insufficient_amount" })), None).await;
+    let (s, v, _) =
+        call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_insufficient_amount" })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("insufficient_amount")));
     let (s, done, _) = call(&app, "POST", &format!("/v1/refunds/{rid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
     assert_eq!((s, done["status"].as_str()), (StatusCode::OK, Some("succeeded")), "{done}");
@@ -460,7 +519,8 @@ async fn test_clocks_drive_expiry_and_finality() {
     assert_eq!(adv["fired"].as_array().unwrap().len(), 0, "{adv}");
     // 5 more blocks (10 confirmations) and past the hour: final + expired.
     let (_, adv, _) = call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 4, "seconds": 3600 })), None).await;
-    let fired: Vec<(String, String)> = adv["fired"].as_array().unwrap().iter().map(|f| (f["type"].as_str().unwrap().into(), f["request"].as_str().unwrap().into())).collect();
+    let fired: Vec<(String, String)> =
+        adv["fired"].as_array().unwrap().iter().map(|f| (f["type"].as_str().unwrap().into(), f["request"].as_str().unwrap().into())).collect();
     assert!(fired.contains(&("request.expired".into(), a_id.into())), "{fired:?}");
     assert!(fired.contains(&("request.final".into(), b_id.into())), "{fired:?}");
     assert_eq!(adv["height"], 109);
@@ -476,14 +536,16 @@ async fn test_clocks_drive_expiry_and_finality() {
 #[tokio::test]
 async fn payment_links_are_checked_and_our_own_pass() {
     let (app, test, _) = app().await;
-    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234500, "label": "Kemi's Coffee" })), None).await;
+    let (_, r, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234500, "label": "Kemi's Coffee" })), None).await;
     let (s, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({ "uri": r["payment_uri"] })), None).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v["ok"], true, "{v}");
     assert!(v["findings"].as_array().unwrap().is_empty(), "our own links must be clean: {v}");
     assert_eq!(v["payments"][0]["amount_zatoshis"], 1234500);
     // Checking against the wrong network is an error.
-    let (_, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({ "uri": format!("zcash:{PAYEE}?amount=1"), "network": "mainnet" })), None).await;
+    let (_, v, _) =
+        call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({ "uri": format!("zcash:{PAYEE}?amount=1"), "network": "mainnet" })), None).await;
     assert_eq!(v["ok"], false);
     let (s, v, _) = call(&app, "POST", "/v1/payment_links/check", Some(&test), Some(json!({})), None).await;
     assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("uri")));
@@ -492,7 +554,8 @@ async fn payment_links_are_checked_and_our_own_pass() {
 #[tokio::test]
 async fn attestations_state_minimal_facts_and_disclose_selectively() {
     let (app, test, live) = app().await;
-    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234567, "label": "Grant round 3" })), None).await;
+    let (_, r, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1234567, "label": "Grant round 3" })), None).await;
     let id = r["id"].as_str().unwrap();
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("request_not_fulfilled")));
@@ -502,7 +565,8 @@ async fn attestations_state_minimal_facts_and_disclose_selectively() {
     assert_eq!(s, StatusCode::OK, "{a}");
     let pres = a["presentation"].as_str().unwrap();
     // The default presentation carries no txid, exact amount, exact time, request id or label.
-    let payload = String::from_utf8(base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, pres.split('.').nth(1).unwrap()).unwrap()).unwrap();
+    let payload =
+        String::from_utf8(base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, pres.split('.').nth(1).unwrap()).unwrap()).unwrap();
     for hidden in ["5a4db0c5", "1234567", id, "Grant round 3", "paid_at\""] {
         assert!(!payload.contains(hidden) && !pres.contains(hidden), "{hidden} leaked: {payload}");
     }
@@ -542,7 +606,8 @@ async fn attestations_subtract_refunds() {
     let id = r["id"].as_str().unwrap();
     call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_refund_to" })), None).await;
     let (_, rf, _) = call(&app, "POST", &format!("/v1/requests/{id}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 500000 })), None).await;
-    call(&app, "POST", &format!("/v1/refunds/{}/receipts", rf["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
+    call(&app, "POST", &format!("/v1/refunds/{}/receipts", rf["id"].as_str().unwrap()), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None)
+        .await;
     let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
     assert_eq!(a["claims"]["paid_at_least_zatoshis"], 1000000, "default floor: net 0.015 ZEC rounded down to 0.01: {a}");
     let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 1500000 })), None).await;
@@ -560,7 +625,10 @@ async fn pagination_never_repeats_requests_created_in_the_same_second() {
     let mut seen = std::collections::HashSet::new();
     let mut after: Option<String> = None;
     for _ in 0..10 {
-        let path = match &after { Some(a) => format!("/v1/requests?limit=5&starting_after={a}"), None => "/v1/requests?limit=5".into() };
+        let path = match &after {
+            Some(a) => format!("/v1/requests?limit=5&starting_after={a}"),
+            None => "/v1/requests?limit=5".into(),
+        };
         let (_, page, _) = call(&app, "GET", &path, Some(&test), None, None).await;
         for r in page["data"].as_array().unwrap() {
             assert!(seen.insert(r["id"].as_str().unwrap().to_string()), "repeated {}", r["id"]);
@@ -583,7 +651,9 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     let secret = r["client_secret"].as_str().unwrap();
     let mut last = StatusCode::OK;
     for _ in 0..(receipts_server::PUBLIC_SUBMIT_LIMIT + 1) {
-        let (s, _, _) = call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zip311r1AAAA" })), None).await;
+        let (s, _, _) =
+            call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "client_secret": secret, "receipt": "zip311r1AAAA" })), None)
+                .await;
         last = s;
     }
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
@@ -593,7 +663,15 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     assert_eq!(h.get("x-content-type-options").unwrap(), "nosniff");
     assert!(h.get("content-security-policy").unwrap().to_str().unwrap().contains("frame-ancestors"));
     // Live webhooks: https and public hosts only. Test mode may use localhost.
-    for bad in ["http://example.com/h", "https://localhost/h", "https://127.0.0.1/h", "https://10.0.0.5/h", "https://169.254.169.254/latest", "https://[::1]/h", "https://db.internal/h"] {
+    for bad in [
+        "http://example.com/h",
+        "https://localhost/h",
+        "https://127.0.0.1/h",
+        "https://10.0.0.5/h",
+        "https://169.254.169.254/latest",
+        "https://[::1]/h",
+        "https://db.internal/h",
+    ] {
         let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&live), Some(json!({ "url": bad })), None).await;
         assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
     }
@@ -640,7 +718,9 @@ async fn concurrent_submissions_settle_once() {
     let mut tasks = Vec::new();
     for _ in 0..8 {
         let (app, test, id) = (app.clone(), test.clone(), id.clone());
-        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await.0 }));
+        tasks.push(tokio::spawn(async move {
+            call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await.0
+        }));
     }
     let mut ok = 0;
     for t in tasks {
@@ -658,7 +738,9 @@ async fn concurrent_submissions_settle_once() {
     let mut tasks = Vec::new();
     for _ in 0..8 {
         let (app, test, pid) = (app.clone(), test.clone(), pid.clone());
-        tasks.push(tokio::spawn(async move { call(&app, "POST", &format!("/v1/requests/{pid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_partial" })), None).await }));
+        tasks.push(tokio::spawn(async move {
+            call(&app, "POST", &format!("/v1/requests/{pid}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_partial" })), None).await
+        }));
     }
     for t in tasks {
         t.await.unwrap();
@@ -677,17 +759,38 @@ async fn second_qa_pass_regressions() {
     let mut last = StatusCode::OK;
     for i in 0..(receipts_server::PUBLIC_SUBMIT_LIMIT + 2) {
         let path = if i % 2 == 0 { format!("/v1/public/requests/{id}/receipts") } else { format!("/v1/public/requests/%70{}/receipts", &id[1..]) };
-        let req = Request::builder().method("POST").uri(path).header("x-api-key", format!("junk{i}")).header("content-type", "application/json").body(Body::from(json!({ "receipt": "zip311r1AAAA" }).to_string())).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("x-api-key", format!("junk{i}"))
+            .header("content-type", "application/json")
+            .body(Body::from(json!({ "receipt": "zip311r1AAAA" }).to_string()))
+            .unwrap();
         last = app.clone().oneshot(req).await.unwrap().status();
     }
     assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
     // More webhook guard cases.
-    for bad in ["https://localhost./h", "https://foo.localhost./h", "https://metadata.google.internal./x", "https://[::127.0.0.1]/", "https://[64:ff9b::7f00:1]/", "https://[2002:7f00:1::]/", "https://[fec0::1]/", "https://0.1.2.3/", "https://224.0.0.1/", "https://198.18.0.1/"] {
+    for bad in [
+        "https://localhost./h",
+        "https://foo.localhost./h",
+        "https://metadata.google.internal./x",
+        "https://[::127.0.0.1]/",
+        "https://[64:ff9b::7f00:1]/",
+        "https://[2002:7f00:1::]/",
+        "https://[fec0::1]/",
+        "https://0.1.2.3/",
+        "https://224.0.0.1/",
+        "https://198.18.0.1/",
+    ] {
         let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&live), Some(json!({ "url": bad })), None).await;
         assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
     }
     // Input caps.
-    for body in [json!({ "payee": PAYEE, "amount_zatoshis": u64::MAX }), json!({ "payee": PAYEE, "expires_in": i64::MAX }), json!({ "payee": PAYEE, "metadata": (0..60).map(|i| (format!("k{i}"), json!(i))).collect::<serde_json::Map<_, _>>() })] {
+    for body in [
+        json!({ "payee": PAYEE, "amount_zatoshis": u64::MAX }),
+        json!({ "payee": PAYEE, "expires_in": i64::MAX }),
+        json!({ "payee": PAYEE, "metadata": (0..60).map(|i| (format!("k{i}"), json!(i))).collect::<serde_json::Map<_, _>>() }),
+    ] {
         let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(body.clone()), None).await;
         assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
     }
@@ -753,15 +856,32 @@ async fn built_in_verifier_and_landing_page() {
 async fn deposit_desk_policy() {
     let (app, test, _) = app().await;
     let mk = |sof: Value, kind: &str| json!({ "payee": PAYEE, "amount_zatoshis": 10_000, "kind": kind, "source_of_funds": sof });
-    let (s, v, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["not-an-address"] }), "single")), None).await;
+    let (s, v, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["not-an-address"] }), "single")), None).await;
     assert_eq!((s, v["error"]["param"].as_str()), (StatusCode::BAD_REQUEST, Some("source_of_funds")), "{v}");
-    let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs"] }), "single")), None).await;
+    let (s, _, _) = call(
+        &app,
+        "POST",
+        "/v1/requests",
+        Some(&test),
+        Some(mk(json!({ "required": true, "blocked_addresses": ["t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs"] }), "single")),
+        None,
+    )
+    .await;
     assert_eq!(s, StatusCode::BAD_REQUEST, "a mainnet address on a testnet key");
     let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true }), "campaign")), None).await;
     assert_eq!(s, StatusCode::BAD_REQUEST, "campaigns can't require a source");
     let (s, _, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": false }), "single")), None).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
-    let (s, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(mk(json!({ "required": true, "blocked_addresses": ["tmGys6dBuEGjch5LFnhdo5gpSa7jiNRWse6"] }), "single")), None).await;
+    let (s, r, _) = call(
+        &app,
+        "POST",
+        "/v1/requests",
+        Some(&test),
+        Some(mk(json!({ "required": true, "blocked_addresses": ["tmGys6dBuEGjch5LFnhdo5gpSa7jiNRWse6"] }), "single")),
+        None,
+    )
+    .await;
     assert_eq!(s, StatusCode::CREATED, "{r}");
     assert_eq!(r["source_of_funds"], json!({ "required": true, "screened_addresses": 1 }));
     assert!(r["cli_command"].as_str().unwrap().contains("--prove-source"));

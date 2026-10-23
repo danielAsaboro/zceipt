@@ -36,14 +36,14 @@ use pasta_curves::pallas;
 use rand_core::CryptoRng;
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
-mod encoding;
 pub mod deposit;
+mod encoding;
 #[cfg(feature = "orchard-ext")]
 pub mod incoming;
 pub mod payreq;
+pub mod preflight;
 pub mod reserve;
 pub mod screened;
-pub mod preflight;
 pub mod signin;
 pub mod tripwire;
 pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX, PREPARED_TEXT_PREFIX, TEXT_PREFIX};
@@ -328,7 +328,12 @@ impl Receipt {
 /// `unsigned` (never takes a digest from the caller), checks that every spend's `rk` is
 /// `ak` randomized by its `alpha` (so it only signs for keys it holds, as the receipt says), and
 /// signs. A hardware wallet should do the same, after showing the txid, outputs and message.
-pub fn sign_prepared(unsigned: &UnsignedReceipt, alphas: &[pallas::Scalar], asks: &[SpendAuthorizingKey], mut rng: impl CryptoRng) -> Result<Vec<[u8; 64]>, Error> {
+pub fn sign_prepared(
+    unsigned: &UnsignedReceipt,
+    alphas: &[pallas::Scalar],
+    asks: &[SpendAuthorizingKey],
+    mut rng: impl CryptoRng,
+) -> Result<Vec<[u8; 64]>, Error> {
     if asks.len() != unsigned.spends.len() || alphas.len() != unsigned.spends.len() {
         return Err(Error::SignatureCount);
     }
@@ -456,10 +461,7 @@ pub(crate) fn signing_personal(tag: &[u8; 12], coin_type: u32) -> [u8; 16] {
 
 pub fn signing_digest(unsigned: &UnsignedReceipt) -> [u8; 32] {
     let personal = signing_personal(b"ZIP311Signed", unsigned.coin_type);
-    let h = Params::new()
-        .hash_length(32)
-        .personal(&personal)
-        .hash(&unsigned.encode());
+    let h = Params::new().hash_length(32).personal(&personal).hash(&unsigned.encode());
     h.as_bytes().try_into().expect("32 bytes")
 }
 
@@ -477,10 +479,7 @@ fn random_bytes(rng: &mut impl CryptoRng) -> [u8; 32] {
     b
 }
 
-fn check_indices<'a>(
-    n_actions: usize,
-    indices: impl Iterator<Item = &'a u32>,
-) -> Result<(), Error> {
+fn check_indices<'a>(n_actions: usize, indices: impl Iterator<Item = &'a u32>) -> Result<(), Error> {
     let mut seen = std::collections::BTreeSet::new();
     for &i in indices {
         if i as usize >= n_actions {
@@ -502,19 +501,11 @@ fn derive_ock<A>(pool: Pool, ovk: &OutgoingViewingKey, action: &Action<A>) -> Ou
     }
 }
 
-fn recover_with_ock<A>(
-    pool: Pool,
-    ock: &OutgoingCipherKey,
-    action: &Action<A>,
-) -> Option<(Note, Address, [u8; 512])> {
+fn recover_with_ock<A>(pool: Pool, ock: &OutgoingCipherKey, action: &Action<A>) -> Option<(Note, Address, [u8; 512])> {
     let out = &action.encrypted_note().out_ciphertext;
     match pool {
-        Pool::Orchard => {
-            try_output_recovery_with_ock(&OrchardDomain::for_action(action), ock, action, out)
-        }
-        Pool::Ironwood => {
-            try_output_recovery_with_ock(&IronwoodDomain::for_action(action), ock, action, out)
-        }
+        Pool::Orchard => try_output_recovery_with_ock(&OrchardDomain::for_action(action), ock, action, out),
+        Pool::Ironwood => try_output_recovery_with_ock(&IronwoodDomain::for_action(action), ock, action, out),
     }
 }
 
@@ -862,10 +853,7 @@ pub fn prepare<A: Authorization, V>(
         let action = &out_actions[*i];
         let ock = derive_ock(output_pool, ovk, action);
         recover_with_ock(output_pool, &ock, action).ok_or(Error::WrongOvk(*i as u32))?;
-        out_disclosures.push(OutputDisclosure {
-            index: *i as u32,
-            ock: ock.0,
-        });
+        out_disclosures.push(OutputDisclosure { index: *i as u32, ock: ock.0 });
     }
     #[cfg_attr(not(feature = "orchard-ext"), allow(unused_mut))]
     let mut opened = Vec::with_capacity(withheld_memo.len());
@@ -896,8 +884,7 @@ pub fn prepare<A: Authorization, V>(
         if w.merkle_path.root(cmx_old) != *bundle.anchor() {
             return Err(Error::WrongAnchor);
         }
-        let spend = SpendInfo::new(fvk.clone(), w.note, w.merkle_path.clone())
-            .ok_or(Error::NoteNotOwned)?;
+        let spend = SpendInfo::new(fvk.clone(), w.note, w.merkle_path.clone()).ok_or(Error::NoteNotOwned)?;
 
         // Zero-value dummy output to a throwaway address, as Orchard dummy notes do.
         let rho: Rho = action.rho(); // = Rho::from_nf_old(action.nullifier), which equals nf_old
@@ -909,13 +896,7 @@ pub fn prepare<A: Authorization, V>(
         let dummy = loop {
             let rseed = Option::<RandomSeed>::from(RandomSeed::from_bytes(random_bytes(&mut rng), &rho));
             if let Some(rseed) = rseed {
-                if let Some(n) = Option::<Note>::from(Note::from_parts(
-                    dummy_addr,
-                    NoteValue::ZERO,
-                    rho,
-                    rseed,
-                    w.note.version(),
-                )) {
+                if let Some(n) = Option::<Note>::from(Note::from_parts(dummy_addr, NoteValue::ZERO, rho, rseed, w.note.version())) {
                     break n;
                 }
             }
@@ -932,10 +913,8 @@ pub fn prepare<A: Authorization, V>(
         let rk = SpendValidatingKey::from(fvk.clone()).randomize(&alpha);
         let cmx: ExtractedNoteCommitment = dummy.commitment().into();
 
-        let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, RECEIPT_CIRCUIT)
-            .ok_or(Error::Proving)?;
-        let instance = Instance::from_parts(*bundle.anchor(), cv_net.clone(), nf_old, rk.clone(), cmx, Flags::ENABLED)
-            .ok_or(Error::Proving)?;
+        let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, RECEIPT_CIRCUIT).ok_or(Error::Proving)?;
+        let instance = Instance::from_parts(*bundle.anchor(), cv_net.clone(), nf_old, rk.clone(), cmx, Flags::ENABLED).ok_or(Error::Proving)?;
         let proof = Proof::create(pk, &[circuit], &[instance], &mut rng).map_err(|_| Error::Proving)?;
 
         let address = match w.prove_address {
@@ -1012,7 +991,12 @@ pub fn verify_with_sources<A: Authorization, V>(
 /// callers holding a parsed transaction. (The bundle-level functions below trust the caller to
 /// pass the bundles of the transaction the receipt names.) Source proofs need
 /// [`verify_tx_bundles_with_sources`].
-pub fn verify_transaction(vk: &VerifyingKey, receipt: &Receipt, expected_coin_type: u32, tx: &zcash_primitives::transaction::Transaction) -> Result<VerifiedReceipt, Error> {
+pub fn verify_transaction(
+    vk: &VerifyingKey,
+    receipt: &Receipt,
+    expected_coin_type: u32,
+    tx: &zcash_primitives::transaction::Transaction,
+) -> Result<VerifiedReceipt, Error> {
     let txid: [u8; 32] = *tx.txid().as_ref();
     if txid != receipt.unsigned.txid {
         return Err(Error::TxidMismatch(display_txid(&receipt.unsigned.txid)));
@@ -1096,20 +1080,14 @@ fn verify_cross<A: Authorization, V>(
     let mut proven_sources = Vec::new();
     for (s, sig) in u.spends.iter().zip(&receipt.spend_auth_sigs) {
         let action = &actions[s.index as usize];
-        let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk)
-            .map_err(|_| Error::Malformed(s.index))?;
+        let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
         let sig = redpallas::Signature::<SpendAuth>::from(*sig);
         rk.verify(&digest, &sig).map_err(|_| Error::BadSignature(s.index))?;
 
-        let cv_net = Option::<ValueCommitment>::from(ValueCommitment::from_bytes(&s.cv_net))
-            .ok_or(Error::Malformed(s.index))?;
-        let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&s.cmx))
-            .ok_or(Error::Malformed(s.index))?;
-        let instance = Instance::from_parts(*bundle.anchor(), cv_net, *action.nullifier(), rk, cmx, Flags::ENABLED)
-            .ok_or(Error::Malformed(s.index))?;
-        Proof::new(s.proof.clone())
-            .verify(vk, &[instance])
-            .map_err(|_| Error::BadProof(s.index))?;
+        let cv_net = Option::<ValueCommitment>::from(ValueCommitment::from_bytes(&s.cv_net)).ok_or(Error::Malformed(s.index))?;
+        let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&s.cmx)).ok_or(Error::Malformed(s.index))?;
+        let instance = Instance::from_parts(*bundle.anchor(), cv_net, *action.nullifier(), rk, cmx, Flags::ENABLED).ok_or(Error::Malformed(s.index))?;
+        Proof::new(s.proof.clone()).verify(vk, &[instance]).map_err(|_| Error::BadProof(s.index))?;
         if let Some(a) = &s.address {
             let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
             verify_address_proof(vk, pool, s.index, &rk, a)?;
@@ -1126,15 +1104,8 @@ fn verify_cross<A: Authorization, V>(
     let mut outputs = Vec::with_capacity(u.outputs.len());
     for o in &u.outputs {
         let action = &out_actions[o.index as usize];
-        let (note, addr, memo) = recover_with_ock(output_pool, &OutgoingCipherKey(o.ock), action)
-            .ok_or(Error::BadOutputKey(o.index))?;
-        outputs.push(VerifiedOutput {
-            index: o.index,
-            recipient: addr.to_raw_address_bytes(),
-            value: note.value().inner(),
-            memo,
-            memo_withheld: false,
-        });
+        let (note, addr, memo) = recover_with_ock(output_pool, &OutgoingCipherKey(o.ock), action).ok_or(Error::BadOutputKey(o.index))?;
+        outputs.push(VerifiedOutput { index: o.index, recipient: addr.to_raw_address_bytes(), value: note.value().inner(), memo, memo_withheld: false });
     }
     #[cfg(not(feature = "orchard-ext"))]
     if !u.opened.is_empty() {

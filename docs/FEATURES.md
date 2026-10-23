@@ -4,7 +4,9 @@ The [README](../README.md) covers the core: what a receipt proves, how to check 
 
 ## For developers
 
-Receipts is a full developer platform, not just a library. Start with [docs/QUICKSTART.md](QUICKSTART.md).
+Around the core sits an optional payment API for shops and exchanges (`receipts shop`). The regtest run
+and the SDK suites (`scripts/test-all.sh`) cover requests, payment, refunds, webhooks and the
+deposit desk; it has had less review than the core. Start with [QUICKSTART.md](QUICKSTART.md).
 
 | Piece | What you get |
 |---|---|

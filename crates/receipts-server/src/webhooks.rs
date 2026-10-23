@@ -118,7 +118,10 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
     };
     let c = st.db.0.lock().unwrap();
     if ok {
-        c.execute("UPDATE deliveries SET status = 'delivered', attempts = attempts + 1, last_status = ?1, delivered_at = ?2 WHERE id = ?3", params![status, now(), id])?;
+        c.execute(
+            "UPDATE deliveries SET status = 'delivered', attempts = attempts + 1, last_status = ?1, delivered_at = ?2 WHERE id = ?3",
+            params![status, now(), id],
+        )?;
     } else {
         let attempts = attempts + 1;
         let status_text = if attempts >= st.config.webhook_max_attempts { "failed" } else { "pending" };
@@ -135,7 +138,8 @@ async fn pinned_public_client(url: &str) -> Result<reqwest::Client, String> {
     let u = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
     let host = u.host_str().ok_or("no host")?.to_string();
     let port = u.port_or_known_default().unwrap_or(443);
-    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host.trim_matches(|c| c == '[' || c == ']'), port)).await.map_err(|e| format!("DNS: {e}"))?.collect();
+    let addrs: Vec<std::net::SocketAddr> =
+        tokio::net::lookup_host((host.trim_matches(|c| c == '[' || c == ']'), port)).await.map_err(|e| format!("DNS: {e}"))?.collect();
     let addr = addrs.first().copied().ok_or("DNS: no address")?;
     if let Some(bad) = addrs.iter().find(|a| !crate::is_public_ip(a.ip())) {
         return Err(format!("refused: {host} resolves to a non-public address ({})", bad.ip()));

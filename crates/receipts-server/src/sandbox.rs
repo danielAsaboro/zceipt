@@ -16,7 +16,10 @@
 //! | `zip311_test_refund_to`           | valid; the payer signed a refund address  |
 //! | `zip311_test_same_payment`        | valid; always the same transaction, to see `payment_already_used` |
 
-use crate::{error::ApiError, verify::{Output, Verification}};
+use crate::{
+    error::ApiError,
+    verify::{Output, Verification},
+};
 
 pub const PREFIX: &str = "zip311_test_";
 

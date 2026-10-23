@@ -34,8 +34,10 @@ Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
 Click **Try a real testnet receipt**: a real 0.01 TAZ payment
 ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73))
-shows **VERIFIED**. Click **Try an edited copy**: the same receipt with its note changed from
-"Order #42" to "Order #43" shows **NOT VALID**. The first check also loads the verifier (3 to 10 seconds).
+shows **VERIFIED**. Click **Try an edited copy**: the same receipt with its signed message changed from
+"Order #42" to "Order #43" shows **NOT VALID**. Click **Try a claim by someone who only saw it**:
+the same payment claimed with another key shows **NOT VALID**, which is what an output-only
+disclosure can't tell apart. The first check also loads the verifier (3 to 10 seconds).
 
 <p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 TAZ (testnet) with the memo Invoice 42: two coffees">
 <img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: changed after it was made"></p>
@@ -50,8 +52,9 @@ minutes to build the first time).
 
 ## Make a receipt from your wallet
 
-Any Orchard or Ironwood wallet works, from its seed phrase or viewing key. The CLI finds your
-notes by scanning the chain from the wallet's birthday, on your machine.
+Any wallet that lets you export its viewing key or seed phrase works; no wallet has a button for
+it yet. The CLI finds your notes by scanning the chain from the wallet's birthday, on your
+machine.
 
 | You have | Command |
 |---|---|
@@ -82,7 +85,7 @@ The payer chooses which outputs to show, so a verifier checks the recipient it e
 | Party | Learns | Doesn't learn |
 |---|---|---|
 | Whoever you give the receipt to | the shown outputs, your message, that you paid | your address (unless you choose to prove it), balance, other payments |
-| The chain server, when someone verifies | the payment's block (or, if it is quiet, its run of 4 blocks) and up to 64 transactions in each; the verifier's IP | which of those transactions, or anything in the receipt |
+| The chain server, when someone verifies (ChainSafe's lightwalletd by default, or yours) | the payment's block (or, if it is quiet, its run of 4 blocks) and up to 64 transactions in each; the verifier's IP | which of those transactions (the testnet sample's block has 5), or anything in the receipt |
 | The chain server, when you make a receipt | the block range it scans | which note, payment or transaction |
 
 In a quiet block the server can narrow it down, and the page and CLI say so. Full analysis:

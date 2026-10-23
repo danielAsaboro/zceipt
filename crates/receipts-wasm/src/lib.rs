@@ -155,7 +155,8 @@ pub fn transparent_output(raw_tx: &[u8], height: u32, index: u32, coin_type: u32
     if regtest {
         nt = NetworkType::Regtest;
     }
-    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    let tx =
+        Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
     let out = tx.transparent_bundle().and_then(|b| b.vout.get(index as usize)).ok_or_else(|| JsError::new("no such transparent output"))?;
     let address = match out.recipient_address() {
         Some(TransparentAddress::PublicKeyHash(h)) => Some(zcash_address::ZcashAddress::from_transparent_p2pkh(nt, h).encode()),
@@ -170,7 +171,8 @@ pub fn transparent_output(raw_tx: &[u8], height: u32, index: u32, coin_type: u32
 #[wasm_bindgen]
 pub fn txid_of(raw_tx: &[u8], height: u32, coin_type: u32) -> Result<String, JsError> {
     let (net, _, _) = net_of(coin_type)?;
-    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    let tx =
+        Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
     Ok(tx.txid().to_string())
 }
 
@@ -205,7 +207,8 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
         let list: Vec<SourceTxIn> = serde_json::from_str(&json).map_err(|e| JsError::new(&format!("bad sources: {e}")))?;
         for s in list {
             let raw = hex::decode(s.raw.trim()).map_err(|_| JsError::new("bad source transaction hex"))?;
-            let stx = Transaction::read(&raw[..], BranchId::for_height(&net, BlockHeight::from_u32(s.height))).map_err(|e| JsError::new(&format!("bad source transaction: {e}")))?;
+            let stx = Transaction::read(&raw[..], BranchId::for_height(&net, BlockHeight::from_u32(s.height)))
+                .map_err(|e| JsError::new(&format!("bad source transaction: {e}")))?;
             stxs.insert(*stx.txid().as_ref(), (stx, s.height));
         }
     }
@@ -220,11 +223,12 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
         }?;
         receipts_core::output_cmx(b, index)
     };
-    let v = VK.with(|vk| {
-        let vk = vk.get_or_init(receipts_core::verifying_key);
-        receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
-    })
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    let v = VK
+        .with(|vk| {
+            let vk = vk.get_or_init(receipts_core::verifying_key);
+            receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+        })
+        .map_err(|e| JsError::new(&e.to_string()))?;
     let sources_out = v
         .sources
         .iter()
@@ -252,7 +256,13 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
         valid: true,
         network: name,
         pool: match u.output_pool {
-            Some(o) if o != u.pool => if u.pool == Pool::Orchard { "Orchard to Ironwood" } else { "Ironwood to Orchard" },
+            Some(o) if o != u.pool => {
+                if u.pool == Pool::Orchard {
+                    "Orchard to Ironwood"
+                } else {
+                    "Ironwood to Orchard"
+                }
+            }
             _ => pool_name(u.pool),
         },
         txid: display_txid(&u.txid),
@@ -339,11 +349,12 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
     console_error_panic_hook::set_once();
     let s = receipts_core::signin::SignIn::from_text(sign_in).ok_or_else(|| JsError::new("not a zsig1… sign-in"))?;
     let (_, nt, name) = net_of(s.coin_type)?;
-    let address = VK.with(|vk| {
-        let vk = vk.get_or_init(receipts_core::verifying_key);
-        receipts_core::signin::verify_sign_in(vk, &s, s.coin_type, domain, nonce)
-    })
-    .map_err(|e| JsError::new(&format!("sign-in does not check out for {domain}: {e}")))?;
+    let address = VK
+        .with(|vk| {
+            let vk = vk.get_or_init(receipts_core::verifying_key);
+            receipts_core::signin::verify_sign_in(vk, &s, s.coin_type, domain, nonce)
+        })
+        .map_err(|e| JsError::new(&format!("sign-in does not check out for {domain}: {e}")))?;
     let ua = unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(address))])
         .map(|a| a.encode(&nt))
         .map_err(|e| JsError::new(&e.to_string()))?;
@@ -369,7 +380,9 @@ pub fn check_tex_deposit(receipt: &str, tx1_raw: &[u8], tx1_height: u32, tx2_raw
     if regtest {
         nt = NetworkType::Regtest;
     }
-    let read = |raw: &[u8], h: u32| Transaction::read(raw, BranchId::for_height(&net, BlockHeight::from_u32(h))).map_err(|e| JsError::new(&format!("bad transaction: {e}")));
+    let read = |raw: &[u8], h: u32| {
+        Transaction::read(raw, BranchId::for_height(&net, BlockHeight::from_u32(h))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))
+    };
     let (tx1, tx2) = (read(tx1_raw, tx1_height)?, read(tx2_raw, tx2_height)?);
     let msg = String::from_utf8_lossy(&r.unsigned.msg).into_owned();
     let d = receipts_core::deposit::check(&r, &msg, nt, &tx1, &tx2).map_err(|e| JsError::new(&e))?;
@@ -391,7 +404,8 @@ pub fn verify_incoming(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool)
     if height == 0 {
         return Err(JsError::new("the transaction is not mined"));
     }
-    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    let tx =
+        Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
     if tx.txid().as_ref() != &r.txid {
         return Err(JsError::new("the fetched transaction does not match the receipt's txid"));
     }
@@ -400,8 +414,14 @@ pub fn verify_incoming(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool)
         Pool::Ironwood => tx.ironwood_bundle(),
     }
     .ok_or_else(|| JsError::new("the transaction has no bundle in the receipt's pool"))?;
-    let v = VK.with(|vk| receipts_core::incoming::verify_incoming(vk.get_or_init(receipts_core::verifying_key), &r, r.coin_type, r.txid, bundle)).map_err(|e| JsError::new(&e.to_string()))?;
-    let ua = |raw: [u8; 43]| unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))]).map(|a| a.encode(&nt)).unwrap_or_default();
+    let v = VK
+        .with(|vk| receipts_core::incoming::verify_incoming(vk.get_or_init(receipts_core::verifying_key), &r, r.coin_type, r.txid, bundle))
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let ua = |raw: [u8; 43]| {
+        unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))])
+            .map(|a| a.encode(&nt))
+            .unwrap_or_default()
+    };
     Ok(serde_json::json!({
         "valid": true,
         "kind": "incoming",
@@ -433,8 +453,12 @@ pub fn verify_payment_request(request: &str, now: f64) -> Result<String, JsError
     console_error_panic_hook::set_once();
     let r = receipts_core::payreq::PaymentRequest::from_text(request).ok_or_else(|| JsError::new("not a valid zreq1… signed payment request"))?;
     let (_, nt, name) = net_of(r.coin_type)?;
-    let raw = VK.with(|vk| receipts_core::payreq::verify_request(vk.get_or_init(receipts_core::verifying_key), &r, r.coin_type, now as u64)).map_err(|e| JsError::new(&e.to_string()))?;
-    let payee = unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))]).map(|a| a.encode(&nt)).unwrap_or_default();
+    let raw = VK
+        .with(|vk| receipts_core::payreq::verify_request(vk.get_or_init(receipts_core::verifying_key), &r, r.coin_type, now as u64))
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let payee = unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(raw))])
+        .map(|a| a.encode(&nt))
+        .unwrap_or_default();
     let host = r.domain.split(':').next().unwrap_or(&r.domain);
     let scheme = if matches!(host, "localhost" | "127.0.0.1") { "http" } else { "https" };
     Ok(serde_json::json!({

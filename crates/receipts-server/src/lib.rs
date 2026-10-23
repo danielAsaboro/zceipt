@@ -15,10 +15,10 @@
 pub mod attestations;
 pub mod clocks;
 pub mod db;
+pub mod deposits;
 pub mod error;
 pub mod refunds;
 pub mod requests;
-pub mod deposits;
 pub mod sandbox;
 pub mod signin;
 pub mod verifier;
@@ -33,9 +33,9 @@ use axum::{
     Json, Router,
 };
 use db::{new_id, now, Db};
-use requests::{create_request, get_request, list_requests, request_qr, submit_receipt};
 use error::ApiError;
 use receipts_chain::{chain, Net};
+use requests::{create_request, get_request, list_requests, request_qr, submit_receipt};
 use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -243,16 +243,17 @@ pub struct Body<T>(pub T, pub String);
 impl<T: serde::de::DeserializeOwned> axum::extract::FromRequest<Shared> for Body<T> {
     type Rejection = ApiError;
     async fn from_request(req: axum::extract::Request, _: &Shared) -> Result<Self, ApiError> {
-        let bytes = axum::body::to_bytes(req.into_body(), 1 << 20)
-            .await
-            .map_err(|_| ApiError::invalid("invalid_json", "body too large or unreadable"))?;
+        let bytes = axum::body::to_bytes(req.into_body(), 1 << 20).await.map_err(|_| ApiError::invalid("invalid_json", "body too large or unreadable"))?;
         let raw = String::from_utf8_lossy(&bytes).into_owned();
         // Refuse keys and seed phrases outright, and never store or echo them.
         if let Some(kind) = receipts_core::tripwire::secret_kind(&raw) {
-            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zip311r1… receipt.")));
+            return Err(ApiError::invalid(
+                "secret_detected",
+                format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zip311r1… receipt."),
+            ));
         }
-        let value: Value = serde_json::from_slice(if bytes.is_empty() { b"{}" } else { &bytes })
-            .map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
+        let value: Value =
+            serde_json::from_slice(if bytes.is_empty() { b"{}" } else { &bytes }).map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
         // Again on the decoded strings, so JSON escapes (\u0075view…) can't hide a key.
         fn strings<'a>(v: &'a Value, out: &mut Vec<&'a str>) {
             match v {
@@ -268,7 +269,10 @@ impl<T: serde::de::DeserializeOwned> axum::extract::FromRequest<Shared> for Body
         let mut all = Vec::new();
         strings(&value, &mut all);
         if let Some(kind) = all.iter().find_map(|s| receipts_core::tripwire::secret_kind(s)) {
-            return Err(ApiError::invalid("secret_detected", format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zip311r1… receipt.")));
+            return Err(ApiError::invalid(
+                "secret_detected",
+                format!("this request contains what looks like a {kind}. Receipts never needs one; it was not stored. Send only the zip311r1… receipt."),
+            ));
         }
         let v = serde_json::from_value(value).map_err(|e| ApiError::invalid("invalid_json", e.to_string()))?;
         Ok(Body(v, raw))
@@ -287,11 +291,9 @@ fn idem_lookup(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw
     let Some(k) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else { return Ok(None) };
     let c = st.db.0.lock().unwrap();
     let row: Option<(String, String, i64, String)> = c
-        .query_row(
-            "SELECT route, body_hash, status, response FROM idempotency WHERE api_key = ?1 AND idem_key = ?2",
-            params![auth.key, k],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        )
+        .query_row("SELECT route, body_hash, status, response FROM idempotency WHERE api_key = ?1 AND idem_key = ?2", params![auth.key, k], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
         .optional()?;
     match row {
         None => Ok(None),
@@ -354,8 +356,8 @@ pub(crate) fn urlenc(s: &str) -> String {
 }
 
 pub(crate) fn check_payee(net: Net, payee: &str) -> Result<(), ApiError> {
-    let (nt, _, _) = unified::Address::decode(payee)
-        .map_err(|e| ApiError::invalid("parameter_invalid", format!("payee is not a unified address: {e}")).param("payee"))?;
+    let (nt, _, _) =
+        unified::Address::decode(payee).map_err(|e| ApiError::invalid("parameter_invalid", format!("payee is not a unified address: {e}")).param("payee"))?;
     let want = net.network_type();
     let ok = nt == want || (want == NetworkType::Regtest && nt == NetworkType::Test) || (want == NetworkType::Test && nt == NetworkType::Regtest);
     if !ok {
@@ -397,7 +399,8 @@ struct VerifyReq {
 async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body<VerifyReq>) -> Result<Json<Value>, ApiError> {
     let text = req.receipt.ok_or_else(|| ApiError::missing("receipt"))?;
     if req.min_zatoshis.is_some() && req.expect_address.is_none() {
-        return Err(ApiError::invalid("parameter_missing", "min_zatoshis needs expect_address: the minimum is checked against what that address received").param("expect_address"));
+        return Err(ApiError::invalid("parameter_missing", "min_zatoshis needs expect_address: the minimum is checked against what that address received")
+            .param("expect_address"));
     }
     let net = auth.mode.net(&st.config);
     let server = auth.mode.server(&st.config);
@@ -415,7 +418,9 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
                 return Ok(Json(verify::verify_batch_checked(net, server.as_deref(), &text, checks).await?));
             }
             verify::Kind::Incoming => {
-                return Ok(Json(verify::verify_incoming(net, server.as_deref(), &text, req.expect_address.as_deref(), req.challenge.as_deref(), req.min_zatoshis).await?));
+                return Ok(Json(
+                    verify::verify_incoming(net, server.as_deref(), &text, req.expect_address.as_deref(), req.challenge.as_deref(), req.min_zatoshis).await?,
+                ));
             }
             verify::Kind::Receipt => verify::verify_receipt(net, server.as_deref(), &text).await?,
         }
@@ -464,7 +469,19 @@ struct CreateEndpoint {
     events: Option<Vec<String>>,
 }
 
-const EVENT_TYPES: &[&str] = &["request.created", "request.payment_received", "request.fulfilled", "request.final", "request.payment_reorged", "request.expired", "request.held_for_review", "request.rejected", "receipt.rejected", "refund.created", "refund.succeeded"];
+const EVENT_TYPES: &[&str] = &[
+    "request.created",
+    "request.payment_received",
+    "request.fulfilled",
+    "request.final",
+    "request.payment_reorged",
+    "request.expired",
+    "request.held_for_review",
+    "request.rejected",
+    "receipt.rejected",
+    "refund.created",
+    "refund.succeeded",
+];
 
 /// Whether `ip` is a public unicast address (not loopback, private, link-local, CGNAT,
 /// benchmarking, multicast, reserved, or an IPv6 form that embeds such an IPv4 address).
@@ -473,7 +490,13 @@ pub(crate) fn is_public_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         IpAddr::V4(v) => {
             let o = v.octets();
-            !(v.is_private() || v.is_loopback() || v.is_link_local() || v.is_unspecified() || v.is_broadcast() || v.is_multicast() || v.is_documentation()
+            !(v.is_private()
+                || v.is_loopback()
+                || v.is_link_local()
+                || v.is_unspecified()
+                || v.is_broadcast()
+                || v.is_multicast()
+                || v.is_documentation()
                 || o[0] == 0
                 || (o[0] == 100 && (o[1] & 0xc0) == 64)
                 || (o[0] == 198 && (o[1] & 0xfe) == 18)
@@ -525,8 +548,20 @@ pub(crate) fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
                 Ok(())
             }
         }
-        Some(url::Host::Ipv4(ip)) => if is_public_ip(ip.into()) { Ok(()) } else { bad("live webhooks must go to a public address") },
-        Some(url::Host::Ipv6(ip)) => if is_public_ip(ip.into()) { Ok(()) } else { bad("live webhooks must go to a public address") },
+        Some(url::Host::Ipv4(ip)) => {
+            if is_public_ip(ip.into()) {
+                Ok(())
+            } else {
+                bad("live webhooks must go to a public address")
+            }
+        }
+        Some(url::Host::Ipv6(ip)) => {
+            if is_public_ip(ip.into()) {
+                Ok(())
+            } else {
+                bad("live webhooks must go to a public address")
+            }
+        }
     }
 }
 
@@ -551,7 +586,10 @@ async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Bod
         "INSERT INTO webhook_endpoints (id, mode, url, secret, events, created) VALUES (?1,?2,?3,?4,?5,?6)",
         params![id, auth.mode.as_str(), url, secret, serde_json::to_string(&events).unwrap(), now()],
     )?;
-    Ok((StatusCode::CREATED, Json(json!({ "id": id, "object": "webhook_endpoint", "url": url, "events": events, "secret": secret, "livemode": auth.mode == Mode::Live }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": id, "object": "webhook_endpoint", "url": url, "events": events, "secret": secret, "livemode": auth.mode == Mode::Live })),
+    ))
 }
 
 async fn list_endpoints(State(st): State<Shared>, auth: Auth) -> Result<Json<Value>, ApiError> {

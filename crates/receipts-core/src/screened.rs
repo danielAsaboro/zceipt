@@ -20,6 +20,7 @@
 use crate::{note_to_throwaway, pool_note_version, zero_trapdoor, Error, Pool, Receipt, RECEIPT_CIRCUIT};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use incrementalmerkletree::{Hashable, Level};
+use orchard::bundle::Flags;
 use orchard::{
     builder::SpendInfo,
     circuit::{Circuit, Instance, ProvingKey, VerifyingKey},
@@ -30,7 +31,6 @@ use orchard::{
     value::{NoteValue, ValueCommitment},
     Anchor, Note, Proof,
 };
-use orchard::bundle::Flags;
 use pasta_curves::pallas;
 use rand_core::CryptoRng;
 
@@ -68,7 +68,9 @@ fn tree(set: &[[u8; 32]], pos: usize) -> Result<(Anchor, MerklePath), Error> {
     }
     let mut level: Vec<MerkleHashOrchard> = set
         .iter()
-        .map(|c| Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(c)).map(|c| MerkleHashOrchard::from_cmx(&c)).ok_or(Error::NotInSet))
+        .map(|c| {
+            Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(c)).map(|c| MerkleHashOrchard::from_cmx(&c)).ok_or(Error::NotInSet)
+        })
         .collect::<Result<_, _>>()?;
     let mut auth = [MerkleHashOrchard::empty_leaf(); 32];
     let mut idx = pos;

@@ -28,8 +28,9 @@ async function load() {
   last = j;
   const card = document.getElementById("card");
   const net = j.livemode ? "Zcash" : "Zcash testnet";
+  const unit = j.livemode ? "ZEC" : "TAZ";
   if (j.status === "fulfilled") {
-    card.innerHTML = `<div class="brand">RECEIPTS · ${net.toUpperCase()}</div><div class="done"><div class="big">PAID</div><p>${esc(j.label || "Payment")} · ${zec(j.received_zatoshis)} ZEC verified</p><p class="muted">You can close this page.</p></div>`;
+    card.innerHTML = `<div class="brand">RECEIPTS · ${net.toUpperCase()}</div><div class="done"><div class="big">PAID</div><p>${esc(j.label || "Payment")} · ${zec(j.received_zatoshis)} ${unit} verified</p><p class="muted">You can close this page.</p></div>`;
     return;
   }
   if (j.status === "expired") { card.innerHTML = `<div class="brand">RECEIPTS</div><p class="err">This payment request expired.</p>`; return; }
@@ -38,10 +39,10 @@ async function load() {
   card.innerHTML = `
     <div class="brand">RECEIPTS · ${net.toUpperCase()}</div>
     <h1>${esc(j.label || "Payment request")}</h1>
-    ${remaining ? `<div class="amt">${zec(remaining)} ZEC</div>` : ""}
-    ${j.kind === "partial" && j.received_zatoshis ? `<p class="muted">${zec(j.received_zatoshis)} of ${zec(j.amount_zatoshis)} ZEC received so far</p>` : ""}
+    ${remaining ? `<div class="amt">${zec(remaining)} ${unit}</div>` : ""}
+    ${j.kind === "partial" && j.received_zatoshis ? `<p class="muted">${zec(j.received_zatoshis)} of ${zec(j.amount_zatoshis)} ${unit} received so far</p>` : ""}
     <div class="qr">${qr}</div>
-    <div class="step"><b>1</b>Pay from any shielded Zcash wallet: scan the code, or use <code>${esc(j.payment_uri)}</code> <button class="copy" data-copy="${esc(j.payment_uri)}">Copy</button></div>
+    <div class="step"><b>1</b>Pay from any shielded Zcash wallet: <a class="open" href="${esc(j.payment_uri)}">Open in wallet</a>, scan the code, or copy <code>${esc(j.payment_uri)}</code> <button class="copy" data-copy="${esc(j.payment_uri)}">Copy</button></div>
     <div class="step"><b>2</b>Make a receipt for that payment:<br><code>${esc(j.cli_command)}</code> <button class="copy" data-copy="${esc(j.cli_command)}">Copy command</button>
       <div style="margin-top:6px">Or do steps 1 to 3 in one go from a zcash-devtool wallet:<br><code>${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}</code> <button class="copy" data-copy="${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}">Copy command</button></div></div>
     <div class="step"><b>3</b>Paste the receipt link it prints:

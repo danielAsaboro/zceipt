@@ -10,6 +10,8 @@
 # Needs Docker (zfnd/zebra:6.4.2), lightwalletd, zcash-devtool built with regtest support, and
 # `receipts` (cargo install --path crates/receipts-cli). Everything runs on 127.0.0.1.
 set -euo pipefail
+# Say where it stopped, if a setup step fails.
+trap 'echo "e2e stopped at line $LINENO: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 D=${ZCASH_DEVTOOL:-zcash-devtool}
@@ -116,7 +118,9 @@ mine $((NU63 - $(height) + 5)); mine 4 "$SENDER"; mine 101; sync sender; sync me
 "$R" serve --listen "127.0.0.1:$API" --db ./api.db --test-network regtest --heights ./heights.toml --test-lightwalletd "127.0.0.1:$GRPC" --verifier-url "http://127.0.0.1:$API/verify/" 2> api.log &
 API_PID=$!
 for i in $(seq 1 30); do curl -sf "http://127.0.0.1:$API/v1/health" >/dev/null && break; sleep 1; done
-KEY=$(grep -o 'rcpt_test_[0-9a-f]*' api.log | head -1)
+# The key is printed as the server starts; the log can lag the health check by a moment.
+KEY=""
+for i in $(seq 1 30); do KEY=$(cat api.log api.db.keys 2>/dev/null | grep -o 'rcpt_test_[0-9a-f]*' | head -1 || true); [ -n "$KEY" ] && break; sleep 1; done
 auth=(-H "authorization: Bearer $KEY")
 REQ=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests" -d "{\"payee\":\"$MERCHANT\",\"amount_zatoshis\":25000000,\"label\":\"e2e order\"}")
 RID=$(echo "$REQ" | jq -r .id); HOSTED=$(echo "$REQ" | jq -r .hosted_url)

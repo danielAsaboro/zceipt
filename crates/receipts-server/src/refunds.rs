@@ -7,7 +7,13 @@
 //! end up with proof: the payer that they paid, the merchant that they paid back.
 
 use crate::{
-    check_payee, db::{new_id, now}, emit, error::ApiError, idempotent, requests::load, sandbox, urlenc, verify, zec, AppState, Auth, Body, Mode, Shared,
+    check_payee,
+    db::{new_id, now},
+    emit,
+    error::ApiError,
+    idempotent,
+    requests::load,
+    sandbox, urlenc, verify, zec, AppState, Auth, Body, Mode, Shared,
 };
 use axum::{
     extract::{Path, State},
@@ -80,7 +86,7 @@ fn to_json(r: &RefundRec) -> Value {
         "status": r.status,
         "created": r.created,
         "payment_uri": uri,
-        "cli_command": format!("receipts create -w <wallet> -i <key.age> --txid <refund txid> --msg 'challenge:{}'", r.challenge),
+        "cli_command": format!("receipts create --seed-stdin --network <main|test> --birthday <wallet birthday> --txid <refund txid> --msg 'challenge:{}'", r.challenge),
         "refunded_at": r.refunded_at,
         "txid": r.txid,
     })
@@ -201,7 +207,10 @@ pub async fn submit(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
         let outs: Vec<&verify::Output> = v.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).collect();
         let paid: u64 = outs.iter().map(|o| o.zatoshis).sum();
         if paid == 0 && v.outputs.iter().any(|o| o.recipient_raw == want && o.memo_withheld) {
-            return Err(ApiError::verification("delivery_unproven", "the output to the refund address was disclosed with its memo withheld, which doesn't show the note can be received; disclose it with its memo"));
+            return Err(ApiError::verification(
+                "delivery_unproven",
+                "the output to the refund address was disclosed with its memo withheld, which doesn't show the note can be received; disclose it with its memo",
+            ));
         }
         if paid == 0 {
             return Err(ApiError::verification("wrong_payee", "no disclosed output paid the refund address"));
@@ -219,7 +228,11 @@ pub async fn submit(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
             }
             for o in &outs {
                 let used: Option<String> = tx
-                    .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, o.action], |x| x.get(0))
+                    .query_row(
+                        "SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3",
+                        params![mode.as_str(), v.txid, o.action],
+                        |x| x.get(0),
+                    )
                     .optional()?;
                 if used.is_some() {
                     return Err(ApiError::conflict("payment_already_used", "this payment was already used to settle something else").param("receipt"));

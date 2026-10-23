@@ -15,7 +15,8 @@ use zcash_address::{ConversionError, TryFromAddress, ZcashAddress};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::NetworkType;
 
-pub const WARNING: &str = "This receipt links the sender's shielded funds to an exchange deposit. Share it only with the exchange (or whoever must clear the deposit).";
+pub const WARNING: &str =
+    "This receipt links the sender's shielded funds to an exchange deposit. Share it only with the exchange (or whoever must clear the deposit).";
 
 struct Tex([u8; 20]);
 

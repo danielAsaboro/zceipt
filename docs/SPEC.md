@@ -50,7 +50,7 @@ spent note `n` (nullifier `nf`, found at action index `i`), the sender:
    - `rk = SpendAuthSig.RandomizePublic(alpha, ak)` is unlinkable to the transaction's `rk`, and
    - `cv_net = ValueCommit_rcv(v - 0)` hides `v`.
 5. Proves the Action statement with public inputs
-   `(rt, cv_net, nf, rk, cmx_dummy, enableSpends = 1, enableOutputs = 1, disableCrossAddress = 0)`
+   `(rt, cv_net, nf, rk, cmx_dummy, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)`
    under the post-NU6.3 Orchard circuit.
 6. Signs the receipt digest with `rsk = SpendAuthSig.RandomizePrivate(alpha, ask)`.
 

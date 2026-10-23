@@ -190,7 +190,17 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   // server's compact data doesn't show ours as shielded, fall back to every transaction. A txid
   // listed twice counts once.
   const unique = (xs) => Object.assign([...new Set(xs)], { time: xs.time });
-  let ids = unique(await fetchBlockTxids(endpoint, height, { shieldedOnly: true }));
+  // The whole aligned run of 4 blocks holding the payment is listed every time, all at once and
+  // in random order, so neither which blocks are asked for nor their order points at the payment's.
+  const first = height - (height % 4);
+  const run = [first, first + 1, first + 2, first + 3];
+  for (let i = run.length - 1; i > 0; i--) {
+    const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+    [run[i], run[j]] = [run[j], run[i]];
+  }
+  const listed = new Map((await Promise.allSettled(run.map((h) => fetchBlockTxids(endpoint, h, { shieldedOnly: true }).then((xs) => [h, xs]))))
+    .filter((r) => r.status === "fulfilled").map((r) => r.value));
+  let ids = unique(listed.get(height) || []);
   if (!ids.includes(want)) ids = unique(await fetchBlockTxids(endpoint, height));
   if (!ids.includes(want)) throw new Error(`transaction ${want.slice(0, 12)}… is not in block ${height}`);
   // The run of maxSet transactions (in block order) that holds ours: the same set every time,
@@ -199,16 +209,11 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   const set = ids.slice(start, start + maxSet);
   const blockOf = new Map(set.map((t) => [t, height]));
   let blocks = [height];
-  // A quiet block hides little: then the rest of its aligned run of 4 blocks joins the cover. The
-  // run is fixed by the height, not centred on it, so the requests don't point at the payment's block.
+  // A quiet block hides little: then the other blocks of the run join the cover.
   if (set.length < minSet) {
-    const first = height - (height % 4);
-    const others = [first, first + 1, first + 2, first + 3].filter((h) => h !== height);
     blocks = [first, first + 1, first + 2, first + 3];
-    const sides = await Promise.allSettled(others.map((h) => fetchBlockTxids(endpoint, h, { shieldedOnly: true }).then((xs) => [h, xs])));
-    for (const r of sides) {
-      if (r.status !== "fulfilled") continue;
-      const [h, xs] = r.value;
+    for (const [h, xs] of listed) {
+      if (h === height) continue;
       for (const t of xs.slice(0, maxSet)) if (!blockOf.has(t)) { blockOf.set(t, h); set.push(t); }
     }
   }

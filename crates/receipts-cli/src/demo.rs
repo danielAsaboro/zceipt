@@ -36,13 +36,22 @@ fn real_receipt(n: u32) -> anyhow::Result<()> {
     let t0 = std::time::Instant::now();
     let report = receipts_chain::chain::verify_offline(&receipt, REAL_TX, REAL_HEIGHT, None)?;
     let o = &report.outputs[0];
-    say(&format!("tx {}… block {}: {} TAZ paid, memo “{}”", &report.txid[..12], report.mined_height, o.zec.trim_end_matches('0'), o.memo.clone().unwrap_or_default()));
+    say(&format!(
+        "tx {}… block {}: {} TAZ paid, memo “{}”",
+        &report.txid[..12],
+        report.mined_height,
+        o.zec.trim_end_matches('0'),
+        o.memo.clone().unwrap_or_default()
+    ));
     say(&format!("Halo 2 spend proof and signature valid in {} ms; the sender's address, balance and other payments stay private", t0.elapsed().as_millis()));
     let mut edited = receipt.clone();
     if let Some(i) = edited.unsigned.msg.iter().position(|b| *b == b'2') {
         edited.unsigned.msg[i] = b'3';
     }
-    let refused = receipts_chain::chain::verify_offline(&edited, REAL_TX, REAL_HEIGHT, None).err().map(|e| e.to_string()).unwrap_or_else(|| "accepted (this is a bug)".into());
+    let refused = receipts_chain::chain::verify_offline(&edited, REAL_TX, REAL_HEIGHT, None)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| "accepted (this is a bug)".into());
     say(&format!("the same receipt with its note changed to “{}”: refused ({refused})", String::from_utf8_lossy(&edited.unsigned.msg)));
     Ok(())
 }
@@ -132,7 +141,13 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
 
     step(2, "[sandbox] The shop asks for 0.01 ZEC");
     let req = api
-        .create_request(&CreateRequest { payee: PAYEE.into(), amount_zatoshis: Some(1_000_000), label: Some("Kemi's Coffee, order 42".into()), test_clock: Some(clock_id.clone()), ..Default::default() })
+        .create_request(&CreateRequest {
+            payee: PAYEE.into(),
+            amount_zatoshis: Some(1_000_000),
+            label: Some("Kemi's Coffee, order 42".into()),
+            test_clock: Some(clock_id.clone()),
+            ..Default::default()
+        })
         .await?;
     let id = req["id"].as_str().unwrap_or_default().to_string();
     say(&format!("request {id}; the customer's wallet pays this ZIP-321 link:"));
@@ -151,18 +166,32 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
     say("(sandbox: zip311_test_refund_to stands in for a real zip311r1… receipt, which also signs a refund address)");
     let paid = api.submit_receipt(&id, "zip311_test_refund_to").await?;
     let v = &paid["fulfillment"]["verification"];
-    say(&format!("status {}: paid {} to the shop, spend authority {}, challenge {}", paid["status"].as_str().unwrap_or("?"), zec(paid["received_zatoshis"].as_u64().unwrap_or(0)), v["checks"]["spend_authority"]["level"].as_str().unwrap_or("?"), v["checks"]["challenge"].as_str().unwrap_or("?")));
+    say(&format!(
+        "status {}: paid {} to the shop, spend authority {}, challenge {}",
+        paid["status"].as_str().unwrap_or("?"),
+        zec(paid["received_zatoshis"].as_u64().unwrap_or(0)),
+        v["checks"]["spend_authority"]["level"].as_str().unwrap_or("?"),
+        v["checks"]["challenge"].as_str().unwrap_or("?")
+    ));
     say(&format!("verdict {} (1 confirmation; final at 10)", v["verdict"].as_str().unwrap_or("?")));
     say(&format!("shop backend got a signed webhook: request.fulfilled {}", if wait_for("request.fulfilled").await { "✓" } else { "(not yet)" }));
 
     step(4, "[sandbox] Nine blocks later the payment is final");
     let adv = call(reqwest::Method::POST, format!("/v1/test_clocks/{clock_id}/advance"), Some(json!({ "blocks": 9 }))).await?;
-    say(&format!("test clock moved to block {}; fired: {}", adv["height"], adv["fired"].as_array().map(|a| a.iter().filter_map(|f| f["type"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()));
+    say(&format!(
+        "test clock moved to block {}; fired: {}",
+        adv["height"],
+        adv["fired"].as_array().map(|a| a.iter().filter_map(|f| f["type"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default()
+    ));
     say(&format!("webhook request.final {}", if wait_for("request.final").await { "✓" } else { "(not yet)" }));
 
     step(5, "[sandbox] One coffee was cold: refund 0.004 ZEC to the address the customer signed");
     let rf = api.create_refund(&id, Some(400_000), Some("one coffee was cold")).await?;
-    say(&format!("refund {} pays {}…", rf["id"].as_str().unwrap_or("?"), &rf["payment_uri"].as_str().unwrap_or("")[..40.min(rf["payment_uri"].as_str().unwrap_or("").len())]));
+    say(&format!(
+        "refund {} pays {}…",
+        rf["id"].as_str().unwrap_or("?"),
+        &rf["payment_uri"].as_str().unwrap_or("")[..40.min(rf["payment_uri"].as_str().unwrap_or("").len())]
+    ));
     let done = api.submit_refund_receipt(rf["id"].as_str().unwrap_or_default(), "zip311_test_valid").await?;
     say(&format!("the shop's own receipt for the refund settles it: {}", done["status"].as_str().unwrap_or("?")));
     say(&format!("webhook refund.succeeded {}", if wait_for("refund.succeeded").await { "✓" } else { "(not yet)" }));
@@ -170,12 +199,16 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
     step(6, "[sandbox] The accountant gets a signed fact, not the transaction");
     let att = api.create_attestation(&id, None, None, &[]).await?;
     let c = &att["claims"];
-    say(&format!("states: paid at least {} on or before {} (net of refunds, final: {})", zec(c["paid_at_least_zatoshis"].as_u64().unwrap_or(0)), c["paid_on_or_before"].as_str().unwrap_or("?"), c["final"]));
+    say(&format!(
+        "states: paid at least {} on or before {} (net of refunds, final: {})",
+        zec(c["paid_at_least_zatoshis"].as_u64().unwrap_or(0)),
+        c["paid_on_or_before"].as_str().unwrap_or("?"),
+        c["final"]
+    ));
     let pres = att["presentation"].as_str().unwrap_or_default();
     say(&format!("hidden unless revealed: txid, exact amount, time, request, label ({} chars, Ed25519 SD-JWT)", pres.len()));
     let ok = api.verify_attestation(pres).await?;
     say(&format!("anyone can check it: valid {}", ok["valid"]));
-
 
     if wait {
         println!("\n\x1b[1mExplore\x1b[0m (the server keeps running; Ctrl-C to stop and delete the demo database)");

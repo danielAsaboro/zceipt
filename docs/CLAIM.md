@@ -113,8 +113,12 @@ Authorization Signature"), and the signer knows `ask`. Two consequences:
 - substituting the anchor gains nothing. This matters for version 6 transactions, whose
   `txid` no longer commits to the anchors (ZIP 229 moved them to the authorizing data), so a raw
   transaction handed to an offline verifier can carry any anchor without changing its `txid`;
-- dummy spends (value-0 notes to throwaway keys) can't be claimed by anyone, because nobody keeps
-  their keys.
+- dummy spends (value-0 notes to throwaway keys) can't be claimed by an honest wallet, which
+  doesn't keep their keys. A transaction builder that keeps a dummy's key, and disclosed outputs
+  with its own `ovk`, could make a receipt for that dummy: it proves control of a spend that moved
+  no value. So spend authority shows the signer took part in building the transaction, not how
+  much it paid in; a verifier who needs the latter asks for `--prove-source --reveal-source-value`,
+  which fixes each spent note's value (a dummy has none to show).
 
 **Outputs (2).** Recovery with `ock` (§4.20.3, "Decryption using an Outgoing Viewing Key") decrypts `outCiphertext` to `(pk_d, esk)`, derives
 the shared secret, decrypts `encCiphertext`, re-derives `esk` from `rseed` and checks it, re-derives

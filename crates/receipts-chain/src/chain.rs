@@ -1,7 +1,7 @@
 //! Fetching transactions from lightwalletd and verifying receipts against them.
 
-use anyhow::{anyhow, bail, Context};
 use crate::net::{self, Net};
+use anyhow::{anyhow, bail, Context};
 use receipts_core::{display_txid, Pool, Receipt};
 use serde::Serialize;
 use tonic::transport::{Channel, ClientTlsConfig};
@@ -24,11 +24,8 @@ pub async fn connect(server: &str) -> anyhow::Result<CompactTxStreamerClient<Cha
 /// Height of the chain tip, as lightwalletd sees it.
 pub async fn chain_tip(net: Net, server: Option<&str>) -> anyhow::Result<u32> {
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
-    let b = client
-        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
-        .await
-        .map_err(|e| anyhow!("latest block: {}", e.message()))?
-        .into_inner();
+    let b =
+        client.get_latest_block(zcash_client_backend::proto::service::ChainSpec {}).await.map_err(|e| anyhow!("latest block: {}", e.message()))?.into_inner();
     Ok(b.height as u32)
 }
 
@@ -36,11 +33,7 @@ pub async fn chain_tip(net: Net, server: Option<&str>) -> anyhow::Result<u32> {
 pub const FINALITY_CONFIRMATIONS: u32 = 10;
 
 /// Fetches a mined transaction. Returns the transaction and its block height.
-pub async fn fetch_mined_tx(
-    net: Net,
-    server: Option<&str>,
-    txid: [u8; 32],
-) -> anyhow::Result<(Transaction, u32)> {
+pub async fn fetch_mined_tx(net: Net, server: Option<&str>, txid: [u8; 32]) -> anyhow::Result<(Transaction, u32)> {
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
     fetch_mined_tx_with(&mut client, net, txid).await
 }
@@ -72,19 +65,21 @@ pub const MIN_PRIVATE_SET: usize = 8;
 /// transactions in block `height`, then fetches the run of up to [`PRIVATE_FETCH_SET`] of them
 /// that holds `txid` (the same run every time), in random order. Returns the transaction, its height and how many were
 /// fetched (the anonymity set; 1 means the block hid nothing). Same scheme as the browser's.
-pub async fn fetch_mined_tx_in_block(
-    net: Net,
-    server: Option<&str>,
-    txid: [u8; 32],
-    height: u32,
-) -> anyhow::Result<(Transaction, u32, usize)> {
+pub async fn fetch_mined_tx_in_block(net: Net, server: Option<&str>, txid: [u8; 32], height: u32) -> anyhow::Result<(Transaction, u32, usize)> {
     use zcash_client_backend::proto::service::BlockId;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
-    let block = client
-        .get_block(BlockId { height: u64::from(height), hash: vec![] })
-        .await
-        .map_err(|e| anyhow!("block {height}: {}", e.message()))?
-        .into_inner();
+    // The whole aligned run of 4 blocks holding the payment is listed every time, in random
+    // order, so neither which blocks are asked for nor their order points at the payment's.
+    let first = height - height % 4;
+    let mut run: Vec<u32> = (first..first + 4).collect();
+    shuffle(&mut run)?;
+    let mut listed = std::collections::HashMap::new();
+    for h in run {
+        if let Ok(b) = client.get_block(BlockId { height: u64::from(h), hash: vec![] }).await {
+            listed.insert(h, b.into_inner());
+        }
+    }
+    let block = listed.remove(&height).ok_or_else(|| anyhow!("block {height}: the server didn't send it"))?;
     let all: Vec<([u8; 32], bool)> = block
         .vtx
         .iter()
@@ -121,10 +116,9 @@ pub async fn fetch_mined_tx_in_block(
     // The run is fixed by the height, not centred on it, so the requests don't point at the
     // payment's block.
     if others.len() < MIN_PRIVATE_SET {
-        let first = height - height % 4;
-        for h in (first..first + 4).filter(|h| *h != height) {
-            let Ok(b) = client.get_block(BlockId { height: u64::from(h), hash: vec![] }).await else { continue };
-            for t in b.into_inner().vtx.iter().filter(|t| t.index != 0 && !(t.actions.is_empty() && t.ironwood_actions.is_empty())).take(PRIVATE_FETCH_SET) {
+        for (h, b) in &listed {
+            let h = *h;
+            for t in b.vtx.iter().filter(|t| t.index != 0 && !(t.actions.is_empty() && t.ironwood_actions.is_empty())).take(PRIVATE_FETCH_SET) {
                 if let Ok(id) = <[u8; 32]>::try_from(t.txid.as_slice()) {
                     if block_of.insert(id, h).is_none() {
                         others.push(id);
@@ -142,7 +136,9 @@ pub async fn fetch_mined_tx_in_block(
         let fetched = fetch_mined_tx_with(&mut client, net, t).await;
         if t == txid {
             mine = Some(fetched);
-        } else if fetched.is_ok_and(|(tx, h)| Some(&h) == block_of.get(&t) && tx.txid().as_ref() == &t && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some())) {
+        } else if fetched
+            .is_ok_and(|(tx, h)| Some(&h) == block_of.get(&t) && tx.txid().as_ref() == &t && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some()))
+        {
             // A decoy only counts if the server really has it (its bytes hash to the txid asked
             // for), in this block, with Orchard or Ironwood actions: a hostile server could list
             // made-up txids around ours, or answer them all with one real transaction.
@@ -162,11 +158,8 @@ pub async fn fetch_mined_tx_in_block(
 pub async fn tx_in_block(net: Net, server: Option<&str>, txid: [u8; 32], height: u32) -> anyhow::Result<bool> {
     use zcash_client_backend::proto::service::BlockId;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
-    let block = client
-        .get_block(BlockId { height: u64::from(height), hash: vec![] })
-        .await
-        .map_err(|e| anyhow!("block {height}: {}", e.message()))?
-        .into_inner();
+    let block =
+        client.get_block(BlockId { height: u64::from(height), hash: vec![] }).await.map_err(|e| anyhow!("block {height}: {}", e.message()))?.into_inner();
     Ok(block.vtx.iter().any(|t| t.txid.as_slice() == txid))
 }
 
@@ -300,7 +293,11 @@ pub struct ReportOutput {
 
 /// The currency name for amounts on `network` ("TAZ" on testnet and regtest).
 pub fn unit(network: &str) -> &'static str {
-    if network == "mainnet" { "ZEC" } else { "TAZ" }
+    if network == "mainnet" {
+        "ZEC"
+    } else {
+        "TAZ"
+    }
 }
 
 /// Text a sender chose (messages, memos), made safe to print: control characters and bidi
@@ -326,7 +323,7 @@ pub fn shown(text: &str, indent: &str) -> String {
 impl Report {
     pub fn print(&self) {
         let u = unit(self.network);
-        println!("VALID receipt");
+        println!("{}", if self.chain_checked { "VALID receipt" } else { "VALID receipt for the transaction given (not checked on chain)" });
         println!("  network   {}", self.network);
         if self.chain_checked {
             println!("  tx        {} (mined at height {})", self.txid, self.mined_height);
@@ -347,7 +344,10 @@ impl Report {
         }
         for src in &self.sources {
             let value = src.zec.as_ref().map(|z| format!("a {z} {u} note")).unwrap_or_else(|| "the note".into());
-            println!("  source    action {} spent {value} created by tx {} action {} (height {})", src.spend_action, src.source_txid, src.source_action, src.source_height);
+            println!(
+                "  source    action {} spent {value} created by tx {} action {} (height {})",
+                src.spend_action, src.source_txid, src.source_action, src.source_height
+            );
             for t in &src.transparent_inputs {
                 match (&t.address, t.zatoshis) {
                     (Some(a), Some(z)) => println!("            that tx was funded in the clear: {} {u} from {a}", zec(z)),
@@ -406,7 +406,15 @@ pub fn orchard_receiver_on(network: &str, ua: &str) -> anyhow::Result<[u8; 43]> 
     // versus the test networks is checked.
     let ok = matches!((network, nt), ("mainnet", NetworkType::Main) | ("testnet" | "regtest", NetworkType::Test | NetworkType::Regtest));
     if !ok {
-        bail!("{} is a {} address, but the payment is on {network}", short_ua(ua), match nt { NetworkType::Main => "mainnet", NetworkType::Test => "testnet", NetworkType::Regtest => "regtest" });
+        bail!(
+            "{} is a {} address, but the payment is on {network}",
+            short_ua(ua),
+            match nt {
+                NetworkType::Main => "mainnet",
+                NetworkType::Test => "testnet",
+                NetworkType::Regtest => "regtest",
+            }
+        );
     }
     orchard_receiver_of(ua)
 }
@@ -422,7 +430,11 @@ pub fn paid_to_address(report: &Report, ua: &str) -> anyhow::Result<u64> {
 }
 
 fn short_ua(ua: &str) -> String {
-    if ua.len() > 16 { format!("{}…", &ua[..14]) } else { ua.to_string() }
+    if ua.len() > 16 {
+        format!("{}…", &ua[..14])
+    } else {
+        ua.to_string()
+    }
 }
 
 pub fn memo_text(memo: &[u8; 512]) -> Option<String> {
@@ -447,7 +459,13 @@ pub fn verify_offline(receipt: &Receipt, raw_hex: &str, height: u32, regtest: Op
 
 /// Like `verify_offline`, with the raw source transactions (hex) and their heights for source
 /// proofs. Their transparent inputs are listed by outpoint only (no previous outputs offline).
-pub fn verify_offline_with_sources(receipt: &Receipt, raw_hex: &str, height: u32, sources: &[(String, u32)], regtest: Option<&std::path::Path>) -> anyhow::Result<Report> {
+pub fn verify_offline_with_sources(
+    receipt: &Receipt,
+    raw_hex: &str,
+    height: u32,
+    sources: &[(String, u32)],
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
     let net = net::for_receipt(u.coin_type, regtest)?;
     let tx = read_tx(net, raw_hex, height)?;
@@ -458,7 +476,10 @@ pub fn verify_offline_with_sources(receipt: &Receipt, raw_hex: &str, height: u32
     for (hex_text, h) in sources {
         let stx = read_tx(net, hex_text, *h)?;
         let id: [u8; 32] = *stx.txid().as_ref();
-        let transparent_inputs = outpoints(&stx).into_iter().map(|(t, n)| FundingInput { prevout_txid: display_txid(&t), prevout_index: n, address: None, zatoshis: None }).collect();
+        let transparent_inputs = outpoints(&stx)
+            .into_iter()
+            .map(|(t, n)| FundingInput { prevout_txid: display_txid(&t), prevout_index: n, address: None, zatoshis: None })
+            .collect();
         map.insert(id, SourceTx { tx: stx, height: *h, transparent_inputs });
     }
     let mut r = report_for(receipt, net, &tx, height, &map)?;
@@ -474,9 +495,7 @@ fn read_tx(net: Net, raw_hex: &str, height: u32) -> anyhow::Result<Transaction> 
 
 /// The transparent outpoints a transaction spends.
 fn outpoints(tx: &Transaction) -> Vec<([u8; 32], u32)> {
-    tx.transparent_bundle()
-        .map(|b| b.vin.iter().map(|i| (*i.prevout().hash(), i.prevout().n())).collect())
-        .unwrap_or_default()
+    tx.transparent_bundle().map(|b| b.vin.iter().map(|i| (*i.prevout().hash(), i.prevout().n())).collect()).unwrap_or_default()
 }
 
 /// Net value a transaction moved from transparent into the shielded pools (negative: out).
@@ -543,11 +562,7 @@ fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow!("bad hex: {e}"))).collect()
 }
 
-pub async fn verify_against_chain(
-    receipt: &Receipt,
-    server: Option<&str>,
-    regtest: Option<&std::path::Path>,
-) -> anyhow::Result<Report> {
+pub async fn verify_against_chain(receipt: &Receipt, server: Option<&str>, regtest: Option<&std::path::Path>) -> anyhow::Result<Report> {
     verify_against_chain_hinted(receipt, server, regtest, None).await
 }
 
@@ -592,12 +607,15 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
         }?;
         receipts_core::output_cmx(bundle, index)
     };
-    let v = receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
-        .map_err(|e| match e {
+    let v = receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup).map_err(
+        |e| match e {
             // An edited or forged receipt: the reason is enough.
-            receipts_core::Error::BadSignature(_) | receipts_core::Error::BadProof(_) => anyhow!("{e}: the receipt was changed after it was made, or not made by the wallet that paid"),
+            receipts_core::Error::BadSignature(_) | receipts_core::Error::BadProof(_) => {
+                anyhow!("{e}: the receipt was changed after it was made, or not made by the wallet that paid")
+            }
             e => anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)),
-        })?;
+        },
+    )?;
     let report_sources = v
         .sources
         .iter()
@@ -766,12 +784,8 @@ pub async fn rebuild_witness(
     if let Some(path) = found {
         return Ok(path);
     }
-    bail!(
-        "{}",
-        if witness.is_none() { "the note was not found at its recorded height" } else { "no block's tree root matched the transaction's anchor" }
-    )
+    bail!("{}", if witness.is_none() { "the note was not found at its recorded height" } else { "no block's tree root matched the transaction's anchor" })
 }
-
 
 /// What a verified incoming receipt shows.
 #[derive(Serialize)]
@@ -835,20 +849,37 @@ fn incoming_report(r: &receipts_core::incoming::IncomingReceipt, net: Net, tx: &
         outputs: v
             .outputs
             .iter()
-            .map(|o| ReportOutput { action: o.index, recipient: encode_orchard_receiver(net, o.recipient), recipient_raw: o.recipient, zatoshis: o.value, zec: zec(o.value), memo: memo_text(&o.memo), memo_withheld: false })
+            .map(|o| ReportOutput {
+                action: o.index,
+                recipient: encode_orchard_receiver(net, o.recipient),
+                recipient_raw: o.recipient,
+                zatoshis: o.value,
+                zec: zec(o.value),
+                memo: memo_text(&o.memo),
+                memo_withheld: false,
+            })
             .collect(),
     })
 }
 
 /// Verifies an incoming receipt against the chain.
-pub async fn verify_incoming_against_chain(r: &receipts_core::incoming::IncomingReceipt, server: Option<&str>, regtest: Option<&std::path::Path>) -> anyhow::Result<IncomingReport> {
+pub async fn verify_incoming_against_chain(
+    r: &receipts_core::incoming::IncomingReceipt,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<IncomingReport> {
     let net = net::for_receipt(r.coin_type, regtest)?;
     let (tx, height) = fetch_mined_tx(net, server, r.txid).await?;
     incoming_report(r, net, &tx, height)
 }
 
 /// Verifies an incoming receipt against a raw transaction (hex) at a known height, offline.
-pub fn verify_incoming_offline(r: &receipts_core::incoming::IncomingReceipt, raw_hex: &str, height: u32, regtest: Option<&std::path::Path>) -> anyhow::Result<IncomingReport> {
+pub fn verify_incoming_offline(
+    r: &receipts_core::incoming::IncomingReceipt,
+    raw_hex: &str,
+    height: u32,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<IncomingReport> {
     let net = net::for_receipt(r.coin_type, regtest)?;
     let tx = read_tx(net, raw_hex, height)?;
     if tx.txid().as_ref() != &r.txid {
@@ -892,12 +923,9 @@ pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8;
     if ha.is_none() || ha != hb {
         bail!("the two servers disagree about block {height}");
     }
-    let tip = b
-        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
-        .await
-        .map_err(|e| anyhow!("latest block: {}", e.message()))?
-        .into_inner()
-        .height as u32;
+    let tip =
+        b.get_latest_block(zcash_client_backend::proto::service::ChainSpec {}).await.map_err(|e| anyhow!("latest block: {}", e.message()))?.into_inner().height
+            as u32;
     Ok(tip.saturating_sub(height) + 1)
 }
 
@@ -909,7 +937,14 @@ async fn block_hash(c: &mut CompactTxStreamerClient<Channel>, h: u32) -> Option<
 /// Every nullifier `pool` published in blocks `from..=to`, read from compact blocks. Downloading
 /// the whole range tells the server nothing about which nullifiers the caller is looking for.
 /// Cached under `cache` (if given), so later checks only download new blocks.
-pub async fn published_nullifiers(net: Net, server: Option<&str>, pool: Pool, from: u32, to: u32, cache: Option<&std::path::Path>) -> anyhow::Result<std::collections::HashSet<[u8; 32]>> {
+pub async fn published_nullifiers(
+    net: Net,
+    server: Option<&str>,
+    pool: Pool,
+    from: u32,
+    to: u32,
+    cache: Option<&std::path::Path>,
+) -> anyhow::Result<std::collections::HashSet<[u8; 32]>> {
     use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
     let mut set = std::collections::HashSet::new();
     let mut start = from;
@@ -1021,7 +1056,12 @@ impl ReserveReport {
 /// Verifies a proof of funds against the chain: the anchor is the pool's real tree root at the
 /// proof's height, every proof and signature holds, and none of the notes' nullifiers has been
 /// published from the pool's activation up to the chain tip.
-pub async fn verify_reserve_against_chain(r: &receipts_core::reserve::ReserveProof, server: Option<&str>, regtest: Option<&std::path::Path>, cache: Option<&std::path::Path>) -> anyhow::Result<ReserveReport> {
+pub async fn verify_reserve_against_chain(
+    r: &receipts_core::reserve::ReserveProof,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+    cache: Option<&std::path::Path>,
+) -> anyhow::Result<ReserveReport> {
     use zcash_client_backend::proto::service::BlockId;
     let net = net::for_receipt(r.coin_type, regtest)?;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;

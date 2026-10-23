@@ -118,7 +118,8 @@ impl Client {
         };
         let mut attempt = 0;
         loop {
-            let mut rb = self.http.request(method.clone(), format!("{}{path}", self.base)).bearer_auth(&self.key).header("user-agent", "zcash-receipts-rust/0.1");
+            let mut rb =
+                self.http.request(method.clone(), format!("{}{path}", self.base)).bearer_auth(&self.key).header("user-agent", "zcash-receipts-rust/0.1");
             if let Some(k) = &idem {
                 rb = rb.header("idempotency-key", k);
             }

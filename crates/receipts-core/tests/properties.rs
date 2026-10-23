@@ -81,7 +81,9 @@ fn random_receipt(r: &mut Rng) -> Receipt {
         outputs: (0..r.below(4)).map(|_| OutputDisclosure { index: r.below(100) as u32, ock: r.bytes() }).collect(),
         // Opened outputs only in some receipts, so v5 is exercised and every other version too.
         opened: if r.below(3) == 0 {
-            (0..1 + r.below(3)).map(|_| OpenedOutput { index: r.below(100) as u32, address: r.bytes(), value: r.u64(), psi: r.bytes(), rcm: r.bytes() }).collect()
+            (0..1 + r.below(3))
+                .map(|_| OpenedOutput { index: r.below(100) as u32, address: r.bytes(), value: r.u64(), psi: r.bytes(), rcm: r.bytes() })
+                .collect()
         } else {
             vec![]
         },
@@ -265,7 +267,13 @@ fn all_signing_domains_are_distinct() {
         include_str!("../src/reserve.rs"),
     ]
     .concat();
-    let mut tags: Vec<&str> = src.match_indices("signing_personal(b\"").map(|(i, m)| { let rest = &src[i + m.len()..]; &rest[..rest.find('"').unwrap()] }).collect();
+    let mut tags: Vec<&str> = src
+        .match_indices("signing_personal(b\"")
+        .map(|(i, m)| {
+            let rest = &src[i + m.len()..];
+            &rest[..rest.find('"').unwrap()]
+        })
+        .collect();
     assert_eq!(tags.len(), 5, "{tags:?}");
     tags.sort();
     tags.dedup();

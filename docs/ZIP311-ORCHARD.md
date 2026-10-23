@@ -74,8 +74,7 @@ For each spend to disclose, at index `i` of the payment bundle, spending note `n
    `cvNet := ValueCommit_rcv(v(n) - 0)`, `cmx` := the dummy note's `x(cm)`.
 3. Prove the Action statement under the post-NU6.3 Orchard circuit, whatever the payment's height
    (earlier circuit versions MUST NOT be used: the pre-NU6.2 circuit is unsound), with public
-   inputs `(rt, cvNet, nf_i, rk, cmx, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)`
-   (SPEC.md writes the last flag as `disableCrossAddress = 0`; it is the same input).
+   inputs `(rt, cvNet, nf_i, rk, cmx, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)`.
 4. After all spends are proven and `unsigned` is encoded, sign `digest` with
    `rsk := SpendAuthSig.RandomizePrivate(alpha, ask)`, one signature per spend, in spend order.
 

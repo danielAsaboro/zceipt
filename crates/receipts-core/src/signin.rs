@@ -7,9 +7,7 @@
 //! the revealed note, uses the one-leaf tree root as the anchor, and checks proof and
 //! signature. Binding the domain and a single-use nonce stops replay to another site or later.
 
-use crate::{
-    address_proof, random_scalar, signing_personal, verify_address_proof, AddressProof, Error, Pool,
-};
+use crate::{address_proof, random_scalar, signing_personal, verify_address_proof, AddressProof, Error, Pool};
 use blake2b_simd::Params;
 use orchard::{
     circuit::{ProvingKey, VerifyingKey},

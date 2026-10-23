@@ -67,7 +67,15 @@ pub struct Verification {
 }
 
 /// Builds the `checks` object and verdict for a verification.
-pub fn levels(mined_height: u32, tip: Option<u32>, outputs: usize, spends: usize, challenge: Option<&str>, expected_challenge: Option<&str>, sender_addresses: usize) -> (&'static str, serde_json::Value) {
+pub fn levels(
+    mined_height: u32,
+    tip: Option<u32>,
+    outputs: usize,
+    spends: usize,
+    challenge: Option<&str>,
+    expected_challenge: Option<&str>,
+    sender_addresses: usize,
+) -> (&'static str, serde_json::Value) {
     let confirmations = tip.map(|t| t.saturating_sub(mined_height) + 1);
     let fin = receipts_chain::chain::FINALITY_CONFIRMATIONS;
     let finality = match confirmations {
@@ -161,7 +169,10 @@ pub async fn verify_batch_checked(net: Net, server: Option<&str>, text: &str, ex
             return Err(ApiError::verification("wrong_payee", "no disclosed output in the batch paid expect_address"));
         }
         if expect.min_zatoshis.is_some_and(|m| paid < m) {
-            return Err(ApiError::verification("insufficient_amount", format!("the batch paid {paid} zatoshis to expect_address, less than {}", expect.min_zatoshis.unwrap())));
+            return Err(ApiError::verification(
+                "insufficient_amount",
+                format!("the batch paid {paid} zatoshis to expect_address, less than {}", expect.min_zatoshis.unwrap()),
+            ));
         }
         body["paid_to_expected"] = paid.into();
     }
@@ -210,8 +221,14 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
         .iter()
         .filter(|(id, s)| s.height <= height && **id != u.txid)
         .flat_map(|(id, s)| {
-            let o = s.tx.orchard_bundle().into_iter().flat_map(move |b| b.actions().iter().enumerate().map(move |(i, a)| ((*id, 0u8, i as u32), a.cmx().to_bytes())));
-            let w = s.tx.ironwood_bundle().into_iter().flat_map(move |b| b.actions().iter().enumerate().map(move |(i, a)| ((*id, 1u8, i as u32), a.cmx().to_bytes())));
+            let o =
+                s.tx.orchard_bundle()
+                    .into_iter()
+                    .flat_map(move |b| b.actions().iter().enumerate().map(move |(i, a)| ((*id, 0u8, i as u32), a.cmx().to_bytes())));
+            let w =
+                s.tx.ironwood_bundle()
+                    .into_iter()
+                    .flat_map(move |b| b.actions().iter().enumerate().map(move |(i, a)| ((*id, 1u8, i as u32), a.cmx().to_bytes())));
             o.chain(w).collect::<Vec<_>>()
         })
         .collect();
@@ -227,9 +244,9 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
             let lookup = |pool: Pool, id: &[u8; 32], index: u32| source_cmx.get(&(*id, u8::from(pool == Pool::Ironwood), index)).copied();
             receipts_core::verify_tx_bundles_with_sources(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref(), &lookup)
         })
-            .await
-            .map_err(|e| ApiError::internal(e.to_string()))?
-            .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))?
+        .map_err(|e| ApiError::verification("receipt_invalid", e.to_string()))?
     };
     let message = String::from_utf8_lossy(&v.msg).into_owned();
     let tip = chain::chain_tip(net, server).await.ok();
@@ -257,7 +274,9 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
             let mut id = [0u8; 32];
             hex::decode_to_slice(&tx2_id, &mut id).map_err(|_| ApiError::verification("receipt_invalid", "bad second-tx id"))?;
             id.reverse();
-            let (tx2, _) = chain::fetch_mined_tx(net, server, id).await.map_err(|e| ApiError::verification("transaction_not_found", format!("the deposit's second transaction: {e}")))?;
+            let (tx2, _) = chain::fetch_mined_tx(net, server, id)
+                .await
+                .map_err(|e| ApiError::verification("transaction_not_found", format!("the deposit's second transaction: {e}")))?;
             let d = receipts_chain::deposit::check(receipt, &message, receipts_chain::deposit::network_type(net), &tx, &tx2)
                 .map_err(|e| ApiError::verification("receipt_invalid", format!("exchange deposit: {e}")))?;
             Some(d.to_json())
@@ -300,9 +319,18 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
 }
 
 /// Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid).
-pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_address: Option<&str>, challenge: Option<&str>, min_zatoshis: Option<u64>) -> Result<serde_json::Value, ApiError> {
-    let body = extract(text, receipts_core::incoming::INCOMING_TEXT_PREFIX).ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcin1… receipt found").param("receipt"))?;
-    let r = receipts_core::incoming::IncomingReceipt::from_text(&body).ok_or_else(|| ApiError::invalid("receipt_malformed", "malformed incoming receipt").param("receipt"))?;
+pub async fn verify_incoming(
+    net: Net,
+    server: Option<&str>,
+    text: &str,
+    expect_address: Option<&str>,
+    challenge: Option<&str>,
+    min_zatoshis: Option<u64>,
+) -> Result<serde_json::Value, ApiError> {
+    let body = extract(text, receipts_core::incoming::INCOMING_TEXT_PREFIX)
+        .ok_or_else(|| ApiError::invalid("receipt_malformed", "no zrcin1… receipt found").param("receipt"))?;
+    let r = receipts_core::incoming::IncomingReceipt::from_text(&body)
+        .ok_or_else(|| ApiError::invalid("receipt_malformed", "malformed incoming receipt").param("receipt"))?;
     if (r.coin_type == COIN_TYPE_MAINNET) != (net == Net::Main) {
         return Err(ApiError::invalid("receipt_network_mismatch", "this receipt is for another network than the key serves").param("receipt"));
     }
@@ -330,7 +358,8 @@ pub async fn verify_incoming(net: Net, server: Option<&str>, text: &str, expect_
     }
     let recipient = chain::encode_orchard_receiver(net, v.recipient);
     if let Some(want) = expect_address {
-        if chain::orchard_receiver_on(net.name(), want).map_err(|e| ApiError::invalid("address_invalid", e.to_string()).param("expect_address"))? != v.recipient {
+        if chain::orchard_receiver_on(net.name(), want).map_err(|e| ApiError::invalid("address_invalid", e.to_string()).param("expect_address"))? != v.recipient
+        {
             return Err(ApiError::verification("address_mismatch", "the receipt proves a different receiving address"));
         }
     }
@@ -442,7 +471,10 @@ mod tests {
         let (v, c) = levels(100, Some(109), 1, 1, Some("ab12cd"), Some("ab12cd"), 0);
         assert_eq!((v, c["finality"].as_str(), c["confirmations"].as_u64(), c["challenge"].as_str()), ("valid", Some("final"), Some(10), Some("matched")));
         let (v, c) = levels(100, Some(108), 1, 1, Some("ab12cd"), Some("ffffff"), 1);
-        assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str(), c["sender_address"].as_str()), ("valid_provisional", Some("provisional"), Some("mismatch"), Some("proven")));
+        assert_eq!(
+            (v, c["finality"].as_str(), c["challenge"].as_str(), c["sender_address"].as_str()),
+            ("valid_provisional", Some("provisional"), Some("mismatch"), Some("proven"))
+        );
         let (v, c) = levels(100, None, 0, 1, None, None, 0);
         assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str()), ("valid_provisional", Some("unknown"), Some("none")));
         assert_eq!(levels(100, Some(100), 1, 1, Some("ab12cd"), None, 0).1["challenge"], "present");

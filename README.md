@@ -124,6 +124,7 @@ let shown = verify_transaction(&vk, &receipt, Network::Mainnet.coin_type(), &tx)
 
 ## Status
 
+Sapling is out of scope: ZIP 311 already specifies it, and this fills its Orchard `TODO`.
 Unaudited. The construction has been reviewed only by its author
 ([CRYPTO-REVIEW.md](docs/CRYPTO-REVIEW.md), which found and fixed one forgery), and checked by
 the second verifier, mutation testing and fuzzing ([ASSURANCE.md](docs/ASSURANCE.md)). After

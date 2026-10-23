@@ -1,0 +1,124 @@
+# For wallet and protocol developers
+
+## The crate
+
+The core is one Rust crate on top of `orchard` and `zcash_primitives`:
+
+```rust
+// The sender's wallet, after paying: every proof, from the full viewing key alone.
+let witness = ViewingSpendWitness { index: 0, fvk, note, merkle_path, prove_address: None, source: None };
+let prepared = receipts_core::prepare(&pk, coin_type, Pool::Ironwood, &bundle, Pool::Ironwood, &bundle,
+    txid, b"Invoice 42", &[(1, ovk)], &[], &[witness], &mut rng)?;
+// The signer (here, or a hardware wallet given the unsigned receipt and the randomizers).
+let sigs = receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?;
+let link = prepared.apply_signatures(sigs)?.to_text(); // "zip311r1…"
+
+// Anyone, with the mined transaction's bundle:
+let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool::Ironwood, txid, &bundle)?;
+```
+
+- **Inside a wallet:** the proofs need only the full viewing key (`receipts_core::prepare`); the
+  spend authorizing key signs afterwards, so the key can stay on a hardware wallet. The device is
+  given the unsigned receipt and the randomizers, never a digest: it computes the digest itself,
+  checks each `rk` against its key and shows what it signs (`receipts_core::sign_prepared` is the
+  reference signer). A device that signed digests handed to it could be made to authorize a spend.
+  From the CLI: `receipts create -w <watch-only wallet> --txid … --unsigned r.txt` makes the
+  proofs with no key, and `receipts sign r.txt -w <wallet> -i <identity>` signs on the machine
+  that holds it, from `keys.toml` alone. The core builds on stock
+  `orchard` 0.16 (`scripts/check-stock-orchard.sh`). `crates/receipts-wallet` makes receipts from
+  a seed phrase or viewing key (`prepare_receipt_from_keys`) or a zcash-devtool wallet database.
+  A `zcash-devtool wallet receipt --txid …` command is 137 lines on top of it, but devtool itself
+  first needs a port to the NU7 librustzcash this workspace pins: together they are a 6,628-line
+  patch that also drops 65 devtool files ([integrations/zcash-devtool](../integrations/zcash-devtool)).
+- **The spec:** [ZIP311-ORCHARD.md](ZIP311-ORCHARD.md) is the normative core (encoding,
+  creation, every verification rule, rationale) written as text for ZIP 311's Orchard `TODO`;
+  [SPEC.md](SPEC.md) adds the extensions. [ZIP311-TODOS.md](ZIP311-TODOS.md) maps each
+  open item in ZIP 311 to what we chose, and [SPEC-AMBIGUITIES.md](SPEC-AMBIGUITIES.md)
+  lists where the specs are silent.
+- **Conformance:** [276 vectors](../conformance/README.md): 12 valid receipts from 7 real Orchard and
+  Ironwood transactions, their mutations, and "was I paid" expectations,
+  run by the native and WebAssembly builds and the npm package.
+- **A second implementation of the verifier, written from the protocol specification** in Python,
+  with no shared code
+  ([spec-verifier](../spec-verifier)). It checks everything except the Halo 2 proof itself (it
+  rebuilds the proof's public inputs), agrees on all 276 vectors and on 232 adversarial
+  receipts (the 9 that only the Halo 2 check rejects get the same public inputs), and its
+  primitives match the Zcash test vectors:
+  `python3 -m unittest discover -s spec-verifier/tests`.
+- **Assurance:** mutation testing of the core, fuzzing of the receipt and batch decoders (plus a
+  panic-freedom pass over every decoder in `cargo test`), Miri on the encoding, and a
+  self-found forgery (address proofs trusted a prover-chosen value commitment), fixed, with the
+  forged artifacts kept as must-fail vectors: [ASSURANCE.md](ASSURANCE.md),
+  [CRYPTO-REVIEW.md](CRYPTO-REVIEW.md).
+- **Bindings:** the browser verifier (WebAssembly, no server), an npm package and
+  `<zcash-receipt>` web component, a CLI, and a REST API with SDKs for TypeScript, Python, Rust
+  and Go.
+- **A small patch to `orchard` 0.16** (about 60 lines, no circuit change) that this workspace
+  applies for its own binaries, behind receipts-core's `orchard-ext` feature: precomputed
+  verifier parameters (about 2.7x faster key building), incoming receipts and memo-withheld outputs. A
+  crate that depends on receipts-core gets stock `orchard` and everything else
+  ([vendor/README.md](../vendor/README.md), `scripts/check-stock-orchard.sh`).
+
+Sapling is out of scope: wallets now pay from Orchard and Ironwood, and ZIP 311 already
+specifies Sapling.
+
+## What a receipt proves, precisely
+
+| | Revealed | How it is checked |
+|---|---|---|
+| Recipient, amount and memo of each chosen output | yes | The output's `ock` opens the on-chain ciphertext; the note commitment must equal the on-chain `cmx` |
+| The holder of the spend authority used in the payment made this receipt | yes | A fresh Halo 2 Action proof for the spent note (same anchor, same nullifier as on chain, fresh `rk` and `cv_net`) and a spend-authorization signature over the whole receipt |
+| A message (invoice number, verifier's challenge) | yes | Covered by the signature |
+| Payer's address, balance, other notes and transactions | no | Never included |
+| That the transaction was mined | on a lightwalletd server's word | The verifier fetches it from a lightwalletd server; `receipts verify --cross-check <server>` confirms the block with a second one |
+| That the payee is someone else | no | The sender chooses which outputs to disclose (change discloses like any output); verifiers check the recipient they expect |
+
+Output disclosure alone (an `ock`, or a note opening) can be made by anyone who saw the payment
+with a viewing key. The spend proof is what makes it the payer's receipt: ZIP 311 calls a
+disclosure complete only with it. Exact claim, assumptions and limits:
+[CLAIM.md](CLAIM.md). Construction: [SPEC.md](SPEC.md).
+
+## Beyond one payment
+
+Each of these is built, tested, and proven on testnet or a regtest chain. Commands and evidence
+are in [FEATURES.md](FEATURES.md).
+
+- **Proof requests:** a verifier's challenge is signed into the receipt, so an old receipt can't be replayed.
+- **Batches:** one link for many payments, each signing its place, with a total that can't count a payment twice.
+- **Sender address, optional:** `--prove-address` proves the payer also controls a public address.
+- **Source of funds:** `--prove-source` proves which earlier output created each spent note, for exchanges that refuse shielded deposits today.
+- **Memo withheld:** `--withhold-memo` proves recipient and amount and keeps the memo encrypted.
+- **Incoming receipts:** the recipient proves it was paid, without an incoming viewing key.
+- **Cross-pool:** Orchard spends paying Ironwood outputs, as wallets do after NU6.3.
+- **Also:** signed payment requests, refunds, attestations, Sign in with Zcash, proof of funds, ZIP 320 TEX deposits, and an API with webhooks for shops.
+
+## Evidence on the public testnet
+
+| Claim | Evidence |
+|---|---|
+| A real Ironwood payment and its receipt | tx [`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73), block 4,500,997; [examples/testnet/receipt.txt](../examples/testnet/receipt.txt) |
+| Verified by the CLI and in the browser | `receipts verify @examples/testnet/receipt-link.txt` → VALID in a few seconds, fetched by block (the link's `&h=`); the page → VERIFIED |
+| An edited receipt is refused | [examples/testnet/receipt-edited.txt](../examples/testnet/receipt-edited.txt) → `the signature for action 0 is invalid` |
+| A challenge answered; a replayed receipt refused | [request-answer-link.txt](../examples/testnet/request-answer-link.txt) → REQUEST SATISFIED; an older receipt → NOT SATISFIED |
+| Sender address proven; another wallet's address refused | [receipt-with-sender-address.txt](../examples/testnet/receipt-with-sender-address.txt) |
+| A batch of three payments as one link | [examples/testnet/batch.txt](../examples/testnet/batch.txt), total 0.022 ZEC |
+| Source of funds, memo withheld, incoming receipt, signed request, refund, TEX deposit | [examples/testnet](../examples/testnet) and its README |
+
+`./scripts/check-all.sh` runs every check that needs no build, including the verifier page in headless Chrome, in about two minutes.
+`./scripts/e2e-regtest.sh` replays the whole story on a private Zebra regtest chain (needs
+Docker, lightwalletd and zcash-devtool). Everything else runs with `cargo test --release`.
+
+## Repository
+
+| Path | What |
+|---|---|
+| `crates/receipts-core` | create and verify receipts; encoding; tests |
+| `crates/receipts-chain` | lightwalletd access, on-chain verification, Merkle path rebuild |
+| `crates/receipts-wallet` | receipts from a zcash-devtool wallet |
+| `crates/receipts-cli` | the `receipts` command |
+| `crates/receipts-wasm`, `web/` | the browser verifier |
+| `crates/receipts-server`, `crates/receipts-client`, `packages/` | REST API and SDKs |
+| `spec-verifier/` | the independent Python verifier |
+| `conformance/` | shared test vectors |
+| `docs/` | spec, claim, threat model, assurance, guides |
+| `vendor/orchard` | `orchard` 0.16.0, plus the patch described in `vendor/README.md` |

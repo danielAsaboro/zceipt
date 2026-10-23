@@ -694,6 +694,7 @@ async fn docs_page() -> Html<&'static str> {
 /// Docs served as Markdown, so people and AI agents read the same text (`/docs/<name>.md`).
 const DOCS: &[(&str, &str)] = &[
     ("QUICKSTART.md", include_str!("../../../docs/QUICKSTART.md")),
+    ("DEVELOPERS.md", include_str!("../../../docs/DEVELOPERS.md")),
     ("ERRORS.md", include_str!("../../../docs/ERRORS.md")),
     ("WEBHOOKS.md", include_str!("../../../docs/WEBHOOKS.md")),
     ("SANDBOX.md", include_str!("../../../docs/SANDBOX.md")),

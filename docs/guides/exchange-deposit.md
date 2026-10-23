@@ -45,7 +45,7 @@ receipts pay '<hosted_url>' -w ./wallet -i ./wallet.age --refund-to fresh
 desk, signs a fresh refund address of the wallet into the receipt, and waits for the payment by
 syncing the wallet (the chain server never learns which transaction it is waiting for). Wallets
 that embed receipts-core make the same receipt with `prepare` (viewing key) and a signature from
-wherever the spending key lives ([README](../../README.md#for-wallet-and-protocol-developers)).
+wherever the spending key lives ([DEVELOPERS.md](../DEVELOPERS.md)).
 
 ## 4. What the desk decides
 

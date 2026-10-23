@@ -37,7 +37,8 @@ try {
   await send("Page.enable");
   await send("Emulation.setDeviceMetricsOverride", { width: 375, height: 812, deviceScaleFactor: 2, mobile: true });
   await send("Page.navigate", { url });
-  await until(`!!document.querySelector('#sampleReal')`, 20);
+  // The buttons exist before the page's script has wired them: wait for the handler.
+  await until(`!!document.querySelector('#sampleReal')?.onclick`, 60);
   await evaluate(`document.querySelector('#sampleReal').click()`);
   // The first check also loads the verifier (3 to 10 s, longer on a busy machine) and the block.
   const real = await until(`(${resultText}).match(/VERIFIED|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0]`, 180);

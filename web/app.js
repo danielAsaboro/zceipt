@@ -3,10 +3,12 @@
 // (the block's transaction list and the transactions themselves); the explorer link is only
 // followed if clicked.
 
-const ENDPOINTS = {
-  mainnet: "https://zcash-mainnet.chainsafe.dev",
-  testnet: "https://zcash-testnet.chainsafe.dev",
+// grpc-web servers that allow browser (CORS) requests, tried in order. Settings overrides them.
+const ENDPOINT_LISTS = {
+  mainnet: ["https://zcash-mainnet.chainsafe.dev"],
+  testnet: ["https://zcash-testnet.chainsafe.dev"],
 };
+const ENDPOINTS = Object.fromEntries(Object.entries(ENDPOINT_LISTS).map(([k, v]) => [k, v[0]]));
 const EXPLORER = {
   mainnet: (t) => `https://cipherscan.app/tx/${t}`,
   testnet: (t) => `https://testnet.cipherscan.app/tx/${t}`,
@@ -39,7 +41,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS } from "./samples.js";
+import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX } from "./samples.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 const quick = async (op, args) => {
@@ -205,6 +207,7 @@ function localBadge() {
   const f = fetchMode || {};
   const sees =
     f.mode === "offline" ? "No server was contacted: you supplied the transaction."
+    : f.mode === "offline-sample" ? "No server answered, so nothing about this check reached one."
     : f.mode === "block" ? (f.set < 4
       ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()}, which has only ${f.set} transaction${f.set === 1 ? "" : "s"} that could carry a receipt, so it can narrow the one you checked down to ${f.set === 1 ? "it" : "those"}.`
       : `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and the ${f.set} transactions in it that could carry a receipt, not which one you checked.`)
@@ -233,7 +236,7 @@ function render(v, net) {
         <span class="k">PAID</span>
         <span class="v amount">${zec(o.zatoshis)} <small>${UNIT}</small></span>
       </div>
-      <div class="line"><span class="k">TO</span><span class="v mono addr" title="${o.recipient}">${short(o.recipient, 14)}<br><small class="hint">the payee's shielded receiver; it can look different from the address they shared, so check it below</small></span></div>
+      <div class="line"><span class="k">TO</span><span class="v mono addr" title="${o.recipient}">${short(o.recipient, 14)}</span></div>
       ${o.memo ? `<div class="line"><span class="k">MEMO</span><span class="v memo">“${escapeHtml(o.memo)}”</span></div>` : o.memo_withheld ? `<div class="line"><span class="k">MEMO</span><span class="v"><small>withheld by the sender (the receipt can't open it)</small></span></div>` : ""}
       <div class="dash"></div>`
     )
@@ -248,7 +251,10 @@ function render(v, net) {
       <div class="dash"></div>
       ${rows}
       <div class="line"><span class="k">TX</span>${EXPLORER[v.network] ? `<a class="v mono" target="_blank" rel="noreferrer noopener" href="${EXPLORER[v.network](v.txid)}">${short(v.txid, 8)}</a>` : `<span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span>`}</div>
-      ${fetchMode && fetchMode.mode === "offline"
+      ${fetchMode && fetchMode.mode === "offline-sample"
+        ? `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()} <small>(published with the sample, not checked)</small></span></div>
+      <p class="fine">Checked offline: no chain server answered, so this sample was checked against its published transaction (testnet ${short(v.txid, 6)}). The proof and signature are real; that the transaction is in the chain was not checked this time.</p>`
+        : fetchMode && fetchMode.mode === "offline"
         ? `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()} <small>(as you gave it, not checked)</small></span></div>
       <p class="fine">Offline check: this receipt matches the transaction you pasted. Whether that transaction was mined was not checked; fetch it from a server to confirm.</p>`
         : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>${fetchMode && fetchMode.time ? `<div class="line"><span class="k">DATE</span><span class="v">${new Date(fetchMode.time * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })} <small>(block time)</small></span></div>` : ""}`}
@@ -354,19 +360,38 @@ async function run(receiptText) {
       fetchMode = { mode: "offline" };
       setStep("fetch", "done", "using the transaction you pasted");
     } else {
-      const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[summary.network]);
-      if (!endpoint) throw new Error(`no ${summary.network} server set; open Settings`);
+      const custom = $("#endpoint").value.trim();
+      const endpoints = custom ? [custom] : regtest() ? [location.origin] : ENDPOINT_LISTS[summary.network] || [];
+      if (!endpoints.length) throw new Error(`no ${summary.network} server set; open Settings`);
       const hint = heightHint(location.hash);
-      if (hint) {
-        // Fetch the payment among up to 64 shielded transactions of its block: the server learns the
-        // block, not which transaction is checked.
-        tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
-        fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, time: tx.blockTime };
-        setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
-      } else {
-        tx = await fetchRawTx(endpoint, summary.txid);
-        fetchMode = { mode: "txid", host: new URL(endpoint).host };
-        setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
+      let lastError;
+      for (const endpoint of endpoints) {
+        try {
+          if (hint) {
+            // Fetch the payment among up to 64 shielded transactions of its block: the server learns
+            // the block, not which transaction is checked.
+            tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
+            fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, time: tx.blockTime };
+            setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
+          } else {
+            tx = await fetchRawTx(endpoint, summary.txid);
+            fetchMode = { mode: "txid", host: new URL(endpoint).host };
+            setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
+          }
+          break;
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      if (!tx) {
+        // The samples carry their published transaction: check them offline rather than fail.
+        if ([SAMPLE_REAL, SAMPLE_EDITED].includes(receiptText)) {
+          tx = { raw: hexToBytes(SAMPLE_TX), height: SAMPLE_HEIGHT };
+          fetchMode = { mode: "offline-sample" };
+          setStep("fetch", "done", "no chain server answered; using the sample's published transaction");
+        } else {
+          throw lastError;
+        }
       }
     }
   } catch (e) {

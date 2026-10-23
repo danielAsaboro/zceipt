@@ -46,6 +46,13 @@ try {
   await evaluate(`document.querySelector('#sampleEdited').click()`);
   const edited = await until(`(${resultText}).includes('NOT VALID') ? 'NOT VALID' : ''`, 60);
   check(edited === "NOT VALID", "edited copy shows NOT VALID");
+  // No chain server reachable: the sample is still checked, offline, and says so.
+  await evaluate(`document.querySelector('#endpoint').value = 'http://127.0.0.1:9'; location.hash = ''; true`);
+  await sleep(300);
+  await evaluate(`document.querySelector('#sampleReal').click()`);
+  const offline = await until(`(${resultText}).includes('Checked offline') ? 'offline' : ''`, 90);
+  check(offline === "offline" && (await evaluate(`(${resultText}).includes('VERIFIED')`)), "with no chain server the sample is checked offline and labelled");
+  await evaluate(`document.querySelector('#endpoint').value = ''; true`);
   // The committed answer to a payment request: valid, signs the request, pays enough.
   const answer = readFileSync(new URL("../examples/testnet/request-answer-link.txt", import.meta.url), "utf8").trim();
   await send("Page.navigate", { url: url.replace(/#.*$/, "") + "#" + answer.split("#")[1] });

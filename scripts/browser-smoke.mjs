@@ -119,12 +119,15 @@ try {
     await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
     await evaluate(`location.hash = ''; document.querySelector('#sampleReal').click(); true`);
     await until(`(${resultText}).includes('PAID TO YOU') ? 'x' : ''`, 30);
+    // Past the card's fade-in, so the shot shows it as a reader sees it.
     await evaluate(`window.scrollTo(0, 0); true`);
+    await sleep(1500);
     await shot("verified.png");
     await evaluate(`document.querySelector('#sampleEdited').click(); true`);
     await sleep(500);
     await until(`(${resultText}).includes('NOT VALID') ? 'x' : ''`, 60);
     await evaluate(`window.scrollTo(0, 0); true`);
+    await sleep(1500);
     await shot("refused.png");
     console.log(`screenshots written to ${process.env.SHOTS}`);
   }

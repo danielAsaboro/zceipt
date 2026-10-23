@@ -327,3 +327,31 @@ def verify_reserve(text: str, expected_coin_type: int, chain_anchor: bytes):
     if pl.repr_p(acc) != pl.repr_p(o.value_commit(rcv, total)):
         raise Invalid("the notes' value commitments don't add up to the stated total")
     return {"total": total, "height": r.height, "notes": out}
+
+
+def screened_set_root(leaves) -> bytes:
+    """The root of the depth-32 tree whose leaves are the given note commitments, in order, with
+    empty subtrees elsewhere (the commitment tree's shape)."""
+    if not leaves:
+        raise Invalid("an empty screened list")
+    level = [_canonical_base(c, "listed cmx") for c in leaves]
+    empty = o.empty_roots()
+    for h in range(o.MERKLE_DEPTH):
+        layer = o.MERKLE_DEPTH - 1 - h
+        level = [o.merkle_crh(layer, level[i], level[i + 1] if i + 1 < len(level) else empty[h]) for i in range(0, len(level), 2)]
+    return level[0].to_bytes(32, "little")
+
+
+def check_screened(text: str, leaves, rk: bytes, nf: bytes, coin_type: int, txid: bytes):
+    """A screened-set proof for the spend with key rk and nullifier nf (both from the verified
+    receipt and its transaction): the root is computed here from the trusted list, and cv_net
+    is fixed to ValueCommit_0(floor). Halo 2 is not checked: returns the public inputs it needs."""
+    p = rc.decode_screened(text)
+    if p.coin_type != coin_type or p.txid != txid:
+        raise Invalid("screened-set proof is for another receipt")
+    root = screened_set_root(leaves)
+    if root != p.set_root:
+        raise Invalid("the list's root is not the one the proof was made for")
+    _canonical_base(p.cmx, "screened proof cmx")
+    return {"anchor": root.hex(), "cv_net": pl.repr_p(o.value_commit(0, p.floor)).hex(), "nf": nf.hex(), "rk": rk.hex(),
+            "cmx": p.cmx.hex(), "floor": p.floor, "proof": "not checked"}

@@ -37,12 +37,12 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    published at output `k`; if the proof reveals a value `v`, that note carried exactly `v`.
 7. **Screened set (optional, a separate `zip311s1` proof).** For a list `L` of note commitments
    whose tree root the verifier computes itself, the note spent by action `i` of `T` (the one
-   whose nullifier the action published, under the receipt's `rk`) is one of `L`'s notes. Which
-   one is not revealed: the proof's public inputs are the root, `ValueCommit_0(1)` fixed by the
-   verifier, the nullifier, `rk` and a fresh output commitment. `src/screened.rs`;
+   whose nullifier the action published, under the receipt's `rk`) is one of `L`'s notes and held
+   at least the proof's `floor`. Which one, and its value, are not revealed: the proof's public
+   inputs are the root, `ValueCommit_0(floor)` fixed by the verifier, the nullifier, `rk` and a fresh output commitment. `src/screened.rs`;
    `roundtrip.rs::screened_set_proof_shows_membership_not_which_member`. It covers the spends the
-   receipt proves (the payer's own), not inputs other parties added to the transaction, and says
-   only that each such note held at least 1 zatoshi, not how much it held.
+   receipt proves (the payer's own), not inputs other parties added to the transaction, and shows
+   only a lower bound (the floor) on each such note's value.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

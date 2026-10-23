@@ -230,6 +230,8 @@ pub struct Report {
 pub struct ScreenedSet {
     pub root: String,
     pub size: usize,
+    /// At least this much of the spent notes' value came from the list (zatoshis).
+    pub covered_zatoshis: u64,
 }
 
 /// Checks screened-set proofs (`zip311s1…`, one per spend) for a receipt `report` came from,
@@ -241,7 +243,8 @@ pub fn check_screened(report: &mut Report, receipt: &Receipt, proofs: &[receipts
         let p = proofs.iter().find(|p| p.index == *index).ok_or_else(|| anyhow!("no screened-set proof for the spend in action {index}"))?;
         receipts_core::screened::verify(vk, receipt, nf, p, set).map_err(|e| anyhow!("{e}"))?;
     }
-    report.screened_set = Some(ScreenedSet { root: hex::encode(receipts_core::screened::set_root(set)?), size: set.len() });
+    let covered = report.spend_nullifiers.iter().filter_map(|(i, _)| proofs.iter().find(|p| p.index == *i)).map(|p| p.floor).sum();
+    report.screened_set = Some(ScreenedSet { root: hex::encode(receipts_core::screened::set_root(set)?), size: set.len(), covered_zatoshis: covered });
     Ok(())
 }
 
@@ -337,7 +340,7 @@ impl Report {
         }
         println!("  sender    proved spend authority for action(s) {:?}", self.proven_spend_actions);
         if let Some(set) = &self.screened_set {
-            println!("  funds     each spend this receipt proves used a note from the screened list of {} outputs (root {}…), not saying which", set.size, &set.root[..16]);
+            println!("  funds     each spend this receipt proves used a note from the screened list of {} outputs (root {}…), not saying which; at least {} {} of their value came from it", set.size, &set.root[..16], zec(set.covered_zatoshis), unit(self.network));
         }
         for a in &self.sender_addresses {
             println!("  from      {a} (the receipt's signer controls it)");

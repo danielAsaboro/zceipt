@@ -1570,16 +1570,29 @@ fn screened_set_proof_shows_membership_not_which_member() {
     let others: Vec<[u8; 32]> = s.payment.actions().iter().chain(s.funding.actions()).map(|a| a.cmx().to_bytes()).filter(|c| *c != mine).collect();
     let mut set = others.clone();
     set.insert(1, mine);
-    let p = screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &set, alpha, &rk, &mut rng).unwrap();
+    let p = screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &set, 60_000, alpha, &rk, &mut rng).unwrap();
     let nf = s.payment.actions()[s.spend_index].nullifier().to_bytes();
     let back = screened::ScreenedProof::from_text(&p.to_text()).unwrap();
     assert_eq!(back, p);
     screened::verify(&keys().1, &receipt, &nf, &back, &set).unwrap();
+    // RECEIPTS_WRITE_FIXTURES=1 refreshes the copy the independent Python verifier checks.
+    if std::env::var_os("RECEIPTS_WRITE_FIXTURES").is_some() {
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let fixture = format!(
+            "{{\"proof\": \"{}\", \"set\": [{}], \"rk\": \"{}\", \"nf\": \"{}\", \"txid\": \"{}\"}}\n",
+            p.to_text(),
+            set.iter().map(|c| format!("\"{}\"", hex(c))).collect::<Vec<_>>().join(", "),
+            hex(&receipt.unsigned.spends[0].rk),
+            hex(&nf),
+            hex(&TXID)
+        );
+        std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec-verifier/tests/screened.json"), fixture).unwrap();
+    }
     // The proof names the set's root, not the member.
     assert!(!p.to_bytes().windows(32).any(|w| w == mine));
 
     // A list without the note: no proof can be made, and this one doesn't verify against it.
-    assert!(matches!(screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &others, alpha, &rk, &mut rng), Err(Error::NotInSet)));
+    assert!(matches!(screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &others, 1, alpha, &rk, &mut rng), Err(Error::NotInSet)));
     assert!(screened::verify(&keys().1, &receipt, &nf, &p, &others).is_err());
     // Another action's nullifier, or a proof moved to another receipt, is refused.
     let other_nf = s.payment.actions()[1 - s.spend_index].nullifier().to_bytes();
@@ -1587,6 +1600,14 @@ fn screened_set_proof_shows_membership_not_which_member() {
     let mut moved = p.clone();
     moved.txid = [9; 32];
     assert!(screened::verify(&keys().1, &receipt, &nf, &moved, &set).is_err());
+    // The floor is part of the statement: a proof for 60,000 doesn't pass as one for more (or
+    // less), and no proof can claim more than the note held.
+    for lie in [60_001u64, 59_999, 100_000] {
+        let mut e = p.clone();
+        e.floor = lie;
+        assert!(screened::verify(&keys().1, &receipt, &nf, &e, &set).is_err(), "floor {lie} accepted");
+    }
+    assert!(screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &set, 100_001, alpha, &rk, &mut rng).is_err());
 }
 
 #[test]

@@ -153,6 +153,23 @@ class Testnet(unittest.TestCase):
         with self.assertRaises(v.Invalid):
             v.verify_reserve(lie, 1, bytes.fromhex(anchor))
 
+    def test_screened_set_proof(self):
+        """screened.json (written by roundtrip.rs::screened_set_proof_shows_membership_not_which_member):
+        the list's root, computed here with Sinsemilla, is the proof's; the value commitment is
+        fixed from the floor; a list without the note, or in another order, is refused."""
+        import json as _json
+        with open(os.path.join(os.path.dirname(__file__), "screened.json")) as f:
+            fx = _json.load(f)
+        leaves = [bytes.fromhex(c) for c in fx["set"]]
+        args = (bytes.fromhex(fx["rk"]), bytes.fromhex(fx["nf"]), 1, bytes.fromhex(fx["txid"]))
+        pi = v.check_screened(fx["proof"], leaves, *args)
+        self.assertEqual(pi["floor"], 60_000)
+        self.assertEqual(pi["anchor"], rc.decode_screened(fx["proof"]).set_root.hex())
+        with self.assertRaisesRegex(v.Invalid, "root"):
+            v.check_screened(fx["proof"], leaves[:1] + leaves[2:], *args)
+        with self.assertRaisesRegex(v.Invalid, "root"):
+            v.check_screened(fx["proof"], list(reversed(leaves)), *args)
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

@@ -282,7 +282,7 @@ pub async fn prepare_receipt(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-    screened_set: Option<&[[u8; 32]]>,
+    screened_set: Option<Screened<'_>>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let (net, fvk) = viewing_key(wallet)?;
     prepare_with(wallet, net, fvk, txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo, screened_set).await
@@ -314,6 +314,14 @@ fn viewing_key(wallet: &Path) -> anyhow::Result<(Net, FullViewingKey)> {
     let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&net, &ufvk).map_err(|e| anyhow!("decoding the wallet's viewing key: {e}"))?;
     let fvk = ufvk.orchard().cloned().ok_or_else(|| anyhow!("the wallet's viewing key has no Orchard part"))?;
     Ok((net, fvk))
+}
+
+/// A screened list to prove the spent notes came from, and optionally how much of them to show
+/// came from it (zatoshis; default 1 per note).
+#[derive(Clone, Copy)]
+pub struct Screened<'a> {
+    pub set: &'a [[u8; 32]],
+    pub amount: Option<u64>,
 }
 
 /// A spent note this account owns, found in the wallet database or by scanning the chain.
@@ -384,7 +392,7 @@ async fn prepare_with(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-    screened_set: Option<&[[u8; 32]]>,
+    screened_set: Option<Screened<'_>>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let db_path = wallet.join("data.sqlite");
     let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
@@ -469,7 +477,7 @@ pub async fn prepare_receipt_from_keys(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-    screened_set: Option<&[[u8; 32]]>,
+    screened_set: Option<Screened<'_>>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     // Without the payment's block, the scan runs to the tip and finds it in the compact blocks,
     // so no server is ever asked for the payment by its txid.
@@ -572,7 +580,7 @@ async fn build_prepared(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-    screened_set: Option<&[[u8; 32]]>,
+    screened_set: Option<Screened<'_>>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let coin_type = net.coin_type();
     let prove_address = match prove_address {
@@ -680,12 +688,25 @@ async fn build_prepared(
     let prepared = receipts_core::prepare(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?;
     // Screened-set proofs need each spend's randomizer, so they are made here, with the receipt.
     let mut screened = Vec::new();
-    if let Some(set) = screened_set {
+    if let Some(Screened { set, amount }) = screened_set {
         eprintln!("Proving each spent note is in the screened list of {} outputs…", set.len());
+        // How much each proof shows came from the list: 1 zatoshi each unless an amount is asked
+        // for, then the notes' values in spend order until it is covered (each at least 1).
+        let mut left = amount.unwrap_or(0);
+        let mut floors = Vec::with_capacity(spends.len());
+        for w in &spends {
+            let v = w.note.value().inner();
+            let f = v.min(left).max(1);
+            left -= left.min(v);
+            floors.push(f);
+        }
+        if left > 0 {
+            bail!("the spent notes hold less than the {} asked for", receipts_chain::chain::zec(amount.unwrap_or(0)));
+        }
         let mut rng = OsRng;
-        for ((w, alpha), s) in spends.iter().zip(prepared.alphas()).zip(&prepared.unsigned().spends) {
+        for (((w, alpha), s), floor) in spends.iter().zip(prepared.alphas()).zip(&prepared.unsigned().spends).zip(floors) {
             let rk = orchard::primitives::redpallas::VerificationKey::try_from(s.rk).map_err(|_| anyhow!("bad rk"))?;
-            screened.push(receipts_core::screened::prove(&pk, coin_type, pool, txid, s.index, fvk, w.note, set, *alpha, &rk, &mut rng).map_err(|e| match e {
+            screened.push(receipts_core::screened::prove(&pk, coin_type, pool, txid, s.index, fvk, w.note, set, floor, *alpha, &rk, &mut rng).map_err(|e| match e {
                 receipts_core::Error::NotInSet => anyhow!("the note spent in action {} is not in the screened list", s.index),
                 e => e.into(),
             })?);

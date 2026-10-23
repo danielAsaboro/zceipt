@@ -425,3 +425,38 @@ def decode_reserve(text: str) -> ReserveProof:
     if r.i != len(b):
         raise DecodeError("trailing bytes")
     return ReserveProof(coin_type, POOLS[pb], height, anchor, msg, notes, sigs, unsigned, hidden)
+
+
+@dataclass
+class ScreenedProof:
+    coin_type: int
+    pool: str
+    txid: bytes
+    index: int
+    floor: int
+    set_root: bytes
+    cmx: bytes
+    proof: bytes
+
+
+def decode_screened(text: str) -> ScreenedProof:
+    """zip311s1 + base64url of: "ZRCS" | 2 | coin_type u32 | pool u8 | txid[32] | index u32 |
+    floor u64 (>= 1) | set_root[32] | cmx[32] | proof (u32 len) (docs/SPEC.md)."""
+    s = text.strip()
+    if not s.startswith("zip311s1"):
+        raise DecodeError("not a zip311s1 screened-set proof")
+    b = b64decode(s[8:])
+    r = _R(b)
+    if r.take(4) != b"ZRCS" or r.take(1)[0] != 2:
+        raise DecodeError("bad screened-set proof magic or version")
+    coin_type = r.int(4)
+    pb = r.take(1)[0]
+    if pb not in POOLS:
+        raise DecodeError("unknown pool")
+    txid, index, floor = r.take(32), r.int(4), r.int(8)
+    if floor < 1:
+        raise DecodeError("floor must be at least 1")
+    set_root, cmx, proof = r.take(32), r.take(32), _proof(r)
+    if r.i != len(b):
+        raise DecodeError("trailing bytes")
+    return ScreenedProof(coin_type, POOLS[pb], txid, index, floor, set_root, cmx, proof)

@@ -290,22 +290,25 @@ published list of note commitments (for example the shield outputs an exchange h
 without saying which:
 
 ```
-proof := "ZRCS" | version:u8 = 1 | coin_type:u32le | pool:u8 | txid[32] | index:u32le
-         | set_root[32] | cmx[32] | proof_len:u32le | proof
+proof := "ZRCS" | version:u8 = 2 | coin_type:u32le | pool:u8 | txid[32] | index:u32le
+         | floor:u64le | set_root[32] | cmx[32] | proof_len:u32le | proof
 text  := "zip311s1" || base64url_nopad(proof)
 ```
 
 The list's commitments, in order, are the leaves of an Orchard-shaped tree of depth 32 (empty
 leaves and roots as in the commitment tree); `set_root` is its root. The proof is an Action proof
-with public inputs `(set_root, ValueCommit_0(1), nf, rk, cmx)`, where `nf` is the nullifier
+with public inputs `(set_root, ValueCommit_0(floor), nf, rk, cmx)`, where `nf` is the nullifier
 action `index` of the receipt's transaction published and `rk` is that spend's key in the
 receipt. The verifier computes the root from the list it trusts (never from the proof), fixes the
-value commitment (the hidden output carries `v - 1`, so `v >= 1` and the anchor is enforced), and
-requires a proof for every spend the receipt proves.
+value commitment from `floor` (at least 1; the hidden output carries `v - floor`, so the note
+held at least `floor` and the anchor is enforced), and requires a proof for every spend the
+receipt proves. The sum of the floors is how much of the spent value is shown to have come from
+the list (`create --screened-amount`), without any note's value.
 
-What it shows: each note the payer's spends used is one of the list's notes. What it doesn't:
-which one, how much it held beyond 1 zatoshi, or anything about inputs other parties added to
-the transaction. `receipts screened-list`, `create --screened-set`, `verify --screened-set`;
+What it shows: each note the payer's spends used is one of the list's notes, holding at least its
+floor. What it doesn't: which one, its value, or anything about inputs other parties added to the
+transaction. The independent spec verifier recomputes the root and the public inputs
+(`tests/test_testnet.py`). `receipts screened-list`, `create --screened-set`, `verify --screened-set`;
 `src/screened.rs`; `roundtrip.rs::screened_set_proof_shows_membership_not_which_member`; the
 regtest run proves and refuses one.
 

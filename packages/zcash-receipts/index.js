@@ -104,7 +104,8 @@ export async function verifyReceipt(input, options = {}) {
     if (hint && options.privateFetch !== false) {
       const r = await fetchTransactionPrivately(endpoint, summary.txid, hint, { maxSet: options.maxAnonymitySet, txidOf: txidOf(summary.network) });
       ({ raw, height } = r);
-      fetchInfo = { mode: "block", server: endpoint, anonymity_set: r.anonymitySet, sees: `block ${hint} and ${r.anonymitySet} of its transactions that could carry a receipt (each checked to exist there), not which one you checked` };
+      const where = r.blocks && r.blocks.length > 1 ? `blocks ${r.blocks[0]} to ${r.blocks[r.blocks.length - 1]}` : `block ${hint}`;
+      fetchInfo = { mode: "block", server: endpoint, anonymity_set: r.anonymitySet, blocks: r.blocks, sees: `${where} and ${r.anonymitySet} of ${r.blocks && r.blocks.length > 1 ? "their" : "its"} transactions that could carry a receipt (each checked to exist there), not which one you checked` };
     } else {
       ({ raw, height } = await fetchTransaction(endpoint, summary.txid));
       fetchInfo = { mode: "txid", server: endpoint, sees: "the transaction id you checked (add the h= hint or pass rawTx to avoid this)" };

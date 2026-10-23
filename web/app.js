@@ -159,6 +159,8 @@ function challengeIn(message) {
 }
 
 // ---------- UI ----------
+// "block 4,500,997", or "blocks 4,500,996 to 4,500,999" when a quiet block's run of 4 joined the cover.
+const blockRange = (f) => (f.blocks && f.blocks.length > 1 ? `blocks ${f.blocks[0].toLocaleString()} to ${f.blocks[f.blocks.length - 1].toLocaleString()}` : `block ${f.block.toLocaleString()}`);
 // The tab title carries the verdict of whatever card is showing (and any later change to it,
 // such as PAID TO YOU).
 new MutationObserver(() => {
@@ -235,8 +237,8 @@ function localBadge() {
     f.mode === "offline" ? "No server was contacted: you supplied the transaction."
     : f.mode === "offline-sample" ? "No server answered, so nothing about this check reached one."
     : f.mode === "block" ? (f.set < 4
-      ? `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()}, which has only ${f.set} transaction${f.set === 1 ? "" : "s"} that could carry a receipt, so it can narrow the one you checked down to ${f.set === 1 ? "it" : "those"}.`
-      : `${escapeHtml(f.host)} saw a request for block ${f.block.toLocaleString()} and the ${f.set} transactions in it that could carry a receipt, not which one you checked.`)
+      ? `${escapeHtml(f.host)} saw a request for ${blockRange(f)}, which ${f.blocks && f.blocks.length > 1 ? "have" : "has"} only ${f.set} transaction${f.set === 1 ? "" : "s"} that could carry a receipt, so it can narrow the one you checked down to ${f.set === 1 ? "it" : "those"}.`
+      : `${escapeHtml(f.host)} saw a request for ${blockRange(f)} and the ${f.set} transactions in ${f.blocks && f.blocks.length > 1 ? "them" : "it"} that could carry a receipt, not which one you checked.`)
     : f.mode === "batch-blocks" ? `${escapeHtml(f.host)} saw requests for ${f.blocks.length} block${f.blocks.length > 1 ? "s" : ""} (${f.set} transactions in all), not which transactions are in the batch. It can tell the requests came from one visitor at one time.`
     : f.mode === "batch-txids" ? `${escapeHtml(f.host)} saw the ids of all ${f.n} transactions you checked, together, so it can tell they belong to one batch. Links with <code>h=</code> block hints avoid this.`
     : `${escapeHtml(f.host || "The server")} saw which transaction you checked. Links with an <code>h=</code> block hint avoid this.`;
@@ -419,8 +421,8 @@ async function run(receiptText) {
             // the block, not which transaction is checked.
             await local;
             tx = await fetchTransactionPrivately(endpoint, summary.txid, hint, { txidOf: txidOf(summary.network) });
-            fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, time: tx.blockTime };
-            ok() && setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
+            fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, blocks: tx.blocks, time: tx.blockTime };
+            ok() && setStep("fetch", "done", `${blockRange(fetchMode)} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
           } else {
             tx = await fetchRawTx(endpoint, summary.txid);
             fetchMode = { mode: "txid", host: new URL(endpoint).host };
@@ -639,7 +641,7 @@ async function runIncoming(text) {
     const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
     const hint = heightHint(location.hash);
     tx = hint ? await fetchTransactionPrivately(endpoint, s.txid, hint, { txidOf: txidOf(s.network) }) : await fetchRawTx(endpoint, s.txid);
-    fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint } : { mode: "txid", host: new URL(endpoint).host };
+    fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, blocks: tx.blocks } : { mode: "txid", host: new URL(endpoint).host };
     ok() && setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
   } catch (e) {
     ok() && setStep("fetch", "fail", e.message);

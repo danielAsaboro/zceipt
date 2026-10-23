@@ -184,7 +184,7 @@ export async function fetchBlockTxids(endpoint, height, { shieldedOnly = false }
  * holds yours (the same run every time), in random order. Resolves to `{ raw, height, anonymitySet, blockTxs }`.
  * Throws if the transaction is not in that block.
  */
-export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64, txidOf = null } = {}) {
+export async function fetchTransactionPrivately(endpoint, displayTxid, height, { maxSet = 64, minSet = 8, txidOf = null } = {}) {
   const want = displayTxid.toLowerCase();
   // Cover is only transactions that could carry a receipt: shielded, not the coinbase. If the
   // server's compact data doesn't show ours as shielded, fall back to every transaction. A txid
@@ -197,6 +197,21 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   // so checking one receipt twice can't be intersected down to it.
   const start = Math.floor(ids.indexOf(want) / maxSet) * maxSet;
   const set = ids.slice(start, start + maxSet);
+  const blockOf = new Map(set.map((t) => [t, height]));
+  let blocks = [height];
+  // A quiet block hides little: then the rest of its aligned run of 4 blocks joins the cover. The
+  // run is fixed by the height, not centred on it, so the requests don't point at the payment's block.
+  if (set.length < minSet) {
+    const first = height - (height % 4);
+    const others = [first, first + 1, first + 2, first + 3].filter((h) => h !== height);
+    blocks = [first, first + 1, first + 2, first + 3];
+    const sides = await Promise.allSettled(others.map((h) => fetchBlockTxids(endpoint, h, { shieldedOnly: true }).then((xs) => [h, xs])));
+    for (const r of sides) {
+      if (r.status !== "fulfilled") continue;
+      const [h, xs] = r.value;
+      for (const t of xs.slice(0, maxSet)) if (!blockOf.has(t)) { blockOf.set(t, h); set.push(t); }
+    }
+  }
   for (let i = set.length - 1; i > 0; i--) {
     const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
     [set[i], set[j]] = [set[j], set[i]];
@@ -210,8 +225,8 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   // a server can't pass one transaction off as many. Heights remain the server's word.
   const isThe = (t, r) => !txidOf || (() => { try { return txidOf(r.raw, r.height) === t; } catch { return false; } })();
   if (!isThe(want, mine.value)) throw new Error("the server sent a different transaction than the one asked for");
-  const real = results.filter((r, i) => set[i] !== want && r.status === "fulfilled" && r.value.height === height && isThe(set[i], r.value)).length;
-  return { ...mine.value, anonymitySet: real + 1, blockTxs: ids.length, blockTime: ids.time };
+  const real = results.filter((r, i) => set[i] !== want && r.status === "fulfilled" && r.value.height === blockOf.get(set[i]) && isThe(set[i], r.value)).length;
+  return { ...mine.value, anonymitySet: real + 1, blockTxs: ids.length, blockTime: ids.time, blocks };
 }
 
 /** The block-height hint in a receipt link (`…&h=4500997`), or null. Unsigned: only a fetch hint. */

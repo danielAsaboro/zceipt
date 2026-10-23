@@ -81,7 +81,7 @@ The payer chooses which outputs to show, so a verifier checks the recipient it e
 | Party | Learns | Doesn't learn |
 |---|---|---|
 | Whoever you give the receipt to | the shown outputs, your message, that you paid | your address (unless you choose to prove it), balance, other payments |
-| The chain server, when someone verifies | the payment's block and up to 64 of its transactions; the verifier's IP | which of those transactions, or anything in the receipt |
+| The chain server, when someone verifies | the payment's block (or, if it is quiet, its run of 4 blocks) and up to 64 transactions in each; the verifier's IP | which of those transactions, or anything in the receipt |
 | The chain server, when you make a receipt | the block range it scans | which note, payment or transaction |
 
 In a quiet block the server can narrow it down, and the page and CLI say so. Full analysis:

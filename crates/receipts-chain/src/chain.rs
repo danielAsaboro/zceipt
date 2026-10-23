@@ -65,6 +65,8 @@ async fn fetch_mined_tx_with(client: &mut CompactTxStreamerClient<Channel>, net:
 
 /// How many transactions a block-hinted fetch asks for, ours included.
 pub const PRIVATE_FETCH_SET: usize = 64;
+/// Below this many candidates in the payment's block, the other blocks of its aligned run of 4 are fetched too.
+pub const MIN_PRIVATE_SET: usize = 8;
 
 /// Fetches `txid` without telling the server which transaction is wanted: lists the shielded
 /// transactions in block `height`, then fetches the run of up to [`PRIVATE_FETCH_SET`] of them
@@ -114,6 +116,23 @@ pub async fn fetch_mined_tx_in_block(
     let pos = ids.iter().position(|t| *t == txid).expect("checked above");
     let start = pos / PRIVATE_FETCH_SET * PRIVATE_FETCH_SET;
     let mut others: Vec<[u8; 32]> = ids[start..(start + PRIVATE_FETCH_SET).min(ids.len())].to_vec();
+    let mut block_of: std::collections::HashMap<[u8; 32], u32> = others.iter().map(|t| (*t, height)).collect();
+    // A quiet block hides little: then the rest of its aligned run of 4 blocks joins the cover.
+    // The run is fixed by the height, not centred on it, so the requests don't point at the
+    // payment's block.
+    if others.len() < MIN_PRIVATE_SET {
+        let first = height - height % 4;
+        for h in (first..first + 4).filter(|h| *h != height) {
+            let Ok(b) = client.get_block(BlockId { height: u64::from(h), hash: vec![] }).await else { continue };
+            for t in b.into_inner().vtx.iter().filter(|t| t.index != 0 && !(t.actions.is_empty() && t.ironwood_actions.is_empty())).take(PRIVATE_FETCH_SET) {
+                if let Ok(id) = <[u8; 32]>::try_from(t.txid.as_slice()) {
+                    if block_of.insert(id, h).is_none() {
+                        others.push(id);
+                    }
+                }
+            }
+        }
+    }
     shuffle(&mut others)?;
     let mut mine = None;
     let mut real_decoys = 0;
@@ -123,7 +142,7 @@ pub async fn fetch_mined_tx_in_block(
         let fetched = fetch_mined_tx_with(&mut client, net, t).await;
         if t == txid {
             mine = Some(fetched);
-        } else if fetched.is_ok_and(|(tx, h)| h == height && tx.txid().as_ref() == &t && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some())) {
+        } else if fetched.is_ok_and(|(tx, h)| Some(&h) == block_of.get(&t) && tx.txid().as_ref() == &t && (tx.orchard_bundle().is_some() || tx.ironwood_bundle().is_some())) {
             // A decoy only counts if the server really has it (its bytes hash to the txid asked
             // for), in this block, with Orchard or Ironwood actions: a hostile server could list
             // made-up txids around ours, or answer them all with one real transaction.

@@ -1298,7 +1298,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 match hint {
                     Some(h) => match report.anonymity_set {
                         Some(n) if n < 4 => eprintln!("(fetched by block {h}, but only {n} transaction(s) there could carry a receipt: the server can narrow it to those)"),
-                        Some(n) => eprintln!("(fetched with the {n} transactions of block {h} that could carry a receipt: the server learned the block, not which one)"),
+                        Some(n) => eprintln!("(fetched among {n} transactions that could carry a receipt, from block {h} and, if it was quiet, the other blocks of its run of 4: the server learned the blocks, not which one)"),
                         None => {}
                     },
                     None => eprintln!("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)"),

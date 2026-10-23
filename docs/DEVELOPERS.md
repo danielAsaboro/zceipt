@@ -5,16 +5,20 @@
 The core is one Rust crate on top of `orchard` and `zcash_primitives`:
 
 ```rust
+use receipts_core::{sign_prepared, verify_transaction, Network, Receipt, ReceiptBuilder, ViewingSpendWitness};
+
 // The sender's wallet, after paying: every proof, from the full viewing key alone.
-let witness = ViewingSpendWitness { index: 0, fvk, note, merkle_path, prove_address: None, source: None };
-let prepared = receipts_core::prepare(&pk, coin_type, Pool::Ironwood, &bundle, Pool::Ironwood, &bundle,
-    txid, b"Invoice 42", &[(1, ovk)], &[], &[witness], &mut rng)?;
-// The signer (here, or a hardware wallet given the unsigned receipt and the randomizers).
-let sigs = receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?;
+let prepared = ReceiptBuilder::new(Network::Testnet, &tx)
+    .message(b"Invoice 42")
+    .disclose(1, ovk)
+    .spend(ViewingSpendWitness { index: 0, fvk, note, merkle_path, prove_address: None, source: None })
+    .prepare(&pk, &mut rng)?;
+// The signer: here, or a hardware wallet given the unsigned receipt and the randomizers.
+let sigs = sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?;
 let link = prepared.apply_signatures(sigs)?.to_text(); // "zip311r1…"
 
-// Anyone, with the mined transaction's bundle:
-let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool::Ironwood, txid, &bundle)?;
+// Anyone, with the mined transaction (its txid is computed, not trusted):
+let v = verify_transaction(&vk, &Receipt::from_text(&link)?, Network::Testnet.coin_type(), &tx)?;
 ```
 
 - **Inside a wallet:** the proofs need only the full viewing key (`receipts_core::prepare`); the

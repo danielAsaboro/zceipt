@@ -117,7 +117,8 @@ echo "== NU6.3 / Ironwood (mining past $NU63)"
 mine $((NU63 - $(height) + 5)); mine 4 "$SENDER"; mine 101; sync sender; sync merchant
 "$R" serve --listen "127.0.0.1:$API" --db ./api.db --test-network regtest --heights ./heights.toml --test-lightwalletd "127.0.0.1:$GRPC" --verifier-url "http://127.0.0.1:$API/verify/" 2> api.log &
 API_PID=$!
-for i in $(seq 1 30); do curl -sf "http://127.0.0.1:$API/v1/health" >/dev/null && break; sleep 1; done
+for i in $(seq 1 90); do curl -sf "http://127.0.0.1:$API/v1/health" >/dev/null && break; sleep 1; done
+curl -sf "http://127.0.0.1:$API/v1/health" >/dev/null || { echo "the API didn't start:"; tail -5 api.log; lsof -nP -iTCP:"$API" -sTCP:LISTEN 2>/dev/null | tail -2; exit 1; }
 # The key is printed as the server starts; the log can lag the health check by a moment.
 KEY=""
 for i in $(seq 1 30); do KEY=$(cat api.log api.db.keys 2>/dev/null | grep -o 'rcpt_test_[0-9a-f]*' | head -1 || true); [ -n "$KEY" ] && break; sleep 1; done

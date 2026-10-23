@@ -103,6 +103,14 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
 
 ## For developers and reviewers
 
+```rust
+let prepared = ReceiptBuilder::new(Network::Mainnet, &tx)      // a mined transaction
+    .message(b"Invoice 42").disclose(1, ovk).spend(witness)    // proofs from the viewing key
+    .prepare(&pk, &mut rng)?;
+let receipt = prepared.apply_signatures(sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?)?;
+let shown = verify_transaction(&vk, &receipt, Network::Mainnet.coin_type(), &tx)?;
+```
+
 - [docs/README.md](docs/README.md): which document to read for what.
 - [DEVELOPERS.md](docs/DEVELOPERS.md): the Rust crate, signing on a hardware wallet, bindings,
   everything beyond one payment, testnet evidence, and the repository layout.

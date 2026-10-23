@@ -92,7 +92,7 @@ The chain server the verifier asks for `T` learns `txid` (or, with the `h=` hint
 
 The verifier takes `nf_i` (and the anchor `rt`) from `T`, never from the receipt, and checks the
 Halo 2 proof `π` for the Action Statement (Orchard) with public inputs
-`(rt, cv, nf_i, rk, cmx, enableSpends = 1, enableOutputs = 1)` under the post-NU6.3 circuit, and
+`(rt, cv, nf_i, rk, cmx, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)` under the post-NU6.3 circuit, and
 `σ` as a `SpendAuthSig^Orchard` (RedPallas) by `rk` over
 `BLAKE2b-256("ZIP311Signed" ‖ coinType, unsigned receipt)`.
 

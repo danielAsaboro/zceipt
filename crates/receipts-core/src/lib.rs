@@ -36,6 +36,7 @@ use pasta_curves::pallas;
 use rand_core::CryptoRng;
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
+pub mod builder;
 pub mod deposit;
 mod encoding;
 #[cfg(feature = "orchard-ext")]
@@ -46,6 +47,7 @@ pub mod reserve;
 pub mod screened;
 pub mod signin;
 pub mod tripwire;
+pub use builder::{Network, ReceiptBuilder};
 pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX, PREPARED_TEXT_PREFIX, TEXT_PREFIX};
 
 /// SLIP-44 coin type for Zcash mainnet (index form).
@@ -238,6 +240,7 @@ pub struct SpendWitness {
 /// Like [`SpendWitness`], with the full viewing key instead of the spending key: everything
 /// [`prepare`] needs to make the proofs. The spend authorizing key is only needed to sign
 /// ([`PreparedReceipt::sign`]), which can happen on another device, such as a hardware wallet.
+#[derive(Clone)]
 pub struct ViewingSpendWitness {
     pub index: usize,
     pub fvk: FullViewingKey,

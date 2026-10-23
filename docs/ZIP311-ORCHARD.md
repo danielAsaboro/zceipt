@@ -4,7 +4,7 @@
 Title:    Payment Disclosures for Orchard and Ironwood
 Status:   Draft text for ZIP 311's "Add support for Orchard" TODO (not submitted)
 Requires: ZIP 311 (Payment Disclosures), ZIP 244 / ZIP 229, ZIP 212, protocol spec §4.20 and §5.4
-Scope:    output disclosure and spend authority (format versions 1-3). The optional extensions
+Scope:    output disclosure and spend authority (format versions 1 and 3). The optional extensions
           (address proofs, source of funds, memo-withheld outputs, incoming receipts, batches,
           sign-in, payment requests, proof of funds) are in SPEC.md and are not normative here.
 ```
@@ -63,7 +63,7 @@ digest          := BLAKE2b-256(personalization, unsigned)
 ## Creating a receipt (sender)
 
 For each output to disclose, at index `j` of the output bundle, created with outgoing viewing key
-`ovk`: `ock_j := PRF^ockOrchard_ovk(cv_net_j, cmx_j, ephemeralKey_j)` (§4.20.2).
+`ovk`: `ock_j := PRF^ockOrchard_ovk(cv_net_j, cmx_j, ephemeralKey_j)` (§4.20.1, "Encryption (Sapling and Orchard)").
 
 For each spend to disclose, at index `i` of the payment bundle, spending note `n` with spending key
 `sk` (`ask`, `ak`) and Merkle path `path` to the payment bundle's anchor `rt`:
@@ -131,7 +131,9 @@ defined by ZIP 321.
 - *Fresh `alpha` and `rcv`.* `rk` and `cvNet` are unlinkable to the transaction's, so the receipt
   reveals no more about the spent note than the transaction did.
 - *Both flags enabled.* The spend-authority argument does not depend on the output half; the
-  dummy output keeps the action identical to one an unmodified wallet builder produces.
+  dummy output lets an unmodified wallet builder make the proof. The proof is never checked
+  by consensus, so `enableCrossAddress = 1` is allowed even for Orchard-pool spends after NU6.3,
+  whose consensus actions must set it to 0 (ZIP 258); verifiers use the receipt's own flags.
   Spends-only proofs (which also force `v_new = 0`) are an equally sound choice; see
   SPEC-AMBIGUITIES.md, A15.
 - *One digest for all spends.* Every signature covers every byte of `unsigned`, so receipts

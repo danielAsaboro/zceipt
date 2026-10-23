@@ -4,6 +4,8 @@ Start with one of these:
 
 - [CLAIM.md](CLAIM.md): exactly what a receipt proves, under which assumptions, and what it doesn't.
 - [ZIP311-ORCHARD.md](ZIP311-ORCHARD.md): the proposed text for ZIP 311's Orchard `TODO`.
+  The same text in ZIP form, with how it relates to the zcash/zips#1406 draft:
+  [zip/zip-0311-orchard-draft.rst](zip/zip-0311-orchard-draft.rst).
 - [THREAT-MODEL.md](THREAT-MODEL.md): who learns what, and the attacks considered.
 
 Then, by need:

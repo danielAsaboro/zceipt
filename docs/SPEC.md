@@ -143,7 +143,7 @@ The proof is a third Action proof, under the **same** `rk` as the spend disclosu
 
 The verifier reads `cmx_k` from `S` itself (fetched by txid and checked mined, before the
 payment), rebuilds the one-leaf anchor, and checks the proof against
-`(anchor, cv_net, nf_i, rk, cmx_out, enableSpends = 1, enableOutputs = 1)`, with `nf_i` taken
+`(anchor, cv_net, nf_i, rk, cmx_out, enableSpends = 1, enableOutputs = 1, enableCrossAddress = 1)`, with `nf_i` taken
 from the payment transaction. A verifier that does not have `S` refuses the receipt rather than
 ignoring the claim.
 
@@ -422,7 +422,7 @@ trustworthy as the server; the receipt remains the trustless proof.
   131 KB) from bytes shipped with the code instead of deriving them by hashing to the curve.
   They are deterministic and a test checks them byte for byte against a fresh derivation. This
   cuts the verifier's one-time setup from 7.7 s to 2.9 s in the browser (2.0 s to 0.8 s natively).
-  It needs a one-function patch to orchard (`VerifyingKey::build_with_params`, `vendor/orchard`).
+  It needs the small orchard patch in `vendor/orchard` (about 60 lines; here `VerifyingKey::build_with_params`).
 - **Circuit choice.** The disclosure proof always uses the post-NU6.3 circuit, including for
   pre-NU6.3 Orchard transactions. It is a new statement about an old note and is never
   verified by consensus, so it should use the secure circuit.

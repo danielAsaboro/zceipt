@@ -667,10 +667,17 @@ async fn build_prepared(
 
     eprintln!("Building spend-authority proof(s)…");
     let pk = receipts_core::proving_key();
-    let out_bundle = bundle_of(output_pool).ok_or_else(|| anyhow!("transaction has no {output_pool:?} bundle"))?;
-    // With `withhold_memo`, every disclosed output shows its recipient and value only.
-    let (with_memo, without): (&[_], &[_]) = if withhold_memo { (&[], &selected) } else { (&selected, &[]) };
-    let prepared = receipts_core::prepare(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?;
+    bundle_of(output_pool).ok_or_else(|| anyhow!("transaction has no {output_pool:?} bundle"))?;
+    let network = if coin_type == receipts_core::COIN_TYPE_MAINNET { receipts_core::Network::Mainnet } else { receipts_core::Network::Testnet };
+    let mut b = receipts_core::ReceiptBuilder::new(network, tx).spends_in(pool).outputs_in(output_pool).message(msg);
+    for (i, ovk) in &selected {
+        // With `withhold_memo`, every disclosed output shows its recipient and value only.
+        b = if withhold_memo { b.disclose_without_memo(*i, ovk.clone()) } else { b.disclose(*i, ovk.clone()) };
+    }
+    for w in &spends {
+        b = b.spend(w.clone());
+    }
+    let prepared = b.prepare(&pk, OsRng)?;
     // Screened-set proofs need each spend's randomizer, so they are made here, with the receipt.
     let mut screened = Vec::new();
     if let Some(Screened { set, amount }) = screened_set {

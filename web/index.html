@@ -52,6 +52,7 @@
     details { margin-top: 22px; color: var(--text-2); font-size: 14px; }
     details summary { cursor: pointer; padding: 10px 0; min-height: 24px; }
     :focus-visible { outline: 2px solid var(--good, #3c9); outline-offset: 2px; }
+    #result:focus { outline: none; }
     details .grid { display: grid; gap: 8px; margin-top: 10px; }
     .how { margin-top: 36px; border-top: 1px solid #24221f; padding-top: 22px; }
     .how h2 { font-size: 15px; margin: 0 0 10px; }
@@ -128,7 +129,7 @@
     <section>
       <div class="eyebrow">Receipts · ZIP 311 for Orchard &amp; Ironwood</div>
       <h1>Prove one Zcash payment. <em>Reveal nothing else.</em></h1>
-      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. The proof is checked in this browser; only the public transaction is fetched.</p>
+      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. The proof is checked in this browser; only public chain data is fetched.</p>
 
       <label class="hint" for="paste">Receipt or link</label>
       <textarea id="paste" placeholder="zip311r1…" spellcheck="false"></textarea>
@@ -145,7 +146,7 @@
       </div>
       <div id="warm" class="warm" data-state="busy">Preparing the verifier in the background (a few seconds)…</div>
 
-      <div id="progress" hidden>
+      <div id="progress" role="status" aria-live="polite" hidden>
         <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>
         <div class="step" data-step="fetch"><span class="dot"></span><span>Fetch the transaction from the chain<span class="detail"></span></span></div>
         <div class="step" data-step="verify"><span class="dot"></span><span>Check the proof and open the payment<span class="detail"></span></span></div>
@@ -200,7 +201,7 @@ receipts verify 'https://…#zip311r1…'</div>
     </section>
 
     <section id="right">
-      <div id="result" hidden></div>
+      <div id="result" tabindex="-1" aria-live="polite" hidden></div>
       <div class="placeholder" id="empty">
         <div class="big">RECEIPT</div>
         Open a receipt link, or paste one.<br>The verified payment prints here.

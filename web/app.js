@@ -1,7 +1,6 @@
 // Receipts verifier page. The receipt lives in the URL fragment (#zip311r1…), which browsers
 // never send to any server. The page talks to one lightwalletd server of the viewer's choice
-// (the block's transaction list and the transactions themselves); the explorer link is only
-// followed if clicked.
+// (the block's transaction list and the transactions themselves), and nothing else.
 
 // grpc-web servers that allow browser (CORS) requests, tried in order. Settings overrides them.
 const ENDPOINT_LISTS = {
@@ -9,10 +8,6 @@ const ENDPOINT_LISTS = {
   testnet: ["https://zcash-testnet.chainsafe.dev"],
 };
 const ENDPOINTS = Object.fromEntries(Object.entries(ENDPOINT_LISTS).map(([k, v]) => [k, v[0]]));
-const EXPLORER = {
-  mainnet: (t) => `https://cipherscan.app/tx/${t}`,
-  testnet: (t) => `https://testnet.cipherscan.app/tx/${t}`,
-};
 
 const $ = (s) => document.querySelector(s);
 const worker = new Worker("./worker.js", { type: "module" });
@@ -153,6 +148,9 @@ function challengeIn(message) {
 }
 
 // ---------- UI ----------
+// Each check bumps this; an earlier check still in flight then stops touching the page, so a
+// new link can't be overwritten by the old one's late result.
+let runGen = 0;
 const steps = ["decode", "fetch", "verify"];
 function setStep(name, state, text) {
   const el = document.querySelector(`[data-step="${name}"]`);
@@ -170,6 +168,12 @@ const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 function revealResult() {
   $("#result").hidden = false;
   document.body.classList.add("has-result");
+  // Screen readers and the tab title get the verdict too, once the card is filled in.
+  requestAnimationFrame(() => {
+    const stamp = $("#result .stamp")?.textContent.trim();
+    if (stamp) document.title = `${stamp} · Receipts`;
+    $("#result").focus({ preventScroll: true });
+  });
   if (window.matchMedia("(max-width: 860px)").matches) $("#right")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -250,7 +254,7 @@ function render(v, net) {
       </div>
       <div class="dash"></div>
       ${rows}
-      <div class="line"><span class="k">TX</span>${EXPLORER[v.network] ? `<a class="v mono" target="_blank" rel="noreferrer noopener" href="${EXPLORER[v.network](v.txid)}">${short(v.txid, 8)}</a>` : `<span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span>`}</div>
+      <div class="line"><span class="k">TX</span><span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span></div>
       ${fetchMode && fetchMode.mode === "offline-sample"
         ? `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()} <small>(published with the sample, not checked)</small></span></div>
       <p class="fine">Checked offline: no chain server answered, so this sample was checked against its published transaction (testnet ${short(v.txid, 6)}). The proof and signature are real; that the transaction is in the chain was not checked this time.</p>`
@@ -339,26 +343,28 @@ async function renderRequestChecks(v) {
 const ZRECEIPT_NOTE = "This is a zreceipt link (github.com/Cosmiq2025/zreceipt), a different format that discloses an output without proving who sent it. Open it with zreceipt's verifier. See docs/RELATED-WORK.md.";
 
 async function run(receiptText) {
+  const gen = ++runGen;
+  const ok = () => gen === runGen;
   $("#result").hidden = true;
   $("#progress").hidden = false;
   resetSteps();
   let summary;
   try {
-    setStep("decode", "busy");
+    ok() && setStep("decode", "busy");
     summary = await quick("inspect", { receipt: receiptText });
-    setStep("decode", "done", `${regtest() ? "regtest" : summary.network}, ${summary.pool} pool, ${(summary.bytes / 1024).toFixed(1)} KB`);
+    ok() && setStep("decode", "done", `${regtest() ? "regtest" : summary.network}, ${summary.pool} pool, ${(summary.bytes / 1024).toFixed(1)} KB`);
   } catch (e) {
-    setStep("decode", "fail", e.message);
-    return showError(e.message, "unreadable");
+    ok() && setStep("decode", "fail", e.message);
+    return ok() && showError(e.message, "unreadable");
   }
   let tx;
   try {
-    setStep("fetch", "busy");
+    ok() && setStep("fetch", "busy");
     const manual = $("#rawTx").value.trim();
     if (manual) {
       tx = { raw: hexToBytes(manual), height: Number($("#rawHeight").value) };
       fetchMode = { mode: "offline" };
-      setStep("fetch", "done", "using the transaction you pasted");
+      ok() && setStep("fetch", "done", "using the transaction you pasted");
     } else {
       const custom = $("#endpoint").value.trim();
       const endpoints = custom ? [custom] : regtest() ? [location.origin] : ENDPOINT_LISTS[summary.network] || [];
@@ -372,11 +378,11 @@ async function run(receiptText) {
             // the block, not which transaction is checked.
             tx = await fetchTransactionPrivately(endpoint, summary.txid, hint);
             fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, time: tx.blockTime };
-            setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
+            ok() && setStep("fetch", "done", `block ${hint.toLocaleString()} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
           } else {
             tx = await fetchRawTx(endpoint, summary.txid);
             fetchMode = { mode: "txid", host: new URL(endpoint).host };
-            setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
+            ok() && setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
           }
           break;
         } catch (e) {
@@ -388,18 +394,18 @@ async function run(receiptText) {
         if ([SAMPLE_REAL, SAMPLE_EDITED].includes(receiptText)) {
           tx = { raw: hexToBytes(SAMPLE_TX), height: SAMPLE_HEIGHT };
           fetchMode = { mode: "offline-sample" };
-          setStep("fetch", "done", "no chain server answered; using the sample's published transaction");
+          ok() && setStep("fetch", "done", "no chain server answered; using the sample's published transaction");
         } else {
           throw lastError;
         }
       }
     }
   } catch (e) {
-    setStep("fetch", "fail", e.message);
-    return showError(`Could not fetch the transaction: ${e.message}`, "network");
+    ok() && setStep("fetch", "fail", e.message);
+    return ok() && showError(`Could not fetch the transaction: ${e.message}`, "network");
   }
   try {
-    setStep("verify", "busy", document.querySelector("#warm")?.dataset.state === "ready" ? "checking the Halo 2 proof and signature" : "preparing the verifier, then checking the proof and signature");
+    ok() && setStep("verify", "busy", document.querySelector("#warm")?.dataset.state === "ready" ? "checking the Halo 2 proof and signature" : "preparing the verifier, then checking the proof and signature");
     const t0 = performance.now();
     // Source proofs: fetch the earlier transactions the sender says the money came from.
     await local;
@@ -421,7 +427,7 @@ async function run(receiptText) {
         } catch { /* show the outpoint only */ }
       }
     }
-    setStep("verify", "done", `proof and signature valid (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
+    ok() && setStep("verify", "done", `proof and signature valid (${((performance.now() - t0) / 1000).toFixed(1)}s)`);
     // Exchange deposit (ZIP 320): check the second step too.
     const second = /(?:^|\n)second-tx:([0-9a-f]{64})(?:\n|$)/.exec(v.message || "");
     if (second && /(?:^|\n)tex-deposit:/.test(v.message)) {
@@ -431,10 +437,10 @@ async function run(receiptText) {
       await local;
       v.deposit = JSON.parse(check_tex_deposit(receiptText, tx.raw, tx.height, tx2.raw, tx2.height, regtest()));
     }
-    render(v, summary.network);
+    ok() && render(v, summary.network);
   } catch (e) {
-    setStep("verify", "fail", e.message);
-    showError(e.message, "forged");
+    ok() && setStep("verify", "fail", e.message);
+    ok() && showError(e.message, "forged");
   }
 }
 
@@ -460,17 +466,19 @@ function provenanceHtml(results) {
 }
 
 async function runBatch(batchText) {
+  const gen = ++runGen;
+  const ok = () => gen === runGen;
   $("#result").hidden = true;
   $("#progress").hidden = false;
   resetSteps();
   let b;
   try {
-    setStep("decode", "busy");
+    ok() && setStep("decode", "busy");
     b = await quick("batch", { batch: batchText });
-    setStep("decode", "done", `batch ${b.id}: ${b.receipts.length} receipts, complete and in order`);
+    ok() && setStep("decode", "done", `batch ${b.id}: ${b.receipts.length} receipts, complete and in order`);
   } catch (e) {
-    setStep("decode", "fail", e.message);
-    return showError(`This batch is not valid: ${e.message}`);
+    ok() && setStep("decode", "fail", e.message);
+    return ok() && showError(`This batch is not valid: ${e.message}`);
   }
   const results = [];
   try {
@@ -478,7 +486,7 @@ async function runBatch(batchText) {
     // block, so the server learns which blocks were looked at, not which transactions.
     const hints = batchHeightHints(location.hash);
     const useHints = hints && hints.length === b.receipts.length;
-    setStep("fetch", "busy", `fetching ${b.receipts.length} transactions`);
+    ok() && setStep("fetch", "busy", `fetching ${b.receipts.length} transactions`);
     const txs = [];
     let host = "", set = 0;
     // Fetch in random order, all of them, before reporting any failure: the order and the point
@@ -502,10 +510,10 @@ async function runBatch(batchText) {
     fetchMode = useHints
       ? { mode: "batch-blocks", host, blocks: [...new Set(hints)], set }
       : { mode: "batch-txids", host, n: txs.length };
-    setStep("fetch", "done", useHints ? `${txs.length} blocks' transactions fetched (${set} in all)` : `${txs.length} transactions fetched by id`);
+    ok() && setStep("fetch", "done", useHints ? `${txs.length} blocks' transactions fetched (${set} in all)` : `${txs.length} transactions fetched by id`);
     await local;
     for (const [i, r] of b.receipts.entries()) {
-      setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
+      ok() && setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
       // Receipts that prove their source of funds need the source transactions too.
       const needed = JSON.parse(source_txids(r));
       let sources;
@@ -518,11 +526,11 @@ async function runBatch(batchText) {
       }
       results.push(await call("verify", { receipt: r, rawTx: txs[i].raw, height: txs[i].height, regtest: regtest(), sources }));
     }
-    setStep("fetch", "done", `${results.length} transactions fetched`);
-    setStep("verify", "done", `all ${results.length} proofs and signatures valid`);
+    ok() && setStep("fetch", "done", `${results.length} transactions fetched`);
+    ok() && setStep("verify", "done", `all ${results.length} proofs and signatures valid`);
   } catch (e) {
-    setStep("verify", "fail", e.message);
-    return showError(`Payment ${results.length + 1} of the batch failed: ${e.message}`);
+    ok() && setStep("verify", "fail", e.message);
+    return ok() && showError(`Payment ${results.length + 1} of the batch failed: ${e.message}`);
   }
   UNIT = unitFor(results[0].network);
   const lines = results.flatMap((v) => v.outputs.map((o) => ({ v, o })));
@@ -562,35 +570,37 @@ function incomingFromHash() {
 }
 
 async function runIncoming(text) {
+  const gen = ++runGen;
+  const ok = () => gen === runGen;
   $("#result").hidden = true;
   $("#progress").hidden = false;
   resetSteps();
   let s;
   try {
-    setStep("decode", "busy");
+    ok() && setStep("decode", "busy");
     await local;
     s = JSON.parse(inspect_incoming(text));
-    setStep("decode", "done", `incoming receipt: ${regtest() ? "regtest" : s.network}, ${s.pool} pool, ${(s.bytes / 1024).toFixed(1)} KB`);
+    ok() && setStep("decode", "done", `incoming receipt: ${regtest() ? "regtest" : s.network}, ${s.pool} pool, ${(s.bytes / 1024).toFixed(1)} KB`);
   } catch (e) {
-    setStep("decode", "fail", e.message);
-    return showError(e.message, "unreadable");
+    ok() && setStep("decode", "fail", e.message);
+    return ok() && showError(e.message, "unreadable");
   }
   let tx;
   try {
-    setStep("fetch", "busy");
+    ok() && setStep("fetch", "busy");
     const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
     const hint = heightHint(location.hash);
     tx = hint ? await fetchTransactionPrivately(endpoint, s.txid, hint) : await fetchRawTx(endpoint, s.txid);
     fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint } : { mode: "txid", host: new URL(endpoint).host };
-    setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
+    ok() && setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
   } catch (e) {
-    setStep("fetch", "fail", e.message);
-    return showError(`Could not fetch the transaction: ${e.message}`, "network");
+    ok() && setStep("fetch", "fail", e.message);
+    return ok() && showError(`Could not fetch the transaction: ${e.message}`, "network");
   }
   try {
-    setStep("verify", "busy", "checking the recipient's address proof, signature and each output");
+    ok() && setStep("verify", "busy", "checking the recipient's address proof, signature and each output");
     const v = await call("incoming", { receipt: text, rawTx: tx.raw, height: tx.height, regtest: regtest() });
-    setStep("verify", "done", "address proof, signature and outputs valid");
+    ok() && setStep("verify", "done", "address proof, signature and outputs valid");
     UNIT = unitFor(regtest() ? "regtest" : s.network);
     const rows = v.outputs.map((o) => `
       <div class="line paid"><span class="k">RECEIVED</span><span class="v amount">${zec(o.zatoshis)} <small>${UNIT}</small></span></div>
@@ -616,8 +626,8 @@ async function runIncoming(text) {
         ${requestFromUrl() ? `<div class="reqbox" data-ok="false"><div class="reqhead">REQUEST NOT SATISFIED</div><ul><li data-ok="false">✗ This is an incoming receipt (the recipient proving it was paid). It doesn't answer a payment request: ask the payer for a receipt made with the request link.</li></ul></div>` : ""}
       </div>`;
   } catch (e) {
-    setStep("verify", "fail", e.message);
-    showError(e.message, "forged");
+    ok() && setStep("verify", "fail", e.message);
+    ok() && showError(e.message, "forged");
   }
 }
 
@@ -656,8 +666,10 @@ for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#
 $("#verifyBtn").onclick = async () => {
   const t = $("#paste").value.trim();
   // A new attempt: clear the previous run's steps so they can't contradict this one.
+  runGen++;
   resetSteps();
   $("#progress").hidden = true;
+  if (!t) return $("#paste").focus();
   await local;
   const leak = secret_kind(t);
   if (leak) {
@@ -686,15 +698,18 @@ $("#verifyBtn").onclick = async () => {
   run(r);
 };
 window.addEventListener("hashchange", () => {
+  // Whatever the new link holds replaces the old check entirely: box, steps and result.
+  runGen++;
+  resetSteps();
+  $("#progress").hidden = true;
+  $("#result").hidden = true;
   const it = incomingFromHash();
+  const bt = it ? "" : batchFromHash();
+  const r = it || bt ? "" : receiptFromHash();
+  $("#paste").value = it || bt || r;
   if (it) return runIncoming(it);
-  const bt = batchFromHash();
   if (bt) return runBatch(bt);
-  const r = receiptFromHash();
-  if (r) {
-    $("#paste").value = r;
-    run(r);
-  }
+  if (r) return run(r);
 });
 
 const initialIncoming = incomingFromHash();

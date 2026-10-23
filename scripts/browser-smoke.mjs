@@ -46,6 +46,11 @@ try {
   await evaluate(`document.querySelector('#sampleEdited').click()`);
   const edited = await until(`(${resultText}).includes('NOT VALID') ? 'NOT VALID' : ''`, 60);
   check(edited === "NOT VALID", "edited copy shows NOT VALID");
+  // A new link that isn't one of ours, opened in the same tab: nothing of the old check may remain.
+  await evaluate(`location.hash = 'zrcpt1eyJub3QtYS1yZWNlaXB0'; true`);
+  await sleep(1500);
+  const swapped = await evaluate(`document.querySelector('#paste').value === '' && !document.querySelector('#progress').innerText.includes('signature valid') && !(${resultText}).includes('VERIFIED')`);
+  check(swapped === true, "a new link replaces the previous check: box, steps and verdict agree");
   // No chain server reachable: the sample is still checked, offline, and says so.
   await evaluate(`document.querySelector('#endpoint').value = 'http://127.0.0.1:9'; location.hash = ''; true`);
   await sleep(300);

@@ -61,6 +61,8 @@ vectors.append({"name": "pre-fix/receipt-with-sender-address", "type": "receipt"
 # Rejected only by the Halo 2 check: the spend proof was altered before signing, so the signature,
 # encoding and every other rule hold. A verifier that skips the proof accepts it and is wrong.
 vectors.append({"name": "proof-only/altered-spend-proof", "type": "receipt", "raw_tx": ex("testnet/tx.hex"), "height": 4_500_997, "regtest": False, "receipt": ex("testnet/proof-only/receipt.txt"), "expect": {"valid": False, "fails_only_on": "halo2_proof"}})
+# The payment claimed by someone who only saw it: their own key, re-signed; only the proof fails.
+vectors.append({"name": "proof-only/claimed-by-observer", "type": "receipt", "raw_tx": ex("testnet/tx.hex"), "height": 4_500_997, "regtest": False, "receipt": ex("testnet/claimed-by-observer.txt"), "expect": {"valid": False, "fails_only_on": "halo2_proof"}})
 vectors.append({"name": "cross/regtest-receipt-testnet-tx", "type": "receipt", "receipt": cases[0][1], "raw_tx": cases[1][2], "height": 4_500_997, "regtest": True, "heights": "examples/regtest/heights.toml", "expect": {"valid": False}})
 
 # Incoming receipts (the recipient proves it was paid).

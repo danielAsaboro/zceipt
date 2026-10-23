@@ -32,7 +32,7 @@ against these public inputs".
 | ChaCha20-Poly1305 | RFC 8439 §2.8.2 |
 | v6 txid and Ironwood note recovery | the real testnet transaction `571de6e4…` recomputes, and its output opens to 0.01 TAZ, "Invoice 42: two coffees" |
 | Real testnet source-of-funds receipts (`examples/testnet/source`) | both decode as v4, name `2a2bd721…` action 0, the revealed one shows 0.125 TAZ; refused without the source transaction |
-| Shared conformance vectors (`conformance/vectors.json`) | 277/277 agree with the Rust verifier (for `proof-only/altered-spend-proof`, which only the Halo 2 check rejects, it returns the public inputs that check needs) |
+| Shared conformance vectors (`conformance/vectors.json`) | 278/278 agree with the Rust verifier (for the two `proof-only/` vectors, which only the Halo 2 check rejects, it returns the public inputs that check needs) |
 | Signed adversarial corpus (`tests/corpus.json`, from the Rust test `differential_corpus`) | 232/232 agree; the 9 the Rust verifier rejects only on a Halo 2 proof get identical public inputs here |
 
 The zcash-test-vectors files used are copied unmodified into `tests/zcash-test-vectors` (MIT; see

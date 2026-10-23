@@ -184,7 +184,7 @@ commitment with `(ψ, rcm)` instead of `rseed`, so nothing in it decrypts the me
 trips, edits to value, recipient and opening refused (`opened_outputs_must_open_the_commitment`),
 the receipt contains neither an `ock` nor the note's `rseed`, a real testnet receipt
 ([examples/testnet/memo-withheld](../examples/testnet/memo-withheld)), and the Python verifier
-recomputing each commitment independently (232 corpus cases, 277 conformance vectors agree, one of them by flagging that only the Halo 2 check rejects it).
+recomputing each commitment independently (232 corpus cases, 278 conformance vectors agree, two of them by flagging that only the Halo 2 check rejects them).
 
 ## 3c. Incoming receipts: the recipient proves it was paid
 

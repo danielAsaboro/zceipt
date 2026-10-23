@@ -28,3 +28,26 @@ fn real_testnet_receipts_on_the_public_api() {
     // A receipt for another transaction, against this one: refused by the txid, computed here.
     assert!(matches!(check(&example("receipt-with-sender-address.txt")), Err(Error::TxidMismatch(_))));
 }
+
+/// Someone who saw the payment (a viewing-key holder, the merchant) can open its outputs, but
+/// can't claim to have made it: put in their own key and sign, and the spend proof, made for the
+/// payer's key, no longer holds. `RECEIPTS_WRITE_FIXTURES=1` writes the claim the verifier page
+/// offers as a sample.
+#[test]
+fn someone_who_only_saw_the_payment_cannot_claim_it() {
+    use orchard::keys::{SpendAuthorizingKey, SpendingKey};
+    use orchard::primitives::redpallas::{self, SpendAuth};
+    let text = example("receipt.txt");
+    let mut claim = Receipt::from_text(&text.trim()[text.trim().find("zip311r1").unwrap()..]).unwrap();
+    claim.unsigned.msg = b"Order #42 at Kemi's Coffee (paid by me, the observer)".to_vec();
+    let sk = SpendingKey::from_bytes([42; 32]).unwrap();
+    let rsk = SpendAuthorizingKey::from(&sk).randomize(&pasta_curves::pallas::Scalar::from(7u64));
+    claim.unsigned.spends[0].rk = (&redpallas::VerificationKey::<SpendAuth>::from(&rsk)).into();
+    let digest = receipts_core::signing_digest(&claim.unsigned);
+    claim.spend_auth_sigs = vec![(&rsk.sign(rand::rand_core::UnwrapErr(rand::rngs::SysRng), &digest)).into()];
+    let text = claim.to_text();
+    assert!(matches!(check(&text), Err(Error::BadProof(_))), "the observer's claim must fail only on the proof");
+    if std::env::var_os("RECEIPTS_WRITE_FIXTURES").is_some() {
+        std::fs::write(format!("{}/../../examples/testnet/claimed-by-observer.txt", env!("CARGO_MANIFEST_DIR")), format!("{text}\n")).unwrap();
+    }
+}

@@ -160,6 +160,6 @@ defined by ZIP 321.
 
 ## Test vectors
 
-`conformance/vectors.json`: 277 cases from real Orchard, Ironwood and cross-pool receipts, each
+`conformance/vectors.json`: 278 cases from real Orchard, Ironwood and cross-pool receipts, each
 with the answer a correct verifier gives. `spec-verifier` additionally reports, for each proof, the
 public inputs it must verify against.

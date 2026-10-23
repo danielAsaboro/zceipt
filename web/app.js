@@ -45,7 +45,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE } from "./samples.js";
+import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE } from "./samples.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
@@ -450,7 +450,7 @@ async function run(receiptText) {
       }
       if (!tx) {
         // The samples carry their published transaction: check them offline rather than fail.
-        if ([SAMPLE_REAL, SAMPLE_EDITED].includes(receiptText)) {
+        if ([SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER].includes(receiptText)) {
           tx = { raw: hexToBytes(SAMPLE_TX), height: SAMPLE_HEIGHT };
           fetchMode = { mode: "offline-sample" };
           ok() && setStep("fetch", "done", "no chain server answered; using the sample's published transaction");
@@ -717,7 +717,7 @@ function receiptFromHash() {
 // How the transaction was obtained, for the privacy badge.
 let fetchMode = null;
 
-for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#sampleEdited", SAMPLE_EDITED, SAMPLE_HEIGHT], ["#sampleBatch", SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS], ["#sampleSource", SAMPLE_SOURCE, SAMPLE_HEIGHT]]) {
+for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#sampleEdited", SAMPLE_EDITED, SAMPLE_HEIGHT], ["#sampleObserver", SAMPLE_OBSERVER, SAMPLE_HEIGHT], ["#sampleBatch", SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS], ["#sampleSource", SAMPLE_SOURCE, SAMPLE_HEIGHT]]) {
   const b = $(id);
   if (b) b.onclick = () => {
     const h = `${text}&h=${hint}`;

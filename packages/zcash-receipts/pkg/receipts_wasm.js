@@ -114,93 +114,6 @@ function getDataViewMemory0() {
     }
     return cachedDataViewMemory0;
 }
-
-function takeFromExternrefTable0(idx) {
-    const value = wasm.__wbindgen_export_3.get(idx);
-    wasm.__externref_table_dealloc(idx);
-    return value;
-}
-/**
- * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
- * @param {string} ua
- * @returns {string}
- */
-export function orchard_receiver_hex(ua) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.orchard_receiver_hex(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-/**
- * The network a unified address belongs to: "mainnet", "testnet" or "regtest". A receipt's
- * recipient bytes carry no network, so an expected address is checked against the receipt's
- * network with this before its receiver is compared.
- * @param {string} ua
- * @returns {string}
- */
-export function address_network(ua) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.address_network(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-/**
- * The source transactions a receipt's source proofs name (explorer-order txids), as a JSON
- * array, so the page can fetch them before calling `verify`.
- * @param {string} receipt
- * @returns {string}
- */
-export function source_txids(receipt) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.source_txids(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
 /**
  * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
  * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
@@ -225,50 +138,6 @@ export function check_payment_uri(uri, network) {
     }
 }
 
-function passArray8ToWasm0(arg, malloc) {
-    const ptr = malloc(arg.length * 1, 1) >>> 0;
-    getUint8ArrayMemory0().set(arg, ptr / 1);
-    WASM_VECTOR_LEN = arg.length;
-    return ptr;
-}
-/**
- * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
- * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
- * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
- * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
- * @param {string} receipt
- * @param {Uint8Array} tx1_raw
- * @param {number} tx1_height
- * @param {Uint8Array} tx2_raw
- * @param {number} tx2_height
- * @param {boolean} regtest
- * @returns {string}
- */
-export function check_tex_deposit(receipt, tx1_raw, tx1_height, tx2_raw, tx2_height, regtest) {
-    let deferred5_0;
-    let deferred5_1;
-    try {
-        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(tx1_raw, wasm.__wbindgen_malloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ptr2 = passArray8ToWasm0(tx2_raw, wasm.__wbindgen_malloc);
-        const len2 = WASM_VECTOR_LEN;
-        const ret = wasm.check_tex_deposit(ptr0, len0, ptr1, len1, tx1_height, ptr2, len2, tx2_height, regtest);
-        var ptr4 = ret[0];
-        var len4 = ret[1];
-        if (ret[3]) {
-            ptr4 = 0; len4 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred5_0 = ptr4;
-        deferred5_1 = len4;
-        return getStringFromWasm0(ptr4, len4);
-    } finally {
-        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
-    }
-}
-
 /**
  * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
  * @param {string} text
@@ -289,158 +158,25 @@ export function secret_kind(text) {
     }
 }
 
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_export_3.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
+}
 /**
- * Decodes a receipt without verifying it. Returns JSON.
- * @param {string} receipt
+ * The network a unified address belongs to: "mainnet", "testnet" or "regtest". A receipt's
+ * recipient bytes carry no network, so an expected address is checked against the receipt's
+ * network with this before its receiver is compared.
+ * @param {string} ua
  * @returns {string}
  */
-export function inspect(receipt) {
+export function address_network(ua) {
     let deferred3_0;
     let deferred3_1;
     try {
-        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.inspect(ptr0, len0);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-function isLikeNone(x) {
-    return x === undefined || x === null;
-}
-/**
- * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
- * `regtest` marks a local test chain (receipts there carry the testnet coin type).
- * `sources`, for receipts with source proofs, is JSON `[{ "raw": "<hex>", "height": n }]`
- * holding each source transaction (see `source_txids`); without it such receipts are refused.
- * Returns JSON describing what the receipt proves, or throws why it is invalid.
- * @param {string} receipt
- * @param {Uint8Array} raw_tx
- * @param {number} height
- * @param {boolean} regtest
- * @param {string | null} [sources]
- * @returns {string}
- */
-export function verify(receipt, raw_tx, height, regtest, sources) {
-    let deferred5_0;
-    let deferred5_1;
-    try {
-        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
-        const len1 = WASM_VECTOR_LEN;
-        var ptr2 = isLikeNone(sources) ? 0 : passStringToWasm0(sources, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        var len2 = WASM_VECTOR_LEN;
-        const ret = wasm.verify(ptr0, len0, ptr1, len1, height, regtest, ptr2, len2);
-        var ptr4 = ret[0];
-        var len4 = ret[1];
-        if (ret[3]) {
-            ptr4 = 0; len4 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred5_0 = ptr4;
-        deferred5_1 = len4;
-        return getStringFromWasm0(ptr4, len4);
-    } finally {
-        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
-    }
-}
-
-/**
- * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
- * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
- * message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
- * @param {string} receipt
- * @param {Uint8Array} raw_tx
- * @param {number} height
- * @param {boolean} regtest
- * @returns {string}
- */
-export function verify_incoming(receipt, raw_tx, height, regtest) {
-    let deferred4_0;
-    let deferred4_1;
-    try {
-        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.verify_incoming(ptr0, len0, ptr1, len1, height, regtest);
-        var ptr3 = ret[0];
-        var len3 = ret[1];
-        if (ret[3]) {
-            ptr3 = 0; len3 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred4_0 = ptr3;
-        deferred4_1 = len3;
-        return getStringFromWasm0(ptr3, len3);
-    } finally {
-        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
-    }
-}
-
-/**
- * Builds the verifying key now (a few seconds), so `verify` is fast later.
- */
-export function warm_up() {
-    wasm.warm_up();
-}
-
-/**
- * Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
- * controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
- * memo, code, expires_at, network, well_known }`; the caller should still confirm that
- * `well_known` (the domain's list of payees) contains `payee`.
- * @param {string} request
- * @param {number} now
- * @returns {string}
- */
-export function verify_payment_request(request, now) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passStringToWasm0(request, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.verify_payment_request(ptr0, len0, now);
-        var ptr2 = ret[0];
-        var len2 = ret[1];
-        if (ret[3]) {
-            ptr2 = 0; len2 = 0;
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        deferred3_0 = ptr2;
-        deferred3_1 = len2;
-        return getStringFromWasm0(ptr2, len2);
-    } finally {
-        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
-    }
-}
-
-/**
- * The txid (block-explorer hex) of `raw_tx`, mined at `height`: lets the block-level fetch
- * check that each transaction a server sent is the one asked for, not a stand-in.
- * @param {Uint8Array} raw_tx
- * @param {number} height
- * @param {number} coin_type
- * @returns {string}
- */
-export function txid_of(raw_tx, height, coin_type) {
-    let deferred3_0;
-    let deferred3_1;
-    try {
-        const ptr0 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.txid_of(ptr0, len0, height, coin_type);
+        const ret = wasm.address_network(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {
@@ -515,6 +251,224 @@ export function inspect_incoming(receipt) {
     }
 }
 
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+/**
+ * The txid (block-explorer hex) of `raw_tx`, mined at `height`: lets the block-level fetch
+ * check that each transaction a server sent is the one asked for, not a stand-in.
+ * @param {Uint8Array} raw_tx
+ * @param {number} height
+ * @param {number} coin_type
+ * @returns {string}
+ */
+export function txid_of(raw_tx, height, coin_type) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.txid_of(ptr0, len0, height, coin_type);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ * @param {string} ua
+ * @returns {string}
+ */
+export function orchard_receiver_hex(ua) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.orchard_receiver_hex(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
+ * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
+ * message, recipient, outputs: [{ action, recipient, zatoshis, memo }] }` or throws.
+ * @param {string} receipt
+ * @param {Uint8Array} raw_tx
+ * @param {number} height
+ * @param {boolean} regtest
+ * @returns {string}
+ */
+export function verify_incoming(receipt, raw_tx, height, regtest) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.verify_incoming(ptr0, len0, ptr1, len1, height, regtest);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
+ * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
+ * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
+ * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
+ * @param {string} receipt
+ * @param {Uint8Array} tx1_raw
+ * @param {number} tx1_height
+ * @param {Uint8Array} tx2_raw
+ * @param {number} tx2_height
+ * @param {boolean} regtest
+ * @returns {string}
+ */
+export function check_tex_deposit(receipt, tx1_raw, tx1_height, tx2_raw, tx2_height, regtest) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(tx1_raw, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(tx2_raw, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.check_tex_deposit(ptr0, len0, ptr1, len1, tx1_height, ptr2, len2, tx2_height, regtest);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * The outputs a receipt claims, opened with their `ock`s and nothing else checked (JSON list of
+ * `{ action, recipient, zatoshis, memo }`): what a receipt that failed its spend proof says it
+ * paid. Not a verification.
+ * @param {string} receipt
+ * @param {Uint8Array} raw_tx
+ * @param {number} height
+ * @param {boolean} regtest
+ * @returns {string}
+ */
+export function claimed_outputs(receipt, raw_tx, height, regtest) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.claimed_outputs(ptr0, len0, ptr1, len1, height, regtest);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
+ * @param {string} batch
+ * @returns {string}
+ */
+export function open_batch(batch) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(batch, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.open_batch(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Decodes a receipt without verifying it. Returns JSON.
+ * @param {string} receipt
+ * @returns {string}
+ */
+export function inspect(receipt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.inspect(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
 /**
  * Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
  * JSON `{ address, zatoshis }`, for showing who funded a source transaction.
@@ -547,18 +501,54 @@ export function transparent_output(raw_tx, height, index, coin_type, regtest) {
 }
 
 /**
- * Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
- * Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
- * @param {string} batch
+ * Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
+ * controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
+ * memo, code, expires_at, network, well_known }`; the caller should still confirm that
+ * `well_known` (the domain's list of payees) contains `payee`.
+ * @param {string} request
+ * @param {number} now
  * @returns {string}
  */
-export function open_batch(batch) {
+export function verify_payment_request(request, now) {
     let deferred3_0;
     let deferred3_1;
     try {
-        const ptr0 = passStringToWasm0(batch, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const ptr0 = passStringToWasm0(request, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.open_batch(ptr0, len0);
+        const ret = wasm.verify_payment_request(ptr0, len0, now);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Builds the verifying key now (a few seconds), so `verify` is fast later.
+ */
+export function warm_up() {
+    wasm.warm_up();
+}
+
+/**
+ * `text` as a QR code, an SVG image (for a payment or request link a phone can scan).
+ * @param {string} text
+ * @returns {string}
+ */
+export function qr_svg(text) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.qr_svg(ptr0, len0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {
@@ -606,6 +596,302 @@ export function sign_prepared_text(prepared, spending_key_hex, message) {
         wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
     }
 }
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
+}
+/**
+ * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
+ * `regtest` marks a local test chain (receipts there carry the testnet coin type).
+ * `sources`, for receipts with source proofs, is JSON `[{ "raw": "<hex>", "height": n }]`
+ * holding each source transaction (see `source_txids`); without it such receipts are refused.
+ * Returns JSON describing what the receipt proves, or throws why it is invalid.
+ * @param {string} receipt
+ * @param {Uint8Array} raw_tx
+ * @param {number} height
+ * @param {boolean} regtest
+ * @param {string | null} [sources]
+ * @returns {string}
+ */
+export function verify(receipt, raw_tx, height, regtest, sources) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        var ptr2 = isLikeNone(sources) ? 0 : passStringToWasm0(sources, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len2 = WASM_VECTOR_LEN;
+        const ret = wasm.verify(ptr0, len0, ptr1, len1, height, regtest, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * The source transactions a receipt's source proofs name (explorer-order txids), as a JSON
+ * array, so the page can fetch them before calling `verify`.
+ * @param {string} receipt
+ * @returns {string}
+ */
+export function source_txids(receipt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(receipt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.source_txids(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Signs a prepared receipt with the wallet's seed phrase (BIP 39, ZIP 32 `account`), after
+ * checking that the phrase's key made its spends. The phrase and the keys derived from it are
+ * dropped when this returns; nothing is stored or sent. Returns `zip311r1…`.
+ * @param {string} prepared
+ * @param {string} phrase
+ * @param {number} account
+ * @returns {string}
+ */
+export function sign_with_phrase(prepared, phrase, account) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(prepared, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(phrase, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.sign_with_phrase(ptr0, len0, ptr1, len1, account);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * Builds the proving key now (it takes several seconds), so `prepare` doesn't wait for it.
+ */
+export function warm_up_prover() {
+    wasm.warm_up_prover();
+}
+
+const ReceiptMakerFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_receiptmaker_free(ptr >>> 0, 1));
+/**
+ * One receipt being made from a viewing key. Feed it chain data in order; see the module docs.
+ */
+export class ReceiptMaker {
+
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        ReceiptMakerFinalization.unregister(this);
+        return ptr;
+    }
+
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_receiptmaker_free(ptr, 0);
+    }
+    /**
+     * Trial-decrypts one compact block's actions with the wallet's keys and keeps the notes
+     * found. Returns true if the payment is in this block.
+     * @param {number} height
+     * @param {Uint8Array} packed
+     * @returns {boolean}
+     */
+    scan_block(height, packed) {
+        const ptr0 = passArray8ToWasm0(packed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.receiptmaker_scan_block(this.__wbg_ptr, height, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * The payment to make the receipt for, as block explorers show its txid.
+     * @param {string} txid
+     */
+    set_target(txid) {
+        const ptr0 = passStringToWasm0(txid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.receiptmaker_set_target(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * How many of the wallet's notes the scan has found so far.
+     * @returns {number}
+     */
+    get notes_found() {
+        const ret = wasm.receiptmaker_notes_found(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Takes the payment (raw bytes, mined at `height`) and returns the wallet's notes it spent
+     * as JSON `[{ pool: 0|1, nf, note_height }]`. Fails if it spent none of them.
+     * @param {Uint8Array} raw_tx
+     * @param {number} height
+     * @returns {string}
+     */
+    spent_notes(raw_tx, height) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passArray8ToWasm0(raw_tx, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.receiptmaker_spent_notes(this.__wbg_ptr, ptr0, len0, height);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * Feeds one block to the path being rebuilt. Returns true once the path at the payment's
+     * anchor is found (later blocks are then ignored, but keep fetching to the window's end so
+     * the server can't tell where it was found).
+     * @param {number} height
+     * @param {Uint8Array} packed
+     * @returns {boolean}
+     */
+    witness_block(height, packed) {
+        const ptr0 = passArray8ToWasm0(packed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.receiptmaker_witness_block(this.__wbg_ptr, height, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * Starts rebuilding one spent note's Merkle path: `tree_hex` is the pool's tree from
+     * GetTreeState at the block before the first block that will be fed (empty for genesis).
+     * @param {number} pool
+     * @param {string} nf_hex
+     * @param {string} tree_hex
+     */
+    witness_start(pool, nf_hex, tree_hex) {
+        const ptr0 = passStringToWasm0(nf_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(tree_hex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.receiptmaker_witness_start(this.__wbg_ptr, pool, ptr0, len0, ptr1, len1);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * From a unified full viewing key (`uview1…`, `uviewtest1…`) with an Orchard part.
+     * @param {string} ufvk
+     */
+    constructor(ufvk) {
+        const ptr0 = passStringToWasm0(ufvk, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.receiptmaker_new(ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0] >>> 0;
+        ReceiptMakerFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * The payment's txid as block explorers show it, once given.
+     * @returns {string | undefined}
+     */
+    get txid() {
+        const ret = wasm.receiptmaker_txid(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * "mainnet" or "testnet".
+     * @returns {string}
+     */
+    get network() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.receiptmaker_network(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Makes the proofs (several seconds; the proving key is built on first use) and returns the
+     * prepared receipt, `zip311u1…`. Discloses what the wallet sent to others, with memos.
+     * @param {string} message
+     * @returns {string}
+     */
+    prepare(message) {
+        let deferred3_0;
+        let deferred3_1;
+        try {
+            const ptr0 = passStringToWasm0(message, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.receiptmaker_prepare(this.__wbg_ptr, ptr0, len0);
+            var ptr2 = ret[0];
+            var len2 = ret[1];
+            if (ret[3]) {
+                ptr2 = 0; len2 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred3_0 = ptr2;
+            deferred3_1 = len2;
+            return getStringFromWasm0(ptr2, len2);
+        } finally {
+            wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+}
+if (Symbol.dispose) ReceiptMaker.prototype[Symbol.dispose] = ReceiptMaker.prototype.free;
 
 const EXPECTED_RESPONSE_TYPES = new Set(['basic', 'cors', 'default']);
 
@@ -673,6 +959,9 @@ function __wbg_get_imports() {
         const len1 = WASM_VECTOR_LEN;
         getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
         getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+    };
+    imports.wbg.__wbg_wbindgenthrow_451ec1a8469d7eb6 = function(arg0, arg1) {
+        throw new Error(getStringFromWasm0(arg0, arg1));
     };
     imports.wbg.__wbindgen_init_externref_table = function() {
         const table = wasm.__wbindgen_export_3;

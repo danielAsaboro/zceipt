@@ -54,8 +54,15 @@ Merkle path, and `alpha` is fresh per receipt), so the prover role can prepare t
 the same data once the transaction is mined; the signer role signs as in step 2. The proving key
 takes a few seconds to build once; keep it for the session.
 
-For mobile wallets, `crates/receipts-ffi` exposes verification and signing over uniffi, with
-generated Swift and Kotlin bindings in `crates/receipts-ffi/bindings/`.
+For mobile wallets on the Zcash Android or iOS SDK, `crates/receipts-ffi` is the whole button,
+with generated Swift and Kotlin bindings in `crates/receipts-ffi/bindings/`:
+`prepareReceipt(dbPath, network, txid, message)` makes the proofs from the SDK's own wallet
+database, and `signPrepared(prepared, spendingKey, nil)` signs them.
+
+Until a wallet ships the button, its users make receipts in the browser: the verifier's
+**Make a receipt** page takes the wallet's exported viewing key and the txid, finds the note
+and makes the proofs on the device, then signs with the seed phrase there or exports the
+prepared receipt for another signer.
 
 ## What not to do
 

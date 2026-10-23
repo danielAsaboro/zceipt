@@ -1,15 +1,54 @@
-"""Run: RECEIPTS_URL=http://127.0.0.1:8723 RECEIPTS_KEY=rcpt_test_… python3 -m unittest discover tests"""
+"""Run: python3 -m unittest discover tests. The API tests use RECEIPTS_URL and RECEIPTS_KEY if set,
+else a throwaway local `receipts serve` ($RECEIPTS, PATH or this repository's release build)."""
+import atexit
 import json
 import os
 import pathlib
+import random
+import re
+import shutil
+import subprocess
+import tempfile
 import time
 import unittest
+import urllib.request
 
 from zcash_receipts import (AuthenticationError, ReceiptsError, InvalidRequestError, Receipts, VerificationError,
                             WebhookSignatureError, construct_event, sign_payload)
 
-URL, KEY = os.environ.get("RECEIPTS_URL"), os.environ.get("RECEIPTS_KEY")
 EX = pathlib.Path(__file__).resolve().parents[3] / "examples"
+
+
+def _local_api():
+    repo = EX.parent
+    target = os.environ.get("CARGO_TARGET_DIR")
+    for b in [os.environ.get("RECEIPTS"), target and os.path.join(target, "release/receipts"), str(repo / "target/release/receipts"), shutil.which("receipts")]:
+        if b and os.path.exists(b):
+            break
+    else:
+        return None, None
+    d = tempfile.mkdtemp(prefix="receipts-sdk-test-")
+    port = random.randint(20000, 40000)
+    log = open(os.path.join(d, "log"), "w+")
+    p = subprocess.Popen([b, "serve", "--listen", f"127.0.0.1:{port}", "--db", os.path.join(d, "api.db")], stdout=log, stderr=log)
+    atexit.register(p.kill)
+    for _ in range(100):
+        log.seek(0)
+        m = re.search(r"rcpt_test_[A-Za-z0-9_]+", log.read())
+        if m:
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/health", timeout=1)
+                return f"http://127.0.0.1:{port}", m.group(0)
+            except OSError:
+                pass
+        time.sleep(0.1)
+    p.kill()
+    return None, None
+
+
+URL, KEY = os.environ.get("RECEIPTS_URL"), os.environ.get("RECEIPTS_KEY")
+if not (URL and KEY):
+    URL, KEY = _local_api()
 
 
 class Webhooks(unittest.TestCase):

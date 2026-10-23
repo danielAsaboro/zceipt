@@ -657,6 +657,9 @@ fn with_screened(mut report: chain::Report, receipt: &Receipt) -> anyhow::Result
     Ok(report)
 }
 
+/// `verify --json`: only the JSON object is printed, on stdout and stderr alike.
+static JSON_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow::Result<()> {
     let (min, challenge, memo_contains) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
     if let Some(want) = memo_contains {
@@ -691,7 +694,9 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
     if let Some(min) = min.filter(|m| paid < *m) {
         bail!("{addr} received {} {}, less than the {} expected", chain::zec(paid), chain::unit(report.network), chain::zec(min));
     }
-    eprintln!("(paid {} {} to the expected address)", chain::zec(paid), chain::unit(report.network));
+    if !JSON_OUT.load(std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("(paid {} {} to the expected address)", chain::zec(paid), chain::unit(report.network));
+    }
     Ok(())
 }
 
@@ -1013,6 +1018,7 @@ async fn main() -> anyhow::Result<()> {
     receipts_wallet::set_account(cli.account)?;
     // `verify --json` answers in JSON whatever happens, so scripts never parse an error line.
     let json_verify = matches!(&cli.cmd, Cmd::Verify { json: true, .. });
+    JSON_OUT.store(json_verify, std::sync::atomic::Ordering::Relaxed);
     // A bad flag is the caller's mistake, not the receipt's: its own code.
     let (result, usage) = match check_verify_flags(&cli.cmd) {
         Ok(()) => (run(cli.cmd).await, false),

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { Receipts, webhooks } from "../client.js";
 import { receiptGate, webhookHandler, checkGate } from "../middleware.js";
 
-const URL_ = process.env.RECEIPTS_URL, KEY = process.env.RECEIPTS_KEY;
+import { URL_, KEY } from "./api.js";
 const PAYEE = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";
 
 test("webhook handler: signed events dispatch, forged ones get 400", async () => {

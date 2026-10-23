@@ -294,13 +294,28 @@ pub fn sign_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt) 
 /// The account's Orchard full viewing key, from the wallet database.
 fn viewing_key(wallet: &Path) -> anyhow::Result<(Net, FullViewingKey)> {
     let net = wallet_network(wallet)?;
-    let conn = rusqlite::Connection::open_with_flags(wallet.join("data.sqlite"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    Ok((net, viewing_key_in_db(&wallet.join("data.sqlite"), net)?))
+}
+
+fn viewing_key_in_db(db: &Path, net: Net) -> anyhow::Result<FullViewingKey> {
+    let conn = rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let ufvk: String = conn
         .query_row("SELECT ufvk FROM accounts WHERE hd_account_index = ?1 AND ufvk IS NOT NULL", [u32::from(account())], |r| r.get(0))
         .context("this wallet database has no viewing key for the account")?;
     let ufvk = zcash_keys::keys::UnifiedFullViewingKey::decode(&net, &ufvk).map_err(|e| anyhow!("decoding the wallet's viewing key: {e}"))?;
-    let fvk = ufvk.orchard().cloned().ok_or_else(|| anyhow!("the wallet's viewing key has no Orchard part"))?;
-    Ok((net, fvk))
+    ufvk.orchard().cloned().ok_or_else(|| anyhow!("the wallet's viewing key has no Orchard part"))
+}
+
+/// For a mobile or desktop wallet built on `zcash_client_sqlite` (the Zcash Android and iOS
+/// SDKs keep one): makes every proof of a receipt for `txid` straight from that wallet
+/// database, with the account's viewing key read from it. Sign the result where the spending key
+/// is ([`PreparedReceipt::sign`] or `receipts_ffi::sign_prepared`). Discloses what the wallet sent
+/// to others, with memos. The database is opened read-only for the key and notes, and its own
+/// note commitment tree gives the Merkle paths, so nothing is fetched unless it pruned them.
+pub async fn prepare_receipt_from_db(db: &Path, net: Net, txid: [u8; 32], msg: &[u8], server: Option<&str>) -> anyhow::Result<(PreparedReceipt, u32)> {
+    let fvk = viewing_key_in_db(db, net)?;
+    let (p, mined, _) = prepare_with_db(db, net, fvk, txid, msg, &[], None, WitnessSource::Auto, server, None, None, false, None).await?;
+    Ok((p, mined))
 }
 
 /// A screened list to prove the spent notes came from, and optionally how much of them to show
@@ -387,10 +402,43 @@ async fn prepare_with(
     withhold_memo: bool,
     screened_set: Option<Screened<'_>>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
-    let db_path = wallet.join("data.sqlite");
-    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    prepare_with_db(
+        &wallet.join("data.sqlite"),
+        net,
+        fvk,
+        txid,
+        msg,
+        outputs,
+        pool,
+        witness_source,
+        server,
+        prove_address,
+        prove_source,
+        withhold_memo,
+        screened_set,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn prepare_with_db(
+    db_path: &Path,
+    net: Net,
+    fvk: FullViewingKey,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[u32],
+    pool: Option<Pool>,
+    witness_source: WitnessSource,
+    server: Option<&str>,
+    prove_address: Option<&str>,
+    prove_source: Option<SourceMode>,
+    withhold_memo: bool,
+    screened_set: Option<Screened<'_>>,
+) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
+    let mut db = WalletDb::for_path(db_path, net, SystemClock, OsRng)?;
     let tx = db.get_transaction(TxId::from_bytes(txid))?.ok_or_else(|| anyhow!("this wallet has no record of that transaction; sync it first"))?;
-    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let conn = rusqlite::Connection::open_with_flags(db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let mined: Option<u32> = conn.query_row("SELECT mined_height FROM transactions WHERE txid = ?1", [txid.as_slice()], |r| r.get(0))?;
     let mined = mined.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?;
     let spent = spent_notes_in_db(&db, &conn, &fvk, &tx)?;

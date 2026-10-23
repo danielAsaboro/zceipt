@@ -46,7 +46,7 @@ else
 fi
 echo "== browser: the verifier page in headless Chrome (skipped if Chrome isn't installed)"
 rm -rf web/zcash-receipts && mkdir -p web/zcash-receipts
-cp -R packages/zcash-receipts/{index.js,grpc.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
+cp -R packages/zcash-receipts/{index.js,grpc.js,maker.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
 P=$((5400 + RANDOM % 500))
 python3 -m http.server --bind 127.0.0.1 -d web "$P" >/dev/null 2>&1 &
 SERVER=$!

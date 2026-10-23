@@ -152,6 +152,87 @@ async function grpcUnary(endpoint, method, msg) {
   return data;
 }
 
+async function grpcStream(endpoint, method, msg) {
+  const frame = new Uint8Array(5 + msg.length);
+  new DataView(frame.buffer).setUint32(1, msg.length);
+  frame.set(msg, 5);
+  const res = await fetch(`${endpoint.replace(/\/$/, "")}/cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`, {
+    method: "POST",
+    headers: { "content-type": "application/grpc-web+proto", "x-grpc-web": "1" },
+    body: frame,
+  });
+  if (!res.ok) throw new Error(`lightwalletd answered HTTP ${res.status}`);
+  const body = new Uint8Array(await res.arrayBuffer());
+  const out = [];
+  let pos = 0, trailer = "";
+  while (pos + 5 <= body.length) {
+    const flag = body[pos];
+    const len = new DataView(body.buffer, body.byteOffset + pos + 1, 4).getUint32(0);
+    const chunk = body.subarray(pos + 5, pos + 5 + len);
+    pos += 5 + len;
+    if (flag & 0x80) trailer += new TextDecoder().decode(chunk);
+    else out.push(chunk);
+  }
+  const m = trailer.match(/grpc-status:\s*(\d+)/);
+  if (m && m[1] !== "0") throw new Error(`lightwalletd: ${safeDecode(((trailer.match(/grpc-message:\s*(.*)/) || [])[1] || "").trim()) || "status " + m[1]}`);
+  return out;
+}
+
+const blockId = (h) => [0x0a, ...encodeVarint(encodeVarint(h).length + 1), 0x08, ...encodeVarint(h)];
+
+/**
+ * Compact blocks `start..=end` with their Orchard and Ironwood actions packed for the wasm
+ * ReceiptMaker (181 bytes each: pool, txid, nf, cmx, epk, ciphertext). Yields `{ height, packed }`.
+ */
+export async function* fetchCompactActions(endpoint, start, end, { batch = 200 } = {}) {
+  for (let from = start; from <= end; from += batch) {
+    const to = Math.min(end, from + batch - 1);
+    const range = [...blockId(from)];
+    const endId = [0x08, ...encodeVarint(to)];
+    const msg = new Uint8Array([...range, 0x12, endId.length, ...endId, 0x1a, 0x02, 0x03, 0x04]); // poolTypes: Orchard, Ironwood
+    for (const block of await grpcStream(endpoint, "GetBlockRange", msg)) {
+      let height = 0;
+      const parts = [];
+      for (const [f, v] of parseFields(block)) {
+        if (f === 2) height = Number(v);
+        if (f !== 7) continue;
+        let txid = null;
+        const acts = [];
+        for (const [tf, tv] of parseFields(v)) {
+          if (tf === 2) txid = tv;
+          if (tf === 6 || tf === 9) acts.push([tf === 6 ? 0 : 1, tv]);
+        }
+        for (const [pool, a] of acts) {
+          const rec = new Uint8Array(181);
+          rec[0] = pool;
+          if (txid) rec.set(txid.subarray(0, 32), 1);
+          for (const [af, av] of parseFields(a)) {
+            if (af === 1) rec.set(av.subarray(0, 32), 33);
+            if (af === 2) rec.set(av.subarray(0, 32), 65);
+            if (af === 3) rec.set(av.subarray(0, 32), 97);
+            if (af === 4) rec.set(av.subarray(0, 52), 129);
+          }
+          parts.push(rec);
+        }
+      }
+      const packed = new Uint8Array(parts.length * 181);
+      parts.forEach((p, i) => packed.set(p, i * 181));
+      yield { height, packed };
+    }
+  }
+}
+
+/** The Orchard and Ironwood note commitment trees after block `height` (hex, as lightwalletd sends them). */
+export async function fetchTreeState(endpoint, height) {
+  const ts = await grpcUnary(endpoint, "GetTreeState", new Uint8Array([0x08, ...encodeVarint(height)]));
+  const out = { orchard: "", ironwood: "" };
+  for (const [f, v] of parseFields(ts)) {
+    if (f === 6) out.orchard = new TextDecoder().decode(v);
+    if (f === 7) out.ironwood = new TextDecoder().decode(v);
+  }
+  return out;
+}
+
 /** The height of the server's latest block (CompactTxStreamer.GetLatestBlock). */
 export async function fetchTipHeight(endpoint) {
   const id = await grpcUnary(endpoint, "GetLatestBlock", new Uint8Array(0));

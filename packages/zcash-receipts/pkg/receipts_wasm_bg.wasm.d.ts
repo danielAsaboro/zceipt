@@ -1,15 +1,29 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_receiptmaker_free: (a: number, b: number) => void;
 export const address_network: (a: number, b: number) => [number, number, number, number];
 export const check_payment_uri: (a: number, b: number, c: number, d: number) => [number, number];
 export const check_tex_deposit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+export const claimed_outputs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const inspect: (a: number, b: number) => [number, number, number, number];
 export const inspect_incoming: (a: number, b: number) => [number, number, number, number];
 export const open_batch: (a: number, b: number) => [number, number, number, number];
 export const orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
+export const qr_svg: (a: number, b: number) => [number, number, number, number];
+export const receiptmaker_network: (a: number) => [number, number];
+export const receiptmaker_new: (a: number, b: number) => [number, number, number];
+export const receiptmaker_notes_found: (a: number) => number;
+export const receiptmaker_prepare: (a: number, b: number, c: number) => [number, number, number, number];
+export const receiptmaker_scan_block: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const receiptmaker_set_target: (a: number, b: number, c: number) => [number, number];
+export const receiptmaker_spent_notes: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const receiptmaker_txid: (a: number) => [number, number];
+export const receiptmaker_witness_block: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const receiptmaker_witness_start: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const secret_kind: (a: number, b: number) => [number, number];
 export const sign_prepared_text: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const sign_with_phrase: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const source_txids: (a: number, b: number) => [number, number, number, number];
 export const transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const txid_of: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -17,6 +31,7 @@ export const verify: (a: number, b: number, c: number, d: number, e: number, f: 
 export const verify_incoming: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const verify_payment_request: (a: number, b: number, c: number) => [number, number, number, number];
 export const verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const warm_up_prover: () => void;
 export const warm_up: () => void;
 export const rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;
 export const rustsecp256k1_v0_14_default_illegal_callback_fn: (a: number, b: number) => void;

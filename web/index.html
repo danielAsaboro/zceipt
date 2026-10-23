@@ -106,6 +106,9 @@
     .samples details.more { width: 100%; }
     .samples details.more summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 6px 0; }
     .samples details.more[open] { display: flex; flex-wrap: wrap; gap: 8px; }
+    .qr { width: 200px; margin: 10px 0; background: #fff; border-radius: 10px; padding: 6px; }
+    .qr svg { width: 100%; height: auto; display: block; }
+    a.paybtn { display: inline-block; font: 600 15px var(--sans); border-radius: 10px; padding: 12px 18px; background: var(--paper); color: var(--ink); text-decoration: none; }
     #makeOwn { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
     #makeOwn input { flex: 1 1 200px; }
     button.ghost { background: transparent; color: inherit; border: 1px solid currentColor; padding: 8px 12px; font-size: 13px; opacity: .85; }
@@ -147,6 +150,7 @@
         <button type="button" class="ghost" id="openFile">Open a file</button>
         <input type="file" id="fileIn" accept=".txt,text/plain" hidden>
       </div>
+      <p class="fine"><a href="./make.html">Make a receipt from your wallet's viewing key</a></p>
       <div class="actions samples">
         <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>
         <button type="button" class="ghost" id="sampleEdited">Try an edited copy</button>

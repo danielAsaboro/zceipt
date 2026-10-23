@@ -2,8 +2,10 @@
 
 Transaction `d2d4c90445cb714e0ca8da14d881be4fb606cdcd9bd6b658ec3da76fb44252f4` (testnet block
 4,532,976) pays 0.002 TAZ to the merchant in `../merchant.ua` from a throwaway wallet made for
-this. Its Orchard spending key is `orchard-spending-key.hex`, public on purpose: never send it
-funds.
+this. Its Orchard spending key is `orchard-spending-key.hex` and its viewing key
+`viewing-key.txt` (wallet birthday 4,532,853), both public on purpose: never send it funds.
+**Make a receipt** on the verifier page makes this payment's proofs from that viewing key, as a
+wallet's user would.
 
 `prepared.txt` is that payment's receipt with every proof made (`receipts create --unsigned`).
 The proofs don't cover the message, so anyone can sign it for their own message:

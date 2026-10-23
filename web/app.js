@@ -47,7 +47,7 @@ const warmed = call("warm")
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
 const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
@@ -952,10 +952,9 @@ if (initial) {
 // A request link opened on its own: say what is being asked, and how to answer it.
 // The command a payer runs to answer a request, from any wallet's seed phrase, with a copy button.
 function answerCommand(link, to) {
-  const net = regtest() ? "test" : /^u1/.test(to || "") ? "main" : "test";
   // Shell-quoted: a label with an apostrophe must not break the command.
   const quoted = `'${String(link).replace(/'/g, "'\\''")}'`;
-  const cmd = `receipts create --seed-stdin --network ${net} --birthday <wallet birthday> --txid <txid> --request ${quoted}`;
+  const cmd = `receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <txid> --request ${quoted} --unsigned r.txt && receipts sign r.txt --seed-stdin`;
   const id = `cmd${Math.random().toString(36).slice(2, 8)}`;
   setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = () => navigator.clipboard.writeText(cmd).then(() => { b.textContent = "Copied"; }, () => { b.textContent = "Select and copy the command above"; }); });
   return `<div class="cli">${escapeHtml(cmd)}</div><p class="fine"><button type="button" class="ghost" id="${id}">Copy command</button></p>`;
@@ -966,12 +965,14 @@ function showRequest() {
   askedFor = requestFromUrl();
   if (!askedFor) return;
   const answer = location.href;
+  const payUri = `zcash:${askedFor.to}${askedFor.min ? `?amount=${zec(askedFor.min)}` : ""}`;
   $("#empty").innerHTML = `
     <div class="big">PAYMENT REQUEST</div>
     <p>You're asked to prove a payment${askedFor.min ? ` of at least <strong>${zec(askedFor.min)} ${/^u1/.test(askedFor.to || "") ? "ZEC" : "TAZ"}</strong>` : ""}${askedFor.to ? ` to <span class="mono" title="${escapeHtml(askedFor.to)}">${escapeHtml(short(askedFor.to, 10))}</span>` : ""}${askedFor.label ? ` (“${escapeHtml(askedFor.label)}”)` : ""}.</p>
-    ${askedFor.to ? `<p><a class="ghost" href="zcash:${escapeHtml(askedFor.to)}${askedFor.min ? `?amount=${zec(askedFor.min)}` : ""}">Pay in your wallet</a></p>` : ""}
-    <p class="hint">Then make a receipt that answers this request and send back the link it prints:</p>
-    ${answerCommand(answer, askedFor.to)}`;
+    ${askedFor.to ? `<p><a class="paybtn" href="${escapeHtml(payUri)}">Pay in your wallet</a></p><div class="qr" id="payQr" aria-label="QR code of the payment link"></div>` : ""}
+    <p><a class="paybtn" href="./make.html${escapeHtml(location.hash.replace(/&?zip311[a-z0-9]1[A-Za-z0-9_-]*/, ""))}">Then make the receipt in your browser</a></p>
+    <details class="more"><summary>Or in a terminal</summary>${answerCommand(answer, askedFor.to)}</details>`;
+  if (askedFor.to) local.then(() => { $("#payQr").innerHTML = qr_svg(payUri); }).catch(() => {});
   // On a phone the request comes first, not below the form.
   document.body.classList.add("has-result");
 }
@@ -1052,9 +1053,11 @@ $("#reqBtn").onclick = () => {
     <p class="hint">Send this to the person who paid you. Their receipt must answer challenge <code>${code}</code>.</p>
     <textarea readonly id="reqLink">${escapeHtml(link)}</textarea>
     <p class="fine"><button type="button" class="ghost" id="copyReq">Copy link</button></p>
+    <div class="qr" id="reqQr" aria-label="QR code of the request link"></div>
     <p class="hint">They run:</p>
     ${answerCommand(link, to)}
     <p class="hint">and send back the link it prints. Opening it here checks the challenge, the payee and the amount.</p>`;
+  local.then(() => { $("#reqQr").innerHTML = qr_svg(link); }).catch(() => {});
   $("#copyReq").onclick = () =>
     navigator.clipboard.writeText(link).then(
       () => { $("#copyReq").textContent = "Copied"; },

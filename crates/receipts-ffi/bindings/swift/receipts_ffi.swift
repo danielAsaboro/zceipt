@@ -593,6 +593,23 @@ public func describePrepared(prepared: String)throws  -> String  {
 })
 }
 /**
+ * Makes every proof of a receipt for `txid` (as block explorers show it) from the wallet's own
+ * `zcash_client_sqlite` database, the one the Zcash Android and iOS SDKs keep (`network`: "main"
+ * or "test"). Returns the prepared `zip311u1…` text and the payment's block as JSON
+ * `{ prepared, height }`; sign it with [`sign_prepared`]. Blocks for a few seconds while the
+ * proofs are made; call it off the main thread.
+ */
+public func prepareReceipt(dbPath: String, network: String, txid: String, message: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeReceiptError_lift) {
+    uniffi_receipts_ffi_fn_func_prepare_receipt(
+        FfiConverterString.lower(dbPath),
+        FfiConverterString.lower(network),
+        FfiConverterString.lower(txid),
+        FfiConverterString.lower(message),$0
+    )
+})
+}
+/**
  * Signs a prepared receipt (`zip311u1…`, from `ReceiptBuilder::prepare` on the watch-only side)
  * with the 32-byte Orchard spending key, after checking that this key made its spends. With
  * `message`, signs for that message instead of the prepared one. Returns `zip311r1…` text.
@@ -639,6 +656,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_receipts_ffi_checksum_func_describe_prepared() != 58388) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_receipts_ffi_checksum_func_prepare_receipt() != 36241) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_receipts_ffi_checksum_func_sign_prepared() != 20060) {

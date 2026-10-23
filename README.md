@@ -62,9 +62,16 @@ minutes to build the first time).
 
 ## Make a receipt from your wallet
 
-Any wallet that lets you export its viewing key or seed phrase works; no wallet has a button for
-it yet ([what a wallet needs to add one](docs/guides/wallet-integration.md)). The CLI finds your notes by scanning the chain from the wallet's birthday, on your
-machine.
+**No terminal:** the verifier's **Make a receipt** page (`make.html`) takes your wallet's
+viewing key, the payment's txid and the wallet's birthday, finds the note and makes the proofs
+in your browser (about a minute), then signs with your seed phrase on the same device or saves
+the prepared receipt for another signer. Nothing leaves the device but block requests.
+
+**In a wallet:** wallets on the Zcash Android or iOS SDK add the button with two calls from
+the Swift/Kotlin bindings, `prepareReceipt(dbPath, …)` and `signPrepared(…)`
+([crates/receipts-ffi](crates/receipts-ffi), [guide](docs/guides/wallet-integration.md)).
+
+**In a terminal**, the CLI finds your notes by scanning the chain from the wallet's birthday:
 
 | You have | Command |
 |---|---|

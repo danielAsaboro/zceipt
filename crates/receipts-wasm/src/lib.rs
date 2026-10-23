@@ -12,6 +12,9 @@ use zcash_address::unified::{self, Encoding};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkType};
 
+mod maker;
+pub use maker::{sign_with_phrase, warm_up_prover, ReceiptMaker};
+
 thread_local! {
     static VK: OnceCell<orchard::circuit::VerifyingKey> = const { OnceCell::new() };
 }
@@ -368,6 +371,13 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
         .map(|a| a.encode(&nt))
         .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(serde_json::json!({ "address": ua, "network": name, "issued_at": s.issued_at }).to_string())
+}
+
+/// `text` as a QR code, an SVG image (for a payment or request link a phone can scan).
+#[wasm_bindgen]
+pub fn qr_svg(text: &str) -> Result<String, JsError> {
+    let code = qrcode::QrCode::new(text.as_bytes()).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(code.render::<qrcode::render::svg::Color>().min_dimensions(200, 200).quiet_zone(true).build())
 }
 
 /// The outputs a receipt claims, opened with their `ock`s and nothing else checked (JSON list of

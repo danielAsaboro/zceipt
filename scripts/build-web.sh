@@ -36,6 +36,6 @@ fi
 # The page serves the package as-is (no bundler).
 rm -rf web/zcash-receipts web/pkg
 mkdir -p web/zcash-receipts
-cp -R packages/zcash-receipts/{index.js,grpc.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
+cp -R packages/zcash-receipts/{index.js,grpc.js,maker.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
 grep -q "from 'env'" "$PKG"/receipts_wasm.js && { echo "error: env imports were not stubbed" >&2; exit 1; }
 echo "web build OK: $(du -h "$PKG"/receipts_wasm_bg.wasm | cut -f1) wasm"

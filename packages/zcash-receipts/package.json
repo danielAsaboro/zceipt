@@ -21,10 +21,12 @@
     "./middleware": {
       "types": "./middleware.d.ts",
       "default": "./middleware.js"
-    }
+    },
+    "./maker": "./maker.js"
   },
   "files": [
     "index.js",
+    "maker.js",
     "index.d.ts",
     "client.js",
     "client.d.ts",

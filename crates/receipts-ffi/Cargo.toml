@@ -17,6 +17,8 @@ path = "uniffi-bindgen.rs"
 [dependencies]
 receipts-core = { path = "../receipts-core", features = ["orchard-ext", "extensions"] }
 receipts-chain = { path = "../receipts-chain" }
+receipts-wallet = { path = "../receipts-wallet" }
+tokio = { version = "1", features = ["rt"] }
 orchard.workspace = true
 rand = { workspace = true, features = ["std", "sys_rng"] }
 serde_json = "1"

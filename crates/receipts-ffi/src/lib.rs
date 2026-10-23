@@ -33,6 +33,32 @@ pub fn sign_prepared(prepared: String, spending_key: Vec<u8>, message: Option<St
     Ok(p.apply_signatures(sigs).map_err(refused)?.to_text())
 }
 
+/// Makes every proof of a receipt for `txid` (as block explorers show it) from the wallet's own
+/// `zcash_client_sqlite` database, the one the Zcash Android and iOS SDKs keep (`network`: "main"
+/// or "test"). Returns the prepared `zip311u1…` text and the payment's block as JSON
+/// `{ prepared, height }`; sign it with [`sign_prepared`]. Blocks for a few seconds while the
+/// proofs are made; call it off the main thread.
+#[uniffi::export]
+pub fn prepare_receipt(db_path: String, network: String, txid: String, message: String) -> Result<String, ReceiptError> {
+    let net = match network.as_str() {
+        "main" | "mainnet" => receipts_chain::net::Net::Main,
+        "test" | "testnet" => receipts_chain::net::Net::Test,
+        n => return Err(refused(format!("unknown network {n}: use main or test"))),
+    };
+    let mut id: [u8; 32] = (0..txid.len().min(64))
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&txid[i..i + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or_else(|| refused("a txid is 64 hex digits"))?;
+    id.reverse();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(refused)?;
+    let (p, height) =
+        rt.block_on(receipts_wallet::prepare_receipt_from_db(std::path::Path::new(&db_path), net, id, message.as_bytes(), None)).map_err(refused)?;
+    Ok(serde_json::json!({ "prepared": p.to_text(), "height": height }).to_string())
+}
+
 /// What a prepared receipt will disclose, as JSON, for the signer's confirmation screen:
 /// `{ network, txid, message, outputs, spends }`.
 #[uniffi::export]
@@ -73,6 +99,18 @@ mod tests {
 
     fn read(f: &str) -> String {
         std::fs::read_to_string(format!("{DIR}{f}")).unwrap().trim().to_string()
+    }
+
+    /// RECEIPTS_FFI_WALLET_DB=<a synced testnet wallet's data.sqlite> RECEIPTS_FFI_TXID=<a payment it
+    /// sent> cargo test -p receipts-ffi -- --ignored
+    #[test]
+    #[ignore]
+    fn prepares_from_a_wallet_database() {
+        let (Ok(db), Ok(txid)) = (std::env::var("RECEIPTS_FFI_WALLET_DB"), std::env::var("RECEIPTS_FFI_TXID")) else { return };
+        let out: serde_json::Value = serde_json::from_str(&prepare_receipt(db, "test".into(), txid, "from the wallet database".into()).unwrap()).unwrap();
+        let about: serde_json::Value = serde_json::from_str(&describe_prepared(out["prepared"].as_str().unwrap().into()).unwrap()).unwrap();
+        assert_eq!(about["message"], "from the wallet database");
+        assert!(about["spends"].as_u64().unwrap() >= 1);
     }
 
     #[test]

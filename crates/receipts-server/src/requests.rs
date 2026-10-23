@@ -170,10 +170,10 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "expires_at": r.expires_at,
         "payment_uri": uri,
         "receipt_link": link,
-        // From any wallet's seed phrase (asked for, not shown); the link is shell-quoted.
+        // Proofs from the wallet's viewing key, then the signature where the seed is (asked for,
+        // never shown); the link is shell-quoted.
         "cli_command": format!(
-            "receipts create --seed-stdin --network {} --birthday <wallet birthday> --txid <txid>{} --request '{}'",
-            if r.mode == "live" { "main" } else { "test" },
+            "receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <txid>{} --request '{}' --unsigned r.txt && receipts sign r.txt --seed-stdin",
             if r.source_policy.is_some() { " --prove-source" } else { "" },
             link.replace('\'', "'\\''")
         ),
@@ -351,7 +351,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         if v.challenge.as_deref() != Some(r.challenge.as_str()) {
             return Err(ApiError::verification(
                 "challenge_mismatch",
-                "the receipt does not sign this request's challenge; create it with `--request <receipt_link>`",
+                "this receipt was made for another order: make it again with this page's command, which signs this order's code",
             ));
         }
         let mut v = v;
@@ -567,16 +567,32 @@ fn public_view(st: &AppState, r: &RequestRec) -> Value {
     })
 }
 
-pub async fn public_get(State(st): State<Shared>, Path(id): Path<String>, Query(q): Query<SecretQuery>) -> Result<Json<Value>, ApiError> {
+/// The client secret from the `Receipts-Client-Secret` header (the hosted page sends it there,
+/// so it stays out of access logs), else from `?secret=` (older clients and the SDKs).
+fn secret_of<'a>(headers: &'a axum::http::HeaderMap, q: &'a SecretQuery) -> Option<&'a str> {
+    headers.get("receipts-client-secret").and_then(|v| v.to_str().ok()).or(q.secret.as_deref())
+}
+
+pub async fn public_get(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Query(q): Query<SecretQuery>,
+) -> Result<Json<Value>, ApiError> {
     let r = load(&st, None, &id)?;
-    check_secret(&r, q.secret.as_deref())?;
+    check_secret(&r, secret_of(&headers, &q))?;
     Ok(Json(public_view(&st, &r)))
 }
 
-pub async fn public_qr(State(st): State<Shared>, Path(id): Path<String>, Query(q): Query<SecretQuery>) -> Result<Response, ApiError> {
+pub async fn public_qr(
+    State(st): State<Shared>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+    Query(q): Query<SecretQuery>,
+) -> Result<Response, ApiError> {
     let r = load(&st, None, &id)?;
     if r.kind != "campaign" {
-        check_secret(&r, q.secret.as_deref())?;
+        check_secret(&r, secret_of(&headers, &q))?;
     }
     qr_for(&st, &r)
 }

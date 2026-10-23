@@ -261,6 +261,11 @@ RustBuffer uniffi_receipts_ffi_fn_func_challenge_of(RustBuffer message, RustCall
 RustBuffer uniffi_receipts_ffi_fn_func_describe_prepared(RustBuffer prepared, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_FN_FUNC_PREPARE_RECEIPT
+#define UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_FN_FUNC_PREPARE_RECEIPT
+RustBuffer uniffi_receipts_ffi_fn_func_prepare_receipt(RustBuffer db_path, RustBuffer network, RustBuffer txid, RustBuffer message, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_FN_FUNC_SIGN_PREPARED
 #define UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_FN_FUNC_SIGN_PREPARED
 RustBuffer uniffi_receipts_ffi_fn_func_sign_prepared(RustBuffer prepared, RustBuffer spending_key, RustBuffer message, RustCallStatus *_Nonnull out_status
@@ -560,6 +565,12 @@ uint16_t uniffi_receipts_ffi_checksum_func_challenge_of(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_CHECKSUM_FUNC_DESCRIBE_PREPARED
 #define UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_CHECKSUM_FUNC_DESCRIBE_PREPARED
 uint16_t uniffi_receipts_ffi_checksum_func_describe_prepared(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_CHECKSUM_FUNC_PREPARE_RECEIPT
+#define UNIFFI_FFIDEF_UNIFFI_RECEIPTS_FFI_CHECKSUM_FUNC_PREPARE_RECEIPT
+uint16_t uniffi_receipts_ffi_checksum_func_prepare_receipt(void
     
 );
 #endif

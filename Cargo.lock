@@ -3157,8 +3157,10 @@ dependencies = [
  "rand 0.10.3",
  "receipts-chain",
  "receipts-core",
+ "receipts-wallet",
  "serde_json",
  "thiserror 2.0.21",
+ "tokio",
  "uniffi",
 ]
 
@@ -3224,20 +3226,25 @@ dependencies = [
 name = "receipts-wasm"
 version = "0.1.0"
 dependencies = [
+ "bip0039",
  "console_error_panic_hook",
  "getrandom 0.2.17",
  "getrandom 0.4.3",
  "hex",
+ "incrementalmerkletree",
  "orchard",
+ "qrcode",
  "rand 0.10.3",
  "receipts-core",
  "serde",
  "serde_json",
  "wasm-bindgen",
  "zcash_address",
+ "zcash_note_encryption",
  "zcash_primitives",
  "zcash_protocol",
  "zcash_transparent",
+ "zip32",
 ]
 
 [[package]]

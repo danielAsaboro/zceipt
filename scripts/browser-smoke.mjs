@@ -97,6 +97,15 @@ try {
   check(pct === "VERIFIED", `a link with a stray % still verifies (got ${pct})`);
   const amber = await evaluate(`(() => { const s = document.querySelector('#result .stamp'); return s && s.textContent.includes('RECIPIENT NOT CHECKED') && s.classList.contains('warn') })()`);
   check(amber === true, "a link opened with no recipient check is amber and says so");
+  // "Make a receipt": the demo wallet's viewing key and txid, proofs made in this browser.
+  const ufvk = readFileSync(new URL("../examples/testnet/demo/viewing-key.txt", import.meta.url), "utf8").trim();
+  await send("Page.navigate", { url: url.replace(/#.*$/, "").replace(/\/?$/, "/") + "make.html" });
+  await until(`!!document.querySelector('#proveBtn')`, 30);
+  await evaluate(`document.querySelector('#ufvk').value = ${JSON.stringify(ufvk)}; document.querySelector('#txid').value = 'd2d4c90445cb714e0ca8da14d881be4fb606cdcd9bd6b658ec3da76fb44252f4'; document.querySelector('#birthday').value = '4532853'; document.querySelector('#proveBtn').click(); true`);
+  const made = await until(`(() => { const t = document.querySelector('#progress').innerText; return /Proofs made|err/.test(document.querySelector('#progress').innerHTML) ? t : '' })()`, 300);
+  check(/Proofs made/.test(made || "") && !(await evaluate(`document.querySelector('#signPart').hidden`)), `a viewing key makes the proofs in the browser (${(made || "timed out").slice(0, 60)})`);
+  await send("Page.navigate", { url: url.replace(/#.*$/, "") });
+  await until(`!!document.querySelector('#sampleReal')?.onclick`, 60);
   // The README names the verdicts this run just saw, word for word.
   const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const missing = ["PAID TO YOU", "VERIFIED · RECIPIENT NOT CHECKED", "NOT VALID", "NOT PROVEN BY THE PAYER"].filter((s) => !readme.includes(`**${s}**`));

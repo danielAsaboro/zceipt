@@ -719,6 +719,8 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -737,6 +739,8 @@ internal interface IntegrityCheckingUniffiLib : Library {
     fun uniffi_receipts_ffi_checksum_func_challenge_of(
 ): Short
 fun uniffi_receipts_ffi_checksum_func_describe_prepared(
+): Short
+fun uniffi_receipts_ffi_checksum_func_prepare_receipt(
 ): Short
 fun uniffi_receipts_ffi_checksum_func_sign_prepared(
 ): Short
@@ -790,6 +794,8 @@ internal interface UniffiLib : Library {
     fun uniffi_receipts_ffi_fn_func_challenge_of(`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_receipts_ffi_fn_func_describe_prepared(`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_receipts_ffi_fn_func_prepare_receipt(`dbPath`: RustBuffer.ByValue,`network`: RustBuffer.ByValue,`txid`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_receipts_ffi_fn_func_sign_prepared(`prepared`: RustBuffer.ByValue,`spendingKey`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -925,6 +931,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_receipts_ffi_checksum_func_describe_prepared() != 58388.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_receipts_ffi_checksum_func_prepare_receipt() != 36241.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_receipts_ffi_checksum_func_sign_prepared() != 20060.toShort()) {
@@ -1222,6 +1231,23 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
     uniffiRustCallWithError(ReceiptException) { _status ->
     UniffiLib.INSTANCE.uniffi_receipts_ffi_fn_func_describe_prepared(
         FfiConverterString.lower(`prepared`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Makes every proof of a receipt for `txid` (as block explorers show it) from the wallet's own
+         * `zcash_client_sqlite` database, the one the Zcash Android and iOS SDKs keep (`network`: "main"
+         * or "test"). Returns the prepared `zip311u1…` text and the payment's block as JSON
+         * `{ prepared, height }`; sign it with [`sign_prepared`]. Blocks for a few seconds while the
+         * proofs are made; call it off the main thread.
+         */
+    @Throws(ReceiptException::class) fun `prepareReceipt`(`dbPath`: kotlin.String, `network`: kotlin.String, `txid`: kotlin.String, `message`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(ReceiptException) { _status ->
+    UniffiLib.INSTANCE.uniffi_receipts_ffi_fn_func_prepare_receipt(
+        FfiConverterString.lower(`dbPath`),FfiConverterString.lower(`network`),FfiConverterString.lower(`txid`),FfiConverterString.lower(`message`),_status)
 }
     )
     }

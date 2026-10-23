@@ -4,13 +4,15 @@ Swift and Kotlin bindings (uniffi) for the calls a mobile wallet's signer and a 
 
 | Call | Does |
 |---|---|
+| `prepareReceipt(dbPath, network, txid, message)` | every proof, from the wallet's own `zcash_client_sqlite` database (the one the Android and iOS SDKs keep); returns `{ prepared, height }` |
 | `describePrepared(prepared)` | what a `zip311u1…` prepared receipt will disclose, for the confirmation screen |
 | `signPrepared(prepared, spendingKey, message?)` | checks the key made the spends, signs, returns `zip311r1…` |
 | `verifyReceipt(receipt, rawTxHex, height)` | verifies against a transaction the app fetched, returns the report as JSON |
 | `challengeOf(message)` | the request challenge a message carries |
 
-The proofs are made in the wallet's Rust core with `receipts_core::ReceiptBuilder` (they need
-the note and its Merkle path); the prepared receipt crosses the boundary as text.
+A wallet's "Prove this payment" button is `prepareReceipt` then `signPrepared` with the
+account's Orchard spending key, then a share sheet for the link. A wallet with its own storage
+uses `receipts_core::ReceiptBuilder` in its Rust core instead.
 
 Regenerate the bindings after a change:
 

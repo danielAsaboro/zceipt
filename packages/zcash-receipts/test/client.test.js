@@ -1,11 +1,11 @@
-// API client tests against a running `receipts serve` (set RECEIPTS_URL and RECEIPTS_KEY),
+// API client tests against RECEIPTS_URL/RECEIPTS_KEY, or a throwaway local `receipts serve` (test/api.js),
 // plus offline webhook-signature tests.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Receipts, VerificationError, AuthenticationError, InvalidRequestError, webhooks, WebhookSignatureError } from "../client.js";
 
-const URL_ = process.env.RECEIPTS_URL, KEY = process.env.RECEIPTS_KEY;
+import { URL_, KEY } from "./api.js";
 const live = !(URL_ && KEY);
 const ex = (p) => new URL(`../../../examples/${p}`, import.meta.url);
 

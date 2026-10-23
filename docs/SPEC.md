@@ -312,6 +312,23 @@ transaction. The independent spec verifier recomputes the root and the public in
 `src/screened.rs`; `roundtrip.rs::screened_set_proof_shows_membership_not_which_member`; the
 regtest run proves and refuses one.
 
+## Prepared receipts (`zip311u1`): proving and signing on different machines
+
+```
+prepared := unsigned | { alpha[32] } * n_spends
+text     := "zip311u1" || base64url_nopad(prepared)
+```
+
+`unsigned` is the receipt's canonical unsigned encoding (decoding is strict, as for receipts);
+each `alpha` is the canonical encoding of the spend's randomizer, in spend order. The signer
+recomputes the signing digest from `unsigned` (never accepts a digest), checks for each spend
+that `rk = SpendAuthSig.RandomizePublic(alpha, ak)` for its own `ak`, shows what the signature
+would reveal (outputs, address and source proofs, every message line), and signs. `alpha` with
+the finished receipt gives `ak`, which would link the wallet's receipts, so the prepared form is
+kept between the two machines and discarded after signing. `roundtrip.rs::prepare_with_viewing_key_then_sign_elsewhere`
+(round trip, a changed or truncated encoding refused, another key refused); `receipts create
+--unsigned` and `receipts sign`.
+
 ## Batches
 
 ```

@@ -20,8 +20,11 @@ const secret = new URLSearchParams(location.search).get("secret") || "";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 let last;
+let timer;
 async function load() {
-  const r = await fetch(`/v1/public/requests/${id}?secret=${encodeURIComponent(secret)}`);
+  let r;
+  try { r = await fetch(`/v1/public/requests/${id}?secret=${encodeURIComponent(secret)}`); }
+  catch { document.getElementById("card").innerHTML = `<div class="brand">RECEIPTS</div><p class="err">Can't reach the shop. Check your connection; this page retries.</p>`; last = undefined; return; }
   const j = await r.json();
   if (!r.ok) { document.getElementById("card").innerHTML = `<div class="brand">RECEIPTS</div><p class="err">${esc(j.error?.message || "Not found")}</p>`; return; }
   if (last && last.status === j.status && last.received_zatoshis === j.received_zatoshis) return;
@@ -30,12 +33,15 @@ async function load() {
   const net = j.livemode ? "Zcash" : "Zcash testnet";
   const unit = j.livemode ? "ZEC" : "TAZ";
   if (j.status === "fulfilled") {
+    clearInterval(timer);
     card.innerHTML = `<div class="brand">RECEIPTS · ${net.toUpperCase()}</div><div class="done"><div class="big">PAID</div><p>${esc(j.label || "Payment")} · ${zec(j.received_zatoshis)} ${unit} verified</p><p class="muted">You can close this page.</p></div>`;
     return;
   }
-  if (j.status === "expired") { card.innerHTML = `<div class="brand">RECEIPTS</div><p class="err">This payment request expired.</p>`; return; }
+  if (j.status === "expired") { clearInterval(timer); card.innerHTML = `<div class="brand">RECEIPTS</div><p class="err">This payment request expired.</p>`; return; }
   const qr = await (await fetch(`/v1/public/requests/${id}/qr.svg?secret=${encodeURIComponent(secret)}`)).text();
   const remaining = j.remaining_zatoshis ?? j.amount_zatoshis;
+  // A status change re-renders the card: keep what the payer already pasted.
+  const pasted = document.getElementById("receipt")?.value || "";
   card.innerHTML = `
     <div class="brand">RECEIPTS · ${net.toUpperCase()}</div>
     <h1>${esc(j.label || "Payment request")}</h1>
@@ -49,15 +55,26 @@ async function load() {
       <textarea id="receipt" aria-label="Your receipt or receipt link" placeholder="https://…#zip311r1…"></textarea>
       <button id="submit">Confirm payment</button><div id="msg"></div></div>`;
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = "Copied"; });
+  document.getElementById("receipt").value = pasted;
   document.getElementById("submit").onclick = submit;
+}
+// A seed phrase or key pasted by mistake never leaves the page.
+function looksSecret(t) {
+  const words = t.trim().split(/\s+/);
+  return /^(zxview|zxviews|zview|zviews|uview|uviewtest|secret-extended-key|uivk|zxprv)/i.test(t.trim()) || (words.length >= 12 && words.every((w) => /^[a-z]{3,8}$/.test(w))) || /^[0-9a-f]{64,}$/i.test(t.trim());
 }
 async function submit() {
   const btn = document.getElementById("submit"), msg = document.getElementById("msg");
+  if (looksSecret(document.getElementById("receipt").value)) {
+    document.getElementById("receipt").value = "";
+    msg.className = "err"; msg.textContent = "That looks like a seed phrase or key, not a receipt. It was cleared and not sent. Paste the receipt link the command printed.";
+    return;
+  }
   btn.disabled = true; btn.textContent = "Checking the proof…"; msg.textContent = "";
   const r = await fetch(`/v1/public/requests/${id}/receipts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_secret: secret, receipt: document.getElementById("receipt").value.trim() }) });
   const j = await r.json();
   if (!r.ok) { msg.className = "err"; msg.textContent = `${j.error?.code}: ${j.error?.message}`; btn.disabled = false; btn.textContent = "Confirm payment"; return; }
   last = undefined; load();
 }
-load(); setInterval(load, 4000);
+load(); timer = setInterval(load, 4000);
 </script></body></html>

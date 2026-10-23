@@ -118,6 +118,12 @@ pub async fn fetch_mined_tx_in_block(net: Net, server: Option<&str>, txid: [u8; 
     if others.len() < MIN_PRIVATE_SET {
         for (h, b) in &listed {
             let h = *h;
+            // Only other quiet blocks: the server can see the cover widened, so it knows the
+            // payment's block is quiet, and a busy block's transactions would hide nothing.
+            let candidates = b.vtx.iter().filter(|t| t.index != 0 && !(t.actions.is_empty() && t.ironwood_actions.is_empty())).count();
+            if candidates >= MIN_PRIVATE_SET {
+                continue;
+            }
             for t in b.vtx.iter().filter(|t| t.index != 0 && !(t.actions.is_empty() && t.ironwood_actions.is_empty())).take(PRIVATE_FETCH_SET) {
                 if let Ok(id) = <[u8; 32]>::try_from(t.txid.as_slice()) {
                     if block_of.insert(id, h).is_none() {

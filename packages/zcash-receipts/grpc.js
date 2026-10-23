@@ -213,7 +213,9 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   if (set.length < minSet) {
     blocks = [first, first + 1, first + 2, first + 3];
     for (const [h, xs] of listed) {
-      if (h === height) continue;
+      // Only other quiet blocks: the server can see this check widened, so it knows the payment's
+      // block is a quiet one, and a busy block's transactions would hide nothing.
+      if (h === height || xs.length >= minSet) continue;
       for (const t of xs.slice(0, maxSet)) if (!blockOf.has(t)) { blockOf.set(t, h); set.push(t); }
     }
   }

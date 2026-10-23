@@ -37,15 +37,22 @@ use rand_core::CryptoRng;
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 pub mod builder;
+#[cfg(feature = "extensions")]
 pub mod deposit;
 mod encoding;
 #[cfg(feature = "orchard-ext")]
 pub mod incoming;
+#[cfg(feature = "extensions")]
 pub mod payreq;
+#[cfg(feature = "extensions")]
 pub mod preflight;
+#[cfg(feature = "extensions")]
 pub mod reserve;
+#[cfg(feature = "extensions")]
 pub mod screened;
+#[cfg(feature = "extensions")]
 pub mod signin;
+#[cfg(feature = "extensions")]
 pub mod tripwire;
 pub use builder::{Network, ReceiptBuilder};
 pub use encoding::{batch_position, check_batch, DecodeError, ReceiptBatch, BATCH_TEXT_PREFIX, PREPARED_TEXT_PREFIX, TEXT_PREFIX};

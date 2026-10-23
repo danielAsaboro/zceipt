@@ -69,9 +69,9 @@ Retry `transaction_not_mined`, `chain_unavailable` and `internal_error`. Retries
 |---|---|
 | `bad_signature` | The receipt was changed after it was signed. |
 | `bad_proof` | A zero-knowledge proof fails: the receipt wasn't made by the wallet that paid, or was altered before signing. |
-| `wrong_payee` | No disclosed output pays `--expect-address`. |
-| `underpaid` | It paid less than `--min`. |
-| `wrong_challenge` | It doesn't sign the `--challenge` given: made for another request. |
+| `wrong_payee` | No disclosed output pays `--expect-address` (or the one that does withholds its memo). |
+| `insufficient_amount` | It paid less than `--min` (the API uses the same name). |
+| `challenge_mismatch` | It doesn't sign the `--challenge` given: made for another request (as in the API). |
 | `memo_mismatch` | No disclosed memo contains `--memo-contains`. |
 | `not_screened` | The screened-set proof doesn't hold for the list, or shows less than `--screened-min`. |
 | `funds_check_failed` | A proof of funds misses `--challenge` or `--min`. |

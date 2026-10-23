@@ -2,7 +2,10 @@
 
 ## The crate
 
-The core is one Rust crate on top of `orchard` and `zcash_primitives`:
+The core is one Rust crate on top of `orchard` and `zcash_primitives`. With
+`default-features = false` it is the ZIP 311 profile alone (encoding, create, prepare, sign,
+verify); the `extensions` feature (on by default) adds payment requests, sign-in, proof of
+funds, screened sets, exchange deposits and link linting, with their extra dependencies:
 
 ```rust
 use receipts_core::{sign_prepared, verify_transaction, Network, Receipt, ReceiptBuilder, ViewingSpendWitness};

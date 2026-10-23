@@ -12,6 +12,11 @@ repository.workspace = true
 # building). Without it receipts-core builds on stock orchard 0.16, and receipts that use those
 # features are refused with Error::NeedsOrchardExt.
 orchard-ext = []
+# Everything beyond the ZIP 311 profile (create, prepare, sign, verify, encoding): payment
+# requests, sign-in, proof of funds, screened sets, exchange deposits, link linting and the
+# secret tripwire. `default-features = false` gives the ZIP 311 profile alone.
+extensions = ["dep:zip321", "dep:zcash_transparent", "dep:zcash_address", "dep:qrcode", "dep:serde_json"]
+default = ["extensions"]
 
 [dependencies]
 orchard.workspace = true
@@ -25,13 +30,13 @@ blake2b_simd.workspace = true
 thiserror.workspace = true
 base64.workspace = true
 incrementalmerkletree = "0.9"
-zip321.workspace = true
+zip321 = { workspace = true, optional = true }
 zcash_primitives.workspace = true
-zcash_transparent.workspace = true
-zcash_address.workspace = true
+zcash_transparent = { workspace = true, optional = true }
+zcash_address = { workspace = true, optional = true }
 zcash_protocol.workspace = true
-qrcode = { version = "0.14", default-features = false }
-serde_json = "1"
+qrcode = { version = "0.14", default-features = false, optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 receipts-core = { path = ".", features = ["orchard-ext"] }

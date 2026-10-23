@@ -21,7 +21,9 @@ PY
 # The crate's own dev-dependency turns orchard-ext on for its tests; drop it here.
 sed -i.bak '/^receipts-core = { path = "\.", features = \["orchard-ext"\] }/d' "$WORK/crates/receipts-core/Cargo.toml"
 cd "$WORK"
+# The ZIP 311 profile alone, then with every extension.
 cargo check --lib -p receipts-core --no-default-features
+cargo check --lib -p receipts-core --no-default-features --features extensions
 cargo tree -p receipts-core -i orchard --depth 0 | head -1
 # Real testnet receipts through the public API, on stock orchard: valid, edited, altered proof.
 cargo test --release -q -p receipts-core --no-default-features --test stock_orchard

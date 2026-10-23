@@ -222,8 +222,9 @@ enum Cmd {
         /// funds, is held.
         #[arg(long)]
         min: Option<String>,
-        /// Fail unless the receipt signs this challenge (the code of your proof request, or a
-        /// trade id): a receipt made for someone else's request can't be passed off as yours.
+        /// Fail unless the receipt signs this challenge: 6 to 64 lowercase hex digits (your proof
+        /// request's code, or a trade id in hex). A receipt made for someone else's request can't
+        /// be passed off as yours.
         #[arg(long)]
         challenge: Option<String>,
         /// Fail unless a disclosed output's memo contains this text (a trade id or invoice number
@@ -977,6 +978,11 @@ async fn main() -> anyhow::Result<()> {
                 bail!("a proof of funds has no memo or spends to check: use --challenge and --min with it");
             }
         }
+        if let Some(c) = challenge {
+            if !(6..=64).contains(&c.len()) || !c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+                bail!("--challenge is 6 to 64 lowercase hex digits (a receipt's `challenge:` line can only match that)");
+            }
+        }
         let min = min.as_deref().map(parse_zec).transpose()?;
         VERIFY_EXPECT.set((min, challenge.clone(), memo_contains.clone())).ok();
         if let (Some(set), Some(proof)) = (screened_set, screened_proof) {
@@ -993,11 +999,14 @@ async fn main() -> anyhow::Result<()> {
             ("proof of funds", "funds_check_failed"),
             ("signature", "bad_signature"),
             ("proof", "bad_proof"),
+            ("memo withheld", "wrong_payee"),
             ("no disclosed output pays", "wrong_payee"),
-            ("less than", "underpaid"),
-            ("challenge", "wrong_challenge"),
+            ("less than", "insufficient_amount"),
+            ("challenge", "challenge_mismatch"),
             ("memo contains", "memo_mismatch"),
             ("base64", "unreadable"),
+            ("truncated", "unreadable"),
+            ("canonical", "unreadable"),
             ("not a receipt", "unreadable"),
             ("lightwalletd", "chain_unavailable"),
             ("connecting", "chain_unavailable"),
@@ -1403,6 +1412,12 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
             let r = receipts_core::reserve::ReserveProof::from_text(&body).ok_or_else(|| anyhow!("malformed proof of funds"))?;
             // Nullifiers already downloaded are cached, so the next check only fetches new blocks.
+            // The challenge needs no chain data: check it before the scan.
+            if let (_, Some(c), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
+                if receipts_server::verify::challenge_of(&String::from_utf8_lossy(&r.msg)).as_deref() != Some(c.as_str()) {
+                    bail!("the proof of funds doesn't sign challenge {c}: it was made for someone else, or earlier");
+                }
+            }
             let net = net::for_receipt(r.coin_type, regtest.as_deref())?;
             let cache = std::env::var_os("HOME").map(|h| {
                 PathBuf::from(h).join(".cache/receipts").join(format!(

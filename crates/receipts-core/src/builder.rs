@@ -3,7 +3,7 @@
 //! and sign wherever the spending key is.
 //!
 //! ```ignore
-//! let prepared = ReceiptBuilder::new(Network::Testnet, &tx)?
+//! let prepared = ReceiptBuilder::new(Network::Testnet, &tx)
 //!     .message(b"Invoice 42")
 //!     .disclose(1, ovk)
 //!     .spend(witness)

@@ -35,13 +35,13 @@ let v = receipts_core::verify(&vk, &Receipt::from_text(&link)?, coin_type, Pool:
   [SPEC.md](SPEC.md) adds the extensions. [ZIP311-TODOS.md](ZIP311-TODOS.md) maps each
   open item in ZIP 311 to what we chose, and [SPEC-AMBIGUITIES.md](SPEC-AMBIGUITIES.md)
   lists where the specs are silent.
-- **Conformance:** [276 vectors](../conformance/README.md): 12 valid receipts from 7 real Orchard and
+- **Conformance:** [277 vectors](../conformance/README.md): 12 valid receipts from 7 real Orchard and
   Ironwood transactions, their mutations, and "was I paid" expectations,
   run by the native and WebAssembly builds and the npm package.
 - **A second implementation of the verifier, written from the protocol specification** in Python,
   with no shared code
   ([spec-verifier](../spec-verifier)). It checks everything except the Halo 2 proof itself (it
-  rebuilds the proof's public inputs), agrees on all 276 vectors and on 232 adversarial
+  rebuilds the proof's public inputs), agrees on all 277 vectors (leaving the one that only the Halo 2 check rejects to that check) and on 232 adversarial
   receipts (the 9 that only the Halo 2 check rejects get the same public inputs), and its
   primitives match the Zcash test vectors:
   `python3 -m unittest discover -s spec-verifier/tests`.

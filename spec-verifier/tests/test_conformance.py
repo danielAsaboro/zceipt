@@ -69,12 +69,18 @@ class Conformance(unittest.TestCase):
         with open(os.path.join(ROOT, "conformance", "vectors.json")) as f:
             vectors = json.load(f)["vectors"]
         disagreements = []
+        halo2_only = 0
         for vec in vectors:
             try:
                 got, err = run(vec), None
             except (v.Invalid, rc.DecodeError, ValueError) as e:
                 got, err = None, e
             want = vec["expect"]["valid"]
+            if got is not None and vec["expect"].get("fails_only_on") == "halo2_proof":
+                # This verifier does not check Halo 2 proofs, so it can't reject these: the
+                # vectors exist to catch a full verifier that skips the proof.
+                halo2_only += 1
+                continue
             if (got is not None) != want:
                 disagreements.append((vec["name"], want, str(err)))
                 continue
@@ -87,7 +93,7 @@ class Conformance(unittest.TestCase):
             for i, src in enumerate(vec["expect"].get("sources", [])):
                 self.assertEqual([s["source"]["value"] for s in got["spends"] if "source" in s][i], src["zatoshis"], vec["name"])
         self.assertEqual(disagreements, [], f"{len(disagreements)} of {len(vectors)} vectors disagree")
-        print(f"{len(vectors)} conformance vectors agree")
+        print(f"{len(vectors)} conformance vectors agree ({halo2_only} rejected only by the Halo 2 check, which this verifier leaves to the caller)")
 
 
 if __name__ == "__main__":

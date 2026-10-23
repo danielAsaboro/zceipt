@@ -41,7 +41,8 @@ changed shows **NOT VALID**. The first check also loads the verifier (3 to 10 se
 
 **Check the cryptography with no Rust:** `python3 -m unittest discover -s spec-verifier/tests`
 runs a second verifier written from the protocol specification. It checks everything but the
-Halo 2 proofs and agrees with ours on all 276 conformance vectors and 232 adversarial receipts.
+Halo 2 proofs and agrees with ours on all 277 conformance vectors (one is rejected only by the
+Halo 2 check, so it flags that one as needing it) and on 232 adversarial receipts.
 
 **With Rust:** `cargo install --locked --path crates/receipts-cli && receipts demo` (about ten
 minutes to build the first time).

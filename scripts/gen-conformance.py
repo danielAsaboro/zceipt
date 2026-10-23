@@ -58,6 +58,9 @@ for name, r, tx, h, regtest, stx, sh, value in src_cases:
 # docs/CLAIM.md). Honest when made, refused now: their cv_net is not ValueCommit_0(1).
 vectors.append({"name": "pre-fix/receipt-with-sender-address", "type": "receipt", "raw_tx": ex("testnet/sender-address-tx.hex"), "height": 4_501_025, "regtest": False, "receipt": ex("testnet/pre-fix/receipt-with-sender-address.txt"), "expect": {"valid": False}})
 # A receipt checked against some other transaction.
+# Rejected only by the Halo 2 check: the spend proof was altered before signing, so the signature,
+# encoding and every other rule hold. A verifier that skips the proof accepts it and is wrong.
+vectors.append({"name": "proof-only/altered-spend-proof", "type": "receipt", "raw_tx": ex("testnet/tx.hex"), "height": 4_500_997, "regtest": False, "receipt": ex("testnet/proof-only/receipt.txt"), "expect": {"valid": False, "fails_only_on": "halo2_proof"}})
 vectors.append({"name": "cross/regtest-receipt-testnet-tx", "type": "receipt", "receipt": cases[0][1], "raw_tx": cases[1][2], "height": 4_500_997, "regtest": True, "heights": "examples/regtest/heights.toml", "expect": {"valid": False}})
 
 # Incoming receipts (the recipient proves it was paid).

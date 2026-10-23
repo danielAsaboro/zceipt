@@ -9,6 +9,7 @@ export const inspect_incoming: (a: number, b: number) => [number, number, number
 export const open_batch: (a: number, b: number) => [number, number, number, number];
 export const orchard_receiver_hex: (a: number, b: number) => [number, number, number, number];
 export const secret_kind: (a: number, b: number) => [number, number];
+export const sign_prepared_text: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const source_txids: (a: number, b: number) => [number, number, number, number];
 export const transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const txid_of: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -22,8 +23,10 @@ export const rustsecp256k1_v0_14_default_illegal_callback_fn: (a: number, b: num
 export const rustsecp256k1_v0_14_context_destroy: (a: number) => void;
 export const rustsecp256k1_v0_14_context_create: (a: number) => number;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_export_3: WebAssembly.Table;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-export const __wbindgen_export_3: WebAssembly.Table;
 export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_start: () => void;

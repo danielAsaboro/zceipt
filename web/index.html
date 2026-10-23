@@ -105,6 +105,7 @@
     .samples details.more { width: 100%; }
     .samples details.more summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 6px 0; }
     .samples details.more[open] { display: flex; flex-wrap: wrap; gap: 8px; }
+    #makeOwn input { flex: 1 1 200px; }
     button.ghost { background: transparent; color: inherit; border: 1px solid currentColor; padding: 8px 12px; font-size: 13px; opacity: .85; }
     .placeholder { border: 2px dashed #2c2a26; border-radius: 14px; padding: 40px 26px; color: var(--text-2); text-align: center; font-size: 14px; line-height: 1.6; }
     .placeholder .big { font-family: var(--mono); color: var(--text); font-size: 13px; letter-spacing: 0.24em; margin-bottom: 8px; }
@@ -148,6 +149,10 @@
         <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>
         <button type="button" class="ghost" id="sampleEdited">Try an edited copy</button>
         <button type="button" class="ghost" id="sampleObserver">Try a claim by someone who only saw it</button>
+        <details class="more" id="makeOwn"><summary>Make one with your own message</summary>
+          <input id="ownMsg" placeholder="Your message" maxlength="500" autocomplete="off">
+          <button type="button" id="ownBtn">Sign with the demo wallet</button>
+        </details>
         <details class="more"><summary>More examples</summary>
           <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
           <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>

@@ -1907,9 +1907,18 @@ fn prepare_with_viewing_key_then_sign_elsewhere() {
     // The "hardware wallet": given the unsigned receipt and the randomizers, it computes the
     // digest itself and checks each rk before signing.
     let ask = SpendAuthorizingKey::from(&s.sender_sk);
-    let sigs = receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], OsRng).unwrap();
+    let sigs = receipts_core::sign_prepared(prepared.unsigned(), prepared.alphas(), std::slice::from_ref(&ask), OsRng).unwrap();
     let receipt = prepared.clone().apply_signatures(sigs).unwrap();
     verify(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+
+    // The proofs don't cover the message: the same prepared receipt signs another one, which
+    // verifies with that message, and moving a signature across messages is refused.
+    let other_msg = prepared.clone().with_message(b"challenge:a1b2c3").unwrap().sign(&[ask], OsRng).unwrap();
+    let what = verify(&keys().1, &other_msg, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+    assert_eq!(what.msg, b"challenge:a1b2c3");
+    let mut moved = other_msg.clone();
+    moved.spend_auth_sigs = receipt.spend_auth_sigs.clone();
+    assert!(matches!(verify(&keys().1, &moved, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment), Err(Error::BadSignature(_))));
 
     // Another wallet's key: the signer refuses (its rk doesn't match), and a signature made with
     // it anyway is refused when attached.

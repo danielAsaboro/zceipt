@@ -3110,6 +3110,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "orchard",
+ "rand 0.10.3",
  "receipts-core",
  "serde",
  "serde_json",

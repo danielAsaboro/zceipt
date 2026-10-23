@@ -361,6 +361,22 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
     Ok(serde_json::json!({ "address": ua, "network": name, "issued_at": s.issued_at }).to_string())
 }
 
+/// Signs a prepared `zip311u1…` receipt for `message` with a 32-byte Orchard spending key (hex),
+/// the second half of `receipts create --unsigned`. It makes no proofs, so it is instant; the key
+/// never leaves this call. Returns the `zip311r1…` text.
+#[wasm_bindgen]
+pub fn sign_prepared_text(prepared: &str, spending_key_hex: &str, message: &str) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let p = receipts_core::PreparedReceipt::from_text(prepared).map_err(|e| JsError::new(&format!("not a prepared receipt: {e}")))?;
+    let bytes: [u8; 32] =
+        hex::decode(spending_key_hex.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| JsError::new("the key is 32 bytes of hex"))?;
+    let sk = Option::from(orchard::keys::SpendingKey::from_bytes(bytes)).ok_or_else(|| JsError::new("not an Orchard spending key"))?;
+    let p = p.with_message(message.as_bytes()).map_err(|e| JsError::new(&e.to_string()))?;
+    let asks = vec![orchard::keys::SpendAuthorizingKey::from(&sk); p.unsigned().spends.len()];
+    let r = p.sign(&asks, rand::rand_core::UnwrapErr(rand::rngs::SysRng)).map_err(|e| JsError::new(&format!("this key did not make these spends ({e})")))?;
+    Ok(r.to_text())
+}
+
 /// Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
 /// Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
 #[wasm_bindgen]

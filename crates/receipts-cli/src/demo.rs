@@ -66,12 +66,34 @@ fn real_receipt(n: u32) -> anyhow::Result<()> {
     Ok(())
 }
 
+const DEMO_PREPARED: &str = include_str!("../../../examples/testnet/demo/prepared.txt");
+const DEMO_KEY: &str = include_str!("../../../examples/testnet/demo/orchard-spending-key.hex");
+const DEMO_TX: &str = include_str!("../../../examples/testnet/demo/tx.hex");
+const DEMO_HEIGHT: u32 = 4_532_976;
+
+/// `receipts demo -m`: the public demo wallet's real payment, signed for `msg` and verified
+/// offline (examples/testnet/demo). Prints the receipt.
+pub fn sign_own(msg: &str) -> anyhow::Result<()> {
+    let prepared = receipts_core::PreparedReceipt::from_text(DEMO_PREPARED.trim())?.with_message(msg.as_bytes())?;
+    let key: [u8; 32] = hex::decode(DEMO_KEY.trim())?.try_into().map_err(|_| anyhow!("demo key is not 32 bytes"))?;
+    let sk = Option::from(orchard::keys::SpendingKey::from_bytes(key)).ok_or_else(|| anyhow!("bad demo key"))?;
+    let asks = vec![orchard::keys::SpendAuthorizingKey::from(&sk); prepared.unsigned().spends.len()];
+    let receipt = prepared.sign(&asks, rand::rand_core::UnwrapErr(rand::rngs::SysRng))?;
+    let report = receipts_chain::chain::verify_offline(&receipt, DEMO_TX, DEMO_HEIGHT, None)?;
+    eprintln!("{} for testnet tx {}… (block {}), signed by the public demo wallet and checked offline:", bold("Your receipt"), &report.txid[..12], DEMO_HEIGHT);
+    eprintln!("   message “{}”; the proofs were made once, the signature now, for your message.", msg);
+    eprintln!("   Check it against the chain:  receipts verify @<file holding it>");
+    println!("{}", receipt.to_text());
+    Ok(())
+}
+
 pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
     if !shop {
         println!("{}: prove one shielded Zcash payment without handing over a viewing key.", bold("Receipts demo"));
         real_receipt(1)?;
         step(2, "Next");
         say("against the live testnet:  receipts verify @examples/testnet/receipt-link.txt");
+        say("sign one yourself:         receipts demo -m \"your message\"   (a public demo wallet)");
         say("make your own:             receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt");
         say("                           receipts sign r.txt --seed-stdin   (where the seed is)");
         say("the payment API for shops: receipts demo --shop");

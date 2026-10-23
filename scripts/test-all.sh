@@ -22,8 +22,8 @@ cargo build --release --quiet -p receipts-cli || fail=1
 DB=$(mktemp -d)/api.db
 PORT=$((8800 + RANDOM % 100))
 "$R" serve --listen "127.0.0.1:$PORT" --db "$DB" > "$DB.log" 2>&1 &
-API=$!
-trap 'kill $API 2>/dev/null' EXIT
+API_PID=$!
+trap 'kill $API_PID 2>/dev/null' EXIT
 sleep 2
 export RECEIPTS_URL="http://127.0.0.1:$PORT" RECEIPTS_KEY
 RECEIPTS_KEY=$(grep -o "rcpt_test_[A-Za-z0-9_]*" "$DB.log" | head -1)
@@ -37,7 +37,7 @@ step "Python SDK"
 
 step "Go SDK"
 (cd packages/receipts-go && check go test -count=1 ./...)
-kill $API 2>/dev/null
+kill $API_PID 2>/dev/null
 unset RECEIPTS_URL RECEIPTS_KEY
 
 if [ -n "${ZCASH_DEVTOOL:-}" ] && [ -n "${LIGHTWALLETD:-}" ]; then

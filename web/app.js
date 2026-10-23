@@ -46,8 +46,8 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of } from "./zcash-receipts/pkg/receipts_wasm.js";
+import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT } from "./samples.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
 const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
@@ -799,6 +799,17 @@ for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#
     else location.hash = h;
   };
 }
+
+// A real payment from a throwaway testnet wallet whose key is public (samples.js): its proofs
+// were made once, and this signs them for the visitor's own message, here, then verifies it.
+$("#ownBtn").onclick = async () => {
+  const msg = $("#ownMsg").value.trim();
+  if (!msg) return need("#ownMsg", "Write a message to sign.");
+  await local;
+  sampleAs = SAMPLE_MERCHANT;
+  location.hash = `${sign_prepared_text(DEMO_PREPARED, DEMO_KEY, msg)}&h=${DEMO_HEIGHT}`;
+};
+$("#ownMsg").onkeydown = (e) => { if (e.key === "Enter") $("#ownBtn").click(); };
 
 // A receipt saved as a file (`.zip311.txt`, the link inside) can be opened or dropped on the box.
 $("#openFile").onclick = () => $("#fileIn").click();

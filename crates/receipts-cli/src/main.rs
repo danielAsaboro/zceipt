@@ -469,6 +469,9 @@ enum Cmd {
         /// With --shop: exit after the walkthrough instead of keeping the server running.
         #[arg(long)]
         no_wait: bool,
+        /// Sign a real testnet receipt for this message with the public demo wallet, and print it.
+        #[arg(short, long, conflicts_with = "shop")]
+        msg: Option<String>,
     },
     /// Shops: pay a proof request and answer it with a receipt in one step.
     ///
@@ -1723,7 +1726,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             }
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
-        Cmd::Demo { shop, no_wait } => demo::run(!no_wait, shop).await?,
+        Cmd::Demo { msg: Some(m), .. } => demo::sign_own(&m)?,
+        Cmd::Demo { shop, no_wait, .. } => demo::run(!no_wait, shop).await?,
         Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes } => {
             pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes).await?
         }

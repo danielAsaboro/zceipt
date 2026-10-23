@@ -44,6 +44,10 @@ try {
   const real = await until(`(${resultText}).match(/PAID TO YOU|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0]`, 180);
   const green = await evaluate(`document.querySelector('#result .stamp')?.classList.contains('good')`);
   check(real === "PAID TO YOU" && green, `the real sample opens as its merchant and shows a green PAID TO YOU (got ${real})`);
+  // A receipt signed here for the visitor's own message, by the public demo wallet.
+  await evaluate(`document.querySelector('#makeOwn').open = true; document.querySelector('#ownMsg').value = 'Signed in the smoke test'; document.querySelector('#ownBtn').click(); true`);
+  const own = await until(`(${resultText}).includes('Signed in the smoke test') && (${resultText}).match(/PAID TO YOU|NOT VALID|NOT A RECEIPT|COULD NOT CHECK/)?.[0] || ''`, 120);
+  check(own === "PAID TO YOU", `a receipt signed here for your own message verifies on chain (got ${own})`);
   const order = await evaluate(`document.querySelector('#result').getBoundingClientRect().top < document.querySelector('#paste').getBoundingClientRect().top`);
   check(order === true, "at phone width the result is above the form");
   await evaluate(`document.querySelector('#sampleEdited').click()`);

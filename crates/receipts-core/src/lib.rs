@@ -296,6 +296,17 @@ impl PreparedReceipt {
         &self.alphas
     }
 
+    /// The same proofs under another signed message. The proofs don't cover the message (the
+    /// signatures do), so one prepared receipt can be signed for several messages; the receipts
+    /// share their `rk`s, so whoever sees two of them can tell they are for the same spends.
+    pub fn with_message(mut self, msg: &[u8]) -> Result<Self, Error> {
+        if msg.len() > u16::MAX as usize {
+            return Err(Error::TooLarge);
+        }
+        self.unsigned.msg = msg.to_vec();
+        Ok(self)
+    }
+
     /// Signs here with the spend authorizing keys, one per spend, in spend order.
     pub fn sign(self, asks: &[SpendAuthorizingKey], rng: impl CryptoRng) -> Result<Receipt, Error> {
         let sigs = sign_prepared(&self.unsigned, &self.alphas, asks, rng)?;

@@ -81,7 +81,8 @@ pub fn levels(mined_height: u32, tip: Option<u32>, outputs: usize, spends: usize
         (Some(_), None) => "present",
         (None, None) => "none",
     };
-    let verdict = if finality == "provisional" { "valid_provisional" } else { "valid" };
+    // Without the tip there is no confirmation count, so nothing says the payment is settled.
+    let verdict = if finality == "final" { "valid" } else { "valid_provisional" };
     (
         verdict,
         serde_json::json!({
@@ -443,7 +444,7 @@ mod tests {
         let (v, c) = levels(100, Some(108), 1, 1, Some("ab12cd"), Some("ffffff"), 1);
         assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str(), c["sender_address"].as_str()), ("valid_provisional", Some("provisional"), Some("mismatch"), Some("proven")));
         let (v, c) = levels(100, None, 0, 1, None, None, 0);
-        assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str()), ("valid", Some("unknown"), Some("none")));
+        assert_eq!((v, c["finality"].as_str(), c["challenge"].as_str()), ("valid_provisional", Some("unknown"), Some("none")));
         assert_eq!(levels(100, Some(100), 1, 1, Some("ab12cd"), None, 0).1["challenge"], "present");
     }
 

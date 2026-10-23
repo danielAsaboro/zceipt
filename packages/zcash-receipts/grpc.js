@@ -143,6 +143,13 @@ async function grpcUnary(endpoint, method, msg) {
   return data;
 }
 
+/** The height of the server's latest block (CompactTxStreamer.GetLatestBlock). */
+export async function fetchTipHeight(endpoint) {
+  const id = await grpcUnary(endpoint, "GetLatestBlock", new Uint8Array(0));
+  for (const [f, v] of parseFields(id)) if (f === 1) return Number(v); // BlockID.height
+  throw new Error("lightwalletd sent no tip height");
+}
+
 /** Display txids (block-explorer hex) of the shielded transactions in block `height`. */
 export async function fetchBlockTxids(endpoint, height, { shieldedOnly = false } = {}) {
   const msg = new Uint8Array([0x08, ...encodeVarint(height)]); // BlockID.height

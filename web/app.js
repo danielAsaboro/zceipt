@@ -35,7 +35,7 @@ const warmed = call("warm")
     if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s)`; }
   })
   .catch(() => {});
-import { fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
+import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE } from "./samples.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
@@ -148,6 +148,9 @@ function challengeIn(message) {
 }
 
 // ---------- UI ----------
+// Blocks on top of a payment before it counts as settled (the CLI and API use the same number).
+const FINAL = 10;
+const confirmations = (v) => (fetchMode && fetchMode.tip && v.mined_height ? Math.max(0, fetchMode.tip - v.mined_height + 1) : null);
 // Each check bumps this; an earlier check still in flight then stops touching the page, so a
 // new link can't be overwritten by the old one's late result.
 let runGen = 0;
@@ -261,7 +264,7 @@ function render(v, net) {
         : fetchMode && fetchMode.mode === "offline"
         ? `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()} <small>(as you gave it, not checked)</small></span></div>
       <p class="fine">Offline check: this receipt matches the transaction you pasted. Whether that transaction was mined was not checked; fetch it from a server to confirm.</p>`
-        : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>${fetchMode && fetchMode.time ? `<div class="line"><span class="k">DATE</span><span class="v">${new Date(fetchMode.time * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></div>` : ""}`}
+        : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}${confirmations(v) != null ? ` <small>(${confirmations(v).toLocaleString()} confirmation${confirmations(v) === 1 ? "" : "s"}${confirmations(v) < FINAL ? ", not final yet" : ""})</small>` : ""}</span></div>${fetchMode && fetchMode.time ? `<div class="line"><span class="k">DATE</span><span class="v">${new Date(fetchMode.time * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></div>` : ""}`}
       ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(proven)</small></span></div>`).join("")}
       ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ${UNIT} note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
       ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ${UNIT} from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
@@ -273,7 +276,7 @@ function render(v, net) {
       <div class="line"><span class="k">VIA</span><span class="v mono">${short(v.deposit.first_tx, 6)} → ${short(v.deposit.second_tx, 6)}</span></div>
       <div class="local" data-mode="txid"><strong>Exchange deposit (ZIP 320).</strong> The sender proved they made this two-step deposit to the exchange's TEX address. ${escapeHtml(v.deposit.warning)}</div>` : ""}
       <div class="dash"></div>
-      <div class="stamp good">VERIFIED</div>
+      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp good">VERIFIED</div>`}
       <ul class="facts">
         <li>The sender proved they authorized this payment (zero-knowledge proof + signature over this receipt).</li>
         ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from the transaction on chain.</li>` : ""}
@@ -384,6 +387,8 @@ async function run(receiptText) {
             fetchMode = { mode: "txid", host: new URL(endpoint).host };
             ok() && setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
           }
+          // Confirmations: how deep the payment is under this server's tip.
+          try { fetchMode.tip = await fetchTipHeight(endpoint); } catch { /* shown without a count */ }
           break;
         } catch (e) {
           lastError = e;

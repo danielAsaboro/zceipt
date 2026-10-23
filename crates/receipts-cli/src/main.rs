@@ -174,6 +174,13 @@ enum Cmd {
         /// Fail unless this unified address received a disclosed output.
         #[arg(long)]
         expect_address: Option<String>,
+        /// With --expect-address: fail unless it received at least this much (ZEC).
+        #[arg(long, requires = "expect_address")]
+        min: Option<String>,
+        /// Fail unless the receipt signs this challenge (the code of your proof request, or a
+        /// trade id): a receipt made for someone else's request can't be passed off as yours.
+        #[arg(long)]
+        challenge: Option<String>,
         /// Print the result as JSON.
         #[arg(long)]
         json: bool,
@@ -201,6 +208,29 @@ enum Cmd {
         /// each source the receipt names.
         #[arg(long = "source-raw-tx", requires = "raw_tx")]
         source_raw_txs: Vec<String>,
+    },
+    /// Verify many receipts into a spreadsheet, and optionally one record file per receipt.
+    ///
+    /// Prints CSV (one row per disclosed output) for accounts. With --records, also writes a
+    /// verification record per receipt: the receipt itself, everything it proved, and when and
+    /// against which server it was checked, for an exchange's or auditor's case file.
+    #[command(display_order = 3)]
+    Export {
+        /// Receipts or links, or @files holding one each.
+        #[arg(required = true)]
+        receipts: Vec<String>,
+        /// lightwalletd server, host:port. Default: zec.rocks for each receipt's network.
+        #[arg(short, long)]
+        server: Option<String>,
+        /// Verify against a local regtest chain with these activation heights.
+        #[arg(long)]
+        regtest: Option<PathBuf>,
+        /// Only rows paid to this address (yours).
+        #[arg(long)]
+        mine: Option<String>,
+        /// Write one verification record (JSON) per receipt into this directory.
+        #[arg(long)]
+        records: Option<PathBuf>,
     },
     /// Decode a receipt without touching the network.
     #[command(display_order = 3)]
@@ -495,14 +525,29 @@ enum Cmd {
 
 /// `--expect-address`: the shared "was I paid" rule (the address on the payment's network; outputs
 /// disclosed without their memo don't count). Every receipt path, deposits included, runs it.
+/// `verify --min` and `--challenge`, set once from the command line.
+static VERIFY_EXPECT: std::sync::OnceLock<(Option<u64>, Option<String>)> = std::sync::OnceLock::new();
+
 fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow::Result<()> {
+    let (min, challenge) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
+    if let Some(c) = challenge {
+        match receipts_server::verify::challenge_of(&report.message) {
+            Some(signed) if signed == c.to_lowercase() => {}
+            Some(signed) => bail!("the receipt signs challenge {signed}, not {c}: it was made for another request"),
+            None => bail!("the receipt signs no challenge, so it wasn't made for request {c}"),
+        }
+    }
     let Some(addr) = expect else { return Ok(()) };
-    if chain::paid_to_address(report, addr)? == 0 {
+    let paid = chain::paid_to_address(report, addr)?;
+    if paid == 0 {
         let want = chain::orchard_receiver_of(addr)?;
         if report.outputs.iter().any(|o| o.recipient_raw == want) {
             bail!("the output to {addr} was disclosed with its memo withheld, which doesn't show it can be received");
         }
         bail!("no disclosed output pays {addr}");
+    }
+    if let Some(min) = min.filter(|m| paid < *m) {
+        bail!("{addr} received {} {}, less than the {} expected", chain::zec(paid), chain::unit(report.network), chain::zec(min));
     }
     Ok(())
 }
@@ -749,6 +794,10 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     receipts_wallet::set_account(cli.account)?;
+    if let Cmd::Verify { min, challenge, .. } = &cli.cmd {
+        let min = min.as_deref().map(parse_zec).transpose()?;
+        VERIFY_EXPECT.set((min, challenge.clone())).ok();
+    }
     match cli.cmd {
         Cmd::Sign { prepared, wallet, identity, seed_stdin, network, regtest, out, link_base, yes } => {
             let text = std::fs::read_to_string(&prepared).with_context(|| format!("reading {}", prepared.display()))?;
@@ -1257,6 +1306,75 @@ async fn main() -> anyhow::Result<()> {
                         std::process::exit(1);
                     }
                 }
+            }
+        }
+        Cmd::Export { receipts, server, regtest, mine, records } => {
+            let csv = |f: &str| if f.contains([',', '"', '\n', '\r']) { format!("\"{}\"", f.replace('"', "\"\"")) } else { f.to_string() };
+            if let Some(dir) = &records {
+                std::fs::create_dir_all(dir)?;
+            }
+            println!("input,status,txid,block,confirmations,network,amount,unit,recipient,memo,message,payer_proven");
+            let (mut ok, mut bad) = (0, 0);
+            for (n, arg) in receipts.iter().enumerate() {
+                let input = csv(arg.strip_prefix('@').map(str::to_string).unwrap_or_else(|| format!("#{}", n + 1)).as_str());
+                let text = read_arg_text(arg)?;
+                let result = async {
+                    let r = read_receipt_arg(arg)?;
+                    let rep = chain::verify_against_chain_hinted(&r, server.as_deref(), regtest.as_deref(), chain::height_hint(&text)).await?;
+                    anyhow::Ok((r, rep))
+                }
+                .await;
+                let (r, rep) = match result {
+                    Ok(x) => x,
+                    Err(e) => {
+                        bad += 1;
+                        println!("{input},{},,,,,,,,,,", csv(&format!("invalid: {e}")));
+                        continue;
+                    }
+                };
+                ok += 1;
+                let net = net::for_receipt(r.unsigned.coin_type, regtest.as_deref())?;
+                let tip = chain::chain_tip(net, server.as_deref()).await.ok();
+                let confirmations = tip.map(|t| t.saturating_sub(rep.mined_height) + 1);
+                let want = mine.as_deref().map(|ua| chain::orchard_receiver_on(rep.network, ua)).transpose()?;
+                for o in rep.outputs.iter().filter(|o| want.is_none_or(|w| o.recipient_raw == w)) {
+                    println!(
+                        "{input},verified,{},{},{},{},{},{},{},{},{},yes",
+                        rep.txid,
+                        rep.mined_height,
+                        confirmations.map(|c| c.to_string()).unwrap_or_default(),
+                        rep.network,
+                        o.zec,
+                        chain::unit(rep.network),
+                        o.recipient,
+                        csv(&chain::shown(o.memo.as_deref().unwrap_or(""), " ")),
+                        csv(&chain::shown(&rep.message, " ")),
+                    );
+                }
+                if let Some(dir) = &records {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64;
+                    let (date, day) = receipts_server::attestations::utc_date(now);
+                    let s = now - day;
+                    let record = serde_json::json!({
+                        "record": "zip311-verification/1",
+                        "checked_at": format!("{date}T{:02}:{:02}:{:02}Z", s / 3600, s / 60 % 60, s % 60),
+                        "checked_by": format!("receipts {}", env!("CARGO_PKG_VERSION")),
+                        "chain_server": server.clone().unwrap_or_else(|| net.default_server().to_string()),
+                        "confirmations": confirmations,
+                        "receipt": r.to_text(),
+                        "proves": rep,
+                        "not_proven": [
+                            "that the payer disclosed every output of the transaction (the payer chose which to show)",
+                            "anything about the payer's other payments or balance",
+                        ],
+                    });
+                    let path = dir.join(format!("{}.json", rep.txid));
+                    std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
+                }
+            }
+            eprintln!("{ok} verified, {bad} not valid{}", records.as_ref().map(|d| format!("; records in {}", d.display())).unwrap_or_default());
+            if bad > 0 {
+                std::process::exit(1);
             }
         }
         Cmd::Inspect { receipt } => {

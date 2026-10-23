@@ -74,6 +74,10 @@ The phrase is read from standard input, never from the command line. Add `--netw
 mainnet. Wallets with a "Prove this payment" button would call the same Rust function
 (`receipts_wallet::prepare_receipt_from_keys`); none ships one yet.
 
+To check receipts in bulk, `receipts export <links or @files…>` prints one CSV row per payment
+for accounts, and `--records <dir>` keeps a JSON verification record of each for a case file
+([P2P trade disputes](docs/guides/p2p-trades.md), [exchange deposits](docs/guides/exchange-deposit.md)).
+
 ## What a receipt proves
 
 | | Revealed | How it is checked |

@@ -713,6 +713,7 @@ const DOCS: &[(&str, &str)] = &[
     ("guides/merchant-checkout.md", include_str!("../../../docs/guides/merchant-checkout.md")),
     ("guides/exchange-deposit.md", include_str!("../../../docs/guides/exchange-deposit.md")),
     ("guides/held-deposit.md", include_str!("../../../docs/guides/held-deposit.md")),
+    ("guides/p2p-trades.md", include_str!("../../../docs/guides/p2p-trades.md")),
     ("guides/grant-payouts.md", include_str!("../../../docs/guides/grant-payouts.md")),
     ("guides/refunds.md", include_str!("../../../docs/guides/refunds.md")),
     ("guides/attestations.md", include_str!("../../../docs/guides/attestations.md")),

@@ -1756,7 +1756,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("Signed request {} for {} ZEC to {ua}, valid {}s.", r.code, chain::zec(zats), expires_in);
             eprintln!("Publish this at https://{}/.well-known/zcash-receipts.json so wallets can check it:", r.domain);
             eprintln!("{}", serde_json::json!({ "payees": [ua] }));
-            eprintln!("\nGive the payer this (they run `receipts pay '<it>'`):");
+            eprintln!("\nGive the payer this (they run `receipts shop pay '<it>'`):");
             println!("{}", r.to_text());
         }
         Cmd::Received { wallet, identity, txid, msg, outputs, pool, server, link_base, out } => {
@@ -2278,7 +2278,7 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
                         Ok(r) if r.status().is_success() => {
                             line(Some(true), "API key", format!("accepted ({} mode)", if k.starts_with("rcpt_live_") { "live" } else { "test" }))
                         }
-                        Ok(r) => line(Some(false), "API key", format!("refused ({}); use a key `receipts serve` printed", r.status())),
+                        Ok(r) => line(Some(false), "API key", format!("refused ({}); use a key `receipts shop serve` printed", r.status())),
                         Err(e) => line(Some(false), "API key", e.to_string()),
                     }
                 }
@@ -2288,7 +2288,7 @@ async fn doctor(wallet: Option<PathBuf>, api_key: Option<String>, base_url: Stri
         Err(_) => line(
             (api_key.is_some() || std::env::args().any(|a| a.starts_with("--base-url")) || std::env::var("RECEIPTS_URL").is_ok()).then_some(false),
             "Receipts API",
-            format!("nothing at {base_url} (start one with `receipts serve`, or set RECEIPTS_URL)"),
+            format!("nothing at {base_url} (start one with `receipts shop serve`, or set RECEIPTS_URL)"),
         ),
     }
     if let Some(w) = wallet {

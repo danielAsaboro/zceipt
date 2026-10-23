@@ -10,7 +10,7 @@ echo "   (it checks everything but the Halo 2 proofs; for the adversarial cases 
 echo "   proof tells apart, it confirms both verifiers derive the same public inputs)"
 python3 -m unittest discover -s spec-verifier/tests 2>&1 | tail -3
 echo "== npm package (WebAssembly verifier, conformance vectors, offline testnet receipts)"
-echo "   (the skipped tests call a running Receipts API: RECEIPTS_URL and RECEIPTS_KEY)"
+echo "   (the skipped tests call a running Receipts API; with a receipts binary they run below)"
 (cd packages/zcash-receipts && node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
 R=${RECEIPTS:-$(command -v receipts || true)}
 if [ -n "$R" ]; then
@@ -25,6 +25,16 @@ if [ -n "$R" ]; then
   REC=$(mktemp -d)
   "$R" export @examples/testnet/receipt-link.txt @examples/testnet/receipt-edited.txt --records "$REC" 2>/dev/null > "$REC/out.csv" || true
   grep -q '^examples/testnet/receipt-link.txt,verified,571de6e4' "$REC/out.csv" && grep -q '^examples/testnet/receipt-edited.txt,invalid' "$REC/out.csv" && [ -f "$REC/001-571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73.json" ] && echo "export: 1 verified row, 1 invalid row, 1 record" || { echo "export check failed"; cat "$REC/out.csv"; exit 1; }
+  echo "== SDKs against a throwaway sandbox API (the tests skipped above, and the Python SDK's)"
+  API_DB=$(mktemp -d)/api.db
+  API_PORT=$((8900 + RANDOM % 90))
+  "$R" shop serve --listen "127.0.0.1:$API_PORT" --db "$API_DB" > "$API_DB.log" 2>&1 &
+  API_PID=$!
+  KEY=""
+  for _ in $(seq 1 60); do KEY=$(cat "$API_DB.log" "$API_DB.keys" 2>/dev/null | grep -o 'rcpt_test_[A-Za-z0-9_]*' | head -1 || true); [ -n "$KEY" ] && curl -sf "http://127.0.0.1:$API_PORT/v1/health" >/dev/null && break; sleep 1; done
+  (cd packages/zcash-receipts && RECEIPTS_URL="http://127.0.0.1:$API_PORT" RECEIPTS_KEY="$KEY" node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
+  (cd packages/receipts-python && RECEIPTS_URL="http://127.0.0.1:$API_PORT" RECEIPTS_KEY="$KEY" python3 -m unittest discover -s tests 2>&1 | tail -1)
+  kill "$API_PID" 2>/dev/null || true
 else
   echo "== CLI skipped (no receipts binary; cargo install --locked --path crates/receipts-cli)"
 fi

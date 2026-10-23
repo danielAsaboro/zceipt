@@ -66,7 +66,10 @@ following fields:
 - $\mathsf{txid}$: the transaction id of the transaction $\mathsf{tx}$ being disclosed.
 
 - $\mathsf{msg}$: a message, which MAY carry a verifier's challenge as the line
-  ``challenge:<hex>``.
+  ``challenge:<hex>``. The challenge is read from the first line of $\mathsf{msg}$ (lines end
+  at LF; a trailing CR is ignored) that starts with ``challenge:``: it is the rest of that line
+  if that is 6 to 64 lowercase hexadecimal digits, and otherwise there is none. A request's
+  challenge matches only if equal.
 
 - $\mathsf{pool}$: the spend pool; $\mathsf{outputPool}$: the output pool.
 

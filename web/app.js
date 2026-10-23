@@ -41,7 +41,8 @@ const warmStart = performance.now();
 const warmed = call("warm")
   .then(() => {
     const el = document.querySelector("#warm");
-    if (el) { el.dataset.state = "ready"; el.textContent = `Verifier ready (${((performance.now() - warmStart) / 1000).toFixed(1)}s)`; }
+    // Ready in the background; the verify step says how long the first check took.
+    if (el) el.dataset.state = "ready";
   })
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
@@ -200,7 +201,7 @@ function revealResult() {
 // chain couldn't be reached; the receipt was altered or forged.
 function showError(msg, kind = "notice") {
   revealResult();
-  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID", other: "OTHER FORMAT", secret: "DON'T SHARE THAT" }[kind];
+  const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID", other: "OTHER FORMAT", secret: "DON'T SHARE THAT", unproven: "NOT PROVEN BY THE PAYER" }[kind];
   const plain = {
     forged: "This receipt was changed after it was made, or it was never made by the wallet that paid. Don't rely on it.",
     unreadable: "The link may be cut off (some apps shorten long links), or what was pasted isn't a receipt. Ask for the whole link, or the receipt as a file.",
@@ -208,6 +209,7 @@ function showError(msg, kind = "notice") {
     notice: "",
     other: "",
     secret: "",
+    unproven: "Its signature is intact, but it doesn't prove the wallet that paid made it: someone who only saw the payment, or who changed it before signing, sent it. Don't rely on it.",
   }[kind];
   $("#result").innerHTML = `
     <div class="ticket invalid" data-kind="${kind}">
@@ -303,10 +305,10 @@ function render(v, net) {
       <div class="line"><span class="k">VIA</span><span class="v mono">${short(v.deposit.first_tx, 6)} → ${short(v.deposit.second_tx, 6)}</span></div>
       <div class="local" data-mode="txid"><strong>Exchange deposit (ZIP 320).</strong> The sender proved they made this two-step deposit to the exchange's TEX address. ${escapeHtml(v.deposit.warning)}</div>` : ""}
       <div class="dash"></div>
-      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp good">VERIFIED</div>`}
+      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp good">${challengeIn(v.message) && challengeIn(v.message) === requestFromUrl()?.code ? "VERIFIED" : "VERIFIED · RECIPIENT NOT CHECKED"}</div>`}
       <ul class="facts">
         <li>The sender proved they authorized this payment (zero-knowledge proof + signature over this receipt).</li>
-        ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from the transaction on chain.</li>` : ""}
+        ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from ${fetchMode && fetchMode.mode === "offline" ? "the transaction you pasted" : "the transaction on chain"}.</li>` : ""}
         ${(v.sources || []).length ? `<li>The sender proved where the spent money came from (FUNDS above): only that link, read from the chain.</li>` : ""}
         ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>Whoever signed this receipt also controls the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
         ${challengeIn(v.message) && challengeIn(v.message) === requestFromUrl()?.code
@@ -350,7 +352,7 @@ function render(v, net) {
         stamp.dataset.base ??= stamp.textContent;
         stamp.dataset.baseClass ??= stamp.className;
         if (stamp.dataset.base.startsWith("VERIFIED")) {
-          stamp.textContent = paid ? stamp.dataset.base.replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
+          stamp.textContent = paid ? stamp.dataset.base.replace(" · RECIPIENT NOT CHECKED", "").replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
           stamp.className = paid ? stamp.dataset.baseClass : "stamp warn";
         }
       }
@@ -509,7 +511,7 @@ async function run(receiptText) {
     ok() && render(v, summary.network);
   } catch (e) {
     ok() && setStep("verify", "fail", plainFailure(e.message));
-    ok() && showError(e.message, "forged");
+    ok() && showError(e.message, /proof/i.test(e.message) && !/signature/i.test(e.message) ? "unproven" : "forged");
   }
 }
 

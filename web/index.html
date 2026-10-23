@@ -149,7 +149,7 @@
           <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>
         </details>
       </div>
-      <div id="warm" class="warm" data-state="busy">Preparing the verifier in the background (a few seconds)…</div>
+      <div id="warm" class="warm" data-state="busy" hidden></div>
 
       <div id="progress" role="status" aria-live="polite" hidden>
         <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>
@@ -196,9 +196,9 @@
       <div class="how">
         <h2>How it works</h2>
         <ol>
-          <li>For each disclosed output, the sender reveals that output's <code>ock</code>, the one key that opens it. Your browser decrypts the on-chain ciphertext and checks it against the note commitment.</li>
-          <li>For the spend, the sender makes a fresh Halo 2 proof that they own the note this transaction spent (same anchor, same nullifier), under a new randomized key, and signs the whole receipt with it.</li>
-          <li>An optional note binds a challenge such as an invoice number, so a receipt can't be reused for something else.</li>
+          <li>Each disclosed output comes with the one key that opens only that output. Your browser opens it from the transaction on chain and checks the two match.</li>
+          <li>The payer's wallet makes a fresh zero-knowledge proof that it owned the money the transaction spent, and signs the whole receipt with the same key. Someone who only saw the payment can't make that proof.</li>
+          <li>A signed message, such as an invoice number or your request's code, ties the receipt to one purpose.</li>
         </ol>
         <div class="cli">receipts create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt
 receipts sign r.txt --seed-stdin

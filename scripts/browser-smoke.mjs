@@ -50,8 +50,8 @@ try {
   check(edited === "NOT VALID", "edited copy shows NOT VALID");
   await evaluate(`document.querySelector('#sampleObserver').click()`);
   await sleep(500);
-  const observer = await until(`(${resultText}).includes('NOT VALID') ? 'NOT VALID' : ''`, 60);
-  check(observer === "NOT VALID", "a claim by someone who only saw the payment shows NOT VALID");
+  const observer = await until(`(${resultText}).includes('NOT PROVEN BY THE PAYER') ? 'NOT PROVEN' : ''`, 60);
+  check(observer === "NOT PROVEN", "a claim by someone who only saw the payment shows NOT PROVEN BY THE PAYER");
   // A new link that isn't one of ours, opened in the same tab: nothing of the old check may remain.
   await evaluate(`location.hash = 'zrcpt1eyJub3QtYS1yZWNlaXB0'; true`);
   await sleep(1500);

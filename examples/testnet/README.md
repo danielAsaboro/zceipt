@@ -7,7 +7,7 @@ faucet.
 
 Verify it against the chain:
 
-    receipts verify @examples/testnet/receipt.txt --expect-address "$(cat examples/testnet/merchant.ua)"
+    receipts verify @examples/testnet/receipt-link.txt --expect-address "$(cat examples/testnet/merchant.ua)"
 
 Or open the verifier page with `#` followed by the contents of `receipt.txt`. The page fetches
 the transaction from `zcash-testnet.chainsafe.dev` over grpc-web.

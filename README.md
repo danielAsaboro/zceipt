@@ -74,7 +74,7 @@ record of each check for a case file.
 | That the payer's wallet made the payment | yes | A fresh zero-knowledge proof for the note the payment spent, and a signature over the whole receipt |
 | A message (invoice number, a verifier's challenge) | yes | Signed with the receipt |
 | The payer's address, balance, other payments | no | Never included |
-| That the payment is on chain | on a chain server's word | `--cross-check` asks a second server |
+| That the payment is on chain | on a chain server's word | `--cross-check <host:port>` asks a second server of your choice (it learns the txid) |
 
 The payer chooses which outputs to show, so a verifier checks the recipient it expects
 (`--expect-address`, or the page's "Was it paid to you?"). Exact claim, assumptions and limits:
@@ -85,7 +85,7 @@ The payer chooses which outputs to show, so a verifier checks the recipient it e
 | Party | Learns | Doesn't learn |
 |---|---|---|
 | Whoever you give the receipt to | the shown outputs, your message, that you paid | your address (unless you choose to prove it), balance, other payments |
-| The chain server, when someone verifies (ChainSafe's lightwalletd by default, or yours) | the payment's block (or, if it is quiet, its run of 4 blocks) and up to 64 transactions in each; the verifier's IP | which of those transactions (the testnet sample's block has 5), or anything in the receipt |
+| The chain server, when someone verifies (by default ChainSafe's for the page, zec.rocks for the CLI, or yours) | the payment's block (or, if it is quiet, its run of 4 blocks) and up to 64 transactions in each; the verifier's IP | which of those transactions (the testnet sample's block has 5), or anything in the receipt |
 | The chain server, when you make a receipt | the block range it scans | which note, payment or transaction |
 
 In a quiet block the server can narrow it down, and the page and CLI say so. Full analysis:
@@ -114,7 +114,8 @@ let shown = verify_transaction(&vk, &receipt, Network::Mainnet.coin_type(), &tx)
 - [docs/README.md](docs/README.md): which document to read for what.
 - [DEVELOPERS.md](docs/DEVELOPERS.md): the Rust crate, signing on a hardware wallet, bindings,
   everything beyond one payment, testnet evidence, and the repository layout.
-- [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md): the proposed text for ZIP 311's Orchard `TODO`.
+- [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md): the proposed text for ZIP 311's Orchard `TODO`
+  (also in ZIP form: [docs/zip/zip-0311-orchard-draft.rst](docs/zip/zip-0311-orchard-draft.rst)).
 - [OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md): where a reviewer starts, with the public questions
   about spend authority for Orchard answered, each with its test.
 - `./scripts/check-all.sh` runs every check that needs no build (about two minutes);

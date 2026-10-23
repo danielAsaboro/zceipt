@@ -78,7 +78,11 @@ For each spend to disclose, at index `i` of the payment bundle, spending note `n
 4. After all spends are proven and `unsigned` is encoded, sign `digest` with
    `rsk := SpendAuthSig.RandomizePrivate(alpha, ask)`, one signature per spend, in spend order.
 
-`msg` MAY carry a verifier's challenge as the line `challenge:<hex>`. A receipt MUST disclose at
+`msg` MAY carry a verifier's challenge as the line `challenge:<hex>`. A verifier reads the
+challenge from the first line of `msg` (lines end at LF; a trailing CR is ignored) that starts
+with `challenge:`; it is the rest of that line if that is 6 to 64 lowercase hexadecimal digits,
+and otherwise the receipt carries no challenge. A request's challenge matches only if equal. A
+receipt MUST disclose at
 least one spend. It MAY disclose zero outputs.
 
 ## Verifying a receipt (anyone)

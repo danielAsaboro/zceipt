@@ -52,7 +52,7 @@ fn real_receipt(n: u32) -> anyhow::Result<()> {
         .err()
         .map(|e| e.to_string())
         .unwrap_or_else(|| "accepted (this is a bug)".into());
-    say(&format!("the same receipt with its note changed to “{}”: refused ({refused})", String::from_utf8_lossy(&edited.unsigned.msg)));
+    say(&format!("the same receipt with its signed message changed to “{}”: refused ({refused})", String::from_utf8_lossy(&edited.unsigned.msg)));
     Ok(())
 }
 
@@ -62,7 +62,8 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
         real_receipt(1)?;
         step(2, "Next");
         say("against the live testnet:  receipts verify @examples/testnet/receipt-link.txt");
-        say("make your own:             receipts create --seed-stdin --network test --birthday <height> --txid <txid>");
+        say("make your own:             receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt");
+        say("                           receipts sign r.txt --seed-stdin   (where the seed is)");
         say("the payment API for shops: receipts demo --shop");
         return Ok(());
     }

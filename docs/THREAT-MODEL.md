@@ -160,6 +160,13 @@ The shop sends the receipt to its own Receipts server (`POST /v1/verify`, a proo
 | Colluding holders | Each note is proven under its own fresh `rk`, so the proof shows the notes are unspent and were known to their holders, not that one person holds them all: several holders can pool notes into one proof, or answer a challenge for someone else. Use it to show funds exist, not who owns them | by design |
 | Holder after spending | Can't keep using the proof: once a nullifier is on chain, verification fails | `scripts/e2e-regtest.sh` ("after the saver spends, the same proof is refused") |
 
+## 11e1. Signing elsewhere (`zip311u1` prepared receipts)
+
+The prepared file carries each spend's randomizer `alpha`. With the finished receipt, `alpha` gives
+`ak = rk - [alpha] G`, the wallet's stable spend-validating key, which would link every receipt
+it signs. So the file must go only from the proving machine to the signer: the CLI writes it
+readable only by its owner and deletes it once signed, and a hardware signer must not export it.
+
 ## 11e2. Screened-set proofs (`zip311s1`)
 
 | Party | Learns | Backed by |

@@ -7,13 +7,15 @@ choose, where its money came from and an address you control. Nothing else.
 
 ## What to send
 
-From the wallet that made the deposit (it asks for the seed phrase without showing it; [other ways](../../README.md#make-a-receipt-from-your-wallet)):
+With your wallet's viewing key on an online machine (no spending key there), then signed where
+the seed is, offline if you like ([other ways](../../README.md#make-a-receipt-from-your-wallet)):
 
 ```bash
-receipts create --seed-stdin --birthday <wallet birthday> --network main --txid <your deposit txid> \
+receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <your deposit txid> \
   --prove-source --reveal-source-value \
   --prove-address <your address they know, if any> \
-  -m "Deposit for account 7731"
+  -m "Deposit for account 7731" --unsigned deposit.prepared
+receipts sign deposit.prepared --seed-stdin    # shows everything it reveals, asks before signing
 ```
 
 If the desk gave you a request link, add `--request '<its link>'` so the receipt answers that

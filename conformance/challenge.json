@@ -1,0 +1,53 @@
+{
+ "description": "The challenge a receipt's message carries (ZIP311-ORCHARD.md): every implementation must agree.",
+ "cases": [
+  {
+   "message": "challenge:abcdef",
+   "challenge": "abcdef"
+  },
+  {
+   "message": "Order 7\nchallenge:abcdef\r\nmore",
+   "challenge": "abcdef"
+  },
+  {
+   "message": "challenge:abcdef\r",
+   "challenge": "abcdef"
+  },
+  {
+   "message": "challenge:abcde",
+   "challenge": null
+  },
+  {
+   "message": "challenge:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "challenge": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "message": "challenge:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "challenge": null
+  },
+  {
+   "message": "challenge:ABCDEF",
+   "challenge": null
+  },
+  {
+   "message": "challenge:abcdeg",
+   "challenge": null
+  },
+  {
+   "message": "challenge:otc-7f3a holding",
+   "challenge": null
+  },
+  {
+   "message": "xchallenge:abcdef",
+   "challenge": null
+  },
+  {
+   "message": "challenge:zzzzzz\nchallenge:abcdef",
+   "challenge": null
+  },
+  {
+   "message": "",
+   "challenge": null
+  }
+ ]
+}

@@ -41,9 +41,9 @@ a wallet that has pruned the note's witness can rebuild it from public chain dat
 (`receipts_chain::chain::rebuild_witness`, whole 1,000-block windows so the server doesn't learn
 which note). The proving key takes a few seconds to build once; keep it for the session.
 
-For mobile wallets the two calls are the whole surface to bind (uniffi or the platform's FFI):
-`prepare` takes bytes in and returns the `zip311u1…` text, and `sign` takes that text and the
-spending key.
+There is no FFI crate yet. A mobile wallet binds two calls: `ReceiptBuilder::prepare` (then
+`PreparedReceipt::to_text` for the `zip311u1…` text) and `PreparedReceipt::from_text` followed by
+`sign_prepared` and `apply_signatures` where the spending key is.
 
 ## What not to do
 

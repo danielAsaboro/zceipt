@@ -36,8 +36,8 @@ text     := "zip311r1" || base64url without padding (RFC 4648 §5) of receipt
 ```
 
 `txid` is in internal byte order (the reverse of the hex block explorers show). `version` MUST
-be the lowest that can carry the contents: 3 if `outputPool ≠ pool`, else 1 (versions 2, 4 and 5
-carry the SPEC.md extensions).
+be the lowest that can carry the contents: 3 if `outputPool ≠ pool`, else 1. Versions 2, 4 and 5 are reserved
+for extensions outside this text.
 
 A decoder MUST refuse a receipt that:
 1. does not start with `ZRCT`, has an unknown version, or a version that is not the lowest for

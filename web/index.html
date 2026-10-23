@@ -76,7 +76,8 @@
     .dash { border-top: 2px dashed var(--rule); margin: 16px 0; }
     .line { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 4px 0; align-items: baseline; }
     .line .k { color: var(--ink-2); font-size: 12px; letter-spacing: 0.1em; }
-    .line .v { word-break: break-all; }
+    .line .v { overflow-wrap: anywhere; }
+    .line .v.mono { word-break: break-all; }
     .line .v.memo, .line .v.text { word-break: normal; overflow-wrap: anywhere; }
     .line .amount { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
     .line .amount small { font-size: 13px; font-weight: 600; }
@@ -140,6 +141,8 @@
       <textarea id="paste" placeholder="zip311r1… (paste a link, or drop a saved file)" spellcheck="false"></textarea>
       <div class="actions">
         <button id="verifyBtn">Verify receipt</button>
+        <button type="button" class="ghost" id="openFile">Open a file</button>
+        <input type="file" id="fileIn" accept=".txt,text/plain" hidden>
       </div>
       <div class="actions samples">
         <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>

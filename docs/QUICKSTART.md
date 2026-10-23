@@ -91,7 +91,7 @@ A failure throws `VerificationError` with a stable `code`, e.g. `challenge_misma
   batches (every 10 min by default). It never shows individual amounts, txids, times or
   on-chain memos, so a gift can't be matched to a transaction. A contributor can opt in to a
   public note with `receipts create … --public-note "…"`, which is signed into their receipt.
-- **Hosted pay page.** Send the payer `hosted_url` (`/pay/{id}?secret=…`). It shows the QR
+- **Hosted pay page.** Send the payer `hosted_url` (`/pay/{id}#secret=…`). It shows the QR
   code and the command, and accepts the receipt with no API key and no frontend work on your
   side.
 - **Double-spend protection.** A payment (transaction output) can settle only one request,

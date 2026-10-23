@@ -171,13 +171,11 @@ class Testnet(unittest.TestCase):
             v.check_screened(fx["proof"], list(reversed(leaves)), *args)
 
     def test_challenge_rule(self):
-        """The same cases as properties.rs::the_challenge_rule and the page's challengeIn."""
-        c = v.challenge_of
-        self.assertEqual(c("challenge:abcdef"), "abcdef")
-        self.assertEqual(c("Order 7\nchallenge:abcdef\r\nmore"), "abcdef")
-        self.assertEqual(c("challenge:abcdef\r"), "abcdef")
-        for m in ["challenge:abcde", "challenge:" + "a" * 65, "challenge:ABCDEF", "challenge:abcdeg", "challenge:otc-7f3a holding", "xchallenge:abcdef", "challenge:zzzzzz\nchallenge:abcdef"]:
-            self.assertIsNone(c(m), m)
+        """conformance/challenge.json, shared with the Rust and npm tests."""
+        import json as _json
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "conformance", "challenge.json")) as f:
+            for case in _json.load(f)["cases"]:
+                self.assertEqual(v.challenge_of(case["message"]), case["challenge"], repr(case["message"]))
 
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")

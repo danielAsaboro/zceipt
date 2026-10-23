@@ -177,7 +177,7 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "source_of_funds": crate::deposits::policy_summary(r.source_policy.as_deref()),
         "provenance": r.provenance.as_deref().and_then(|p| serde_json::from_str::<Value>(p).ok()),
         "client_secret": r.client_secret,
-        "hosted_url": hosted(st, &format!("/pay/{}?secret={secret}", r.id)),
+        "hosted_url": hosted(st, &format!("/pay/{}#secret={secret}", r.id)),
         "public_url": (r.kind == "campaign").then(|| hosted(st, &format!("/c/{}", r.id))),
         "final": r.final_at.is_some(),
         "final_at": r.final_at,

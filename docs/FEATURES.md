@@ -74,7 +74,7 @@ Paying a shop's proof request is one command: it pays from the wallet, waits for
 builds the receipt and submits it (or prints the link to send back):
 
 ```bash
-receipts pay 'https://shop.example/pay/preq_…?secret=…' -w <wallet_dir> -i <identity.age>
+receipts pay 'https://shop.example/pay/preq_…#secret=…' -w <wallet_dir> -i <identity.age>
 ```
 
 ## One link for many payments

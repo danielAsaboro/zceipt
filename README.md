@@ -2,8 +2,8 @@
 
 **Prove one Zcash payment without handing over your viewing key.**
 
-You get a link. Opening it shows who was paid, how much and the memo, and proves the wallet that
-paid made it. Change one character and it fails. Nothing else about the payer's wallet is in it.
+You get a link. Opening it shows who was paid, how much and the memo, and proves it was signed with the key to money
+the payment spent. Change one character and it fails. Nothing else about the payer's wallet is in it.
 
 <img src="docs/img/key-vs-receipt.svg" width="640" alt="A viewing key shows every payment, past and future; a receipt shows one payment and that you made it">
 
@@ -34,7 +34,8 @@ Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
 Click **Try a real testnet receipt**: a real 0.01 TAZ payment
 ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73))
-shows **VERIFIED** (and, once you give your address, **PAID TO YOU**). Click **Try an edited copy**: the same receipt with its signed message changed from
+opens as the merchant it paid (`examples/testnet/merchant.ua`) and shows **PAID TO YOU**; opened
+without your address, a receipt shows **VERIFIED · RECIPIENT NOT CHECKED**. Click **Try an edited copy**: the same receipt with its signed message changed from
 "Order #42" to "Order #43" shows **NOT VALID**. Click **Try a claim by someone who only saw it**:
 the same payment claimed with another key shows **NOT PROVEN BY THE PAYER**, which is what an output-only
 disclosure can't tell apart. The first check also loads the verifier (3 to 10 seconds).

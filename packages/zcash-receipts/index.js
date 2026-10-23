@@ -171,7 +171,7 @@ export async function verifyReceipt(input, options = {}) {
 // they don't show the payee can receive the note.
 // The challenge a receipt signs: the first line starting "challenge:", if its value is 6 to 64
 // lowercase hex digits (the API reads it the same way; lines end at \n or \r\n).
-function challengeIn(message) {
+export function challengeIn(message) {
   const line = String(message || "").split("\n").map((l) => l.replace(/\r$/, "")).find((l) => l.startsWith("challenge:"));
   const c = line ? line.slice("challenge:".length) : "";
   return /^[0-9a-f]{6,64}$/.test(c) ? c : null;

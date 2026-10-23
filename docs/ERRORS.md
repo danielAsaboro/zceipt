@@ -62,7 +62,8 @@ Retry `transaction_not_mined`, `chain_unavailable` and `internal_error`. Retries
 
 ## The CLI: `receipts verify --json`
 
-`verify --json` always prints one JSON object. A refusal exits 1 with
+`verify --json` always prints one JSON object. A refusal exits 1, and a check that couldn't run
+(`usage`, `chain_unavailable`) exits 2, with
 `{"valid": false, "code": …, "error": "<the reason in words>"}`:
 
 | `code` | Meaning |
@@ -77,5 +78,5 @@ Retry `transaction_not_mined`, `chain_unavailable` and `internal_error`. Retries
 | `funds_check_failed` | A proof of funds holds less than `--min` (a wrong challenge is `challenge_mismatch`). |
 | `unreadable` | Not a receipt, or cut off. |
 | `chain_unavailable` | The chain server couldn't be reached or doesn't have the transaction. |
-| `usage` | A flag or file given to the command is wrong (exit 1, before anything is fetched). |
+| `usage` | A flag or file given to the command is wrong (exit 2, before anything is fetched). |
 | `invalid` | Anything else; `error` says what. |

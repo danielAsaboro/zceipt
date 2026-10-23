@@ -101,8 +101,8 @@ impl<'t> ReceiptBuilder<'t> {
             Pool::Ironwood => self.tx.ironwood_bundle(),
             Pool::Orchard => self.tx.orchard_bundle(),
         };
-        let spends = bundle(spend_pool).ok_or(Error::NoSpends)?;
-        let outputs = bundle(output_pool).ok_or(Error::NoSpends)?;
+        let spends = bundle(spend_pool).ok_or(Error::NoBundle(spend_pool))?;
+        let outputs = bundle(output_pool).ok_or(Error::NoBundle(output_pool))?;
         prepare(pk, self.network.coin_type(), spend_pool, spends, output_pool, outputs, txid, &self.msg, &self.outputs, &self.withheld_memo, &self.spends, rng)
     }
 }

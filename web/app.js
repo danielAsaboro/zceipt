@@ -46,7 +46,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE } from "./samples.js";
+import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT } from "./samples.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
@@ -141,6 +141,9 @@ if (new URLSearchParams(location.search).has("regtest")) $("#regtest").checked =
 // checks compare against what *you* asked for, not against whatever the returned link says.
 const REQ_KEY = "receipts.requests.v1";
 const loadRequests = () => { try { return JSON.parse(localStorage.getItem(REQ_KEY) || "{}"); } catch { return {}; } };
+const USED_KEY = "receipts.usedPayments";
+const loadUsed = () => { try { return JSON.parse(localStorage.getItem(USED_KEY) || "{}"); } catch { return {}; } };
+const saveUsed = (txid, code) => { try { localStorage.setItem(USED_KEY, JSON.stringify({ ...loadUsed(), [txid]: code })); } catch {} };
 const saveRequest = (code, r) => { try { const all = loadRequests(); all[code] = r; localStorage.setItem(REQ_KEY, JSON.stringify(all)); } catch {} };
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 function requestFromUrl() {
@@ -176,6 +179,8 @@ const confirmations = (v) => (fetchMode && fetchMode.tip && v.mined_height ? Mat
 // Each check bumps this; an earlier check still in flight then stops touching the page, so a
 // new link can't be overwritten by the old one's late result.
 let runGen = 0;
+// What the showing card has checked (see paintStamp).
+let verdict = {};
 const steps = ["decode", "fetch", "verify"];
 function setStep(name, state, text) {
   const el = document.querySelector(`[data-step="${name}"]`);
@@ -199,6 +204,15 @@ function revealResult() {
 
 // Three different failures, said differently: the link is incomplete or isn't a receipt; the
 // chain couldn't be reached; the receipt was altered or forged.
+// An empty box says what it needs, in the browser's own bubble, until it is typed in.
+function need(sel, what) {
+  const el = $(sel);
+  el.setCustomValidity(what);
+  el.reportValidity();
+  el.addEventListener("input", () => el.setCustomValidity(""), { once: true });
+  el.focus();
+}
+
 function showError(msg, kind = "notice") {
   revealResult();
   const head = { forged: "NOT VALID", unreadable: "NOT A RECEIPT", network: "COULD NOT CHECK", notice: "NOT VALID", other: "OTHER FORMAT", secret: "DON'T SHARE THAT", unproven: "NOT PROVEN BY THE PAYER" }[kind];
@@ -224,8 +238,9 @@ function plainFailure(m) {
   return m;
 }
 // Address errors in words a shop owner can act on.
-function friendlyAddressError(e) {
+function friendlyAddressError(e, input = "") {
   const m = String(e && e.message ? e.message : e);
+  if (/Bech32|not a unified address|checksum|invalid/i.test(m) && /^u(test|regtest)?1/.test(input)) return "That address has a typo or is cut off. Copy it again from your wallet.";
   if (/Bech32|not a unified address|checksum|invalid/i.test(m)) return "That doesn't look like a Zcash shielded address (it should start with u1…, or utest1… on testnet). Copy it again from your wallet.";
   if (/no Orchard receiver/i.test(m)) return "That address has no shielded (Orchard) part, so a receipt can't be checked against it. Use your wallet's unified address.";
   return m;
@@ -325,18 +340,24 @@ function render(v, net) {
         <div id="mineOut" class="fine"></div>
       </div>
     </div>`;
+  verdict = { v, paid: null, req: null };
+  paintStamp();
   renderRequestChecks(v);
   $("#printBtn").onclick = () => window.print();
   // The link can be too long for some chat apps: a file always carries it whole.
-  $("#copyLink").onclick = () => navigator.clipboard.writeText(location.href).then(() => { $("#copyLink").textContent = "Copied"; });
+  $("#copyLink").onclick = () =>
+    navigator.clipboard.writeText(location.href).then(
+      () => { $("#copyLink").textContent = "Copied"; },
+      () => { $("#copyLink").textContent = "Copy it from the address bar"; },
+    );
   $("#saveFile").onclick = () => {
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([location.href + "\n"], { type: "text/plain" })), download: `receipt-${v.txid.slice(0, 12)}.txt` });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([location.href + "\n"], { type: "text/plain" })), download: `receipt-${v.txid.slice(0, 12)}.zip311.txt` });
     a.click();
     URL.revokeObjectURL(a.href);
   };
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
-    if (!ua) return;
+    if (!ua) return need("#mine", "Paste your address.");
     if (secret_kind(ua)) {
       $("#mine").value = "";
       $("#mineOut").textContent = "That looks like a key or seed phrase, not an address. It was cleared and not stored or sent.";
@@ -348,43 +369,42 @@ function render(v, net) {
       // disclosed without their memo don't show the note can be received, so they don't count.
       const got = await Promise.all(v.outputs.filter((o) => !o.memo_withheld).map((o) => quick("receiver", { ua: o.recipient })));
       const paid = got.includes(want);
-      $("#mineOut").textContent = paid ? "Yes. This payment went to that address." : "No. None of the disclosed outputs went to that address.";
+      $("#mineOut").textContent = paid
+        ? "Yes. This payment went to that address (to its shielded part, which is what TO shows)."
+        : "No. None of the disclosed outputs went to that address.";
       $("#mineOut").dataset.ok = paid;
       // Only if asked, and only an address this receipt paid: then the next receipt answers
       // "was I paid?" by itself.
       try { if ($("#rememberMine").checked && paid && !secret_kind(ua)) localStorage.setItem(MY_ADDRESS, ua); } catch { /* private mode */ }
-      // The verdict then leads with the answer, recomputed from the card's own verdict each time.
-      const stamp = $("#result .stamp");
-      if (stamp) {
-        stamp.dataset.base ??= stamp.textContent;
-        stamp.dataset.baseClass ??= stamp.className;
-        if (stamp.dataset.base.startsWith("VERIFIED")) {
-          stamp.textContent = paid ? stamp.dataset.base.replace(" · RECIPIENT NOT CHECKED", "").replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
-          stamp.className = paid ? "stamp good" : "stamp warn";
-          // Paid to the viewer's own address: the "check the recipient" caveat is answered.
-          const warn = document.getElementById("reuseWarn");
-          if (warn) warn.hidden = paid;
-        }
+      if (verdict.v === v) {
+        verdict.paid = paid;
+        paintStamp();
       }
     } catch (e) {
-      $("#mineOut").textContent = friendlyAddressError(e);
+      $("#mineOut").textContent = friendlyAddressError(e, ua);
     }
   };
   $("#mine").onkeydown = (e) => { if (e.key === "Enter") $("#mineBtn").click(); };
   const saved = (() => { try { return localStorage.getItem(MY_ADDRESS) || ""; } catch { return ""; } })();
   $("#rememberMine").checked = !!saved;
   $("#rememberMine").onchange = (e) => { try { if (!e.target.checked) localStorage.removeItem(MY_ADDRESS); else if ($("#mine").value.trim()) localStorage.setItem(MY_ADDRESS, $("#mine").value.trim()); } catch { /* private mode */ } };
-  if (saved) {
-    $("#mine").value = saved;
+  // The real sample opens as the merchant it paid, so its first verdict answers "was I paid?".
+  const as = sampleAs;
+  sampleAs = null;
+  if (saved || as) {
+    $("#mine").value = saved || as;
     $("#mineBtn").click();
   }
 }
 const MY_ADDRESS = "receipts.myAddress";
+let sampleAs = null;
 
 async function renderRequestChecks(v) {
   const fromUrl = requestFromUrl();
   const signed = challengeIn(v.message);
-  if (!fromUrl && !signed) return;
+  // With no request in the link, only a request this browser made counts: the sender chose the
+  // challenge, so it alone says nothing.
+  if (!fromUrl && !(signed && loadRequests()[signed])) return;
   const code = fromUrl ? fromUrl.code : signed;
   const mine = loadRequests()[code];
   const req = mine || fromUrl;
@@ -404,21 +424,47 @@ async function renderRequestChecks(v) {
       row(paid.length > 0, paid.length ? `Paid ${zec(total)} ${UNIT} to the requested address` : "Nothing was paid to the requested address");
       if (req.min) row(total >= req.min, `${total >= req.min ? "At least" : "Less than"} the requested ${zec(req.min)} ${UNIT}`);
     } catch (e) {
-      row(false, `Could not check the payee: ${friendlyAddressError(e)}`);
+      row(false, `Could not check the payee: ${friendlyAddressError(e, req.to)}`);
     }
   }
+  if (mine) {
+    // An old payment can't answer a new request, and one payment answers one request.
+    const paidAt = fetchMode?.time ? fetchMode.time * 1000 : confirmations(v) != null ? Date.now() - confirmations(v) * 75_000 : null;
+    const fresh = paidAt != null && mine.created && paidAt >= Date.parse(mine.created) - 3_600_000;
+    row(fresh, fresh ? "Paid after you created the request" : paidAt == null ? "Couldn't tell when it was paid, so not that it was paid for this request" : `Paid ${new Date(paidAt).toLocaleDateString()}, before you created this request`);
+    const prior = loadUsed()[v.txid];
+    if (prior && prior !== code) row(false, `This payment already answered request ${prior} in this browser`);
+  }
   const ok = !rows.some((r) => r.includes('data-ok="false"'));
+  if (ok && mine) saveUsed(v.txid, code);
   const head = !ok ? "REQUEST NOT SATISFIED" : mine ? "REQUEST SATISFIED" : "MATCHES THE REQUEST IN THIS LINK";
   $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok ? (mine ? "true" : "info") : "false"}"><div class="reqhead">${head}</div><ul>${rows.join("")}</ul></div>`;
-  // The verdict follows the request checks: green only for a request this browser made and the
-  // receipt meets in full (payee, amount and challenge).
-  const stamp = $("#result .stamp");
-  if (stamp && stamp.textContent.startsWith("VERIFIED")) {
-    stamp.textContent = !ok ? "VALID · REQUEST NOT MET" : mine ? "PAID AS REQUESTED" : "VERIFIED · MATCHES THE LINK'S REQUEST";
-    stamp.className = ok && mine ? "stamp good" : "stamp warn";
-    stamp.dataset.base = stamp.textContent;
-    stamp.dataset.baseClass = stamp.className;
+  if (verdict.v === v) {
+    verdict.req = { ok, mine: !!mine };
+    paintStamp();
   }
+}
+
+// The card's verdict, from everything checked so far. Green only for a request this browser
+// made and the receipt meets in full, or a payment to the viewer's own address; never before
+// the payment is final, and never for a transaction checked offline.
+function paintStamp() {
+  const stamp = $("#result .stamp");
+  const v = verdict.v;
+  if (!stamp || !v || (fetchMode && fetchMode.mode.startsWith("offline"))) return;
+  const notFinal = confirmations(v) != null && confirmations(v) < FINAL;
+  const r = verdict.req;
+  let text = r ? (!r.ok ? "VALID · REQUEST NOT MET" : r.mine ? "PAID AS REQUESTED" : "VERIFIED · MATCHES THE LINK'S REQUEST")
+    : verdict.paid != null ? (verdict.paid ? "PAID TO YOU" : "VALID · NOT TO YOUR ADDRESS")
+    : notFinal ? "VERIFIED" : "VERIFIED · RECIPIENT NOT CHECKED";
+  const good = !notFinal && (r ? r.ok && r.mine : verdict.paid === true);
+  if (notFinal) text += " · NOT FINAL YET";
+  stamp.textContent = text;
+  stamp.className = good ? "stamp good" : "stamp warn";
+  // Only a request this browser made rules out a receipt shown again: a payment to you could be
+  // an old one.
+  const warn = document.getElementById("reuseWarn");
+  if (warn) warn.hidden = !!(r && r.ok && r.mine);
 }
 
 // zreceipt (a separate project) also writes links as zip311r1 + base64url, but of JSON. Say so
@@ -747,18 +793,27 @@ let fetchMode = null;
 for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#sampleEdited", SAMPLE_EDITED, SAMPLE_HEIGHT], ["#sampleObserver", SAMPLE_OBSERVER, SAMPLE_HEIGHT], ["#sampleBatch", SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS], ["#sampleSource", SAMPLE_SOURCE, SAMPLE_HEIGHT]]) {
   const b = $(id);
   if (b) b.onclick = () => {
+    sampleAs = id === "#sampleReal" ? SAMPLE_MERCHANT : null;
     const h = `${text}&h=${hint}`;
     if (safeDecode(location.hash.slice(1)) === h) (text.startsWith("zip311b1") ? runBatch(text) : run(text));
     else location.hash = h;
   };
 }
 
-// A receipt saved as a file can be dropped on the box.
+// A receipt saved as a file (`.zip311.txt`, the link inside) can be opened or dropped on the box.
+$("#openFile").onclick = () => $("#fileIn").click();
+$("#fileIn").onchange = async () => {
+  const f = $("#fileIn").files?.[0];
+  if (!f || f.size > 1_000_000) return;
+  $("#paste").value = await f.text();
+  $("#verifyBtn").click();
+};
 $("#paste").addEventListener("dragover", (e) => e.preventDefault());
 $("#paste").addEventListener("drop", async (e) => {
   const f = e.dataTransfer?.files?.[0];
-  if (!f || f.size > 1_000_000) return;
+  if (!f) return;
   e.preventDefault();
+  if (f.size > 1_000_000) return need("#paste", "That file is too big to be a receipt.");
   $("#paste").value = await f.text();
   $("#verifyBtn").click();
 });
@@ -769,7 +824,7 @@ $("#verifyBtn").onclick = async () => {
   runGen++;
   resetSteps();
   $("#progress").hidden = true;
-  if (!t) return $("#paste").focus();
+  if (!t) return need("#paste", "Paste a receipt link, or open a file.");
   await local;
   const leak = secret_kind(t);
   if (leak) {
@@ -891,7 +946,7 @@ async function checkSignedRequest(text) {
 $("#linkBtn").onclick = async () => {
   await local;
   const uri = $("#linkIn").value.trim();
-  if (!uri) return void ($("#linkOut").innerHTML = "");
+  if (!uri) return need("#linkIn", "Paste a zcash: payment link.");
   if (uri.includes("zreq1")) return checkSignedRequest(uri.slice(uri.indexOf("zreq1")).replace(/[^A-Za-z0-9_-].*$/s, ""));
   const v = JSON.parse(check_payment_uri(uri, regtest() ? "regtest" : ""));
   const pays = v.payments.map((p) =>

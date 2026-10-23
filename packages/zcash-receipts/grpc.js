@@ -203,10 +203,12 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   let ids = unique(listed.get(height) || []);
   if (!ids.includes(want)) ids = unique(await fetchBlockTxids(endpoint, height));
   if (!ids.includes(want)) throw new Error(`transaction ${want.slice(0, 12)}… is not in block ${height}`);
-  // The run of maxSet transactions (in block order) that holds ours: the same set every time,
+  // The window of the block (in block order) that holds ours: the same set every time,
   // so checking one receipt twice can't be intersected down to it.
-  const start = Math.floor(ids.indexOf(want) / maxSet) * maxSet;
-  const set = ids.slice(start, start + maxSet);
+  // Equal windows of at most maxSet, so the last is never a lone transaction (65 → 33 + 32).
+  const size = Math.max(1, Math.ceil(ids.length / Math.max(1, Math.ceil(ids.length / maxSet))));
+  const start = Math.floor(ids.indexOf(want) / size) * size;
+  const set = ids.slice(start, start + size);
   const blockOf = new Map(set.map((t) => [t, height]));
   let blocks = [height];
   // A quiet block (by its whole count, not the window holding the payment) hides little: then

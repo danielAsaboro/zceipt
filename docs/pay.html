@@ -10,13 +10,15 @@ main{max-width:520px;margin:0 auto;padding:28px 16px 60px}.card{background:var(-
 .step{margin:16px 0 0}.step b{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;text-align:center;font-size:12px;line-height:22px;margin-right:6px}
 code{font:12px ui-monospace,Menlo,monospace;word-break:break-all;background:#f1ece2;border-radius:6px;padding:2px 5px}textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:10px;padding:10px;font:12px ui-monospace,Menlo,monospace;margin-top:8px}
 button{width:100%;margin-top:10px;background:var(--ink);color:#fff;border:0;border-radius:10px;padding:12px;font:600 15px system-ui;cursor:pointer}button.copy{width:auto;margin:6px 0 0;padding:5px 10px;font-size:12px;background:#fff;color:var(--ink);border:1px solid var(--line)}
+a.open{display:block;text-align:center;background:var(--ink);color:#fff;border-radius:10px;padding:12px;font-weight:600;text-decoration:none;margin:8px 0 4px}details{margin-top:16px}summary{cursor:pointer;color:var(--dim);font-size:13px}
 .ok{color:var(--good);font-weight:700}.err{color:var(--bad);font-size:13px;margin-top:8px}.muted{color:var(--dim);font-size:13px}.done{text-align:center;padding:26px 0}.done .big{font:900 28px ui-monospace,Menlo,monospace;color:var(--good);letter-spacing:.2em;border:3px solid var(--good);display:inline-block;padding:4px 14px;border-radius:8px;transform:rotate(-3deg)}
 </style></head>
 <body><main><div class="card" id="card"><div class="brand">RECEIPTS · PAY PRIVATELY</div><p class="muted">Loading…</p></div>
 <p class="muted" style="text-align:center;margin-top:14px">You prove this one payment. Your wallet, balance and other payments stay private.</p></main>
 <script>
 const id = location.pathname.split("/").pop();
-const secret = new URLSearchParams(location.search).get("secret") || "";
+// In the #fragment, which browsers never send (older links: the query string).
+const secret = new URLSearchParams(location.hash.slice(1)).get("secret") || new URLSearchParams(location.search).get("secret") || "";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 let last;
@@ -48,12 +50,12 @@ async function load() {
     ${remaining ? `<div class="amt">${zec(remaining)} ${unit}</div>` : ""}
     ${j.kind === "partial" && j.received_zatoshis ? `<p class="muted">${zec(j.received_zatoshis)} of ${zec(j.amount_zatoshis)} ${unit} received so far</p>` : ""}
     <div class="qr">${qr}</div>
-    <div class="step"><b>1</b>Pay from any shielded Zcash wallet: <a class="open" href="${esc(j.payment_uri)}">Open in wallet</a>, scan the code, or copy <code>${esc(j.payment_uri)}</code> <button class="copy" data-copy="${esc(j.payment_uri)}">Copy</button></div>
-    <div class="step"><b>2</b>Make a receipt for that payment:<br><code>${esc(j.cli_command)}</code> <button class="copy" data-copy="${esc(j.cli_command)}">Copy command</button>
-      <div style="margin-top:6px">Or do steps 1 to 3 in one go from a zcash-devtool wallet:<br><code>${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}</code> <button class="copy" data-copy="${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}">Copy command</button></div></div>
+    <div class="step"><b>1</b>Pay from any shielded Zcash wallet <a class="open" href="${esc(j.payment_uri)}">Open in wallet</a>or scan the code, or copy <code>${esc(j.payment_uri)}</code> <button class="copy" data-copy="${esc(j.payment_uri)}">Copy</button></div>
+    <div class="step"><b>2</b>Make a receipt for that payment:<br><code>${esc(j.cli_command)}</code> <button class="copy" data-copy="${esc(j.cli_command)}">Copy command</button></div>
     <div class="step"><b>3</b>Paste the receipt link it prints:
       <textarea id="receipt" aria-label="Your receipt or receipt link" placeholder="https://…#zip311r1…"></textarea>
-      <button id="submit">Confirm payment</button><div id="msg"></div></div>`;
+      <button id="submit">Confirm payment</button><div id="msg"></div></div>
+    <details><summary>Steps 1 to 3 in one command (zcash-devtool wallet)</summary><code>${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}</code> <button class="copy" data-copy="${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}">Copy command</button></details>`;
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = "Copied"; });
   document.getElementById("receipt").value = pasted;
   document.getElementById("submit").onclick = submit;
@@ -68,15 +70,18 @@ function looksSecret(t) {
 }
 async function submit() {
   const btn = document.getElementById("submit"), msg = document.getElementById("msg");
-  if (looksSecret(document.getElementById("receipt").value)) {
-    document.getElementById("receipt").value = "";
-    msg.className = "err"; msg.textContent = "That looks like a seed phrase or key, not a receipt. It was cleared and not sent. Paste the receipt link the command printed.";
+  // Only the receipt itself is sent: whatever else was pasted with it stays here.
+  const token = (document.getElementById("receipt").value.match(/zip311r1[A-Za-z0-9_-]+/) || [""])[0];
+  const leak = looksSecret(document.getElementById("receipt").value);
+  if (leak || !token) {
+    if (leak) document.getElementById("receipt").value = "";
+    msg.className = "err"; msg.textContent = leak ? "That looks like a seed phrase or key, not a receipt. It was cleared and not sent. Paste the receipt link the command printed." : "Paste the receipt link the command printed (it contains zip311r1…).";
     return;
   }
   btn.disabled = true; btn.textContent = "Checking the proof…"; msg.textContent = "";
-  const r = await fetch(`/v1/public/requests/${id}/receipts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_secret: secret, receipt: document.getElementById("receipt").value.trim() }) });
+  const r = await fetch(`/v1/public/requests/${id}/receipts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_secret: secret, receipt: token }) });
   const j = await r.json();
-  if (!r.ok) { msg.className = "err"; msg.textContent = `${j.error?.code}: ${j.error?.message}`; btn.disabled = false; btn.textContent = "Confirm payment"; return; }
+  if (!r.ok) { msg.className = "err"; msg.textContent = j.error?.message || "That didn't work. Try again."; btn.disabled = false; btn.textContent = "Confirm payment"; return; }
   last = undefined; load();
 }
 load(); timer = setInterval(load, 4000);

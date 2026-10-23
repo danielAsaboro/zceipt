@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { verifyReceipt, verifySignIn, verifyIncoming } from "../index.js";
+import { verifyReceipt, verifySignIn, verifyIncoming, challengeIn } from "../index.js";
 
 const { vectors } = JSON.parse(await readFile(new URL("../../../conformance/vectors.json", import.meta.url), "utf8"));
 
@@ -46,4 +46,9 @@ test(`conformance: ${vectors.length} vectors`, async () => {
     if (v.expect.satisfied != null) assert.equal(got.r.satisfied, v.expect.satisfied, v.name);
     if (v.expect.sources) assert.deepEqual(got.r.sources.map((s) => ({ zatoshis: s.zatoshis })), v.expect.sources, v.name);
   }
+});
+
+test("the challenge rule matches conformance/challenge.json", async () => {
+  const { cases } = JSON.parse(await readFile(new URL("../../../conformance/challenge.json", import.meta.url), "utf8"));
+  for (const c of cases) assert.equal(challengeIn(c.message), c.challenge, JSON.stringify(c.message));
 });

@@ -7,7 +7,7 @@ use receipts_wallet as wallet;
 use receipts_chain::{chain, net};
 
 use anyhow::{anyhow, bail, Context};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use receipts_core::{Pool, Receipt};
 use std::path::PathBuf;
 
@@ -474,7 +474,7 @@ enum Cmd {
     ///
     /// Pay a proof request and answer it in one step: pays from your zcash-devtool wallet,
     /// waits for the block, builds the receipt and hands it back. Takes the shop's hosted pay
-    /// link (`…/pay/<id>?secret=…`, submitted automatically) or a receipt link (`…#request=…`).
+    /// link (`…/pay/<id>#secret=…`, submitted automatically) or a receipt link (`…#request=…`).
     #[command(hide = true, display_order = 10)]
     Pay {
         /// The hosted pay link or receipt link the shop gave you.
@@ -1004,32 +1004,54 @@ async fn main() -> anyhow::Result<()> {
     };
     if let (true, Err(e)) = (json_verify, &result) {
         let m = e.to_string();
-        let code = [
-            ("screened", "not_screened"),
-            ("challenge", "challenge_mismatch"),
-            ("proof of funds", "funds_check_failed"),
-            ("reading ", "usage"),
-            ("signature", "bad_signature"),
-            ("proof", "bad_proof"),
-            ("memo withheld", "wrong_payee"),
-            ("no disclosed output pays", "wrong_payee"),
-            ("less than", "insufficient_amount"),
-            ("challenge", "challenge_mismatch"),
-            ("memo contains", "memo_mismatch"),
-            ("base64", "unreadable"),
-            ("truncated", "unreadable"),
-            ("canonical", "unreadable"),
-            ("not a receipt", "unreadable"),
-            ("lightwalletd", "chain_unavailable"),
-            ("connecting", "chain_unavailable"),
-        ]
-        .iter()
-        .find(|(k, _)| m.contains(k))
-        .map(|(_, c)| *c)
-        .filter(|_| !usage)
-        .unwrap_or(if usage { "usage" } else { "invalid" });
+        // The error's own type first; the words only for errors that carry no type.
+        use receipts_core::Error as E;
+        let typed = e.chain().find_map(|c| {
+            if c.downcast_ref::<std::io::Error>()
+                .is_some_and(|e| matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::IsADirectory))
+            {
+                return Some("usage");
+            }
+            Some(match c.downcast_ref::<E>()? {
+                E::BadSignature(_) | E::SignatureCount => "bad_signature",
+                E::BadProof(_) | E::BadAddressProof(_) | E::BadSourceProof(_) | E::BadOpening(_) => "bad_proof",
+                E::Malformed(_) | E::TooLarge => "unreadable",
+                E::NotInSet | E::BadScreenedProof(_) => "not_screened",
+                E::BadTotal => "funds_check_failed",
+                _ => return None,
+            })
+        });
+        let code = typed
+            .into_iter()
+            .chain(
+                [
+                    ("screened", "not_screened"),
+                    ("challenge", "challenge_mismatch"),
+                    ("proof of funds", "funds_check_failed"),
+                    ("reading ", "usage"),
+                    ("signature", "bad_signature"),
+                    ("proof", "bad_proof"),
+                    ("memo withheld", "wrong_payee"),
+                    ("no disclosed output pays", "wrong_payee"),
+                    ("less than", "insufficient_amount"),
+                    ("challenge", "challenge_mismatch"),
+                    ("memo contains", "memo_mismatch"),
+                    ("base64", "unreadable"),
+                    ("truncated", "unreadable"),
+                    ("canonical", "unreadable"),
+                    ("not a receipt", "unreadable"),
+                    ("lightwalletd", "chain_unavailable"),
+                    ("connecting", "chain_unavailable"),
+                ]
+                .iter()
+                .filter(|(k, _)| m.contains(k))
+                .map(|(_, c)| *c),
+            )
+            .find(|_| !usage)
+            .unwrap_or(if usage { "usage" } else { "invalid" });
         println!("{}", serde_json::json!({ "valid": false, "code": code, "error": m }));
-        std::process::exit(1);
+        // 1: the receipt is refused. 2: it wasn't checked (a wrong flag or file, or no chain).
+        std::process::exit(if matches!(code, "usage" | "chain_unavailable") { 2 } else { 1 });
     }
     result
 }
@@ -1046,7 +1068,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("\nRun `receipts shop <command> --help` for one of them.");
                 return Ok(());
             }
-            let cli = Cli::parse_from(std::iter::once("receipts".to_string()).chain(args));
+            let cli = Cli::command().bin_name("receipts shop").get_matches_from(std::iter::once("receipts".to_string()).chain(args));
+            let cli = Cli::from_arg_matches(&cli).unwrap_or_else(|e| e.exit());
             if !SHOP_COMMANDS.contains(&cli.cmd_name()) {
                 bail!("`receipts shop` runs only the shop commands: {}", SHOP_COMMANDS.join(", "));
             }
@@ -2067,7 +2090,12 @@ async fn pay(
         if !id.starts_with("preq_") || !id[5..].chars().all(|c| c.is_ascii_hexdigit()) {
             bail!("that doesn't look like a Receipts pay link");
         }
-        let secret = u.query_pairs().find(|(k, _)| k == "secret").map(|(_, v)| v.into_owned()).ok_or_else(|| anyhow!("the pay link has no secret"))?;
+        // The secret is in the #fragment (older links: the query), so loading the page doesn't log it.
+        let secret = u
+            .fragment()
+            .and_then(|f| f.split('&').find_map(|kv| kv.strip_prefix("secret=")).map(str::to_string))
+            .or_else(|| u.query_pairs().find(|(k, _)| k == "secret").map(|(_, v)| v.into_owned()))
+            .ok_or_else(|| anyhow!("the pay link has no secret"))?;
         let (base, id, secret) = (base.as_str(), id.as_str(), secret.as_str());
         let info: serde_json::Value = reqwest::get(format!("{base}/v1/public/requests/{id}?secret={secret}")).await?.json().await?;
         if info.get("error").is_some() {

@@ -415,6 +415,8 @@ pub struct VerifiedOutput {
 pub enum Error {
     #[error("the receipt must prove spend authority for at least one action")]
     NoSpends,
+    #[error("the transaction has no {0:?} bundle")]
+    NoBundle(Pool),
     #[error("action index {0} is out of range for this bundle")]
     IndexOutOfRange(u32),
     #[error("action index {0} is disclosed more than once")]

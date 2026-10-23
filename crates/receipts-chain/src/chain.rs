@@ -58,6 +58,14 @@ async fn fetch_mined_tx_with(client: &mut CompactTxStreamerClient<Channel>, net:
 
 /// How many transactions a block-hinted fetch asks for, ours included.
 pub const PRIVATE_FETCH_SET: usize = 64;
+
+/// The window of a block's `n` transactions that holds position `pos`: the block is cut into
+/// equal windows of at most `max`, so the last one is never a lone transaction (65 → 33 + 32).
+/// Returns (start, size).
+pub fn window_of(n: usize, pos: usize, max: usize) -> (usize, usize) {
+    let size = n.div_ceil(n.div_ceil(max).max(1)).max(1);
+    (pos / size * size, size)
+}
 /// Below this many candidates in the payment's block, the other blocks of its aligned run of 4 are fetched too.
 pub const MIN_PRIVATE_SET: usize = 8;
 
@@ -109,8 +117,8 @@ pub async fn fetch_mined_tx_in_block(net: Net, server: Option<&str>, txid: [u8; 
     let mut seen = std::collections::HashSet::new();
     ids.retain(|t| seen.insert(*t));
     let pos = ids.iter().position(|t| *t == txid).expect("checked above");
-    let start = pos / PRIVATE_FETCH_SET * PRIVATE_FETCH_SET;
-    let mut others: Vec<[u8; 32]> = ids[start..(start + PRIVATE_FETCH_SET).min(ids.len())].to_vec();
+    let (start, size) = window_of(ids.len(), pos, PRIVATE_FETCH_SET);
+    let mut others: Vec<[u8; 32]> = ids[start..(start + size).min(ids.len())].to_vec();
     let mut block_of: std::collections::HashMap<[u8; 32], u32> = others.iter().map(|t| (*t, height)).collect();
     // A quiet block hides little: then the rest of its aligned run of 4 blocks joins the cover.
     // The run is fixed by the height, not centred on it, so the requests don't point at the
@@ -914,9 +922,18 @@ pub fn pool_activation(net: Net, pool: Pool) -> u32 {
 /// rests on one server's word that the transaction is mined. The second server learns the txid,
 /// unless `by_block`.
 pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32, by_block: bool) -> anyhow::Result<u32> {
-    let host = |s: &str| s.split("://").last().unwrap_or(s).split(':').next().unwrap_or(s).to_lowercase();
-    if host(second) == host(first.unwrap_or(net.default_server())) {
-        bail!("--cross-check {second} is the same server as the first; give a different one");
+    // The same server under another name (a trailing dot, an IP, an alias) is no second opinion:
+    // compare what the names resolve to.
+    let addrs = |s: &str| {
+        let hostport = s.split("://").last().unwrap_or(s).trim_end_matches('/').to_string();
+        let hostport = if hostport.contains(':') { hostport } else { format!("{hostport}:443") };
+        std::net::ToSocketAddrs::to_socket_addrs(&hostport.replace(".:", ":"))
+            .map(|a| a.map(|a| a.ip()).collect::<std::collections::BTreeSet<_>>())
+            .unwrap_or_default()
+    };
+    let (one, two) = (addrs(first.unwrap_or(net.default_server())), addrs(second));
+    if !one.is_empty() && !one.is_disjoint(&two) {
+        bail!("--cross-check {second} reaches the same server as the first; give a different one");
     }
     let mut a = connect(first.unwrap_or(net.default_server())).await?;
     let mut b = connect(second).await?;
@@ -1054,6 +1071,11 @@ impl ReserveReport {
         if !self.message.is_empty() {
             println!("  message   {}", shown(&self.message, "            "));
         }
+        // Without a challenge from the asker, the proof could have been made for anyone, earlier.
+        match receipts_core::challenge_of(&self.message) {
+            Some(c) => println!("  challenge {c} (check it is the one you sent: --challenge)"),
+            None => println!("  challenge none: it wasn't made for your request, so it could be old or shown to others"),
+        }
         println!("  holds     {} {} in {} note(s), all unspent as of block {}", self.total_zec, unit(self.network), self.notes, self.unspent_as_of);
         println!("  proven    against the {} tree at block {}; {} blocks of nullifiers scanned", self.pool, self.anchor_height, self.blocks_scanned);
         if self.values_hidden {
@@ -1114,6 +1136,18 @@ pub async fn verify_reserve_against_chain(
 #[cfg(test)]
 mod window_tests {
     use super::*;
+
+    #[test]
+    fn every_window_hides_among_many() {
+        for n in 1..=300 {
+            for pos in 0..n {
+                let (start, size) = window_of(n, pos, PRIVATE_FETCH_SET);
+                let got = (start + size).min(n) - start;
+                assert!(pos >= start && pos < start + got && size <= PRIVATE_FETCH_SET);
+                assert!(got >= n.min(PRIVATE_FETCH_SET / 2), "n={n} pos={pos}: a window of {got}");
+            }
+        }
+    }
 
     #[test]
     fn sender_text_cannot_steer_the_terminal() {

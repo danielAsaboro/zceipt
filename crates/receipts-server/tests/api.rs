@@ -297,7 +297,7 @@ async fn hosted_pay_page_needs_the_client_secret() {
         call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1000, "metadata": { "order_id": "42" } })), None).await;
     let id = r["id"].as_str().unwrap();
     let secret = r["client_secret"].as_str().unwrap();
-    assert!(r["hosted_url"].as_str().unwrap().contains(&format!("/pay/{id}?secret={secret}")));
+    assert!(r["hosted_url"].as_str().unwrap().contains(&format!("/pay/{id}#secret={secret}")));
     let (s, _, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret=wrong"), None, None, None).await;
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, v, _) = call(&app, "GET", &format!("/v1/public/requests/{id}?secret={secret}"), None, None, None).await;

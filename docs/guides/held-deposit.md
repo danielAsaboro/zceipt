@@ -7,13 +7,13 @@ choose, where its money came from and an address you control. Nothing else.
 
 ## What to send
 
-From the wallet that made the deposit, with its seed phrase on standard input ([other ways](../../README.md#make-a-receipt-from-your-wallet)):
+From the wallet that made the deposit (it asks for the seed phrase without showing it; [other ways](../../README.md#make-a-receipt-from-your-wallet)):
 
 ```bash
 receipts create --seed-stdin --birthday <wallet birthday> --network main --txid <your deposit txid> \
   --prove-source --reveal-source-value \
   --prove-address <your address they know, if any> \
-  -m "Deposit for account 7731" < phrase.txt
+  -m "Deposit for account 7731"
 ```
 
 If the desk gave you a request link, add `--request '<its link>'` so the receipt answers that

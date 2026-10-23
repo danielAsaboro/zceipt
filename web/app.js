@@ -215,6 +215,11 @@ function showError(msg, kind = "notice") {
       ${kind === "other" ? "" : `<p class="fine">A receipt is only valid if the sender's proof, signature and the on-chain transaction all agree.</p>`}
     </div>`;
 }
+// A refusal in words first; the technical reason stays in the card's detail line.
+function plainFailure(m) {
+  if (/signature|proof/i.test(m)) return "changed after it was made, or not made by the wallet that paid";
+  return m;
+}
 // Address errors in words a shop owner can act on.
 function friendlyAddressError(e) {
   const m = String(e && e.message ? e.message : e);
@@ -290,7 +295,7 @@ function render(v, net) {
       ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ${UNIT} note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
       ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ${UNIT} from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
       ${s.transparent_inputs.length ? "" : `<div class="line"><span class="k"></span><span class="v"><small>that transaction was itself funded from shielded notes (not shown)</small></span></div>`}`).join("")}
-      ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v text">${escapeHtml(v.message.split("\n").filter((l) => !/^(tex-deposit|second-tx):/.test(l)).join("\n"))}</span></div>` : ""}
+      ${v.message ? `<div class="line"><span class="k">MESSAGE</span><span class="v text">${escapeHtml(v.message.split("\n").filter((l) => !/^(tex-deposit|second-tx):/.test(l)).join("\n"))}</span></div>` : ""}
       ${v.deposit ? `<div class="dash"></div>
       <div class="line paid"><span class="k">DEPOSIT</span><span class="v amount">${zec(v.deposit.deposit_zatoshis)} <small>${UNIT}</small></span></div>
       <div class="line"><span class="k">EXCHANGE</span><span class="v mono addr" title="${v.deposit.tex_address}">${short(v.deposit.tex_address, 14)}</span></div>
@@ -311,8 +316,9 @@ function render(v, net) {
       <div id="reqChecks"></div>
       <p class="fine"><button type="button" class="ghost" id="printBtn">Print or save as PDF</button></p>
       <div class="check">
-        <label for="mine">Was it paid to you? Your address (remembered on this device)</label>
+        <label for="mine">Was it paid to you? Your address</label>
         <div class="row"><input id="mine" placeholder="u1…" autocomplete="off" spellcheck="false"><button id="mineBtn">Check</button></div>
+        <label class="fine"><input type="checkbox" id="rememberMine"> Remember on this device</label>
         <div id="mineOut" class="fine"></div>
       </div>
     </div>`;
@@ -329,13 +335,18 @@ function render(v, net) {
       const paid = got.includes(want);
       $("#mineOut").textContent = paid ? "Yes. This payment went to that address." : "No. None of the disclosed outputs went to that address.";
       $("#mineOut").dataset.ok = paid;
-      // Remembered on this device only, so the next receipt answers "was I paid?" by itself.
-      try { localStorage.setItem(MY_ADDRESS, ua); } catch { /* private mode */ }
-      // The verdict then leads with the answer, keeping any "not final yet".
+      // Only if asked, and only an address this receipt paid: then the next receipt answers
+      // "was I paid?" by itself.
+      try { if ($("#rememberMine").checked && paid) localStorage.setItem(MY_ADDRESS, ua); } catch { /* private mode */ }
+      // The verdict then leads with the answer, recomputed from the card's own verdict each time.
       const stamp = $("#result .stamp");
-      if (stamp && stamp.textContent.startsWith("VERIFIED")) {
-        stamp.textContent = paid ? stamp.textContent.replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
-        if (!paid) stamp.className = "stamp warn";
+      if (stamp) {
+        stamp.dataset.base ??= stamp.textContent;
+        stamp.dataset.baseClass ??= stamp.className;
+        if (stamp.dataset.base.startsWith("VERIFIED")) {
+          stamp.textContent = paid ? stamp.dataset.base.replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
+          stamp.className = paid ? stamp.dataset.baseClass : "stamp warn";
+        }
       }
     } catch (e) {
       $("#mineOut").textContent = friendlyAddressError(e);
@@ -343,6 +354,8 @@ function render(v, net) {
   };
   $("#mine").onkeydown = (e) => { if (e.key === "Enter") $("#mineBtn").click(); };
   const saved = (() => { try { return localStorage.getItem(MY_ADDRESS) || ""; } catch { return ""; } })();
+  $("#rememberMine").checked = !!saved;
+  $("#rememberMine").onchange = (e) => { try { if (!e.target.checked) localStorage.removeItem(MY_ADDRESS); else if ($("#mine").value.trim()) localStorage.setItem(MY_ADDRESS, $("#mine").value.trim()); } catch { /* private mode */ } };
   if (saved) {
     $("#mine").value = saved;
     $("#mineBtn").click();
@@ -489,7 +502,7 @@ async function run(receiptText) {
     }
     ok() && render(v, summary.network);
   } catch (e) {
-    ok() && setStep("verify", "fail", e.message);
+    ok() && setStep("verify", "fail", plainFailure(e.message));
     ok() && showError(e.message, "forged");
   }
 }
@@ -665,7 +678,7 @@ async function runIncoming(text) {
         <div class="line"><span class="k">TO</span><span class="v mono addr" title="${v.recipient}">${short(v.recipient, 14)} <small>(proven)</small></span></div>
         <div class="line"><span class="k">TX</span><span class="v mono" title="${v.txid}">${short(v.txid, 8)}</span></div>
         <div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}</span></div>
-        ${v.message ? `<div class="line"><span class="k">NOTE</span><span class="v text">${escapeHtml(v.message)}</span></div>` : ""}
+        ${v.message ? `<div class="line"><span class="k">MESSAGE</span><span class="v text">${escapeHtml(v.message)}</span></div>` : ""}
         <div class="dash"></div>
         <div class="stamp good">VERIFIED</div>
         <ul class="facts">
@@ -760,6 +773,7 @@ window.addEventListener("hashchange", () => {
   if (it) return runIncoming(it);
   if (bt) return runBatch(bt);
   if (r) return run(r);
+  showRequest();
 });
 
 const initialIncoming = incomingFromHash();
@@ -782,21 +796,26 @@ if (initial) {
 // The command a payer runs to answer a request, from any wallet's seed phrase, with a copy button.
 function answerCommand(link, to) {
   const net = regtest() ? "test" : /^u1/.test(to || "") ? "main" : "test";
-  const cmd = `receipts create --seed-stdin --network ${net} --birthday <wallet birthday> --txid <txid> --request '${link}' < phrase.txt`;
+  // Shell-quoted: a label with an apostrophe must not break the command.
+  const quoted = `'${String(link).replace(/'/g, "'\\''")}'`;
+  const cmd = `receipts create --seed-stdin --network ${net} --birthday <wallet birthday> --txid <txid> --request ${quoted}`;
   const id = `cmd${Math.random().toString(36).slice(2, 8)}`;
   setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = () => navigator.clipboard.writeText(cmd).then(() => { b.textContent = "Copied"; }); });
   return `<div class="cli">${escapeHtml(cmd)}</div><p class="fine"><button type="button" class="ghost" id="${id}">Copy command</button></p>`;
 }
 
-const askedFor = requestFromUrl();
-if (askedFor && !initial && !initialBatch && !initialIncoming) {
+let askedFor = requestFromUrl();
+function showRequest() {
+  askedFor = requestFromUrl();
+  if (!askedFor) return;
   const answer = location.href;
   $("#empty").innerHTML = `
     <div class="big">PAYMENT REQUEST</div>
-    <p>You're asked to prove a payment${askedFor.min ? ` of at least <strong>${zec(askedFor.min)}</strong>` : ""}${askedFor.to ? ` to <span class="mono" title="${escapeHtml(askedFor.to)}">${escapeHtml(short(askedFor.to, 10))}</span>` : ""}${askedFor.label ? ` (“${escapeHtml(askedFor.label)}”)` : ""}.</p>
+    <p>You're asked to prove a payment${askedFor.min ? ` of at least <strong>${zec(askedFor.min)} ${/^u1/.test(askedFor.to || "") ? "ZEC" : "TAZ"}</strong>` : ""}${askedFor.to ? ` to <span class="mono" title="${escapeHtml(askedFor.to)}">${escapeHtml(short(askedFor.to, 10))}</span>` : ""}${askedFor.label ? ` (“${escapeHtml(askedFor.label)}”)` : ""}.</p>
     <p class="hint">Pay it from your wallet, then make a receipt that answers this request and send back the link it prints:</p>
     ${answerCommand(answer, askedFor.to)}`;
 }
+if (!initial && !initialBatch && !initialIncoming) showRequest();
 
 // ---------- signed payment requests (zreq1) ----------
 async function checkSignedRequest(text) {
@@ -831,14 +850,16 @@ async function checkSignedRequest(text) {
 $("#linkBtn").onclick = async () => {
   await local;
   const uri = $("#linkIn").value.trim();
-  if (!uri) return;
+  if (!uri) return void ($("#linkOut").innerHTML = "");
   if (uri.includes("zreq1")) return checkSignedRequest(uri.slice(uri.indexOf("zreq1")).replace(/[^A-Za-z0-9_-].*$/s, ""));
   const v = JSON.parse(check_payment_uri(uri, regtest() ? "regtest" : ""));
   const pays = v.payments.map((p) =>
     `<li>${escapeHtml(p.network || "unknown network")} ${escapeHtml(p.address_kind)} address · ${p.amount_zatoshis != null ? `${zec(p.amount_zatoshis)} ${p.network === "mainnet" ? "ZEC" : "TAZ"}` : "no amount"}${p.memo ? ` · memo “${escapeHtml(p.memo)}”` : ""} · ${p.receipt_provable ? "provable with a receipt" : p.address_kind === "tex" ? "provable with a deposit receipt" : "<strong>not provable with a receipt</strong>"}</li>`).join("");
-  const finds = v.findings.map((f) => `<li data-level="${f.level}">${escapeHtml(f.message)}</li>`).join("");
+  // The parser's own wording ("Error { input: …, code: MapOpt }") means nothing to a shop owner.
+  const say = (m) => (/Error \{|code: /.test(m) ? "This isn't a valid zcash: payment link. Check it for a typo, or copy it again from your wallet." : m);
+  const finds = v.findings.map((f) => `<li data-level="${f.level}">${escapeHtml(say(f.message))}</li>`).join("");
   $("#linkOut").innerHTML = `<div class="verdict">${v.ok ? (v.findings.some((f) => f.level === "warning") ? "Works, with warnings" : "Looks good") : "Fix before printing"}</div>
-    <ul>${pays}${v.qr ? `<li>QR version ${v.qr.version} (${v.qr.modules}×${v.qr.modules})</li>` : ""}${finds}</ul>`;
+    <ul>${pays}${v.qr ? `<li>As a QR code: version ${v.qr.version}, ${v.qr.modules}×${v.qr.modules} modules</li>` : ""}${finds}</ul>`;
 };
 
 // ---------- create a request ----------

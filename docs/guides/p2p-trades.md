@@ -15,7 +15,7 @@ transparent addresses. A receipt lets the arbitrator check the one payment and n
 
    ```bash
    receipts create --seed-stdin --birthday <wallet birthday> --network main \
-     --txid <payment txid> --height <its block> -m "challenge:7f3a9c21e0b4" < phrase.txt
+     --txid <payment txid> --height <its block> -m "challenge:7f3a9c21e0b4"
    ```
 
    The buyer posts the link it prints in the trade chat. Nothing is published anywhere else.

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 const DEFAULT_LINK_BASE: &str = "http://127.0.0.1:8723/verify/";
 
 #[derive(Parser)]
-#[command(name = "receipts", version, about = "ZIP 311 payment disclosures for Orchard and Ironwood: prove one shielded payment, reveal nothing else.", after_help = "Start with `receipts demo`. `receipts shop` lists the payment API commands for shops and exchanges.")]
+#[command(name = "receipts", version, about = "ZIP 311 payment disclosures for Orchard and Ironwood: prove one shielded payment without a viewing key.", after_help = "Start with `receipts demo`. `receipts shop` lists the payment API commands for shops and exchanges.")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -157,7 +157,7 @@ enum Cmd {
         #[arg(long)]
         regtest: Option<PathBuf>,
     },
-    /// The payment API for shops and exchanges: serve, request, pay, listen, trigger, mcp, check-link, screened-list.
+    /// The payment API for shops, exchanges and sites: serve, request, pay, sign-in, screened-list and more.
     #[command(display_order = 9, disable_help_flag = true)]
     Shop {
         /// The shop command and its arguments (`receipts shop` lists them).
@@ -390,7 +390,7 @@ enum Cmd {
     ///
     /// Sign in with Zcash: prove to a site that you control a shielded address, for its
     /// one-time nonce. No transaction, no fee, nothing revealed but the address you choose.
-    #[command(display_order = 20)]
+    #[command(hide = true, display_order = 20)]
     SignIn {
         /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
@@ -554,7 +554,7 @@ enum Cmd {
         rate_limit: u32,
     },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
-    #[command(display_order = 7)]
+    #[command(hide = true, display_order = 7)]
     Tx {
         /// Transaction id as block explorers show it.
         txid: String,
@@ -576,7 +576,7 @@ enum Cmd {
 /// `--expect-address`: the shared "was I paid" rule (the address on the payment's network; outputs
 /// disclosed without their memo don't count). Every receipt path, deposits included, runs it.
 /// What `receipts shop` runs (each also works as `receipts <command>`).
-const SHOP_COMMANDS: [&str; 8] = ["serve", "request", "pay", "listen", "trigger", "mcp", "check-link", "screened-list"];
+const SHOP_COMMANDS: [&str; 9] = ["serve", "request", "pay", "listen", "trigger", "mcp", "check-link", "screened-list", "sign-in"];
 
 impl Cli {
     fn cmd_name(&self) -> &'static str {
@@ -589,6 +589,7 @@ impl Cli {
             Cmd::Mcp { .. } => "mcp",
             Cmd::CheckLink { .. } => "check-link",
             Cmd::ScreenedList { .. } => "screened-list",
+            Cmd::SignIn { .. } => "sign-in",
             _ => "",
         }
     }
@@ -923,6 +924,12 @@ fn pool_name(p: Pool) -> &'static str {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
+    // Output piped into `head` and closed early: exit quietly, as other command-line tools do,
+    // rather than panic on the broken pipe.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = Cli::parse();
     receipts_wallet::set_account(cli.account)?;
     if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, .. } = &cli.cmd {
@@ -942,7 +949,32 @@ async fn main() -> anyhow::Result<()> {
             VERIFY_SCREENED.set((read_screened_set(set)?, read_screened_proofs(proof)?)).ok();
         }
     }
-    run(cli.cmd).await
+    // `verify --json` answers in JSON whatever happens, so scripts never parse an error line.
+    let json_verify = matches!(&cli.cmd, Cmd::Verify { json: true, .. });
+    let result = run(cli.cmd).await;
+    if let (true, Err(e)) = (json_verify, &result) {
+        let m = e.to_string();
+        let code = [
+            ("signature", "bad_signature"),
+            ("proof", "bad_proof"),
+            ("no disclosed output pays", "wrong_payee"),
+            ("less than", "underpaid"),
+            ("challenge", "wrong_challenge"),
+            ("memo contains", "memo_mismatch"),
+            ("screened", "not_screened"),
+            ("base64", "unreadable"),
+            ("not a receipt", "unreadable"),
+            ("lightwalletd", "chain_unavailable"),
+            ("connecting", "chain_unavailable"),
+        ]
+        .iter()
+        .find(|(k, _)| m.contains(k))
+        .map(|(_, c)| *c)
+        .unwrap_or("invalid");
+        println!("{}", serde_json::json!({ "valid": false, "code": code, "error": m }));
+        std::process::exit(1);
+    }
+    result
 }
 
 async fn run(cmd: Cmd) -> anyhow::Result<()> {
@@ -1317,6 +1349,16 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 report.print();
+                // What the verdict rests on, and what it didn't check.
+                let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
+                if let Ok(tip) = chain::chain_tip(net, server.as_deref()).await {
+                    let c = tip.saturating_sub(report.mined_height) + 1;
+                    let fin = chain::FINALITY_CONFIRMATIONS;
+                    println!("  mined     {c} confirmation{} on {}{}", if c == 1 { "" } else { "s" }, server.as_deref().unwrap_or(net.default_server()), if c < fin { ", not final yet" } else { "" });
+                }
+                if expect_address.is_none() {
+                    println!("  recipient not checked: pass --expect-address <your address> to require that you were paid");
+                }
             }
         }
         Cmd::Tx { txid, network, heights, server, hex } => {

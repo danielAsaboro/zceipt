@@ -7,8 +7,9 @@ paid made it. Change one character and it fails. Nothing else about the payer's 
 
 <img src="docs/img/key-vs-receipt.svg" width="640" alt="A viewing key shows every payment, past and future; a receipt shows one payment and that you made it">
 
-It is ZIP 311 (payment disclosures) for Orchard and Ironwood, the shielded pools wallets pay from
-today, including the proof of who paid that output-only disclosures leave out
+It is ZIP 311 (payment disclosures) for Ironwood payments, Orchard payments made before NU6.3,
+and Orchard-to-Ironwood crossings, including the proof of who paid that output-only disclosures
+leave out
 ([related work](docs/RELATED-WORK.md)).
 
 Who needs it now:
@@ -33,8 +34,8 @@ Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
 Click **Try a real testnet receipt**: a real 0.01 TAZ payment
 ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73))
-shows **VERIFIED**. Click **Try an edited copy**: the same receipt with one word of its note
-changed shows **NOT VALID**. The first check also loads the verifier (3 to 10 seconds).
+shows **VERIFIED**. Click **Try an edited copy**: the same receipt with its note changed from
+"Order #42" to "Order #43" shows **NOT VALID**. The first check also loads the verifier (3 to 10 seconds).
 
 <p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 TAZ (testnet) with the memo Invoice 42: two coffees">
 <img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: changed after it was made"></p>
@@ -54,12 +55,12 @@ notes by scanning the chain from the wallet's birthday, on your machine.
 
 | You have | Command |
 |---|---|
-| A seed phrase (Zodl, Zingo, YWallet, Zallet…) | `receipts create --seed-stdin --network main --birthday <height> --txid <txid>` |
-| A viewing key here, the seed elsewhere | `receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt`, then `receipts sign r.txt --seed-stdin` on the other machine |
+| A viewing key (any wallet exports one) | `receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt`: the proofs, with no spending key |
+| Then, on a machine that holds the seed (offline is fine) | `receipts sign r.txt --seed-stdin`: shows everything the receipt reveals and asks before signing |
+| Or the seed phrase on one machine | `receipts create --seed-stdin --network main --birthday <height> --txid <txid>` |
 | A zcash-devtool wallet | `receipts create -w <wallet> -i <key.age> --txid <txid>` |
 
-The phrase is typed or piped in, never put on the command line. `receipts sign` shows what it
-will sign and asks first. `receipts export` turns many receipts into a spreadsheet and keeps a
+The seed phrase is typed (not shown) or piped in, never put on the command line. `receipts export` turns many receipts into a spreadsheet and keeps a
 record of each check for a case file.
 
 ## What a receipt proves
@@ -87,8 +88,19 @@ The payer chooses which outputs to show, so a verifier checks the recipient it e
 In a quiet block the server can narrow it down, and the page and CLI say so. Full analysis:
 [THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
+## Beyond one payment
+
+- **Proof requests and P2P trades:** a verifier's challenge is signed in, so an old receipt can't
+  answer a new request ([guide](docs/guides/p2p-trades.md)).
+- **Source of funds:** prove which earlier output funded a deposit, or, with a screened-set
+  proof, that it came from one of an exchange's vetted outputs without saying which.
+- **Proof of funds:** prove you hold at least an amount, showing only the total if you choose.
+- **Batches, incoming receipts, memo-withheld outputs, refunds:** see
+  [DEVELOPERS.md](docs/DEVELOPERS.md#beyond-one-payment).
+
 ## For developers and reviewers
 
+- [docs/README.md](docs/README.md): which document to read for what.
 - [DEVELOPERS.md](docs/DEVELOPERS.md): the Rust crate, signing on a hardware wallet, bindings,
   everything beyond one payment, testnet evidence, and the repository layout.
 - [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md): the proposed text for ZIP 311's Orchard `TODO`.

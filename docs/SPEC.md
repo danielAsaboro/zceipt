@@ -267,6 +267,48 @@ The verifier learns the values and the nullifiers, and so can see when these not
 later. That is inherent to proving them unspent (Monero's reserve proofs reveal key images for
 the same reason). Nothing else is revealed: no address, no other notes.
 
+**Version 2: values hidden.** The holder can show the total and not each note's value:
+
+```
+proof := "ZRSV" | version:u8 = 2 | coin_type:u32le | pool:u8 | height:u32le | anchor[32]
+         | msg_len:u16le | msg | total:u64le | rcv_sum[32] | n:u8 | { nf[32] | cv[32] | rk[32]
+         | out_address[43] | out_rseed[32] | proof_len:u32le | proof }* | sig[64] * n
+```
+
+Each note's proof uses the holder's own value commitment `cv_i = ValueCommit_rcv_i(v_i)` as
+`cv_net` (the opened output still carries 0, so `cv_i` commits to the note's whole value). The
+verifier checks every proof and signature as in version 1, with `cv_i` as given, then requires
+`sum cv_i = ValueCommit_rcv_sum(total)`. A note of value 0 skips the circuit's anchor check and
+could be made up, but adds nothing to the total. The verifier learns the total and the
+nullifiers. `receipts reserve --hide-values`; `roundtrip.rs::proof_of_funds_can_hide_each_value_and_show_only_the_total`;
+the independent spec verifier checks the sum (`tests/test_testnet.py`).
+
+## Screened-set proofs (`zip311s1`)
+
+A separate proof, sent with a receipt, that the note spent by one of its spends is among a
+published list of note commitments (for example the shield outputs an exchange has screened),
+without saying which:
+
+```
+proof := "ZRCS" | version:u8 = 1 | coin_type:u32le | pool:u8 | txid[32] | index:u32le
+         | set_root[32] | cmx[32] | proof_len:u32le | proof
+text  := "zip311s1" || base64url_nopad(proof)
+```
+
+The list's commitments, in order, are the leaves of an Orchard-shaped tree of depth 32 (empty
+leaves and roots as in the commitment tree); `set_root` is its root. The proof is an Action proof
+with public inputs `(set_root, ValueCommit_0(1), nf, rk, cmx)`, where `nf` is the nullifier
+action `index` of the receipt's transaction published and `rk` is that spend's key in the
+receipt. The verifier computes the root from the list it trusts (never from the proof), fixes the
+value commitment (the hidden output carries `v - 1`, so `v >= 1` and the anchor is enforced), and
+requires a proof for every spend the receipt proves.
+
+What it shows: each note the payer's spends used is one of the list's notes. What it doesn't:
+which one, how much it held beyond 1 zatoshi, or anything about inputs other parties added to
+the transaction. `receipts screened-list`, `create --screened-set`, `verify --screened-set`;
+`src/screened.rs`; `roundtrip.rs::screened_set_proof_shows_membership_not_which_member`; the
+regtest run proves and refuses one.
+
 ## Batches
 
 ```

@@ -1008,8 +1008,21 @@ pub fn verify_with_sources<A: Authorization, V>(
     verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, sources)
 }
 
+/// Verifies a receipt against a whole transaction, computing its txid here: the entry point for
+/// callers holding a parsed transaction. (The bundle-level functions below trust the caller to
+/// pass the bundles of the transaction the receipt names.) Source proofs need
+/// [`verify_tx_bundles_with_sources`].
+pub fn verify_transaction(vk: &VerifyingKey, receipt: &Receipt, expected_coin_type: u32, tx: &zcash_primitives::transaction::Transaction) -> Result<VerifiedReceipt, Error> {
+    let txid: [u8; 32] = *tx.txid().as_ref();
+    if txid != receipt.unsigned.txid {
+        return Err(Error::TxidMismatch(display_txid(&receipt.unsigned.txid)));
+    }
+    verify_tx_bundles(vk, receipt, expected_coin_type, txid, tx.orchard_bundle(), tx.ironwood_bundle())
+}
+
 /// Verifies a receipt against a transaction's Orchard and Ironwood bundles, whichever pools
-/// the receipt's spends and outputs are in.
+/// the receipt's spends and outputs are in. The caller must pass the bundles of the transaction
+/// whose txid is `txid` (prefer [`verify_transaction`]).
 pub fn verify_tx_bundles<A: Authorization, V>(
     vk: &VerifyingKey,
     receipt: &Receipt,

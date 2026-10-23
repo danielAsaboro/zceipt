@@ -9,6 +9,8 @@ jobs:
       - run: cargo test --workspace --release --locked
       - run: cargo clippy --workspace --release --locked -- -D warnings
       - run: ./scripts/check-stock-orchard.sh
+      - run: cargo build --release --locked -p receipts-cli
+      - run: RECEIPTS=target/release/receipts ./scripts/check-all.sh
   spec-verifier:
     runs-on: ubuntu-latest
     steps:

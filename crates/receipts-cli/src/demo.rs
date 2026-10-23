@@ -53,7 +53,7 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
         real_receipt(1)?;
         step(2, "Next");
         say("against the live testnet:  receipts verify @examples/testnet/receipt-link.txt");
-        say("make your own:             receipts create --seed-stdin --network test --birthday <height> --txid <txid> < phrase.txt");
+        say("make your own:             receipts create --seed-stdin --network test --birthday <height> --txid <txid>");
         say("the payment API for shops: receipts demo --shop");
         return Ok(());
     }

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Receipts · prove one Zcash payment</title>
-  <meta name="description" content="Prove one shielded Zcash payment to one person, and reveal nothing else. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
+  <meta name="description" content="Prove one shielded Zcash payment to one person without handing over a viewing key. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="color-scheme" content="dark">
@@ -129,7 +129,7 @@
   <main>
     <section>
       <div class="eyebrow">Receipts · ZIP 311 for Orchard &amp; Ironwood</div>
-      <h1>Prove one Zcash payment. <em>Reveal nothing else.</em></h1>
+      <h1>Prove one Zcash payment. <em>Keep your viewing key.</em></h1>
       <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves the sender authorized it. No viewing key changes hands. The proof is checked in this browser; only public chain data is fetched.</p>
 
       <label class="hint" for="paste">Receipt or link</label>
@@ -196,7 +196,7 @@
           <li>For the spend, the sender makes a fresh Halo 2 proof that they own the note this transaction spent (same anchor, same nullifier), under a new randomized key, and signs the whole receipt with it.</li>
           <li>An optional note binds a challenge such as an invoice number, so a receipt can't be reused for something else.</li>
         </ol>
-        <div class="cli">receipts create --seed-stdin --network main --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" &lt; phrase.txt
+        <div class="cli">receipts create --seed-stdin --network main --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42"
 receipts verify 'https://…#zip311r1…'</div>
       </div>
     </section>

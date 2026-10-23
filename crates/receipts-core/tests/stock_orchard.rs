@@ -3,7 +3,7 @@
 //! receipt verifies, the edited copy is refused, and the receipt whose spend proof was altered
 //! before signing is refused by the Halo 2 check.
 
-use receipts_core::{verify_tx_bundles, Error, Receipt, COIN_TYPE_TESTNET};
+use receipts_core::{verify_transaction, Error, Receipt, COIN_TYPE_TESTNET};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, TEST_NETWORK};
 
@@ -17,8 +17,7 @@ fn check(receipt: &str) -> Result<(), Error> {
     let tx = Transaction::read(&raw[..], BranchId::for_height(&TEST_NETWORK, height)).unwrap();
     let text = receipt.trim();
     let r = Receipt::from_text(&text[text.find("zip311r1").unwrap()..]).unwrap();
-    let txid: [u8; 32] = *tx.txid().as_ref();
-    verify_tx_bundles(&receipts_core::verifying_key(), &r, COIN_TYPE_TESTNET, txid, tx.orchard_bundle(), tx.ironwood_bundle()).map(|_| ())
+    verify_transaction(&receipts_core::verifying_key(), &r, COIN_TYPE_TESTNET, &tx).map(|_| ())
 }
 
 #[test]
@@ -26,4 +25,6 @@ fn real_testnet_receipts_on_the_public_api() {
     check(&example("receipt.txt")).unwrap();
     assert!(matches!(check(&example("receipt-edited.txt")), Err(Error::BadSignature(_))));
     assert!(matches!(check(&example("proof-only/receipt.txt")), Err(Error::BadProof(_))));
+    // A receipt for another transaction, against this one: refused by the txid, computed here.
+    assert!(matches!(check(&example("receipt-with-sender-address.txt")), Err(Error::TxidMismatch(_))));
 }

@@ -2972,6 +2972,7 @@ dependencies = [
  "clap",
  "hex",
  "incrementalmerkletree",
+ "libc",
  "orchard",
  "qrcode",
  "rand 0.10.3",

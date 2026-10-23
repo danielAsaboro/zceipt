@@ -15,7 +15,7 @@ echo "   (the skipped tests call a running Receipts API: RECEIPTS_URL and RECEIP
 R=${RECEIPTS:-$(command -v receipts || true)}
 if [ -n "$R" ]; then
   echo "== CLI: the real testnet receipt, fetched by block, then the edited copy"
-  "$R" verify "$(tr -d '\n' < examples/testnet/receipt-link.txt)" 2>&1 | head -3
+  "$R" verify "$(tr -d '\n' < examples/testnet/receipt-link.txt)" > "${TMPDIR:-/tmp}/receipts-verify.txt" 2>&1 && head -3 "${TMPDIR:-/tmp}/receipts-verify.txt" || { cat "${TMPDIR:-/tmp}/receipts-verify.txt"; exit 1; }
   if "$R" verify @examples/testnet/receipt-edited.txt >/dev/null 2>&1; then echo "edited receipt ACCEPTED (bug)"; exit 1; else echo "edited receipt refused"; fi
   echo "== CLI: a receipt checked against the request it answers (payee, amount, challenge)"
   L=$(tr -d '\n' < examples/testnet/request-answer-link.txt); TO=$(echo "$L" | grep -o 'to=[a-z0-9]*' | cut -c4-)

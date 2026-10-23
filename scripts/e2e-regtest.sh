@@ -45,7 +45,7 @@ mkdir -p zebra-state lwd-data
 docker run -d --name "$NAME" -p "127.0.0.1:$RPC:18232" -v "$PWD/zebrad.toml":/etc/zebrad.toml:ro -v "$PWD/zebra-state":/var/cache/zebra \
   --entrypoint zebrad zfnd/zebra:6.4.2 -c /etc/zebrad.toml start >/dev/null
 rpc() { curl -s -H 'content-type: application/json' -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$1\",\"params\":$2}" "http://127.0.0.1:$RPC"; }
-for i in $(seq 1 60); do rpc getblockchaininfo '[]' | grep -q '"blocks"' && break; sleep 1; done
+for i in $(seq 1 60); do rpc getblockchaininfo '[]' | grep >/dev/null '"blocks"' && break; sleep 1; done
 TADDR=tmGys6dBuEGjch5LFnhdo5gpSa7jiNRWse6
 mine() { rpc generatetoaddress "[$1,\"${2:-$TADDR}\"]" >/dev/null; }
 height() { rpc getblockchaininfo '[]' | jq .result.blocks; }
@@ -87,7 +87,7 @@ echo "== Orchard era (height $(height))"
 mine 4 "$SENDER"; mine 101; sync sender
 T1=$(send sender "$MERCHANT" 42000000 "Invoice 7: Orchard espresso") || { bad "Orchard payment could not be sent"; T1=none; }; mine 2; sync sender
 "$R" create -w ./sender -i ./sender.age --txid "$T1" -m "Order 7 (Orchard)" -s "127.0.0.1:$GRPC" --out orchard.txt >/dev/null 2>&1 && ok "Orchard receipt created for $T1" || bad "Orchard receipt"
-"$R" verify @orchard.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "Orchard receipt verifies against the chain" || bad "Orchard verify"
+"$R" verify @orchard.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep >/dev/null "pool      Orchard" && ok "Orchard receipt verifies against the chain" || bad "Orchard verify"
 
 # Watch-only machine makes the proofs; the key holder signs from keys.toml alone.
 rm -rf watch signer; cp -R sender watch; mkdir signer; cp sender/keys.toml signer/
@@ -102,13 +102,13 @@ echo no | "$R" sign prepared.txt -w ./signer -i ./sender.age > declined.log 2>&1
 UFVK=$(sqlite3 sender/data.sqlite "SELECT ufvk FROM accounts WHERE hd_account_index = 0")
 BDAY=$(sed -n 's/^birthday = //p' sender/keys.toml)
 "$R" create --ufvk "$UFVK" --birthday "$BDAY" --regtest ./heights.toml --unsigned keys-prepared.txt --txid "$T1" -m "Order 7 (keys only)" -s "127.0.0.1:$GRPC" > keys.log 2>&1 && ok "a viewing key alone found the spent note on chain and made the proofs" || { bad "keys-only prepare"; tail -3 keys.log; }
-"$R" sign keys-prepared.txt --yes -w ./signer -i ./sender.age --out keys-signed.txt >/dev/null 2>&1 && "$R" verify @keys-signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "the keys-only receipt signs and verifies" || bad "keys-only sign/verify"
+"$R" sign keys-prepared.txt --yes -w ./signer -i ./sender.age --out keys-signed.txt >/dev/null 2>&1 && "$R" verify @keys-signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep >/dev/null "pool      Orchard" && ok "the keys-only receipt signs and verifies" || bad "keys-only sign/verify"
 
 # Screened set: the exchange lists the outputs it vetted; the payer proves the spent note is one of them.
 SRCS=$(sqlite3 sender/data.sqlite "SELECT DISTINCT hex(t.txid) FROM orchard_received_notes rn JOIN transactions t ON t.id_tx = rn.transaction_id" | python3 -c 'import sys; print(" ".join("--txid " + bytes.fromhex(l.strip())[::-1].hex() for l in sys.stdin if l.strip()))')
 "$R" screened-list $SRCS --regtest ./heights.toml -s "127.0.0.1:$GRPC" > screened.txt 2> screened.log && "$R" screened-list --txid "$T1" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > unscreened.txt 2>>screened.log || bad "screened-list"
 "$R" create -w ./sender -i ./sender.age --txid "$T1" -m "Deposit 12" --screened-set screened.txt --screened-proof screened-proof.txt -s "127.0.0.1:$GRPC" --out screened-receipt.txt > screened-create.log 2>&1 && ok "the payer proved the spent note is in the exchange's screened list ($(grep -vc '^#' screened.txt) outputs)" || { bad "screened-set create"; tail -3 screened-create.log; }
-"$R" verify @screened-receipt.txt --screened-set screened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>/dev/null | grep -q "funds     each spend this receipt proves used a note from the screened list" && ok "the verifier accepts it against the published list, without learning which output" || bad "screened-set verify"
+"$R" verify @screened-receipt.txt --screened-set screened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>/dev/null | grep >/dev/null "funds     each spend this receipt proves used a note from the screened list" && ok "the verifier accepts it against the published list, without learning which output" || bad "screened-set verify"
 "$R" verify @screened-receipt.txt --screened-set unscreened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > unscreened.log 2>&1 || true; grep -q "not in the screened set" unscreened.log && ok "against a list without that note it is refused" || bad "screened-set refusal"
 
 echo "== NU6.3 / Ironwood (mining past $NU63)"
@@ -270,7 +270,7 @@ RJ=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2/review" -d '{
 RF=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2/refunds" -d '{"reason":"deposit rejected"}' | jq -r .address)
 [ "$RJ" = "rejected" ] && [ "$RF" = "$TRADER" ] && ok "the desk rejected it and refunds to the address the payer signed" || bad "reject/refund: $RJ $RF"
 EV=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/events?limit=50" | jq -r '[.data[].type] | join(",")')
-echo "$EV" | grep -q "request.held_for_review" && echo "$EV" | grep -q "request.rejected" && ok "webhook events: request.held_for_review, request.rejected" || bad "events: $EV"
+echo "$EV" | grep >/dev/null "request.held_for_review" && echo "$EV" | grep >/dev/null "request.rejected" && ok "webhook events: request.held_for_review, request.rejected" || bad "events: $EV"
 
 echo
 echo "${#PASS[@]} passed, ${#FAIL[@]} failed"

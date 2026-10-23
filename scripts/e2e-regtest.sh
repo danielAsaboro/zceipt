@@ -102,6 +102,13 @@ BDAY=$(sed -n 's/^birthday = //p' sender/keys.toml)
 "$R" create --ufvk "$UFVK" --birthday "$BDAY" --regtest ./heights.toml --unsigned keys-prepared.txt --txid "$T1" -m "Order 7 (keys only)" -s "127.0.0.1:$GRPC" > keys.log 2>&1 && ok "a viewing key alone found the spent note on chain and made the proofs" || { bad "keys-only prepare"; tail -3 keys.log; }
 "$R" sign keys-prepared.txt --yes -w ./signer -i ./sender.age --out keys-signed.txt >/dev/null 2>&1 && "$R" verify @keys-signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep -q "pool      Orchard" && ok "the keys-only receipt signs and verifies" || bad "keys-only sign/verify"
 
+# Screened set: the exchange lists the outputs it vetted; the payer proves the spent note is one of them.
+SRCS=$(sqlite3 sender/data.sqlite "SELECT DISTINCT hex(t.txid) FROM orchard_received_notes rn JOIN transactions t ON t.id_tx = rn.transaction_id" | python3 -c 'import sys; print(" ".join("--txid " + bytes.fromhex(l.strip())[::-1].hex() for l in sys.stdin if l.strip()))')
+"$R" screened-list $SRCS --regtest ./heights.toml -s "127.0.0.1:$GRPC" > screened.txt 2> screened.log && "$R" screened-list --txid "$T1" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > unscreened.txt 2>>screened.log || bad "screened-list"
+"$R" create -w ./sender -i ./sender.age --txid "$T1" -m "Deposit 12" --screened-set screened.txt --screened-proof screened-proof.txt -s "127.0.0.1:$GRPC" --out screened-receipt.txt > screened-create.log 2>&1 && ok "the payer proved the spent note is in the exchange's screened list ($(grep -vc '^#' screened.txt) outputs)" || { bad "screened-set create"; tail -3 screened-create.log; }
+"$R" verify @screened-receipt.txt --screened-set screened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" 2>/dev/null | grep -q "funds     every spent note came from the screened list" && ok "the verifier accepts it against the published list, without learning which output" || bad "screened-set verify"
+"$R" verify @screened-receipt.txt --screened-set unscreened.txt --screened-proof @screened-proof.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > unscreened.log 2>&1 || true; grep -q "not in the screened set" unscreened.log && ok "against a list without that note it is refused" || bad "screened-set refusal"
+
 echo "== NU6.3 / Ironwood (mining past $NU63)"
 mine $((NU63 - $(height) + 5)); mine 4 "$SENDER"; mine 101; sync sender; sync merchant
 "$R" serve --listen "127.0.0.1:$API" --db ./api.db --test-network regtest --heights ./heights.toml --test-lightwalletd "127.0.0.1:$GRPC" --verifier-url "http://127.0.0.1:$API/verify/" 2> api.log &

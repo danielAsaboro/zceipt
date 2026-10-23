@@ -130,6 +130,31 @@ enum Cmd {
         /// The receipt signs the request's challenge, and the CLI checks the payee and amount.
         #[arg(long)]
         request: Option<String>,
+        /// Also prove every spent note came from this published list of outputs (one note
+        /// commitment per line, as `receipts screened-list` prints), without saying which.
+        #[arg(long, requires = "screened_proof")]
+        screened_set: Option<PathBuf>,
+        /// Where to write the screened-set proof (`zip311s1…`) to send with the receipt.
+        #[arg(long, requires = "screened_set")]
+        screened_proof: Option<PathBuf>,
+    },
+    /// Exchanges: list the note commitments of transactions' shielded outputs, for a screened set.
+    ///
+    /// Run it over the shield deposits you have screened and publish the output: payers then
+    /// prove their funds came from one of them (`create --screened-set`) without saying which.
+    #[command(display_order = 17)]
+    ScreenedList {
+        /// Transaction ids whose Orchard and Ironwood outputs go in the list.
+        #[arg(long = "txid", required = true)]
+        txids: Vec<String>,
+        #[arg(short, long)]
+        server: Option<String>,
+        /// main or test (default test).
+        #[arg(long, default_value = "test")]
+        network: String,
+        /// A local regtest chain with these activation heights.
+        #[arg(long)]
+        regtest: Option<PathBuf>,
     },
     /// Sign a receipt prepared with `create --unsigned`, on the machine that holds the key.
     ///
@@ -181,6 +206,12 @@ enum Cmd {
         /// trade id): a receipt made for someone else's request can't be passed off as yours.
         #[arg(long)]
         challenge: Option<String>,
+        /// Fail unless the screened-set proof shows every spent note came from this list.
+        #[arg(long, requires = "screened_proof")]
+        screened_set: Option<PathBuf>,
+        /// The screened-set proof (`zip311s1…` or `@file`) sent with the receipt.
+        #[arg(long, requires = "screened_set")]
+        screened_proof: Option<String>,
         /// Print the result as JSON.
         #[arg(long)]
         json: bool,
@@ -527,6 +558,39 @@ enum Cmd {
 /// disclosed without their memo don't count). Every receipt path, deposits included, runs it.
 /// `verify --min` and `--challenge`, set once from the command line.
 static VERIFY_EXPECT: std::sync::OnceLock<(Option<u64>, Option<String>)> = std::sync::OnceLock::new();
+/// `verify --screened-set` and `--screened-proof`, read once from the command line.
+static VERIFY_SCREENED: std::sync::OnceLock<(Vec<[u8; 32]>, Vec<receipts_core::screened::ScreenedProof>)> = std::sync::OnceLock::new();
+
+/// A screened list: one note commitment (64 hex digits) per line; blank lines and `#` comments skipped.
+fn read_screened_set(path: &std::path::Path) -> anyhow::Result<Vec<[u8; 32]>> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| hex::decode(l).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| anyhow!("{}: not a note commitment: {l}", path.display())))
+        .collect()
+}
+
+fn read_screened_proofs(arg: &str) -> anyhow::Result<Vec<receipts_core::screened::ScreenedProof>> {
+    let text = read_arg_text(arg)?;
+    let proofs: Vec<_> = text
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .filter(|w| w.starts_with(receipts_core::screened::SCREENED_TEXT_PREFIX))
+        .map(|w| receipts_core::screened::ScreenedProof::from_text(w).ok_or_else(|| anyhow!("malformed screened-set proof")))
+        .collect::<anyhow::Result<_>>()?;
+    if proofs.is_empty() {
+        bail!("no zip311s1… screened-set proof in {arg}");
+    }
+    Ok(proofs)
+}
+
+/// Checks `verify --screened-set` (when given) and records the result in the report.
+fn with_screened(mut report: chain::Report, receipt: &Receipt) -> anyhow::Result<chain::Report> {
+    if let Some((set, proofs)) = VERIFY_SCREENED.get() {
+        chain::check_screened(&mut report, receipt, proofs, set)?;
+    }
+    Ok(report)
+}
 
 fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow::Result<()> {
     let (min, challenge) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
@@ -794,9 +858,12 @@ async fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cli = Cli::parse();
     receipts_wallet::set_account(cli.account)?;
-    if let Cmd::Verify { min, challenge, .. } = &cli.cmd {
+    if let Cmd::Verify { min, challenge, screened_set, screened_proof, .. } = &cli.cmd {
         let min = min.as_deref().map(parse_zec).transpose()?;
         VERIFY_EXPECT.set((min, challenge.clone())).ok();
+        if let (Some(set), Some(proof)) = (screened_set, screened_proof) {
+            VERIFY_SCREENED.set((read_screened_set(set)?, read_screened_proofs(proof)?)).ok();
+        }
     }
     match cli.cmd {
         Cmd::Sign { prepared, wallet, identity, seed_stdin, network, regtest, out, link_base, yes } => {
@@ -874,7 +941,7 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("\nShare this link (check it first with `receipts verify`):");
             println!("{}", answer_link(&link_base, &text, &h));
         }
-        Cmd::Create { wallet, identity, seed_stdin, ufvk, birthday, network, regtest, height, unsigned, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx } => {
+        Cmd::Create { wallet, identity, seed_stdin, ufvk, birthday, network, regtest, height, unsigned, txids, msg, outputs, pool, link_base, out, from_chain, server, request, prove_address, prove_source, reveal_source_value, withhold_memo, public_note, refund_to, tex_deposit, second_tx, screened_set, screened_proof } => {
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
@@ -917,6 +984,17 @@ async fn main() -> anyhow::Result<()> {
                 (true, false) => Some(wallet::SourceMode::HideValue),
                 (true, true) => Some(wallet::SourceMode::RevealValue),
             };
+            let screened_set = screened_set.as_deref().map(read_screened_set).transpose()?;
+            let write_screened = |proofs: &[receipts_core::screened::ScreenedProof]| -> anyhow::Result<()> {
+                if let Some(path) = &screened_proof {
+                    std::fs::write(path, proofs.iter().map(|p| p.to_text() + "\n").collect::<String>())?;
+                    eprintln!("Wrote the screened-set proof to {}: send it with the receipt.", path.display());
+                }
+                Ok(())
+            };
+            if screened_set.is_some() && txids.len() > 1 {
+                bail!("--screened-set proves one receipt at a time");
+            }
             if seed_stdin || ufvk.is_some() {
                 if txids.len() > 1 {
                     bail!("--seed-stdin and --ufvk make one receipt at a time");
@@ -927,7 +1005,8 @@ async fn main() -> anyhow::Result<()> {
                     Some(k) => wallet::KeysWallet::from_ufvk(net, k, birthday)?,
                     None => wallet::KeysWallet::from_phrase(net, &read_stdin_secret()?, birthday)?,
                 };
-                let (p, h) = wallet::prepare_receipt_from_keys(&keys, parse_txid(&txids[0])?, height, msg.as_bytes(), &outputs, pool, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
+                let (p, h, screened) = wallet::prepare_receipt_from_keys(&keys, parse_txid(&txids[0])?, height, msg.as_bytes(), &outputs, pool, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo, screened_set.as_deref()).await?;
+                write_screened(&screened)?;
                 if let Some(file) = unsigned {
                     write_private(&file, &format!("{}\nh={h}\n", p.to_text()))?;
                     eprintln!("Proofs made with the viewing key. Wrote {} (readable only by you); sign it where the seed is:\n  receipts sign {} --seed-stdin --yes", file.display(), file.display());
@@ -949,7 +1028,8 @@ async fn main() -> anyhow::Result<()> {
                 if txids.len() > 1 {
                     bail!("--unsigned prepares one receipt at a time");
                 }
-                let (p, h) = wallet::prepare_receipt(&wallet, parse_txid(&txids[0])?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
+                let (p, h, screened) = wallet::prepare_receipt(&wallet, parse_txid(&txids[0])?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo, screened_set.as_deref()).await?;
+                write_screened(&screened)?;
                 write_private(&file, &format!("{}\nh={h}\n", p.to_text()))?;
                 eprintln!(
                     "Proofs made with the viewing key: {} output(s), {} spend(s). Wrote {}.\nIt holds the spends' randomizers (readable only by you), so move it only to the signing machine, then run:\n  receipts sign {} -w <wallet> -i <identity>",
@@ -989,7 +1069,15 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
-            let (receipt, mined_height) = wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?;
+            let (receipt, mined_height) = match &screened_set {
+                // The screened-set proofs need the spends' randomizers: prove, then sign here.
+                Some(set) => {
+                    let (p, h, screened) = wallet::prepare_receipt(&wallet, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo, Some(set)).await?;
+                    write_screened(&screened)?;
+                    (wallet::sign_prepared(&wallet, &identity, p)?, h)
+                }
+                None => wallet::create_receipt(&wallet, &identity, parse_txid(txid)?, msg.as_bytes(), &outputs, pool, source, server.as_deref(), prove_address.as_deref(), prove_source, withhold_memo).await?,
+            };
             let text = receipt.to_text();
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
@@ -1071,6 +1159,7 @@ async fn main() -> anyhow::Result<()> {
                 print_deposit(&report, &d, json)?;
                 return Ok(());
             }
+            let report = with_screened(report, &receipt)?;
             check_expected_payee(&report, expect_address.as_deref())?;
             let _ = server;
             if json { println!("{}", serde_json::to_string_pretty(&report)?); } else { report.print(); }
@@ -1106,6 +1195,7 @@ async fn main() -> anyhow::Result<()> {
                     None => eprintln!("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)"),
                 }
             }
+            let report = with_screened(report, &receipt)?;
             check_expected_payee(&report, expect_address.as_deref())?;
             if let Some(second) = &cross_check {
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
@@ -1304,6 +1394,18 @@ async fn main() -> anyhow::Result<()> {
                     println!("{}", res.text().await?);
                     if !status.is_success() {
                         std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Cmd::ScreenedList { txids, server, network, regtest } => {
+            let net = keys_net(&network, regtest.as_deref())?;
+            println!("# screened set: Orchard and Ironwood output note commitments of {} transaction(s)", txids.len());
+            for t in &txids {
+                let (tx, _) = chain::fetch_mined_tx(net, server.as_deref(), parse_txid(t)?).await?;
+                for b in [tx.orchard_bundle(), tx.ironwood_bundle()].into_iter().flatten() {
+                    for a in b.actions() {
+                        println!("{}", hex::encode(a.cmx().to_bytes()));
                     }
                 }
             }

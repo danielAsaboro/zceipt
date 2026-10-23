@@ -1551,3 +1551,40 @@ fn prepare_with_viewing_key_then_sign_elsewhere() {
     let bad: [u8; 64] = (&other.randomize(&prepared.alphas()[0]).sign(OsRng, &digest)).into();
     assert!(matches!(prepared.apply_signatures(vec![bad]), Err(Error::BadSignature(_))));
 }
+
+#[test]
+fn screened_set_proof_shows_membership_not_which_member() {
+    use receipts_core::{prepare, screened, ViewingSpendWitness};
+    let mut rng = OsRng;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness { index: s.spend_index, fvk: fvk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None };
+    let prepared = prepare(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"Deposit 7", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[], &[witness], OsRng).unwrap();
+    let alpha = prepared.alphas()[0];
+    let rk = orchard::primitives::redpallas::VerificationKey::try_from(prepared.unsigned().spends[0].rk).unwrap();
+    let receipt = prepared.sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
+    verify(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+
+    // The exchange's published list: other screened deposits, with the sender's note among them.
+    let mine = ExtractedNoteCommitment::from(s.funding_note.commitment()).to_bytes();
+    let others: Vec<[u8; 32]> = s.payment.actions().iter().chain(s.funding.actions()).map(|a| a.cmx().to_bytes()).filter(|c| *c != mine).collect();
+    let mut set = others.clone();
+    set.insert(1, mine);
+    let p = screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &set, alpha, &rk, &mut rng).unwrap();
+    let nf = s.payment.actions()[s.spend_index].nullifier().to_bytes();
+    let back = screened::ScreenedProof::from_text(&p.to_text()).unwrap();
+    assert_eq!(back, p);
+    screened::verify(&keys().1, &receipt, &nf, &back, &set).unwrap();
+    // The proof names the set's root, not the member.
+    assert!(!p.to_bytes().windows(32).any(|w| w == mine));
+
+    // A list without the note: no proof can be made, and this one doesn't verify against it.
+    assert!(matches!(screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &others, alpha, &rk, &mut rng), Err(Error::NotInSet)));
+    assert!(screened::verify(&keys().1, &receipt, &nf, &p, &others).is_err());
+    // Another action's nullifier, or a proof moved to another receipt, is refused.
+    let other_nf = s.payment.actions()[1 - s.spend_index].nullifier().to_bytes();
+    assert!(screened::verify(&keys().1, &receipt, &other_nf, &p, &set).is_err());
+    let mut moved = p.clone();
+    moved.txid = [9; 32];
+    assert!(screened::verify(&keys().1, &receipt, &nf, &moved, &set).is_err());
+}

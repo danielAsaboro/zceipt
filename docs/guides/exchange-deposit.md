@@ -90,6 +90,25 @@ v["sender_addresses"]   # present only if the customer chose to prove it
 
 The proof request's challenge makes a receipt forwarded from someone else fail (`challenge_mismatch`).
 
+## Funds from a screened set, without naming the source
+
+A source proof names the exact transaction that funded the deposit. A screened set lets the
+customer prove less: that the note they spent came from one of a list of outputs you have
+already vetted (your own withdrawals, or the shield deposits your screening passed), without
+saying which. This is the association-set idea of Privacy Pools, done with the Orchard circuit
+as it is.
+
+```bash
+# You: publish the list (one note commitment per line) of the outputs you vetted.
+receipts screened-list --network main --txid <vetted tx> --txid <vetted tx> … > screened.txt
+# The customer: a receipt plus a proof against that list.
+receipts create … --screened-set screened.txt --screened-proof deposit.screened
+# You: check both. The list's root is computed from your own file, never taken from the proof.
+receipts verify '<link>' --screened-set screened.txt --screened-proof @deposit.screened
+```
+
+The proof covers one hop: the spent note itself must be one of the listed outputs.
+
 ## Deposits to a TEX address (ZIP 320)
 
 Some exchanges only accept transparent funds and publish a TEX address (`tex1…`, `textest1…`).

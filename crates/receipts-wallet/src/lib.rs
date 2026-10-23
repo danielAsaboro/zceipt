@@ -39,7 +39,7 @@ fn account() -> zip32::AccountId {
 #[allow(non_upper_case_globals)]
 const OsRng: rand::rand_core::UnwrapErr<rand::rngs::SysRng> = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
 use receipts_chain::net::{Heights, Net};
-use receipts_core::{Pool, PreparedReceipt, Receipt, ViewingSpendWitness};
+use receipts_core::{screened::ScreenedProof, Pool, PreparedReceipt, Receipt, ViewingSpendWitness};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use shardtree::error::ShardTreeError;
@@ -262,7 +262,7 @@ pub async fn create_receipt(
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account())
         .map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let sk: SpendingKey = usk.orchard().clone();
-    let (prepared, mined) = prepare_with(wallet, net, FullViewingKey::from(&sk), txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo).await?;
+    let (prepared, mined, _) = prepare_with(wallet, net, FullViewingKey::from(&sk), txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo, None).await?;
     let asks = vec![SpendAuthorizingKey::from(&sk); prepared.unsigned().spends.len()];
     Ok((prepared.sign(&asks, OsRng)?, mined))
 }
@@ -282,9 +282,10 @@ pub async fn prepare_receipt(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-) -> anyhow::Result<(PreparedReceipt, u32)> {
+    screened_set: Option<&[[u8; 32]]>,
+) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let (net, fvk) = viewing_key(wallet)?;
-    prepare_with(wallet, net, fvk, txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo).await
+    prepare_with(wallet, net, fvk, txid, msg, outputs, pool, witness_source, server, prove_address, prove_source, withhold_memo, screened_set).await
 }
 
 /// Signs a prepared receipt with the wallet's spend authorizing key. Needs only `keys.toml`
@@ -383,7 +384,8 @@ async fn prepare_with(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-) -> anyhow::Result<(PreparedReceipt, u32)> {
+    screened_set: Option<&[[u8; 32]]>,
+) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let db_path = wallet.join("data.sqlite");
     let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
     let tx = db
@@ -404,7 +406,7 @@ async fn prepare_with(
             None
         }
     };
-    build_prepared(net, &fvk, txid, &tx, mined, &spent, &mut local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo).await
+    build_prepared(net, &fvk, txid, &tx, mined, &spent, &mut local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo, screened_set).await
 }
 
 /// A wallet held as keys alone, such as the seed phrase or viewing key of Zodl, Zingo or
@@ -467,7 +469,8 @@ pub async fn prepare_receipt_from_keys(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-) -> anyhow::Result<(PreparedReceipt, u32)> {
+    screened_set: Option<&[[u8; 32]]>,
+) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let (tx, mined) = match height {
         Some(h) => {
             let (tx, mined, _) = receipts_chain::chain::fetch_mined_tx_in_block(w.net, server, txid, h).await?;
@@ -492,7 +495,7 @@ pub async fn prepare_receipt_from_keys(
         bail!("none of this wallet's notes from block {} on were spent in that transaction (wrong wallet, account or birthday?)", w.birthday);
     }
     let mut no_local = |_: Pool, _: u64, _: orchard::Anchor| None;
-    build_prepared(w.net, &w.fvk, txid, &tx, mined, &spent, &mut no_local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo).await
+    build_prepared(w.net, &w.fvk, txid, &tx, mined, &spent, &mut no_local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo, screened_set).await
 }
 
 /// Trial-decrypts the compact blocks from the birthday up to (not including) `mined` and keeps
@@ -561,7 +564,8 @@ async fn build_prepared(
     prove_address: Option<&str>,
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
-) -> anyhow::Result<(PreparedReceipt, u32)> {
+    screened_set: Option<&[[u8; 32]]>,
+) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let coin_type = net.coin_type();
     let prove_address = match prove_address {
         None => None,
@@ -665,7 +669,21 @@ async fn build_prepared(
     let out_bundle = bundle_of(output_pool).ok_or_else(|| anyhow!("transaction has no {output_pool:?} bundle"))?;
     // With `withhold_memo`, every disclosed output shows its recipient and value only.
     let (with_memo, without): (&[_], &[_]) = if withhold_memo { (&[], &selected) } else { (&selected, &[]) };
-    Ok((receipts_core::prepare(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?, mined))
+    let prepared = receipts_core::prepare(&pk, coin_type, pool, bundle, output_pool, out_bundle, txid, msg, with_memo, without, &spends, OsRng)?;
+    // Screened-set proofs need each spend's randomizer, so they are made here, with the receipt.
+    let mut screened = Vec::new();
+    if let Some(set) = screened_set {
+        eprintln!("Proving each spent note is in the screened list of {} outputs…", set.len());
+        let mut rng = OsRng;
+        for ((w, alpha), s) in spends.iter().zip(prepared.alphas()).zip(&prepared.unsigned().spends) {
+            let rk = orchard::primitives::redpallas::VerificationKey::try_from(s.rk).map_err(|_| anyhow!("bad rk"))?;
+            screened.push(receipts_core::screened::prove(&pk, coin_type, pool, txid, s.index, fvk, w.note, set, *alpha, &rk, &mut rng).map_err(|e| match e {
+                receipts_core::Error::NotInSet => anyhow!("the note spent in action {} is not in the screened list", s.index),
+                e => e.into(),
+            })?);
+        }
+    }
+    Ok((prepared, mined, screened))
 }
 
 trait RecoverExt {

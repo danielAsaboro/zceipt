@@ -197,6 +197,33 @@ pub struct Report {
     /// this one (the server can't tell which of them was checked).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anonymity_set: Option<usize>,
+    /// The nullifier each proven spend's action published (for screened-set proofs).
+    #[serde(skip)]
+    pub spend_nullifiers: Vec<(u32, [u8; 32])>,
+    /// Set by `check_screened`: the screened list the spent notes were proven to come from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screened_set: Option<ScreenedSet>,
+}
+
+/// A screened-set check that passed: every proven spend's note is one of the `size` outputs of
+/// the list whose tree root is `root`.
+#[derive(Serialize, Clone)]
+pub struct ScreenedSet {
+    pub root: String,
+    pub size: usize,
+}
+
+/// Checks screened-set proofs (`zip311s1…`, one per spend) for a receipt `report` came from,
+/// against the published `set` of note commitments. Every proven spend needs one.
+pub fn check_screened(report: &mut Report, receipt: &Receipt, proofs: &[receipts_core::screened::ScreenedProof], set: &[[u8; 32]]) -> anyhow::Result<()> {
+    static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
+    let vk = VK.get_or_init(receipts_core::verifying_key);
+    for (index, nf) in &report.spend_nullifiers {
+        let p = proofs.iter().find(|p| p.index == *index).ok_or_else(|| anyhow!("no screened-set proof for the spend in action {index}"))?;
+        receipts_core::screened::verify(vk, receipt, nf, p, set).map_err(|e| anyhow!("{e}"))?;
+    }
+    report.screened_set = Some(ScreenedSet { root: hex::encode(receipts_core::screened::set_root(set)?), size: set.len() });
+    Ok(())
 }
 
 /// A proven source: the note spent by `spend_action` was created by `source_action` of
@@ -290,6 +317,9 @@ impl Report {
             println!("  message   {}", shown(&self.message, "            "));
         }
         println!("  sender    proved spend authority for action(s) {:?}", self.proven_spend_actions);
+        if let Some(set) = &self.screened_set {
+            println!("  funds     every spent note came from the screened list of {} outputs (root {}…), not saying which", set.size, &set.root[..16]);
+        }
         for a in &self.sender_addresses {
             println!("  from      {a} (the receipt's signer controls it)");
         }
@@ -576,6 +606,14 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
         sender_addresses: v.proven_addresses.iter().map(|(_, a)| encode_orchard_receiver(net, *a)).collect(),
         sources: report_sources,
         anonymity_set: None,
+        spend_nullifiers: {
+            let b = match u.pool {
+                Pool::Orchard => tx.orchard_bundle(),
+                Pool::Ironwood => tx.ironwood_bundle(),
+            };
+            u.spends.iter().filter_map(|s| Some((s.index, b?.actions().get(s.index as usize)?.nullifier().to_bytes()))).collect()
+        },
+        screened_set: None,
         outputs: v
             .outputs
             .iter()

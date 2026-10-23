@@ -42,6 +42,7 @@ pub mod deposit;
 pub mod incoming;
 pub mod payreq;
 pub mod reserve;
+pub mod screened;
 pub mod preflight;
 pub mod signin;
 pub mod tripwire;
@@ -432,6 +433,10 @@ pub enum Error {
     WrongSource(u32),
     #[error("a note of value zero has no provable source")]
     ZeroValueSource,
+    #[error("the spent note is not in the screened set (or the set's list doesn't give the proof's root)")]
+    NotInSet,
+    #[error("the screened-set proof for action {0} is invalid")]
+    BadScreenedProof(u32),
     #[error("the opening for output {0} does not match its note commitment")]
     BadOpening(u32),
     #[error("{0} need receipts-core's `orchard-ext` feature (the orchard patch in vendor/)")]

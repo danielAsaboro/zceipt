@@ -9,7 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-receipts-core = { path = "..", features = ["orchard-ext"] }
+receipts-core = { path = "..", features = ["orchard-ext", "extensions"] }
 
 # Not part of the main workspace (needs nightly and a sanitizer).
 [workspace]

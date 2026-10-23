@@ -76,6 +76,26 @@ try {
   check(pct === "VERIFIED", `a link with a stray % still verifies (got ${pct})`);
   const errors = await evaluate(`document.querySelector('#progress').innerText.includes('Maximum call stack')`);
   check(!errors, "no script errors in the progress steps");
+  // SHOTS=<dir>: the README's screenshots, at desktop width, from the same samples.
+  if (process.env.SHOTS) {
+    const { writeFileSync } = await import("node:fs");
+    const shot = async (name) => writeFileSync(join(process.env.SHOTS, name), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).result.data, "base64"));
+    await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
+    const merchant = readFileSync(new URL("../examples/testnet/merchant.ua", import.meta.url), "utf8").trim();
+    await evaluate(`(async () => { const m = await import('./samples.js'); location.hash = m.SAMPLE_REAL + '&h=' + m.SAMPLE_HEIGHT; return true })()`);
+    await sleep(500);
+    await until(`(${resultText}).includes('VERIFIED') ? 'x' : ''`, 90);
+    await evaluate(`document.querySelector('#mine').value = ${JSON.stringify(merchant)}; document.querySelector('#mineBtn').click(); true`);
+    await until(`(${resultText}).includes('PAID TO YOU') ? 'x' : ''`, 30);
+    await evaluate(`window.scrollTo(0, 0); true`);
+    await shot("verified.png");
+    await evaluate(`document.querySelector('#sampleEdited').click(); true`);
+    await sleep(500);
+    await until(`(${resultText}).includes('NOT VALID') ? 'x' : ''`, 60);
+    await evaluate(`window.scrollTo(0, 0); true`);
+    await shot("refused.png");
+    console.log(`screenshots written to ${process.env.SHOTS}`);
+  }
   ws.close();
 } catch (e) {
   check(false, `smoke test crashed: ${e.message}`);

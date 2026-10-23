@@ -334,6 +334,17 @@ impl Receipt {
     }
 }
 
+/// The verifier's challenge a receipt's message carries: the rest of the first line starting
+/// `challenge:` (lines end at LF; a trailing CR is ignored), if that is 6 to 64 lowercase hex
+/// digits; otherwise none. A request's challenge matches only if equal.
+pub fn challenge_of(msg: &str) -> Option<String> {
+    msg.split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .find_map(|l| l.strip_prefix("challenge:"))
+        .filter(|c| (6..=64).contains(&c.len()) && c.bytes().all(|x| matches!(x, b'0'..=b'9' | b'a'..=b'f')))
+        .map(str::to_string)
+}
+
 /// The reference signer for a prepared receipt: computes the receipt digest itself from
 /// `unsigned` (never takes a digest from the caller), checks that every spend's `rk` is
 /// `ak` randomized by its `alpha` (so it only signs for keys it holds, as the receipt says), and

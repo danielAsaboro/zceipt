@@ -355,3 +355,15 @@ def check_screened(text: str, leaves, rk: bytes, nf: bytes, coin_type: int, txid
     _canonical_base(p.cmx, "screened proof cmx")
     return {"anchor": root.hex(), "cv_net": pl.repr_p(o.value_commit(0, p.floor)).hex(), "nf": nf.hex(), "rk": rk.hex(),
             "cmx": p.cmx.hex(), "floor": p.floor, "proof": "not checked"}
+
+
+def challenge_of(msg: str):
+    """The verifier's challenge in a receipt's message: the rest of the first line starting
+    "challenge:" (lines end at LF; a trailing CR is ignored), if that is 6 to 64 lowercase hex
+    digits; otherwise None."""
+    for line in msg.split("\n"):
+        line = line[:-1] if line.endswith("\r") else line
+        if line.startswith("challenge:"):
+            c = line[len("challenge:"):]
+            return c if 6 <= len(c) <= 64 and all(x in "0123456789abcdef" for x in c) else None
+    return None

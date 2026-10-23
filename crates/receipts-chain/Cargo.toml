@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-receipts-core = { path = "../receipts-core", features = ["orchard-ext"] }
+receipts-core = { path = "../receipts-core", features = ["orchard-ext", "extensions"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"

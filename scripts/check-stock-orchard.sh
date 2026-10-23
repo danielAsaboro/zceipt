@@ -19,7 +19,7 @@ s = s[: s.index("[patch.crates-io]")]
 open(sys.argv[1], "w").write(s)
 PY
 # The crate's own dev-dependency turns orchard-ext on for its tests; drop it here.
-sed -i.bak '/^receipts-core = { path = "\.", features = \["orchard-ext"\] }/d' "$WORK/crates/receipts-core/Cargo.toml"
+sed -i.bak '/^receipts-core = { path = "\.", features = /d' "$WORK/crates/receipts-core/Cargo.toml"
 cd "$WORK"
 # The ZIP 311 profile alone, then with every extension.
 cargo check --lib -p receipts-core --no-default-features

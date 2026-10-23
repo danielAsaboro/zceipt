@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Serves the browser verifier from the committed WebAssembly build: no Rust, no wallet, no keys.
 # The page has buttons for a real testnet receipt (VERIFIED) and the same receipt with its signed
-# note edited (refused).
+# signed message edited (refused).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${PORT:-5321}"

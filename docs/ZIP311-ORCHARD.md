@@ -159,7 +159,9 @@ defined by ZIP 321.
   SHOULD display the txid, the disclosed outputs and `msg` before signing. It MUST NOT sign a
   digest supplied by the host: that could be a transaction's sighash, and the signature would
   authorize a real spend. `receipts_core::sign_prepared` is a reference signer that does these
-  checks.
+  checks. The randomizers MUST stay between the prover and the signer and be discarded after
+  signing: with the finished receipt, `alpha` gives `ak = rk - [alpha] G`, which would link
+  every receipt the wallet signs.
 - Spend authority is proven for the signer's spend authorizing key. In a transaction several
   parties built (a PCZT), it is whoever holds that `ask` and knew each `ock`.
 

@@ -34,13 +34,13 @@ Built for ZECATHON 2026, Core & Tooling track. MIT or Apache-2.0.
 
 Click **Try a real testnet receipt**: a real 0.01 TAZ payment
 ([`571de6e4…`](https://testnet.cipherscan.app/tx/571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73))
-shows **VERIFIED**. Click **Try an edited copy**: the same receipt with its signed message changed from
+shows **VERIFIED** (and, once you give your address, **PAID TO YOU**). Click **Try an edited copy**: the same receipt with its signed message changed from
 "Order #42" to "Order #43" shows **NOT VALID**. Click **Try a claim by someone who only saw it**:
-the same payment claimed with another key shows **NOT VALID**, which is what an output-only
+the same payment claimed with another key shows **NOT PROVEN BY THE PAYER**, which is what an output-only
 disclosure can't tell apart. The first check also loads the verifier (3 to 10 seconds).
 
-<p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a VERIFIED receipt for 0.01 TAZ (testnet) with the memo Invoice 42: two coffees">
-<img src="docs/img/refused.png" width="420" alt="The same receipt with its note edited, shown as NOT VALID: changed after it was made"></p>
+<p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a real receipt for 0.01 TAZ (testnet), memo Invoice 42: two coffees, checked as PAID TO YOU">
+<img src="docs/img/refused.png" width="420" alt="The same receipt with its signed message edited, shown as NOT VALID: changed after it was made"></p>
 
 **Check the cryptography with no Rust:** `python3 -m unittest discover -s spec-verifier/tests`
 runs a second verifier written from the protocol specification. It checks everything but the

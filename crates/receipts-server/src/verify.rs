@@ -109,10 +109,7 @@ pub fn levels(
 /// The challenge a receipt signs: the first line starting `challenge:`, if its value is 6 to 64
 /// lowercase hex digits (the page and npm read it the same way; lines end at `\n` or `\r\n`).
 pub fn challenge_of(msg: &str) -> Option<String> {
-    msg.lines()
-        .find_map(|l| l.strip_prefix("challenge:"))
-        .filter(|c| (6..=64).contains(&c.len()) && c.bytes().all(|x| matches!(x, b'0'..=b'9' | b'a'..=b'f')))
-        .map(str::to_string)
+    receipts_core::challenge_of(msg)
 }
 
 pub fn extract(text: &str, prefix: &str) -> Option<String> {

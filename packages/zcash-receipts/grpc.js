@@ -209,8 +209,9 @@ export async function fetchTransactionPrivately(endpoint, displayTxid, height, {
   const set = ids.slice(start, start + maxSet);
   const blockOf = new Map(set.map((t) => [t, height]));
   let blocks = [height];
-  // A quiet block hides little: then the other blocks of the run join the cover.
-  if (set.length < minSet) {
+  // A quiet block (by its whole count, not the window holding the payment) hides little: then
+  // the other quiet blocks of the run join the cover.
+  if (ids.length < minSet) {
     blocks = [first, first + 1, first + 2, first + 3];
     for (const [h, xs] of listed) {
       // Only other quiet blocks: the server can see this check widened, so it knows the payment's

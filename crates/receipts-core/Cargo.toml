@@ -16,7 +16,7 @@ orchard-ext = []
 # requests, sign-in, proof of funds, screened sets, exchange deposits, link linting and the
 # secret tripwire. `default-features = false` gives the ZIP 311 profile alone.
 extensions = ["dep:zip321", "dep:zcash_transparent", "dep:zcash_address", "dep:qrcode", "dep:serde_json"]
-default = ["extensions"]
+default = []
 
 [dependencies]
 orchard.workspace = true
@@ -39,7 +39,7 @@ qrcode = { version = "0.14", default-features = false, optional = true }
 serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
-receipts-core = { path = ".", features = ["orchard-ext"] }
+receipts-core = { path = ".", features = ["orchard-ext", "extensions"] }
 halo2_proofs = { version = "0.4", default-features = false }
 rand = { version = "0.10", features = ["std", "sys_rng"] }
 incrementalmerkletree = "0.9"

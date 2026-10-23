@@ -458,8 +458,9 @@ enum Cmd {
     },
     /// A real testnet receipt verified and an edited copy refused (`--shop`: then the payment API).
     ///
-    /// The whole product in one command: starts the API, dashboard and verifier on a free port
-    /// and walks through pay, prove, settle, refund and attest in the sandbox. No setup needed.
+    /// Verifies a real testnet receipt and refuses an edited copy, offline, in about a second. With
+    /// --shop it then starts the payment API, dashboard and verifier on a free port and walks
+    /// through pay, prove, settle, refund and attest in the sandbox.
     #[command(display_order = 4)]
     Demo {
         /// Go on to tour the payment API for shops (sandbox fixtures).
@@ -951,18 +952,9 @@ fn pool_name(p: Pool) -> &'static str {
     }
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    // Output piped into `head` and closed early: exit quietly, as other command-line tools do,
-    // rather than panic on the broken pipe.
-    #[cfg(unix)]
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
-    let cli = Cli::parse();
-    receipts_wallet::set_account(cli.account)?;
-    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, .. } = &cli.cmd {
+/// `verify`'s flags, checked before anything is fetched; also sets what the checks compare.
+fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
+    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, .. } = cmd {
         // These checks are about one payment: refuse them for kinds they can't apply to, rather
         // than pass a batch, an incoming receipt or a proof of funds without checking.
         if min.is_some() || challenge.is_some() || memo_contains.is_some() || screened_set.is_some() {
@@ -989,14 +981,34 @@ async fn main() -> anyhow::Result<()> {
             VERIFY_SCREENED.set((read_screened_set(set)?, read_screened_proofs(proof)?, screened_min.as_deref().map(parse_zec).transpose()?)).ok();
         }
     }
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    // Output piped into `head` and closed early: exit quietly, as other command-line tools do,
+    // rather than panic on the broken pipe.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+    let cli = Cli::parse();
+    receipts_wallet::set_account(cli.account)?;
     // `verify --json` answers in JSON whatever happens, so scripts never parse an error line.
     let json_verify = matches!(&cli.cmd, Cmd::Verify { json: true, .. });
-    let result = run(cli.cmd).await;
+    // A bad flag is the caller's mistake, not the receipt's: its own code.
+    let (result, usage) = match check_verify_flags(&cli.cmd) {
+        Ok(()) => (run(cli.cmd).await, false),
+        Err(e) => (Err(e), true),
+    };
     if let (true, Err(e)) = (json_verify, &result) {
         let m = e.to_string();
         let code = [
             ("screened", "not_screened"),
+            ("challenge", "challenge_mismatch"),
             ("proof of funds", "funds_check_failed"),
+            ("reading ", "usage"),
             ("signature", "bad_signature"),
             ("proof", "bad_proof"),
             ("memo withheld", "wrong_payee"),
@@ -1014,7 +1026,8 @@ async fn main() -> anyhow::Result<()> {
         .iter()
         .find(|(k, _)| m.contains(k))
         .map(|(_, c)| *c)
-        .unwrap_or("invalid");
+        .filter(|_| !usage)
+        .unwrap_or(if usage { "usage" } else { "invalid" });
         println!("{}", serde_json::json!({ "valid": false, "code": code, "error": m }));
         std::process::exit(1);
     }

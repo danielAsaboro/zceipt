@@ -209,7 +209,7 @@ function showError(msg, kind = "notice") {
     notice: "",
     other: "",
     secret: "",
-    unproven: "Its signature is intact, but it doesn't prove the wallet that paid made it: someone who only saw the payment, or who changed it before signing, sent it. Don't rely on it.",
+    unproven: "The payment may be real, but this receipt doesn't prove the wallet that paid made it: it was sent by someone who only saw the payment, or changed before it was signed. Don't rely on it.",
   }[kind];
   $("#result").innerHTML = `
     <div class="ticket invalid" data-kind="${kind}">
@@ -305,7 +305,7 @@ function render(v, net) {
       <div class="line"><span class="k">VIA</span><span class="v mono">${short(v.deposit.first_tx, 6)} → ${short(v.deposit.second_tx, 6)}</span></div>
       <div class="local" data-mode="txid"><strong>Exchange deposit (ZIP 320).</strong> The sender proved they made this two-step deposit to the exchange's TEX address. ${escapeHtml(v.deposit.warning)}</div>` : ""}
       <div class="dash"></div>
-      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp good">${challengeIn(v.message) && challengeIn(v.message) === requestFromUrl()?.code ? "VERIFIED" : "VERIFIED · RECIPIENT NOT CHECKED"}</div>`}
+      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp warn">VERIFIED · RECIPIENT NOT CHECKED</div>`}
       <ul class="facts">
         <li>The sender proved they authorized this payment (zero-knowledge proof + signature over this receipt).</li>
         ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from ${fetchMode && fetchMode.mode === "offline" ? "the transaction you pasted" : "the transaction on chain"}.</li>` : ""}
@@ -313,20 +313,27 @@ function render(v, net) {
         ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>Whoever signed this receipt also controls the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
         ${challengeIn(v.message) && challengeIn(v.message) === requestFromUrl()?.code
           ? `<li><strong>Made for one request:</strong> it answers the request in this link, so it was made for you only if you created that request.</li>`
-          : `<li><strong>Check before relying on it:</strong> the sender chose which outputs to show, and anyone holding this receipt can show it. Check the recipient below is you, or ask for a receipt that answers your own request.</li>`}
+          : `<li id="reuseWarn"><strong>Check before relying on it:</strong> the sender chose which outputs to show, and anyone holding this receipt can show it. Check the recipient below is you, or ask for a receipt that answers your own request.</li>`}
       </ul>
       ${localBadge()}
       <div id="reqChecks"></div>
-      <p class="fine"><button type="button" class="ghost" id="printBtn">Print or save as PDF</button></p>
+      <p class="fine"><button type="button" class="ghost" id="copyLink">Copy link</button> <button type="button" class="ghost" id="saveFile">Save as file</button> <button type="button" class="ghost" id="printBtn">Print or save as PDF</button></p>
       <div class="check">
         <label for="mine">Was it paid to you? Your address</label>
-        <div class="row"><input id="mine" placeholder="u1…" autocomplete="off" spellcheck="false"><button id="mineBtn">Check</button></div>
+        <div class="row"><input id="mine" placeholder="${v.network === "mainnet" ? "u1…" : "utest1…"}" autocomplete="off" spellcheck="false"><button id="mineBtn">Check</button></div>
         <label class="fine"><input type="checkbox" id="rememberMine"> Remember on this device</label>
         <div id="mineOut" class="fine"></div>
       </div>
     </div>`;
   renderRequestChecks(v);
   $("#printBtn").onclick = () => window.print();
+  // The link can be too long for some chat apps: a file always carries it whole.
+  $("#copyLink").onclick = () => navigator.clipboard.writeText(location.href).then(() => { $("#copyLink").textContent = "Copied"; });
+  $("#saveFile").onclick = () => {
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([location.href + "\n"], { type: "text/plain" })), download: `receipt-${v.txid.slice(0, 12)}.txt` });
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
     if (!ua) return;
@@ -353,7 +360,10 @@ function render(v, net) {
         stamp.dataset.baseClass ??= stamp.className;
         if (stamp.dataset.base.startsWith("VERIFIED")) {
           stamp.textContent = paid ? stamp.dataset.base.replace(" · RECIPIENT NOT CHECKED", "").replace("VERIFIED", "PAID TO YOU") : "VALID · NOT TO YOUR ADDRESS";
-          stamp.className = paid ? stamp.dataset.baseClass : "stamp warn";
+          stamp.className = paid ? "stamp good" : "stamp warn";
+          // Paid to the viewer's own address: the "check the recipient" caveat is answered.
+          const warn = document.getElementById("reuseWarn");
+          if (warn) warn.hidden = paid;
         }
       }
     } catch (e) {
@@ -400,6 +410,15 @@ async function renderRequestChecks(v) {
   const ok = !rows.some((r) => r.includes('data-ok="false"'));
   const head = !ok ? "REQUEST NOT SATISFIED" : mine ? "REQUEST SATISFIED" : "MATCHES THE REQUEST IN THIS LINK";
   $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok ? (mine ? "true" : "info") : "false"}"><div class="reqhead">${head}</div><ul>${rows.join("")}</ul></div>`;
+  // The verdict follows the request checks: green only for a request this browser made and the
+  // receipt meets in full (payee, amount and challenge).
+  const stamp = $("#result .stamp");
+  if (stamp && stamp.textContent.startsWith("VERIFIED")) {
+    stamp.textContent = !ok ? "VALID · REQUEST NOT MET" : mine ? "PAID AS REQUESTED" : "VERIFIED · MATCHES THE LINK'S REQUEST";
+    stamp.className = ok && mine ? "stamp good" : "stamp warn";
+    stamp.dataset.base = stamp.textContent;
+    stamp.dataset.baseClass = stamp.className;
+  }
 }
 
 // zreceipt (a separate project) also writes links as zip311r1 + base64url, but of JSON. Say so
@@ -734,6 +753,16 @@ for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#
   };
 }
 
+// A receipt saved as a file can be dropped on the box.
+$("#paste").addEventListener("dragover", (e) => e.preventDefault());
+$("#paste").addEventListener("drop", async (e) => {
+  const f = e.dataTransfer?.files?.[0];
+  if (!f || f.size > 1_000_000) return;
+  e.preventDefault();
+  $("#paste").value = await f.text();
+  $("#verifyBtn").click();
+});
+
 $("#verifyBtn").onclick = async () => {
   const t = $("#paste").value.trim();
   // A new attempt: clear the previous run's steps so they can't contradict this one.
@@ -809,7 +838,7 @@ function answerCommand(link, to) {
   const quoted = `'${String(link).replace(/'/g, "'\\''")}'`;
   const cmd = `receipts create --seed-stdin --network ${net} --birthday <wallet birthday> --txid <txid> --request ${quoted}`;
   const id = `cmd${Math.random().toString(36).slice(2, 8)}`;
-  setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = () => navigator.clipboard.writeText(cmd).then(() => { b.textContent = "Copied"; }); });
+  setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = () => navigator.clipboard.writeText(cmd).then(() => { b.textContent = "Copied"; }, () => { b.textContent = "Select and copy the command above"; }); });
   return `<div class="cli">${escapeHtml(cmd)}</div><p class="fine"><button type="button" class="ghost" id="${id}">Copy command</button></p>`;
 }
 
@@ -821,8 +850,11 @@ function showRequest() {
   $("#empty").innerHTML = `
     <div class="big">PAYMENT REQUEST</div>
     <p>You're asked to prove a payment${askedFor.min ? ` of at least <strong>${zec(askedFor.min)} ${/^u1/.test(askedFor.to || "") ? "ZEC" : "TAZ"}</strong>` : ""}${askedFor.to ? ` to <span class="mono" title="${escapeHtml(askedFor.to)}">${escapeHtml(short(askedFor.to, 10))}</span>` : ""}${askedFor.label ? ` (“${escapeHtml(askedFor.label)}”)` : ""}.</p>
-    <p class="hint">Pay it from your wallet, then make a receipt that answers this request and send back the link it prints:</p>
+    ${askedFor.to ? `<p><a class="ghost" href="zcash:${escapeHtml(askedFor.to)}${askedFor.min ? `?amount=${zec(askedFor.min)}` : ""}">Pay in your wallet</a></p>` : ""}
+    <p class="hint">Then make a receipt that answers this request and send back the link it prints:</p>
     ${answerCommand(answer, askedFor.to)}`;
+  // On a phone the request comes first, not below the form.
+  document.body.classList.add("has-result");
 }
 if (!initial && !initialBatch && !initialIncoming) showRequest();
 

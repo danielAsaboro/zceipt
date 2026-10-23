@@ -115,7 +115,8 @@ pub async fn fetch_mined_tx_in_block(net: Net, server: Option<&str>, txid: [u8; 
     // A quiet block hides little: then the rest of its aligned run of 4 blocks joins the cover.
     // The run is fixed by the height, not centred on it, so the requests don't point at the
     // payment's block.
-    if others.len() < MIN_PRIVATE_SET {
+    // Quiet is about the whole block, not the window of it that holds the payment.
+    if ids.len() < MIN_PRIVATE_SET {
         for (h, b) in &listed {
             let h = *h;
             // Only other quiet blocks: the server can see the cover widened, so it knows the
@@ -913,6 +914,10 @@ pub fn pool_activation(net: Net, pool: Pool) -> u32 {
 /// rests on one server's word that the transaction is mined. The second server learns the txid,
 /// unless `by_block`.
 pub async fn cross_check(net: Net, first: Option<&str>, second: &str, txid: [u8; 32], height: u32, by_block: bool) -> anyhow::Result<u32> {
+    let host = |s: &str| s.split("://").last().unwrap_or(s).split(':').next().unwrap_or(s).to_lowercase();
+    if host(second) == host(first.unwrap_or(net.default_server())) {
+        bail!("--cross-check {second} is the same server as the first; give a different one");
+    }
     let mut a = connect(first.unwrap_or(net.default_server())).await?;
     let mut b = connect(second).await?;
     // With a block hint, ask the second server for the block's run of transactions too, so it

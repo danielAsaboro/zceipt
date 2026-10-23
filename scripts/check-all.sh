@@ -35,8 +35,10 @@ if [ -n "$R" ]; then
   (cd packages/zcash-receipts && RECEIPTS_URL="http://127.0.0.1:$API_PORT" RECEIPTS_KEY="$KEY" node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
   (cd packages/receipts-python && RECEIPTS_URL="http://127.0.0.1:$API_PORT" RECEIPTS_KEY="$KEY" python3 -m unittest discover -s tests 2>&1 | tail -1)
   kill "$API_PID" 2>/dev/null || true
+  RAN="all 7 sections"
 else
   echo "== CLI skipped (no receipts binary; cargo install --locked --path crates/receipts-cli)"
+  RAN="3 of 7 sections (the CLI, request, export and SDK-against-API sections need a receipts binary)"
 fi
 echo "== browser: the verifier page in headless Chrome (skipped if Chrome isn't installed)"
 rm -rf web/zcash-receipts && mkdir -p web/zcash-receipts
@@ -48,3 +50,5 @@ trap 'kill $SERVER 2>/dev/null' EXIT
 sleep 1
 # One retry: on a loaded machine the first warm-up of the verifier can exceed the time limit.
 node scripts/browser-smoke.mjs "http://127.0.0.1:$P/" || { echo "(retrying once)"; node scripts/browser-smoke.mjs "http://127.0.0.1:$P/"; }
+echo
+echo "check-all: ran $RAN"

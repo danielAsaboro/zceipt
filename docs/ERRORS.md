@@ -74,7 +74,8 @@ Retry `transaction_not_mined`, `chain_unavailable` and `internal_error`. Retries
 | `challenge_mismatch` | It doesn't sign the `--challenge` given: made for another request (as in the API). |
 | `memo_mismatch` | No disclosed memo contains `--memo-contains`. |
 | `not_screened` | The screened-set proof doesn't hold for the list, or shows less than `--screened-min`. |
-| `funds_check_failed` | A proof of funds misses `--challenge` or `--min`. |
+| `funds_check_failed` | A proof of funds holds less than `--min` (a wrong challenge is `challenge_mismatch`). |
 | `unreadable` | Not a receipt, or cut off. |
 | `chain_unavailable` | The chain server couldn't be reached or doesn't have the transaction. |
+| `usage` | A flag or file given to the command is wrong (exit 1, before anything is fetched). |
 | `invalid` | Anything else; `error` says what. |

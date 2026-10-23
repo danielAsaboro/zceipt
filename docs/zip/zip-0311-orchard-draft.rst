@@ -265,7 +265,10 @@ $\mathsf{rk} = \mathsf{SpendAuthSig.RandomizePublic}(\alpha, \mathsf{ak})$, and 
 the txid, the disclosed outputs and $\mathsf{msg}$ before signing. It MUST NOT sign a digest
 supplied by the host: that could be a transaction's sighash, and the signature would authorize
 a real spend. The proofs need only the full viewing key, so a watch-only wallet can prepare a
-receipt for such a signer.
+receipt for such a signer. The randomizers MUST stay between the prover and the signer and be
+discarded after signing: with the finished receipt, $\alpha$ gives
+$\mathsf{ak} = \mathsf{rk} - [\alpha]\,\mathcal{G}$, which would link every receipt the wallet
+signs.
 
 Whose spend authority. Spend authority is proven for the signer's spend authorizing key. In a
 transaction several parties built (a PCZT), it is whoever holds that $\mathsf{ask}$ and knew

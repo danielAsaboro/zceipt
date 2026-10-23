@@ -170,6 +170,15 @@ class Testnet(unittest.TestCase):
         with self.assertRaisesRegex(v.Invalid, "root"):
             v.check_screened(fx["proof"], list(reversed(leaves)), *args)
 
+    def test_challenge_rule(self):
+        """The same cases as properties.rs::the_challenge_rule and the page's challengeIn."""
+        c = v.challenge_of
+        self.assertEqual(c("challenge:abcdef"), "abcdef")
+        self.assertEqual(c("Order 7\nchallenge:abcdef\r\nmore"), "abcdef")
+        self.assertEqual(c("challenge:abcdef\r"), "abcdef")
+        for m in ["challenge:abcde", "challenge:" + "a" * 65, "challenge:ABCDEF", "challenge:abcdeg", "challenge:otc-7f3a holding", "xchallenge:abcdef", "challenge:zzzzzz\nchallenge:abcdef"]:
+            self.assertIsNone(c(m), m)
+
     def test_pre_fix_address_proof_is_refused(self):
         b = receipt_bytes("pre-fix/receipt-with-sender-address")
         with self.assertRaisesRegex(v.Invalid, "ValueCommit_0"):

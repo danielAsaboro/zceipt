@@ -51,3 +51,17 @@ fn someone_who_only_saw_the_payment_cannot_claim_it() {
         std::fs::write(format!("{}/../../examples/testnet/claimed-by-observer.txt", env!("CARGO_MANIFEST_DIR")), format!("{text}\n")).unwrap();
     }
 }
+
+/// The builder reads the pools and txid from the transaction itself, and refuses a receipt that
+/// proves no spend.
+#[test]
+fn builder_needs_a_spend_and_names_the_network() {
+    use receipts_core::{Network, ReceiptBuilder};
+    let raw = (0..example("tx.hex").trim().len()).step_by(2).map(|i| u8::from_str_radix(&example("tx.hex").trim()[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
+    let tx = Transaction::read(&raw[..], BranchId::for_height(&TEST_NETWORK, BlockHeight::from_u32(4_500_997))).unwrap();
+    assert_eq!((Network::Mainnet.coin_type(), Network::Testnet.coin_type()), (133, 1));
+    let empty = ReceiptBuilder::new(Network::Testnet, &tx)
+        .message(b"Invoice 42")
+        .prepare(&receipts_core::proving_key(), rand::rand_core::UnwrapErr(rand::rngs::SysRng));
+    assert!(matches!(empty, Err(Error::NoSpends)));
+}

@@ -60,8 +60,11 @@ async function load() {
 }
 // A seed phrase or key pasted by mistake never leaves the page.
 function looksSecret(t) {
-  const words = t.trim().split(/\s+/);
-  return /^(zxview|zxviews|zview|zviews|uview|uviewtest|secret-extended-key|uivk|zxprv)/i.test(t.trim()) || (words.length >= 12 && words.every((w) => /^[a-z]{3,8}$/.test(w))) || /^[0-9a-f]{64,}$/i.test(t.trim());
+  // Keys anywhere in the text, or 12 or more words that look like a seed phrase, however written
+  // (numbered, capitalised, comma-separated). A receipt is one long base64url token, never words.
+  if (/\b(zxview|zxviews|zview|zviews|uview|uviewtest|uivk|secret-extended-key|zxprv|zxsk)[0-9a-z]*1[0-9a-z]{20,}/i.test(t)) return true;
+  const words = t.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 3 && w.length <= 8);
+  return words.length >= 12 && !/zip311r1/.test(t);
 }
 async function submit() {
   const btn = document.getElementById("submit"), msg = document.getElementById("msg");

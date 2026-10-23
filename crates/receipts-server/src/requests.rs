@@ -193,7 +193,9 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
     })
 }
 
+// A misspelt field (`amount` for `amount_zatoshis`) must fail, not make a request with no minimum.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRequest {
     payee: Option<String>,
     amount_zatoshis: Option<u64>,

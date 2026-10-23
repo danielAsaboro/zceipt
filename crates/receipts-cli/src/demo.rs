@@ -17,8 +17,18 @@ const REAL_RECEIPT: &str = include_str!("../../../examples/testnet/receipt.txt")
 const REAL_TX: &str = include_str!("../../../examples/testnet/tx.hex");
 const REAL_HEIGHT: u32 = 4_500_997;
 
+/// Bold on a terminal; plain when piped or saved.
+fn bold(t: &str) -> String {
+    use std::io::IsTerminal;
+    if std::io::stdout().is_terminal() {
+        format!("\x1b[1m{t}\x1b[0m")
+    } else {
+        t.to_string()
+    }
+}
+
 fn step(n: u32, title: &str) {
-    println!("\n\x1b[1m{n}. {title}\x1b[0m");
+    println!("\n{}", bold(&format!("{n}. {title}")));
 }
 
 fn say(s: &str) {
@@ -58,7 +68,7 @@ fn real_receipt(n: u32) -> anyhow::Result<()> {
 
 pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
     if !shop {
-        println!("\x1b[1mReceipts demo\x1b[0m: prove one shielded Zcash payment without handing over a viewing key.");
+        println!("{}: prove one shielded Zcash payment without handing over a viewing key.", bold("Receipts demo"));
         real_receipt(1)?;
         step(2, "Next");
         say("against the live testnet:  receipts verify @examples/testnet/receipt-link.txt");
@@ -129,7 +139,7 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
         }
     };
 
-    println!("\x1b[1mReceipts demo\x1b[0m: a shop takes a shielded Zcash payment without ever seeing the customer's wallet.");
+    println!("{}: a shop takes a shielded Zcash payment without ever seeing the customer's wallet.", bold("Receipts demo"));
     println!("API, dashboard and browser verifier on {base} (testnet sandbox; throwaway database).");
 
     real_receipt(1)?;

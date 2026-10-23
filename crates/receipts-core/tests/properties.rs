@@ -280,3 +280,19 @@ fn all_signing_domains_are_distinct() {
     assert_eq!(tags.len(), 5, "two formats share a signing domain: {tags:?}");
     assert!(tags.iter().all(|t| t.replace("\\0", "\0").len() == 12), "{tags:?}");
 }
+
+#[test]
+fn the_challenge_rule() {
+    use receipts_core::challenge_of;
+    let c = |m: &str| challenge_of(m);
+    assert_eq!(c("challenge:abcdef"), Some("abcdef".into()));
+    assert_eq!(c("Order 7\nchallenge:abcdef\r\nmore"), Some("abcdef".into()));
+    assert_eq!(c("challenge:abcdef\r"), Some("abcdef".into()), "a trailing CR is ignored, with or without LF");
+    assert_eq!(c("challenge:abcde"), None, "fewer than 6 digits");
+    assert_eq!(c(&format!("challenge:{}", "a".repeat(65))), None, "more than 64");
+    assert_eq!(c("challenge:ABCDEF"), None, "uppercase");
+    assert_eq!(c("challenge:abcdeg"), None, "not hex");
+    assert_eq!(c("challenge:otc-7f3a holding"), None);
+    assert_eq!(c("xchallenge:abcdef"), None, "only at the start of a line");
+    assert_eq!(c("challenge:zzzzzz\nchallenge:abcdef"), None, "the first challenge line decides");
+}

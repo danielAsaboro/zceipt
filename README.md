@@ -53,7 +53,7 @@ minutes to build the first time).
 ## Make a receipt from your wallet
 
 Any wallet that lets you export its viewing key or seed phrase works; no wallet has a button for
-it yet. The CLI finds your notes by scanning the chain from the wallet's birthday, on your
+it yet ([what a wallet needs to add one](docs/guides/wallet-integration.md)). The CLI finds your notes by scanning the chain from the wallet's birthday, on your
 machine.
 
 | You have | Command |

@@ -13,7 +13,7 @@ Then, by need:
 | If you are | Read |
 |---|---|
 | Reviewing the cryptography | [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md), [CRYPTO-REVIEW.md](CRYPTO-REVIEW.md), [ASSURANCE.md](ASSURANCE.md), [SPEC.md](SPEC.md) |
-| Building it into a wallet | [DEVELOPERS.md](DEVELOPERS.md), [SDKS.md](SDKS.md) |
+| Building it into a wallet | [guides/wallet-integration.md](guides/wallet-integration.md), [DEVELOPERS.md](DEVELOPERS.md), [SDKS.md](SDKS.md) |
 | Holding a deposit or settling a dispute | [guides/held-deposit.md](guides/held-deposit.md), [guides/exchange-deposit.md](guides/exchange-deposit.md), [guides/p2p-trades.md](guides/p2p-trades.md) |
 | Running the payment API | [QUICKSTART.md](QUICKSTART.md), [WEBHOOKS.md](WEBHOOKS.md), [ERRORS.md](ERRORS.md), [SANDBOX.md](SANDBOX.md) |
 | Comparing it with other work | [RELATED-WORK.md](RELATED-WORK.md), [COMPARISON.md](COMPARISON.md) |

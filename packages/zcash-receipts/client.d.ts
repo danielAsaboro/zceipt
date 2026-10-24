@@ -31,6 +31,7 @@ export interface ProofRequest {
 export interface Refund { id: string; object: "refund"; livemode: boolean; request: string; payment_txid: string; address: string; amount_zatoshis: number; reason: string | null; challenge: string; status: "pending" | "succeeded"; created: number; payment_uri: string; cli_command: string; refunded_at: number | null; txid: string | null }
 export interface TestClock { id: string; object: "test_clock"; livemode: false; frozen_time: number; height: number; created: number; requests: string[] }
 export interface SignInChallenge { id: string; object: "sign_in_challenge"; livemode: boolean; coin_type: number; domain: string; nonce: string; created: number; expires_at: number; status: "pending" | "used" | "expired"; wallet_command: string }
+export interface ClaimResult { valid: true; kind: "claim" | "payer_tag"; domain: string; tag: string; txid?: string; network?: string; pool?: string; message?: string; floor_zatoshis?: number; floor_zec?: string; snapshot_height?: number }
 export interface SignInResult { object: "sign_in"; verified: true; livemode: boolean; challenge: string; domain: string; issued_at: number; address: string }
 export interface WebhookEndpoint { id: string; object: "webhook_endpoint"; url: string; events: string[]; secret?: string }
 export interface ReceiptsEvent<T = any> { id: string; object: "event"; type: "request.created" | "request.payment_received" | "request.fulfilled" | "request.expired" | "receipt.rejected"; created: number; livemode: boolean; data: { object: T } }
@@ -87,6 +88,9 @@ export class Receipts {
   signIn: {
     createChallenge(params?: { domain?: string }): Promise<SignInChallenge>;
     verify(params: string | { sign_in: string }): Promise<SignInResult>;
+  };
+  claims: {
+    verify(params: { claim: string; domain: string; height?: number }): Promise<ClaimResult>;
   };
   webhookEndpoints: {
     create(params: { url: string; events?: string[] }): Promise<WebhookEndpoint>;

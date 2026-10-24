@@ -213,6 +213,18 @@ enum Cmd {
         /// Sign without asking (for scripts that already showed the user what is signed).
         #[arg(long)]
         yes: bool,
+        /// Make it convincing to this verifier only (its `receipts verifier-key`, hex): it can't
+        /// show your receipt to anyone else as proof you paid.
+        #[arg(long = "for")]
+        for_verifier: Option<String>,
+    },
+    /// Shops: make a key for receipts meant for you alone (`receipts sign --for`). Keeps the
+    /// secret half in a file and prints the half to give payers.
+    #[command(display_order = 12)]
+    VerifierKey {
+        /// Where to keep the secret half (created; never overwritten).
+        #[arg(long)]
+        out: PathBuf,
     },
     /// Verify a receipt against the chain.
     #[command(display_order = 2)]
@@ -274,6 +286,10 @@ enum Cmd {
         /// For a claim: the domain it must be for (the airdrop's or round's name).
         #[arg(long)]
         domain: Option<String>,
+        /// For a receipt made for you alone (`zip311d1…`): the secret half `receipts
+        /// verifier-key` kept.
+        #[arg(long)]
+        verifier_key: Option<PathBuf>,
         /// Offline exchange deposits: the second ZIP 320 step's raw transaction (hex file).
         #[arg(long, requires = "raw_tx")]
         second_raw_tx: Option<PathBuf>,
@@ -1254,7 +1270,15 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             receipts_wallet::set_account(cli.account)?;
             Box::pin(run(cli.cmd)).await?;
         }
-        Cmd::Sign { prepared, wallet, identity, seed_stdin, network, regtest, out, link_base, yes } => {
+        Cmd::VerifierKey { out } => {
+            let (y, v) = receipts_core::designated::verifier_key(rand::rand_core::UnwrapErr(rand::rngs::SysRng));
+            let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).with_context(|| format!("creating {}", out.display()))?;
+            std::io::Write::write_all(&mut f, format!("{}\n", hex(&y)).as_bytes())?;
+            eprintln!("Kept the secret half in {}. Give payers this (receipts sign --for <it>):", out.display());
+            println!("{}", hex(&v));
+        }
+        Cmd::Sign { prepared, wallet, identity, seed_stdin, network, regtest, out, link_base, yes, for_verifier } => {
             let text = std::fs::read_to_string(&prepared).with_context(|| format!("reading {}", prepared.display()))?;
             let p = receipts_core::PreparedReceipt::from_text(text.lines().next().unwrap_or("")).map_err(|e| anyhow!("not a prepared receipt: {e}"))?;
             // Only the block hint is taken from the file, and only as digits: it decides where a
@@ -1328,6 +1352,24 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 if answer.trim() != "yes" {
                     bail!("not signed");
                 }
+            }
+            if let Some(v) = &for_verifier {
+                let v: [u8; 32] = hex::decode(v.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow!("--for takes the verifier's key: 64 hex digits"))?;
+                let d = match (&keys, &wallet, &identity) {
+                    (Some(k), _, _) => k.designate(p, v)?,
+                    (None, Some(w), Some(i)) => wallet::designate_prepared(w, i, p, v)?,
+                    _ => unreachable!("clap requires a wallet and identity, or --seed-stdin"),
+                };
+                let text = d.to_text();
+                if let Some(out) = out {
+                    std::fs::write(&out, &text)?;
+                    eprintln!("wrote {}", out.display());
+                }
+                std::fs::remove_file(&prepared).with_context(|| format!("deleting {}", prepared.display()))?;
+                eprintln!("Deleted {} (its randomizers link the receipt to your spends).", prepared.display());
+                eprintln!("\nGive this to the verifier only; it convinces no one else:");
+                println!("{text}");
+                return Ok(());
             }
             let receipt = match (&keys, &wallet, &identity) {
                 (Some(k), _, _) => k.sign(p)?,
@@ -1742,6 +1784,31 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
         }
+        Cmd::Verify { receipt, server, json, regtest, verifier_key, expect_address, .. }
+            if read_arg_text(&receipt)?.contains(receipts_core::designated::DESIGNATED_TEXT_PREFIX) =>
+        {
+            let text = read_arg_text(&receipt)?;
+            let i = text.find(receipts_core::designated::DESIGNATED_TEXT_PREFIX).unwrap();
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let d = receipts_core::designated::DesignatedReceipt::from_text(&body).map_err(|_| anyhow!("malformed designated receipt"))?;
+            // It convinces only the holder of its key: anyone else can't rule out that holder made it.
+            let file = verifier_key.ok_or_else(|| anyhow!("this receipt was made for one verifier: give its key with --verifier-key (anyone else can't tell it from one that verifier made)"))?;
+            let y: [u8; 32] = hex::decode(std::fs::read_to_string(&file)?.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow!("{} isn't a verifier key", file.display()))?;
+            let mine = receipts_core::designated::public_key(&y).map_err(|_| anyhow!("{} isn't a verifier key", file.display()))?;
+            if d.verifier != mine {
+                bail!("this receipt was made for another verifier's key, so it proves nothing to you");
+            }
+            let report = chain::verify_designated_against_chain(&d, server.as_deref(), regtest.as_deref()).await?;
+            check_expected_payee(&report, expect_address.as_deref())?;
+            if json {
+                let mut v = serde_json::to_value(&report)?;
+                v["designated"] = true.into();
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                report.print();
+                println!("  for you   made for your key only: it convinces you, and you can't show it to anyone else as proof");
+            }
+        }
         Cmd::Verify { receipt, server, json, regtest, domain, height, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::claim::CLAIM_TEXT_PREFIX).unwrap();
@@ -1752,7 +1819,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 let domain = domain.ok_or_else(|| anyhow!("a payer tag is checked for your domain: give --domain"))?;
                 let txid = std::str::from_utf8(&c.msg).ok().and_then(|m| m.strip_prefix("payer-tag:")).ok_or_else(|| anyhow!("this claim has no snapshot block and names no payment"))?;
                 let txid = parse_txid(txid)?;
-                let tag = chain::verify_payer_tag_against_chain(&c, domain.as_bytes(), txid, server.as_deref(), regtest.as_deref()).await?;
+                let net = net::for_receipt(c.coin_type, regtest.as_deref())?;
+                let tag = chain::verify_payer_tag_against_chain(&c, domain.as_bytes(), txid, net, server.as_deref()).await?;
                 let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
                 if json {
                     println!("{}", serde_json::json!({ "valid": true, "kind": "payer_tag", "domain": domain, "txid": receipts_core::display_txid(&txid), "tag": tag }));
@@ -1784,7 +1852,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 ))
             });
             eprintln!("Checking the proof and that the note was unspent at block {height}…");
-            let rep = chain::verify_claim_against_chain(&c, server.as_deref(), regtest.as_deref(), cache.as_deref()).await?;
+            let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref()).await?;
             if let (_, Some(ch), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
                 if receipts_server::verify::challenge_of(&rep.message).as_deref() != Some(ch.to_lowercase().as_str()) {
                     bail!("the claim doesn't sign challenge {ch}");

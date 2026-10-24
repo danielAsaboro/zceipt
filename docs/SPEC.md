@@ -424,6 +424,23 @@ nothing else about them.
 The circuit is a local addition to the vendored orchard crate (`src/circuit/claim.rs`), so
 claims need this build; a stock Orchard verifier can't check them.
 
+## Receipts for one verifier (`zip311d1`)
+
+```
+designated := "ZRCD" | version:u8 = 1 | V[32] | n:u8 | { c1[32] | s1[32] | c2[32] | s2[32] }^n
+            | receipt (zip311r1 bytes, every spendAuthSig 64 zero bytes)
+c          := ToScalar(BLAKE2b-512("ZIP311Desig\0" || coinType, digest || V || rk || R1 || R2))
+check      := R1 = [s1]G - [c1]rk, R2 = [s2]G - [c2]V, c1 + c2 == c
+```
+
+Each spend's SpendAuthSig is replaced by a one-of-two Schnorr proof over the same signing digest:
+the prover knows `x` with `rk = [x]G` (its `ask + alpha`), or `y` with `V = [y]G`, `V` the
+verifier's published key (`receipts verifier-key`). The verifier knows it didn't use `y`, so it is
+convinced the spend key authorized the receipt; it could make the same proof for any receipt
+with `y`, so anyone it shows the receipt to learns nothing about spend authority. The Action
+proofs are unchanged and still show that someone holding the payer's viewing key built it. A
+verifier must check `V` is its own key: a receipt made for another key proves nothing to it.
+
 ## Policy proofs (`zip311p1`)
 
 ```

@@ -291,6 +291,22 @@ pub fn sign_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt) 
     })
 }
 
+/// Like [`sign_prepared`], for one verifier only (`receipts_core::designated`): convincing to the
+/// holder of the key `verifier`, who can't show it to anyone else as proof.
+pub fn designate_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt, verifier: [u8; 32]) -> anyhow::Result<receipts_core::designated::DesignatedReceipt> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    if prepared.unsigned().coin_type != net.coin_type() {
+        bail!("this receipt is for another network than the wallet");
+    }
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sks = vec![usk.orchard().clone(); prepared.unsigned().spends.len()];
+    receipts_core::designated::prove(prepared, &sks, verifier, OsRng).map_err(|e| match e {
+        receipts_core::Error::BadSignature(_) => anyhow!("this wallet's key did not make these spends"),
+        receipts_core::Error::BadDesignated => anyhow!("that isn't a verifier key"),
+        e => e.into(),
+    })
+}
+
 /// The account's spend validating key `ak` (hex), the key a published key set lists
 /// (`receipts_core::keyset`). It shows no payment: receipts carry only randomizations of it.
 pub fn spend_validating_key(wallet: &Path) -> anyhow::Result<String> {
@@ -528,6 +544,19 @@ impl KeysWallet {
     }
 
     /// Signs a prepared receipt with this wallet's spend key (only when made from a phrase).
+    /// Like [`Self::sign`], for the holder of the key `verifier` only.
+    pub fn designate(&self, prepared: PreparedReceipt, verifier: [u8; 32]) -> anyhow::Result<receipts_core::designated::DesignatedReceipt> {
+        let sk = self.sk.as_ref().ok_or_else(|| anyhow!("a viewing key can't sign; sign with the seed phrase"))?;
+        if prepared.unsigned().coin_type != self.net.coin_type() {
+            bail!("this receipt is for another network than the wallet");
+        }
+        let sks = vec![sk.clone(); prepared.unsigned().spends.len()];
+        receipts_core::designated::prove(prepared, &sks, verifier, OsRng).map_err(|e| match e {
+            receipts_core::Error::BadSignature(_) => anyhow!("this wallet's key did not make these spends"),
+            e => e.into(),
+        })
+    }
+
     pub fn sign(&self, prepared: PreparedReceipt) -> anyhow::Result<Receipt> {
         let sk = self.sk.as_ref().ok_or_else(|| anyhow!("a viewing key can't sign; sign with the seed phrase"))?;
         if prepared.unsigned().coin_type != self.net.coin_type() {

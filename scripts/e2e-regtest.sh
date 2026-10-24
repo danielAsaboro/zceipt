@@ -105,6 +105,14 @@ UFVK=$(sqlite3 sender/data.sqlite "SELECT ufvk FROM accounts WHERE hd_account_in
 BDAY=$(sed -n 's/^birthday = //p' sender/keys.toml)
 "$R" create --ufvk "$UFVK" --birthday "$BDAY" --regtest ./heights.toml --unsigned keys-prepared.txt --txid "$T1" -m "Order 7 (keys only)" -s "127.0.0.1:$GRPC" > keys.log 2>&1 && ok "a viewing key alone found the spent note on chain and made the proofs" || { bad "keys-only prepare"; tail -3 keys.log; }
 "$R" sign keys-prepared.txt --yes -w ./signer -i ./sender.age --out keys-signed.txt >/dev/null 2>&1 && "$R" verify @keys-signed.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" | grep >/dev/null "pool      Orchard" && ok "the keys-only receipt signs and verifies" || bad "keys-only sign/verify"
+# A receipt for the shop alone: convincing to it, and nothing it can pass on as proof.
+"$R" verifier-key --out shop.key > shop.pub 2>/dev/null || bad "verifier key"
+"$R" create -w ./watch --unsigned dv-prepared.txt --txid "$T1" -m "Order 7 (for the shop)" -s "127.0.0.1:$GRPC" >/dev/null 2>&1 || bad "prepare for the shop"
+"$R" sign dv-prepared.txt --yes -w ./signer -i ./sender.age --for "$(cat shop.pub)" --out dv.txt >/dev/null 2>&1 || bad "sign for the shop"
+"$R" verify @dv.txt --verifier-key shop.key --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" > dv-verify.log 2>&1 && grep -q "made for your key only" dv-verify.log \
+  && ok "a receipt made for the shop alone verifies with the shop's key" || { bad "designated receipt"; tail -3 dv-verify.log; }
+"$R" verifier-key --out other.key > /dev/null 2>&1
+"$R" verify @dv.txt --verifier-key other.key --regtest ./heights.toml -s "127.0.0.1:$GRPC" > dv-other.log 2>&1 && bad "a designated receipt convinced another verifier" || { grep -q "another verifier" dv-other.log && ok "and convinces no one else (another key is told it proves nothing)" || { bad "designated: unexpected error"; tail -2 dv-other.log; }; }
 
 # Screened set: the exchange lists the outputs it vetted; the payer proves the spent note is one of them.
 SRCS=$(sqlite3 sender/data.sqlite "SELECT DISTINCT hex(t.txid) FROM orchard_received_notes rn JOIN transactions t ON t.id_tx = rn.transaction_id" | python3 -c 'import sys; print(" ".join("--txid " + bytes.fromhex(l.strip())[::-1].hex() for l in sys.stdin if l.strip()))')
@@ -222,6 +230,10 @@ for t in HOP PAY2 DEP; do "$R" verify @tag-$t.txt --json --domain round-e2e --re
 TH=$(jq -r .tag tag-HOP.json); TD=$(jq -r .tag tag-DEP.json)
 [ "${#TH}" = 64 ] && [ "$TH" = "$(jq -r .tag tag-PAY2.json)" ] && [ "${#TD}" = 64 ] && [ "$TD" != "$TH" ] \
   && ok "payer tags: the saver's two payments share a tag, the customer's differs (2 wallets, 3 payments)" || bad "payer tags"
+jq -n --rawfile c claim2.txt --argjson h "$SNAP" '{claim: ($c | rtrimstr("\n")), domain: "airdrop-e2e", height: $h}' | curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$T1" '.valid and .tag == $t' >/dev/null \
+  && ok "the API checks a claim and returns the same tag" || bad "API claim verify"
+jq -n --rawfile c tag-DEP.txt '{claim: ($c | rtrimstr("\n")), domain: "round-e2e"}' | curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$TD" '.kind == "payer_tag" and .tag == $t' >/dev/null \
+  && ok "and a payer tag" || bad "API payer tag verify"
 "$R" verify @tag-HOP.txt --domain round-other --regtest ./heights.toml -s "127.0.0.1:$GRPC" > tag-wrong.txt 2>&1 && bad "a payer tag passed for another round" || ok "a payer tag is refused for another round"
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done

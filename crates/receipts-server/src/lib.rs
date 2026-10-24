@@ -448,6 +448,50 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
 }
 
 #[derive(Deserialize)]
+struct ClaimReq {
+    claim: Option<String>,
+    domain: Option<String>,
+    /// The snapshot block a claim must be against. Omit for a payer tag.
+    height: Option<u32>,
+}
+
+/// Checks a claim (`zip311t1…` with a snapshot block) or a payer tag (one with none) for the
+/// caller's domain, and returns its tag: keep one claim per tag, or count payers by tag.
+async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body<ClaimReq>) -> Result<Json<Value>, ApiError> {
+    let text = req.claim.ok_or_else(|| ApiError::missing("claim"))?;
+    let domain = req.domain.ok_or_else(|| ApiError::missing("domain"))?;
+    let net = auth.mode.net(&st.config);
+    let server = auth.mode.server(&st.config);
+    let c = receipts_core::claim::Claim::from_text(&text).map_err(|_| ApiError::invalid("claim_malformed", "the claim text could not be decoded").param("claim"))?;
+    if c.coin_type != net.coin_type() {
+        return Err(ApiError::invalid("receipt_network_mismatch", "the claim is for another network than the key's mode").param("claim"));
+    }
+    if c.domain != domain.as_bytes() {
+        return Err(ApiError::verification("claim_invalid", "the claim is for another domain").param("claim"));
+    }
+    let invalid = |e: anyhow::Error| ApiError::verification("claim_invalid", e.to_string()).param("claim");
+    if c.height == 0 {
+        let txid = std::str::from_utf8(&c.msg)
+            .ok()
+            .and_then(|m| m.strip_prefix("payer-tag:"))
+            .and_then(|t| hex::decode(t).ok())
+            .and_then(|mut b| {
+                b.reverse();
+                <[u8; 32]>::try_from(b).ok()
+            })
+            .ok_or_else(|| ApiError::verification("claim_invalid", "a claim with no snapshot block must be a payer tag").param("claim"))?;
+        let tag = chain::verify_payer_tag_against_chain(&c, domain.as_bytes(), txid, net, server.as_deref()).await.map_err(invalid)?;
+        return Ok(Json(json!({ "valid": true, "kind": "payer_tag", "domain": domain, "txid": receipts_core::display_txid(&txid), "tag": hex::encode(tag) })));
+    }
+    let height = req.height.ok_or_else(|| ApiError::missing("height"))?;
+    if c.height != height {
+        return Err(ApiError::verification("claim_invalid", format!("the claim is against block {}, not the snapshot {height}", c.height)).param("claim"));
+    }
+    let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), None).await.map_err(invalid)?;
+    Ok(Json(serde_json::to_value(rep).unwrap()))
+}
+
+#[derive(Deserialize)]
 struct CheckLink {
     uri: Option<String>,
     /// Default: the network of the key's mode.
@@ -785,6 +829,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/errors", get(errors_handler))
         .route("/v1/sandbox/fixtures", get(fixtures_handler))
         .route("/v1/verify", post(verify_handler))
+        .route("/v1/claims/verify", post(claims_verify_handler))
         .route("/v1/payment_links/check", post(check_link_handler))
         .route("/v1/sign_in/challenges", post(signin::create_challenge))
         .route("/v1/sign_in/verify", post(signin::verify))

@@ -254,6 +254,11 @@ impl Client {
     pub async fn verify_sign_in(&self, sign_in: &str) -> Result<Value, Error> {
         self.call(reqwest::Method::POST, "/v1/sign_in/verify", Some(json!({ "sign_in": sign_in })), None).await
     }
+    /// Checks a `zip311t1…` claim (with its snapshot `height`) or payer tag (`height` None) for
+    /// `domain`; returns its tag.
+    pub async fn verify_claim(&self, claim: &str, domain: &str, height: Option<u32>) -> Result<Value, Error> {
+        self.call(reqwest::Method::POST, "/v1/claims/verify", Some(json!({ "claim": claim, "domain": domain, "height": height })), None).await
+    }
     pub async fn create_webhook_endpoint(&self, url: &str, events: Option<&[&str]>) -> Result<Value, Error> {
         let mut b = json!({ "url": url });
         if let Some(e) = events {

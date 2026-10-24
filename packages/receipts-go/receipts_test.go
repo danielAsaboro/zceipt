@@ -87,6 +87,10 @@ func TestEveryOperation(t *testing.T) {
 		t.Fatal("verifySignIn", err)
 	}
 	done["verifySignIn"] = true
+	if _, err := c.VerifyClaim(ctx, M{"claim": "zip311t1AAAA", "domain": "round"}); !errors.As(err, &apiErr) || apiErr.Code != "claim_malformed" {
+		t.Fatal("verifyClaim", err)
+	}
+	done["verifyClaim"] = true
 	ep := must("createWebhookEndpoint")(c.CreateWebhookEndpoint(ctx, M{"url": "http://127.0.0.1:9/parity"}))
 	must("listWebhookEndpoints")(c.ListWebhookEndpoints(ctx))
 	must("deleteWebhookEndpoint")(c.DeleteWebhookEndpoint(ctx, s(ep, "id")))

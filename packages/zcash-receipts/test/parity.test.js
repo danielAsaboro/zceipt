@@ -42,6 +42,7 @@ test("every API operation works through the JS SDK", { skip: !URL_ || !KEY }, as
   const ch = await call("createSignInChallenge", r.signIn.createChallenge({ domain: "parity.test" }));
   await call("verifySignIn", r.signIn.verify("zsig1AAAA").catch((e) => assert.equal(e.code ?? e.body?.error?.code, "sign_in_malformed")));
   void ch;
+  await call("verifyClaim", r.claims.verify({ claim: "zip311t1AAAA", domain: "round" }).catch((e) => assert.equal(e.code ?? e.body?.error?.code, "claim_malformed")));
   const ep = await call("createWebhookEndpoint", r.webhookEndpoints.create({ url: "http://127.0.0.1:9/parity" }));
   await call("listWebhookEndpoints", r.webhookEndpoints.list());
   await call("deleteWebhookEndpoint", r.webhookEndpoints.del(ep.id));

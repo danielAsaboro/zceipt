@@ -43,6 +43,8 @@ mod encoding;
 #[cfg(all(feature = "extensions", feature = "orchard-ext"))]
 pub mod claim;
 #[cfg(feature = "extensions")]
+pub mod designated;
+#[cfg(feature = "extensions")]
 pub mod income;
 #[cfg(feature = "orchard-ext")]
 pub mod incoming;
@@ -447,6 +449,8 @@ pub enum Error {
     NoSpends,
     #[error("the batch's aggregate proof doesn't hold, or a receipt in it carries its own proof")]
     BadAggregate,
+    #[error("the designated-verifier proof doesn't hold")]
+    BadDesignated,
     #[error("the claim doesn't hold")]
     BadClaim,
     #[error("the key-set proof doesn't hold for this receipt")]
@@ -1100,7 +1104,7 @@ pub fn verify<A: Authorization, V>(
     if receipt.unsigned.output_pool.is_some() {
         return Err(Error::PoolMismatch); // needs both bundles: use verify_tx_bundles
     }
-    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, &no_sources, None)
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, &no_sources, None, false)
 }
 
 /// A `SourceLookup` that knows no transactions: receipts with source proofs are refused.
@@ -1121,7 +1125,7 @@ pub fn verify_with_sources<A: Authorization, V>(
     if receipt.unsigned.output_pool.is_some() {
         return Err(Error::PoolMismatch);
     }
-    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, sources, None)
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, sources, None, false)
 }
 
 /// Verifies a receipt against a whole transaction, computing its txid here: the entry point for
@@ -1176,7 +1180,33 @@ pub fn verify_tx_bundles_with_sources<A: Authorization, V>(
         None => spends,
         Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
     };
-    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, sources, None)
+    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, sources, None, false)
+}
+
+/// Verifies a designated-verifier receipt (`designated::DesignatedReceipt`): its one-of-two
+/// proofs in place of signatures, then every other check of [`verify_tx_bundles`].
+#[cfg(feature = "extensions")]
+pub fn verify_designated_tx_bundles<A: Authorization, V>(
+    vk: &VerifyingKey,
+    d: &designated::DesignatedReceipt,
+    expected_coin_type: u32,
+    txid: [u8; 32],
+    orchard: Option<&Bundle<A, V>>,
+    ironwood: Option<&Bundle<A, V>>,
+    sources: SourceLookup<'_>,
+) -> Result<VerifiedReceipt, Error> {
+    d.check_proofs()?;
+    let u = &d.receipt.unsigned;
+    let pick = |p: Pool| match p {
+        Pool::Orchard => orchard,
+        Pool::Ironwood => ironwood,
+    };
+    let spends = pick(u.pool).ok_or(Error::PoolMismatch)?;
+    let outs = match u.output_pool {
+        None => spends,
+        Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
+    };
+    verify_cross(vk, &d.receipt, expected_coin_type, u.pool, txid, spends, outs, sources, None, true)
 }
 
 /// For a receipt of an aggregated batch: every check of [`verify_tx_bundles`] except the spends'
@@ -1202,7 +1232,7 @@ pub fn verify_tx_bundles_deferred<A: Authorization, V>(
         Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
     };
     let no_sources = |_: Pool, _: &[u8; 32], _: u32| None;
-    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, &no_sources, Some(instances))
+    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, &no_sources, Some(instances), false)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1216,6 +1246,7 @@ fn verify_cross<A: Authorization, V>(
     output_bundle: &Bundle<A, V>,
     sources: SourceLookup<'_>,
     mut deferred: Option<&mut Vec<Instance>>,
+    designated: bool,
 ) -> Result<VerifiedReceipt, Error> {
     let u = &receipt.unsigned;
     let output_pool = u.output_pool.unwrap_or(u.pool);
@@ -1245,8 +1276,11 @@ fn verify_cross<A: Authorization, V>(
     for (s, sig) in u.spends.iter().zip(&receipt.spend_auth_sigs) {
         let action = &actions[s.index as usize];
         let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
-        let sig = redpallas::Signature::<SpendAuth>::from(*sig);
-        rk.verify(&digest, &sig).map_err(|_| Error::BadSignature(s.index))?;
+        // A designated receipt's one-of-two proofs stand in for the signatures (checked by the caller).
+        if !designated {
+            let sig = redpallas::Signature::<SpendAuth>::from(*sig);
+            rk.verify(&digest, &sig).map_err(|_| Error::BadSignature(s.index))?;
+        }
 
         let cv_net = Option::<ValueCommitment>::from(ValueCommitment::from_bytes(&s.cv_net)).ok_or(Error::Malformed(s.index))?;
         let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&s.cmx)).ok_or(Error::Malformed(s.index))?;

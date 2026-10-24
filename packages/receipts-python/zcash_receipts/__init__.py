@@ -195,6 +195,15 @@ class _SignIn(_Resource):
         return self._c._request("POST", "/v1/sign_in/verify", {"sign_in": sign_in})
 
 
+class _Claims(_Resource):
+    def verify(self, claim: str, *, domain: str, height: Optional[int] = None) -> Dict[str, Any]:
+        """Check a zip311t1… claim (with its snapshot height) or payer tag (no height); returns its tag."""
+        body: Dict[str, Any] = {"claim": claim, "domain": domain}
+        if height is not None:
+            body["height"] = height
+        return self._c._request("POST", "/v1/claims/verify", body)
+
+
 class _Public(_Resource):
     """What hosted pay and campaign pages use: no API key, a per-request client secret."""
     def get_request(self, id: str, secret: str) -> Dict[str, Any]:
@@ -240,6 +249,7 @@ class Receipts:
         self.refunds = _Refunds(self)
         self.public = _Public(self)
         self.sign_in = _SignIn(self)
+        self.claims = _Claims(self)
         self.test_clocks = _TestClocks(self)
         self.attestations = _Attestations(self)
         self.webhook_endpoints = _WebhookEndpoints(self)

@@ -126,6 +126,10 @@ export class Receipts {
       /** Check a `zsig1…` once: `{ sign_in }` → `{ verified, address, domain }`. */
       verify: (params) => r._request("POST", "/v1/sign_in/verify", typeof params === "string" ? { sign_in: params } : params),
     };
+    this.claims = {
+      /** Check a `zip311t1…` claim `{ claim, domain, height }` or payer tag `{ claim, domain }`; returns its tag. */
+      verify: (params) => r._request("POST", "/v1/claims/verify", params),
+    };
     this.webhookEndpoints = {
       create: (params) => r._request("POST", "/v1/webhook_endpoints", params),
       list: () => r._request("GET", "/v1/webhook_endpoints"),

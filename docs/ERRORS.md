@@ -44,6 +44,8 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="refund_address_missing"></a>`refund_address_missing` | 409 | The payer did not sign a refund address into their receipt (`receipts create --refund-to`). |
 | <a id="refund_amount_invalid"></a>`refund_amount_invalid` | 400 | The refund amount is zero or more than what is left of the payment. |
 | <a id="refund_already_succeeded"></a>`refund_already_succeeded` | 409 | The refund was already settled with a receipt. |
+| <a id="claim_malformed"></a>`claim_malformed` | 400 | The `claim` text could not be decoded as a zip311t1… claim or payer tag. |
+| <a id="claim_invalid"></a>`claim_invalid` | 422 | The claim is for another domain or snapshot block, its proof or signature doesn't check out, its note was spent before the snapshot, or the payer tag doesn't match its payment. |
 | <a id="sign_in_malformed"></a>`sign_in_malformed` | 400 | The `sign_in` text could not be decoded as a zsig1… sign-in. |
 | <a id="sign_in_challenge_not_found"></a>`sign_in_challenge_not_found` | 404 | No sign-in challenge with that nonce for this key's mode. |
 | <a id="sign_in_challenge_used"></a>`sign_in_challenge_used` | 409 | The sign-in challenge was already used. Each nonce signs in once. |

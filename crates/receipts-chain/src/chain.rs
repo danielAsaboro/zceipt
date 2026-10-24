@@ -503,7 +503,7 @@ pub fn verify_offline_with_sources(
             .collect();
         map.insert(id, SourceTx { tx: stx, height: *h, transparent_inputs });
     }
-    let mut r = report_for(receipt, net, &tx, height, &map, None)?;
+    let mut r = report_for(receipt, net, &tx, height, &map, None, None)?;
     r.chain_checked = false;
     Ok(r)
 }
@@ -543,9 +543,14 @@ fn transparent_address(net: Net, out: &zcash_transparent::bundle::TxOut) -> Opti
 pub async fn fetch_sources(receipt: &Receipt, net: Net, server: Option<&str>) -> anyhow::Result<std::collections::BTreeMap<[u8; 32], SourceTx>> {
     // A budget for what a receipt can make the verifier fetch: an edited receipt fails its
     // signatures first, and a made-up one can't turn one check into thousands of requests.
+    receipt.check_signatures().map_err(|e| anyhow!("{e}"))?;
+    fetch_sources_checked(receipt, net, server).await
+}
+
+/// [`fetch_sources`] for a receipt whose authorization the caller already checked.
+async fn fetch_sources_checked(receipt: &Receipt, net: Net, server: Option<&str>) -> anyhow::Result<std::collections::BTreeMap<[u8; 32], SourceTx>> {
     const MAX_SOURCES: usize = 8;
     const MAX_FUNDING_INPUTS: usize = 16;
-    receipt.check_signatures().map_err(|e| anyhow!("{e}"))?;
     let distinct: std::collections::BTreeSet<_> = receipt.unsigned.spends.iter().filter_map(|s| s.source.as_ref().map(|s| s.txid)).collect();
     if distinct.len() > MAX_SOURCES {
         bail!("the receipt names {} source transactions; a verifier fetches at most {MAX_SOURCES}", distinct.len());
@@ -607,9 +612,24 @@ pub async fn verify_against_chain_hinted(
         }
     };
     let sources = fetch_sources(receipt, net, server).await?;
-    let mut report = report_for(receipt, net, &tx, height, &sources, None)?;
+    let mut report = report_for(receipt, net, &tx, height, &sources, None, None)?;
     report.anonymity_set = set;
     Ok(report)
+}
+
+/// Verifies a designated-verifier receipt against the chain: its one-of-two proofs, then every
+/// check of [`verify_against_chain`].
+pub async fn verify_designated_against_chain(
+    d: &receipts_core::designated::DesignatedReceipt,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<Report> {
+    let receipt = &d.receipt;
+    let net = net::for_receipt(receipt.unsigned.coin_type, regtest)?;
+    d.check_proofs().map_err(|e| anyhow!("{e}"))?;
+    let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
+    let sources = fetch_sources_checked(receipt, net, server).await?;
+    report_for(receipt, net, &tx, height, &sources, None, Some(d))
 }
 
 /// Verifies an aggregated batch (`ReceiptBatch::aggregate`): each receipt against its mined
@@ -636,7 +656,7 @@ pub async fn verify_aggregated_batch(
                 (tx, height, None)
             }
         };
-        let mut report = report_for(r, net, &tx, height, &Default::default(), Some(&mut instances))?;
+        let mut report = report_for(r, net, &tx, height, &Default::default(), Some(&mut instances), None)?;
         report.anonymity_set = set;
         reports.push(report);
     }
@@ -653,6 +673,7 @@ fn report_for(
     height: u32,
     sources: &std::collections::BTreeMap<[u8; 32], SourceTx>,
     deferred: Option<&mut Vec<orchard::circuit::Instance>>,
+    designated: Option<&receipts_core::designated::DesignatedReceipt>,
 ) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
     static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
@@ -669,9 +690,10 @@ fn report_for(
         }?;
         receipts_core::output_cmx(bundle, index)
     };
-    let v = match deferred {
-        Some(st) => receipts_core::verify_tx_bundles_deferred(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
-        None => receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+    let v = match (deferred, designated) {
+        (_, Some(d)) => receipts_core::verify_designated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+        (Some(st), None) => receipts_core::verify_tx_bundles_deferred(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
+        (None, None) => receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
     }
     .map_err(|e| match e {
         // An edited or forged receipt: the reason is enough.
@@ -1294,12 +1316,14 @@ impl ClaimReport {
 /// tree keeps spent notes, so without this one balance could claim from every key it moved through).
 pub async fn verify_claim_against_chain(
     c: &receipts_core::claim::Claim,
+    net: Net,
     server: Option<&str>,
-    regtest: Option<&std::path::Path>,
     cache: Option<&std::path::Path>,
 ) -> anyhow::Result<ClaimReport> {
     use zcash_client_backend::proto::service::BlockId;
-    let net = net::for_receipt(c.coin_type, regtest)?;
+    if c.coin_type != net.coin_type() {
+        bail!("the claim is for another network");
+    }
     let nf = c.nf.ok_or_else(|| anyhow!("this claim hides its nullifier, so it can only be checked against a published list, not the chain"))?;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
     let ts = client
@@ -1341,10 +1365,12 @@ pub async fn verify_payer_tag_against_chain(
     c: &receipts_core::claim::Claim,
     domain: &[u8],
     txid: [u8; 32],
+    net: Net,
     server: Option<&str>,
-    regtest: Option<&std::path::Path>,
 ) -> anyhow::Result<[u8; 32]> {
-    let net = net::for_receipt(c.coin_type, regtest)?;
+    if c.coin_type != net.coin_type() {
+        bail!("the payer tag is for another network");
+    }
     let (tx, _) = fetch_mined_tx(net, server, txid).await?;
     let bundle = match c.pool {
         Pool::Ironwood => tx.ironwood_bundle(),

@@ -84,6 +84,8 @@ async fn every_operation() {
     op!("createSignInChallenge", c.create_sign_in_challenge(Some("parity.test")));
     done.insert("verifySignIn");
     assert_eq!(c.verify_sign_in("zsig1AAAA").await.unwrap_err().code(), Some("sign_in_malformed"));
+    done.insert("verifyClaim");
+    assert_eq!(c.verify_claim("zip311t1AAAA", "round", None).await.unwrap_err().code(), Some("claim_malformed"));
     let ep = op!("createWebhookEndpoint", c.create_webhook_endpoint("http://127.0.0.1:9/parity", None));
     op!("listWebhookEndpoints", c.list_webhook_endpoints());
     op!("deleteWebhookEndpoint", c.delete_webhook_endpoint(ep["id"].as_str().unwrap()));

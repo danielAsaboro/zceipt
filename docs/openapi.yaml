@@ -22,6 +22,7 @@ tags:
   - name: Verification
   - name: Proof requests
   - name: Sign in with Zcash
+  - name: Claims
   - name: Webhooks
   - name: Meta
 paths:
@@ -331,6 +332,33 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /v1/claims/verify:
+    post:
+      tags: [Claims]
+      operationId: verifyClaim
+      summary: Verify a zip311t1… claim or payer tag and return its tag
+      description: |
+        A claim shows a wallet held at least its floor at the snapshot block `height`; keep one claim per tag.
+        A payer tag (no `height`) is on a payment's real spend; payments with different tags were made by different wallets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claim, domain]
+              properties:
+                claim: { type: string, description: "The zip311t1… text." }
+                domain: { type: string, description: "Your airdrop's or round's name; a claim for another is refused." }
+                height: { type: integer, description: "The snapshot block. Required for a claim, omitted for a payer tag." }
+      responses:
+        "200":
+          description: Valid
+          content:
+            application/json:
+              example: { valid: true, kind: claim, network: test, pool: Ironwood, domain: airdrop-1, message: "", tag: f1771da7bc17af4c1393e2edafccbd1d34bd5a638ef50ddffca2f003a56cc936, floor_zatoshis: 10000000, floor_zec: "0.10000000", snapshot_height: 568 }
+        "400": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /v1/requests:
     post:

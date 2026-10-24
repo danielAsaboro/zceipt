@@ -77,6 +77,11 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    regtest e2e claims twice from one wallet. A payer tag is the same proof on a note a payment
    spent (its nullifier one of the payment's, its anchor the payment's), so different tags mean
    different paying keys; `roundtrip.rs::payer_tags_tell_wallets_apart`.
+12. **One verifier (a `zip311d1` receipt).** Claims (1) to (3) for the holder of the verifier key
+   `V` only: each signature is a one-of-two Schnorr proof (`rk`'s discrete log, or `V`'s), so
+   special soundness gives the verifier, who knows it didn't use its own `y`, the spend key's
+   authorization; to anyone else the proof is one the verifier could have simulated
+   (`designated::simulate`). `roundtrip.rs::designated_receipts_convince_only_their_verifier`.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

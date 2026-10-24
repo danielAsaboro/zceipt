@@ -248,6 +248,11 @@ func (c *Client) VerifySignIn(ctx context.Context, signIn string) (M, error) {
 	return c.do(ctx, "POST", "/v1/sign_in/verify", M{"sign_in": signIn})
 }
 
+// Claims and payer tags: p is {"claim", "domain", "height" (claims only)}.
+func (c *Client) VerifyClaim(ctx context.Context, p M) (M, error) {
+	return c.do(ctx, "POST", "/v1/claims/verify", p)
+}
+
 // Sandbox test clocks
 func (c *Client) CreateTestClock(ctx context.Context, p M) (M, error) {
 	return c.do(ctx, "POST", "/v1/test_clocks", p)

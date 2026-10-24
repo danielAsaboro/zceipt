@@ -165,6 +165,9 @@ class Parity(unittest.TestCase):
         with self.assertRaises(InvalidRequestError):
             c.sign_in.verify("zsig1AAAA")
         done.add("verifySignIn")
+        with self.assertRaises(InvalidRequestError):
+            c.claims.verify("zip311t1AAAA", domain="round")
+        done.add("verifyClaim")
         ep = call("createWebhookEndpoint", c.webhook_endpoints.create(url="http://127.0.0.1:9/parity"))
         call("listWebhookEndpoints", c.webhook_endpoints.list())
         call("deleteWebhookEndpoint", c.webhook_endpoints.delete(ep["id"]))

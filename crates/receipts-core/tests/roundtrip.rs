@@ -2416,3 +2416,34 @@ fn payer_tags_tell_wallets_apart() {
     assert!(claim::verify_payer_tag(&c1, b"round-8", &txids[0], &anchor, &nfs1).is_err());
     assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &b.payment.anchor().to_bytes(), &nfs1).is_err());
 }
+
+#[test]
+fn designated_receipts_convince_only_their_verifier() {
+    use receipts_core::{designated, prepare, verify_designated_tx_bundles, ViewingSpendWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness { index: s.spend_index, fvk: fvk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None };
+    let prepared = prepare(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"Order 9", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[], &[witness], OsRng).unwrap();
+    let (y, v) = designated::verifier_key(OsRng);
+    let d = designated::prove(prepared, std::slice::from_ref(&s.sender_sk), v, OsRng).unwrap();
+    let back = designated::DesignatedReceipt::from_text(&d.to_text()).unwrap();
+    assert_eq!(back, d);
+    let none = |_: Pool, _: &[u8; 32], _: u32| None;
+    let ok = verify_designated_tx_bundles(&keys().1, &back, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    assert_eq!(ok.outputs[0].value, s.merchant_value);
+    // It has no ordinary signatures: as a plain receipt it is refused.
+    assert!(verify(&keys().1, &back.receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).is_err());
+    // An edit, or another verifier's key, breaks the proofs.
+    let mut e = d.clone();
+    e.receipt.unsigned.msg = b"Order 10".to_vec();
+    assert!(e.check_proofs().is_err());
+    let (_, v2) = designated::verifier_key(OsRng);
+    let mut e = d.clone();
+    e.verifier = v2;
+    assert!(e.check_proofs().is_err());
+    // The verifier can make an equally valid one with its own key and no spend key, so the receipt
+    // proves nothing to anyone it forwards it to.
+    let forged = designated::simulate(d.receipt.clone(), &y, OsRng).unwrap();
+    assert_eq!(forged.verifier, v);
+    verify_designated_tx_bundles(&keys().1, &forged, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+}

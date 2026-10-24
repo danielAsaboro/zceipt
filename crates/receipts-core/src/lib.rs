@@ -40,12 +40,16 @@ pub mod builder;
 #[cfg(feature = "extensions")]
 pub mod deposit;
 mod encoding;
+#[cfg(feature = "extensions")]
+pub mod income;
 #[cfg(feature = "orchard-ext")]
 pub mod incoming;
 #[cfg(feature = "extensions")]
 pub mod link;
 #[cfg(feature = "extensions")]
 pub mod payreq;
+#[cfg(feature = "extensions")]
+pub mod policy;
 #[cfg(feature = "extensions")]
 pub mod preflight;
 #[cfg(feature = "extensions")]
@@ -439,6 +443,10 @@ pub enum Error {
     NoSpends,
     #[error("the batch's aggregate proof doesn't hold, or a receipt in it carries its own proof")]
     BadAggregate,
+    #[error("the policy proof doesn't hold for this receipt")]
+    BadPolicy,
+    #[error("the proof of income doesn't hold")]
+    BadIncome,
     #[error("the same-payer proof doesn't hold for these receipts")]
     BadLink,
     #[error("the transaction has no {0:?} bundle")]

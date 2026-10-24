@@ -62,7 +62,7 @@ pub fn set_root(set: &[[u8; 32]]) -> Result<[u8; 32], Error> {
 }
 
 /// The root and the authentication path of leaf `pos`.
-fn tree(set: &[[u8; 32]], pos: usize) -> Result<(Anchor, MerklePath), Error> {
+pub(crate) fn tree(set: &[[u8; 32]], pos: usize) -> Result<(Anchor, MerklePath), Error> {
     if set.is_empty() || set.len() > MAX_SET || pos >= set.len() {
         return Err(Error::NotInSet);
     }
@@ -85,7 +85,7 @@ fn tree(set: &[[u8; 32]], pos: usize) -> Result<(Anchor, MerklePath), Error> {
     Ok((Anchor::from(level[0]), path))
 }
 
-fn cv_net(floor: u64) -> Option<ValueCommitment> {
+pub(crate) fn cv_net(floor: u64) -> Option<ValueCommitment> {
     (floor >= 1).then(|| ValueCommitment::derive(NoteValue::from_raw(floor) - NoteValue::ZERO, zero_trapdoor()))
 }
 

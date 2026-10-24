@@ -351,12 +351,35 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Proof of income: prove you received at least an amount across payments, amounts hidden.
+    ///
+    /// For a lender, a landlord or a grant program: proves this wallet received at least --min in
+    /// total in the --txid payments, without showing any payment's amount. Reveals which outputs and
+    /// each note's nullifier (the verifier can see if they are spent), nothing else.
+    #[command(display_order = 6)]
+    Income {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// A payment this wallet received (repeat it for each).
+        #[arg(long = "txid", required = true)]
+        txids: Vec<String>,
+        /// Prove at least this many ZEC in total across them.
+        #[arg(long)]
+        min: String,
+        /// A challenge or purpose to bind in (e.g. the lender's nonce).
+        #[arg(short, long, default_value = "")]
+        msg: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Proof of funds: prove you hold at least an amount, without a viewing key.
     ///
-    /// Proof of funds: prove you hold at least an amount in unspent shielded notes (for a
+    /// Proves the wallet holds at least an amount in unspent notes, to anyone who asks (a
     /// counterparty, an escrow, a lender or a treasury report), without a viewing key. Reveals
     /// each note's value and nullifier (so the verifier can see when they are spent), nothing else.
-    #[command(display_order = 6)]
+    #[command(display_order = 7)]
     Reserve {
         #[arg(short, long)]
         wallet: PathBuf,
@@ -705,10 +728,16 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
 
 /// How many receipts of any kind (receipt, batch, incoming receipt, proof of funds) the input holds.
 fn count_receipts(text: &str) -> usize {
-    [receipts_core::TEXT_PREFIX, receipts_core::BATCH_TEXT_PREFIX, receipts_core::incoming::INCOMING_TEXT_PREFIX, receipts_core::reserve::RESERVE_TEXT_PREFIX]
-        .iter()
-        .map(|p| text.matches(p).count())
-        .sum()
+    [
+        receipts_core::TEXT_PREFIX,
+        receipts_core::BATCH_TEXT_PREFIX,
+        receipts_core::incoming::INCOMING_TEXT_PREFIX,
+        receipts_core::reserve::RESERVE_TEXT_PREFIX,
+        receipts_core::income::INCOME_TEXT_PREFIX,
+    ]
+    .iter()
+    .map(|p| text.matches(p).count())
+    .sum()
 }
 
 /// An incoming receipt proves one receiving address: with --expect-address it must be that one.
@@ -1547,6 +1576,57 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
             bail!("the input holds more than one receipt; verify one at a time");
         }
+        Cmd::Verify { receipt, server, regtest, json, .. } if read_arg_text(&receipt)?.contains(receipts_core::income::INCOME_TEXT_PREFIX) => {
+            let text = read_arg_text(&receipt)?;
+            let i = text.find(receipts_core::income::INCOME_TEXT_PREFIX).unwrap();
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let p = receipts_core::income::IncomeProof::from_text(&body)?;
+            let (min, challenge, _) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
+            if let Some(c) = challenge {
+                if receipts_server::verify::challenge_of(&String::from_utf8_lossy(&p.msg)).as_deref() != Some(c.as_str()) {
+                    bail!("the proof of income doesn't sign challenge {c}: it was made for someone else, or earlier");
+                }
+            }
+            let net = net::for_receipt(p.coin_type, regtest.as_deref())?;
+            // Each payment fetched among its block's transactions; the outputs' commitments read from them.
+            let mut cmxs = std::collections::BTreeMap::new();
+            for it in &p.items {
+                if let std::collections::btree_map::Entry::Vacant(e) = cmxs.entry((it.txid, it.pool as u8)) {
+                    let (tx, _, _) = chain::fetch_mined_tx_in_block(net, server.as_deref(), it.txid, it.height).await?;
+                    let b = match it.pool {
+                        Pool::Orchard => tx.orchard_bundle(),
+                        Pool::Ironwood => tx.ironwood_bundle(),
+                    };
+                    e.insert(b.map(|b| b.actions().iter().map(|a| a.cmx().to_bytes()).collect::<Vec<[u8; 32]>>()).unwrap_or_default());
+                }
+            }
+            let lookup = |pool: Pool, txid: &[u8; 32], index: u32| cmxs.get(&(*txid, pool as u8)).and_then(|l| l.get(index as usize)).copied();
+            let total = receipts_core::income::verify(&receipts_core::verifying_key(), &p, &lookup).map_err(|e| anyhow!("{e}"))?;
+            if let Some(m) = min.filter(|m| total < *m) {
+                bail!("the proof shows {} received, less than the {} expected", chain::zec(total), chain::zec(m));
+            }
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "valid": true, "kind": "income", "network": net.name(), "at_least_zatoshis": total, "payments": p.items.len(), "message": String::from_utf8_lossy(&p.msg) })
+                );
+            } else {
+                println!("VALID proof of income");
+                println!("  network   {}", net.name());
+                println!(
+                    "  received  at least {} {} across {} payment(s) to one wallet; no payment's amount is shown",
+                    chain::zec(total),
+                    chain::unit(net.name()),
+                    p.items.len()
+                );
+                for it in &p.items {
+                    println!("  payment   tx {}… output {} (block {})", &receipts_core::display_txid(&it.txid)[..12], it.index, it.height);
+                }
+                if !p.msg.is_empty() {
+                    println!("  message   {}", chain::shown(&String::from_utf8_lossy(&p.msg), "            "));
+                }
+            }
+        }
         Cmd::Verify { receipt, expect_address: Some(_), .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
             bail!("--expect-address doesn't apply to a proof of funds (it proves holdings, not a payment)");
         }
@@ -1887,6 +1967,22 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             if v["ok"] != true {
                 std::process::exit(1);
             }
+        }
+        Cmd::Income { wallet, identity, txids, min, msg, out } => {
+            let ids = txids.iter().map(|t| parse_txid(t)).collect::<anyhow::Result<Vec<_>>>()?;
+            let p = wallet::prove_income(&wallet, &identity, &ids, parse_zec(&min)?, msg.as_bytes(), None).await?;
+            let text = p.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!(
+                "Proof of income: at least {} ZEC across {} payment(s), {} bytes. It reveals which outputs and each note's nullifier, not the amounts.",
+                chain::zec(p.total()),
+                p.items.len(),
+                p.to_bytes().len()
+            );
+            println!("{text}");
         }
         Cmd::Reserve { wallet, identity, msg, at_least, pool, hide_values, out } => {
             let pool = match pool.as_str() {

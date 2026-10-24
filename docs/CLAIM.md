@@ -49,6 +49,14 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    relation the maker knows (keys pooled by their holders). The key and every other payment stay
    hidden. `src/link.rs`; `roundtrip.rs::same_payer_proof_links_one_key_and_nothing_else`, and
    the spec verifier checks the testnet batch's proof independently.
+9. **Income (a separate `zip311i1` proof).** For every listed output `(txid, index)`, the holder of
+   the proof's one `rk` owns the note that output created and it holds at least the item's floor,
+   so together at least the sum of the floors. Each item is an Action proof against the root of a
+   one-leaf tree holding the output's `cmx` (read from the chain by the verifier), with
+   `cv_net = ValueCommit_0(floor)` fixed by the verifier: the circuit's 64-bit range checks on the
+   note's value and on the hidden output's `v - floor` give `v >= floor`, and `floor >= 1` makes
+   it check the anchor. One SpendAuthSig by `rk` covers every item. Revealed: the outputs, each
+   note's nullifier, the floors. `src/income.rs`; `roundtrip.rs::proof_of_income_shows_a_total_not_the_amounts`.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

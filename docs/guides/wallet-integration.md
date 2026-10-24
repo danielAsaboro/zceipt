@@ -70,8 +70,10 @@ A wallet whose spending key is split with re-randomized FROST signs a receipt th
 transaction: the coordinator hands each signer `signing_digest(prepared.unsigned())` as the
 message and `prepared.alphas()[i]` as the randomizer (`frost_rerandomized::RandomizedParams::
 from_randomizer`), the threshold signs, and `apply_signatures` takes the aggregated signature.
-The prover needs only the full viewing key. `crates/receipts-core/tests/frost.rs` does this for
-a 2-of-3 key with the Zcash Foundation's crates and verifies the result.
+The prover needs only the full viewing key. With the key's published sharing commitment, the
+coordinator can add a policy proof (`receipts_core::policy`): the payment was authorized under
+that t-of-n key, without showing which holders signed. `crates/receipts-core/tests/frost.rs`
+does both for a 2-of-3 key with the Zcash Foundation's crates and verifies the results.
 
 ## What not to do
 

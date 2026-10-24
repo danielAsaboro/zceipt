@@ -2224,3 +2224,61 @@ fn an_aggregated_batch_proves_every_spend_with_one_proof() {
     verify_tx_bundles_deferred(&keys().1, &ra, COIN_TYPE_TESTNET, TXID, None, Some(&a.payment), &mut instances).unwrap();
     assert_eq!(verify_aggregate(&keys().1, &instances, &proof).unwrap_err(), Error::BadAggregate);
 }
+
+#[test]
+fn proof_of_income_shows_a_total_not_the_amounts() {
+    use receipts_core::income::{prove, spread, verify, IncomeWitness};
+    let v3 = BundleVersion::ironwood_v3();
+    // Two payments to the merchant (key [9; 32]): 42,000 and 30,000 zatoshis.
+    let (a, b) = (scenario_from(v3, 100_000, 42_000, 7), scenario_from(v3, 90_000, 30_000, 8));
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let fvk = FullViewingKey::from(&merchant_sk);
+    let (ta, tb) = ([0xa1; 32], [0xb2; 32]);
+    let found = |s: &Scenario, txid: [u8; 32]| -> IncomeWitness {
+        let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+        let (index, note) = s
+            .payment
+            .actions()
+            .iter()
+            .enumerate()
+            .find_map(|(i, act)| try_note_decryption(&IronwoodDomain::for_action(act), &ivk, act).map(|r| (i as u32, r.0)))
+            .unwrap();
+        IncomeWitness { pool: Pool::Ironwood, txid, index, height: 100, note }
+    };
+    let (wa, wb) = (found(&a, ta), found(&b, tb));
+    let source = |pool: Pool, txid: &[u8; 32], index: u32| -> Option<[u8; 32]> {
+        let s = if *txid == ta {
+            &a
+        } else if *txid == tb {
+            &b
+        } else {
+            return None;
+        };
+        (pool == Pool::Ironwood).then(|| s.payment.actions().get(index as usize).map(|act| act.cmx().to_bytes())).flatten()
+    };
+
+    // At least 60,000 in total, the floors as even as the notes allow (30,000 each).
+    let floors = spread(&[wa.note.value().inner(), wb.note.value().inner()], 60_000).unwrap();
+    assert_eq!(floors, vec![30_000, 30_000]);
+    let ask = SpendAuthorizingKey::from(&merchant_sk);
+    let p = prove(&keys().0, COIN_TYPE_TESTNET, &fvk, &ask, &[wa, wb], &floors, b"challenge:1ec0e1", OsRng).unwrap();
+    assert_eq!(verify(&keys().1, &p, &source).unwrap(), 60_000);
+    assert_eq!(receipts_core::income::IncomeProof::from_text(&p.to_text()).unwrap(), p);
+
+    // A floor raised after signing, an output swapped for another, or one counted twice: refused.
+    let mut bent = p.clone();
+    bent.items[0].floor += 1;
+    assert_eq!(verify(&keys().1, &bent, &source).unwrap_err(), Error::BadIncome);
+    let wrong = |pool: Pool, txid: &[u8; 32], index: u32| source(pool, txid, index ^ 1);
+    assert_eq!(verify(&keys().1, &p, &wrong).unwrap_err(), Error::BadIncome);
+    let mut twice = p.clone();
+    twice.items[1] = twice.items[0].clone();
+    assert_eq!(verify(&keys().1, &twice, &source).unwrap_err(), Error::BadIncome);
+    // More than the notes hold can't be proven, and another wallet's note can't be used.
+    assert!(spread(&[42_000, 30_000], 72_001).is_none());
+    let (wa, wb) = (found(&a, ta), found(&b, tb));
+    assert!(prove(&keys().0, COIN_TYPE_TESTNET, &fvk, &ask, &[wa, wb], &[42_001, 1], b"", OsRng).is_err());
+    let stranger = FullViewingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
+    let (wa, wb) = (found(&a, ta), found(&b, tb));
+    assert!(prove(&keys().0, COIN_TYPE_TESTNET, &stranger, &ask, &[wa, wb], &floors, b"", OsRng).is_err());
+}

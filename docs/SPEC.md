@@ -358,6 +358,41 @@ then carries the request's `challenge:<hex>` on the line after its batch line, a
 checks that each one does and that together they paid the requested address at least the
 requested amount (`verify --challenge … --expect-address … --min …` on a batch).
 
+## Proof of income (`zip311i1`)
+
+```
+income := "ZRCI" | version:u8 = 1 | coinType:u32le | msgLen:u16le | msg | rk[32]
+        | n:u16le | { pool:u8 | txid[32] | index:u32le | height:u32le | floor:u64le | nf[32] | cmx[32] }^n
+        | proofLen:u32le | proof | spendAuthSig[64]
+digest := BLAKE2b-256("ZIP311Income" || coinType, income without spendAuthSig)
+```
+
+A recipient proves it received at least `sum(floor)` across the listed outputs without showing
+their amounts. Item `i` is an Orchard Action statement with anchor = the root of a one-leaf
+tree holding `cmx` of output `index` of `txid` (the verifier reads it from the chain at
+`height`), `cv_net = ValueCommit_0(floor)` (fixed by the verifier), the note's nullifier `nf`,
+the proof's one `rk`, and the hidden output `cmx`; `proof` is one Halo 2 proof for every item.
+The verifier refuses an output or a nullifier listed twice, checks the signature by `rk` over
+`digest`, and reads a verifier's challenge from `msg`. Floors are chosen as even as the notes
+allow (`income::spread`), so they say little about the notes.
+
+## Policy proofs (`zip311p1`)
+
+```
+policy := "ZRCP" | version:u8 = 1 | coinType:u32le | msgLen:u16le | msg | digest[32]
+        | n:u16le | t:u8 | { C_j[32] }^t | nSpends:u8 | { R[32] | s[32] }^nSpends
+c      := ToScalar(BLAKE2b-512("ZIP311Policy" || coinType, policy without the s values || every rk))
+check  := [s_i]G == R_i + [c](rk_i - C_0)
+```
+
+For a treasury whose spend key is split t-of-n with re-randomized FROST: `C_0..C_{t-1}` is the
+key's published sharing commitment (`C_0` its `ak`), and the proof shows each spend of the
+receipt (signing digest `digest`) has `rk = C_0 + [alpha]G` with `alpha` known to the prover. The
+verifier learns that the payment was authorized under that t-of-n key; the FROST signature is an
+ordinary SpendAuthSig, so it doesn't show which holders signed. Each holder's verifying share is
+`Y_i = sum_j [i^j]C_j`. With a trusted dealer, the dealer knew the whole key; distributed key
+generation avoids that.
+
 ## Same-payer proofs (`zip311k1`)
 
 ```

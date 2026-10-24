@@ -367,3 +367,74 @@ def challenge_of(msg: str):
             c = line[len("challenge:"):]
             return c if 6 <= len(c) <= 64 and all(x in "0123456789abcdef" for x in c) else None
     return None
+
+
+def verify_income(text: str, expected_coin_type: int, source_cmx):
+    """Proof of income (zip311i1, crates/receipts-core/src/income.rs): the signature over the whole
+    proof by its one rk, each output counted once, and each item's public inputs: the anchor is
+    the root of a one-leaf tree holding the output's cmx (`source_cmx(pool, txid, index)`, read by
+    the caller from the chain) and cv_net is fixed to ValueCommit_0(floor). Halo 2 (one proof for
+    every item) is not checked: the public inputs are returned. Returns the total and the items."""
+    s = text.strip()
+    if not s.startswith("zip311i1"):
+        raise Invalid("not a zip311i1 proof of income")
+    b = rc.b64decode(s[8:])
+    p = 0
+
+    def take(n):
+        nonlocal p
+        if p + n > len(b):
+            raise Invalid("truncated")
+        out = b[p:p + n]
+        p += n
+        return out
+
+    if take(4) != b"ZRCI" or take(1) != b"\x01":
+        raise Invalid("bad magic or version")
+    coin = int.from_bytes(take(4), "little")
+    if coin != expected_coin_type:
+        raise Invalid("wrong network (coin type)")
+    msg = take(int.from_bytes(take(2), "little"))
+    rk = take(32)
+    n = int.from_bytes(take(2), "little")
+    if n == 0 or n > 256:
+        raise Invalid("bad item count")
+    items = []
+    for _ in range(n):
+        pool = {0: "orchard", 1: "ironwood"}.get(take(1)[0])
+        if pool is None:
+            raise Invalid("unknown pool")
+        txid, index, height = take(32), int.from_bytes(take(4), "little"), int.from_bytes(take(4), "little")
+        floor, nf, cmx = int.from_bytes(take(8), "little"), take(32), take(32)
+        if floor == 0:
+            raise Invalid("a zero floor")
+        items.append({"pool": pool, "txid": txid, "index": index, "height": height, "floor": floor, "nf": nf, "cmx": cmx})
+    proof_len = int.from_bytes(take(4), "little")
+    if proof_len == 0:
+        raise Invalid("no proof")
+    take(proof_len)
+    body_end = p
+    sig = take(64)
+    if p != len(b):
+        raise Invalid("trailing bytes")
+    try:
+        pl.decode_point(rk)
+    except ValueError:
+        raise Invalid("rk is not a valid non-zero point")
+    digest = hashlib.blake2b(b[:body_end], digest_size=32, person=b"ZIP311Income" + coin.to_bytes(4, "little")).digest()
+    if not o.redpallas_verify(rk, digest, sig):
+        raise Invalid("bad signature")
+    seen, nfs, out = set(), set(), []
+    for it in items:
+        key = (it["pool"], it["txid"], it["index"])
+        if key in seen or it["nf"] in nfs:
+            raise Invalid("an output or note counted twice")
+        seen.add(key)
+        nfs.add(it["nf"])
+        src = source_cmx(it["pool"], it["txid"], it["index"])
+        if src is None:
+            raise Invalid("an output the chain doesn't have")
+        _canonical_base(it["cmx"], "income cmx")
+        out.append({"anchor": screened_set_root([src]).hex(), "cv_net": pl.repr_p(o.value_commit(0, it["floor"])).hex(), "nf": it["nf"].hex(),
+                    "rk": rk.hex(), "cmx": it["cmx"].hex(), "floor": it["floor"]})
+    return {"total": sum(i["floor"] for i in items), "message": msg, "items": out, "proof": "not checked"}

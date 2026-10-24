@@ -51,11 +51,11 @@ pub fn spend_auth_base() -> pallas::Point {
     pallas::Point::hash_to_curve("z.cash:Orchard")(b"G")
 }
 
-fn point(b: &[u8; 32]) -> Result<pallas::Point, Error> {
+pub(crate) fn point(b: &[u8; 32]) -> Result<pallas::Point, Error> {
     Option::from(pallas::Point::from_bytes(b)).ok_or(Error::BadLink)
 }
 
-fn scalar(b: &[u8; 32]) -> Result<pallas::Scalar, Error> {
+pub(crate) fn scalar(b: &[u8; 32]) -> Result<pallas::Scalar, Error> {
     Option::from(<pallas::Scalar as group::ff::PrimeField>::from_repr(*b)).ok_or(Error::BadLink)
 }
 

@@ -24,6 +24,9 @@ if [ -n "$R" ]; then
   # One request answered by a batch of two payments: every receipt signs it, the total is checked.
   B="#$(cat examples/testnet/batch-request/link.txt)"; M=$(cat examples/testnet/merchant.ua)
   "$R" verify "$B" --challenge b7e2c41a9d03 --expect-address "$M" --min 0.01 >/dev/null 2>&1 && ! "$R" verify "$B" --challenge 000000aaaaaa >/dev/null 2>&1 && ! "$R" verify "$B" --expect-address "$M" --min 0.02 >/dev/null 2>&1 && echo "a batch answers one request: right challenge and total pass, others refused" || { echo "batch request checks failed"; exit 1; }
+  # Proof of income: at least 0.02 TAZ across four payments, no amount shown.
+  I=examples/testnet/income/proof.txt
+  "$R" verify @$I --challenge 10a4e7c3d2b1 --min 0.02 >/dev/null 2>&1 && ! "$R" verify @$I --min 0.03 >/dev/null 2>&1 && ! "$R" verify @$I --challenge 000000aaaaaa >/dev/null 2>&1 && echo "proof of income: at least 0.02 across 4 payments, more refused" || { echo "proof of income checks failed"; exit 1; }
   # The public demo wallet: anyone can sign for it, so it shows as a demo and answers no challenge.
   D=$(mktemp); "$R" demo -m "challenge:abcdef12" 2>/dev/null > "$D"
   "$R" verify @"$D" 2>/dev/null | grep >/dev/null "public demo wallet" && ! "$R" verify @"$D" --challenge abcdef12 >/dev/null 2>&1 && echo "a demo-wallet receipt says so and answers no challenge" || { echo "a demo-wallet receipt passed as a real one"; exit 1; }

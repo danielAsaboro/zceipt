@@ -1139,6 +1139,60 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Proof of income: this wallet received at least `min` zatoshis in the payments `txids` (each a
+/// transaction it received in, from its database), without showing any payment's amount
+/// (`receipts_core::income`). Counts the outputs to the wallet's external addresses, not change.
+pub async fn prove_income(
+    wallet: &Path,
+    identity: &Path,
+    txids: &[[u8; 32]],
+    min: u64,
+    msg: &[u8],
+    server: Option<&str>,
+) -> anyhow::Result<receipts_core::income::IncomeProof> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let db = WalletDb::for_path(wallet.join("data.sqlite"), net, SystemClock, OsRng)?;
+    let conn = rusqlite::Connection::open_with_flags(wallet.join("data.sqlite"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+    let mut witnesses = Vec::new();
+    for txid in txids {
+        let height: Option<u32> = conn
+            .query_row("SELECT mined_height FROM transactions WHERE txid = ?1", [txid.as_slice()], |r| r.get(0))
+            .map(Some)
+            .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })?
+            .flatten();
+        let height = height.ok_or_else(|| anyhow!("this wallet has no mined record of {}; sync it first", receipts_core::display_txid(txid)))?;
+        // The wallet's own copy, or the payment fetched among its block's transactions.
+        let tx = match db.get_transaction(TxId::from_bytes(*txid))? {
+            Some(tx) => tx,
+            None => receipts_chain::chain::fetch_mined_tx_in_block(net, server, *txid, height).await?.0,
+        };
+        let before = witnesses.len();
+        for (pool, b) in [(Pool::Orchard, tx.orchard_bundle()), (Pool::Ironwood, tx.ironwood_bundle())] {
+            for (i, a) in b.map(|b| b.actions().iter().collect::<Vec<_>>()).unwrap_or_default().into_iter().enumerate() {
+                let note = match pool {
+                    Pool::Orchard => try_note_decryption(&OrchardDomain::for_action(a), &ivk, a),
+                    Pool::Ironwood => try_note_decryption(&IronwoodDomain::for_action(a), &ivk, a),
+                };
+                if let Some((note, _, _)) = note.filter(|n| n.0.value().inner() > 0) {
+                    witnesses.push(receipts_core::income::IncomeWitness { pool, txid: *txid, index: i as u32, height, note });
+                }
+            }
+        }
+        if witnesses.len() == before {
+            bail!("{} paid nothing to this wallet's addresses", receipts_core::display_txid(txid));
+        }
+    }
+    let values: Vec<u64> = witnesses.iter().map(|w| w.note.value().inner()).collect();
+    let floors = receipts_core::income::spread(&values, min).ok_or_else(|| {
+        anyhow!("these payments brought this wallet {}, less than {}", receipts_chain::chain::zec(values.iter().sum()), receipts_chain::chain::zec(min))
+    })?;
+    Ok(receipts_core::income::prove(&receipts_core::proving_key(), net.coin_type(), &fvk, &SpendAuthorizingKey::from(&sk), &witnesses, &floors, msg, OsRng)?)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

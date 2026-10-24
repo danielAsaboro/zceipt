@@ -121,4 +121,41 @@ fn a_frost_treasury_signs_a_receipt_with_any_two_of_three() {
     verify(&vk, &again, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &payment).unwrap();
     // One signer alone can't: a single share isn't the key.
     assert!(std::panic::catch_unwind(|| sign_with(&[2])).is_err());
+
+    // The policy proof: the receipt was authorized under this published 2-of-3 key.
+    let any = shares.values().next().unwrap();
+    let commitment: Vec<[u8; 32]> = any.commitment().serialize().unwrap().into_iter().map(|c| c.try_into().unwrap()).collect();
+    assert_eq!(commitment[0], ak, "C_0 is the group key");
+    let policy = receipts_core::policy::prove(&prepared, commitment.clone(), 3, b"challenge:7a3e5c", OsRng).unwrap();
+    let back = receipts_core::policy::PolicyProof::from_text(&policy.to_text()).unwrap();
+    assert_eq!(receipts_core::policy::verify(&back, &receipt).unwrap(), (2, 3));
+    // RECEIPTS_WRITE_POLICY_VECTOR=1 refreshes conformance/policy.json, which the spec verifier checks.
+    if std::env::var_os("RECEIPTS_WRITE_POLICY_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A 2-of-3 FROST treasury's receipt and its policy proof (tests/frost.rs).", "receipt": receipt.to_text(), "policy": policy.to_text(), "threshold": 2, "holders": 3 });
+        std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/policy.json"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    // The committed vector still verifies.
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/policy.json")).unwrap()).unwrap();
+    let (vr, vp) = (
+        receipts_core::Receipt::from_text(v["receipt"].as_str().unwrap()).unwrap(),
+        receipts_core::policy::PolicyProof::from_text(v["policy"].as_str().unwrap()).unwrap(),
+    );
+    assert_eq!(receipts_core::policy::verify(&vp, &vr).unwrap(), (2, 3));
+    // Each holder's public share is what the commitment says.
+    let ys = receipts_core::policy::verifying_shares(&commitment, 3).unwrap();
+    for (id, s) in &shares {
+        let kp = frost::keys::KeyPackage::try_from(s.clone()).unwrap();
+        let i = (1..=3u16).find(|i| frost::Identifier::try_from(*i).unwrap() == *id).unwrap();
+        assert_eq!(ys[i as usize - 1].to_vec(), kp.verifying_share().serialize().unwrap());
+    }
+    // Under another key (a different commitment), or for another receipt: refused.
+    let mut other = commitment.clone();
+    other[0] = commitment[1];
+    assert!(receipts_core::policy::prove(&prepared, other.clone(), 3, b"", OsRng).is_err());
+    let mut bent = back.clone();
+    bent.commitment = other;
+    assert!(receipts_core::policy::verify(&bent, &receipt).is_err());
+    let unrelated = prepared.clone().with_message(b"another").unwrap().apply_signatures(vec![sign_with(&[1, 2])]);
+    assert!(unrelated.is_err() || receipts_core::policy::verify(&back, &unrelated.unwrap()).is_err());
 }

@@ -180,6 +180,36 @@ class Testnet(unittest.TestCase):
         self.assertEqual(v.screened_set_root(leaves), p.set_root)
         self.assertNotEqual(v.screened_set_root(leaves[:-1]), p.set_root)
 
+    def test_proof_of_income(self):
+        """The testnet proof of income: one signature over four items, floors summing to 0.02 TAZ;
+        a floor changed after signing is refused."""
+        with open(os.path.join(EX, "income", "proof.txt")) as f:
+            t = f.read().strip()
+        one = lambda pool, txid, index: b"\x01" + bytes(31)
+        r = v.verify_income(t, 1, one)
+        self.assertEqual((r["total"], len(r["items"]), r["message"]), (2_000_000, 4, b"challenge:10a4e7c3d2b1"))
+        raw = bytearray(rc.b64decode(t[8:]))
+        # The first item's floor sits after magic, version, coin type, msg, rk, count, pool, txid, index, height.
+        at = 4 + 1 + 4 + 2 + len(r["message"]) + 32 + 2 + 1 + 32 + 4 + 4
+        raw[at] ^= 1
+        import base64 as _b
+        bent = "zip311i1" + _b.urlsafe_b64encode(bytes(raw)).decode().rstrip("=")
+        with self.assertRaises(v.Invalid):
+            v.verify_income(bent, 1, one)
+
+    def test_policy_proof(self):
+        """conformance/policy.json: a 2-of-3 FROST treasury's receipt and its policy proof."""
+        import json as _json
+        from specverify import link
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "conformance", "policy.json")) as f:
+            vec = _json.load(f)
+        r = rc.from_text(vec["receipt"])
+        self.assertEqual(link.verify_policy(vec["policy"], r), (vec["threshold"], vec["holders"]))
+        other = rc.from_text(vec["receipt"])
+        other.unsigned_bytes = other.unsigned_bytes[:-1] + bytes([other.unsigned_bytes[-1] ^ 1])
+        with self.assertRaises(ValueError):
+            link.verify_policy(vec["policy"], other)
+
     def test_same_payer_proof(self):
         """The batch's same-payer proof holds for its receipts, in order, and for nothing else."""
         import re as _re

@@ -437,7 +437,8 @@ Two payer tags in one domain are of two accounts of one ZIP 32 wallet. The proof
 with, for each `j`, `sk_j = BLAKE2b-512("Zcash_ExpandSeed", c_par || 0x81 || sk_par ||
 I2LEOSP32(i_j))[..32]`, `nk_j = ToBase(BLAKE2b-512("Zcash_ExpandSeed", sk_j || 0x07))` and
 `tag_j = Poseidon(nk_j, domainField)`. BLAKE2b runs in the circuit through a port of
-eryxcoop/blake2b_halo2 (Apache-2.0) to zcash's halo2 on Pallas. With the payer tags binding
+eryxcoop/blake2b_halo2 (Apache-2.0, not audited by its authors or by us) to zcash's halo2 on
+Pallas. With the payer tags binding
 each tag to a payment, the verifier learns the two payments came from one wallet, not which.
 Proving takes about a minute; the parameters are cached after the first run.
 

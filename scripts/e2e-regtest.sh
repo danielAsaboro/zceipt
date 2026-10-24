@@ -228,8 +228,8 @@ SNAP=$(grep -o 'held at block [0-9]*' claim1.log | grep -o '[0-9]*$')
 "$R" claim -w ./saver -i ./saver.age --domain "airdrop-other" --floor 0.1 --height "$SNAP" --out claim3.txt > claim3.log 2>&1 || bad "claim in another domain"
 for f in 1 2; do "$R" verify @claim$f.txt --json --domain airdrop-e2e --height "$SNAP" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim$f.json 2> claim$f.err || { bad "verify claim $f"; tail -3 claim$f.err; }; done
 "$R" verify @claim3.txt --json --domain airdrop-other --height "$SNAP" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim3.json 2> claim3.err || { bad "verify claim 3"; tail -3 claim3.err; }
-T1=$(jq -r .tag claim1.json); [ "${#T1}" = 64 ] && [ "$T1" = "$(jq -r .tag claim2.json)" ] && ok "two claims from one wallet carry the same tag at block $SNAP: the second is caught" || bad "claim tags differ"
-T3=$(jq -r .tag claim3.json); [ "${#T3}" = 64 ] && [ "$T1" != "$T3" ] && ok "in another airdrop the wallet's tag doesn't link to the first" || bad "claim tags link across domains"
+CT1=$(jq -r .tag claim1.json); [ "${#CT1}" = 64 ] && [ "$CT1" = "$(jq -r .tag claim2.json)" ] && ok "two claims from one wallet carry the same tag at block $SNAP: the second is caught" || bad "claim tags differ"
+T3=$(jq -r .tag claim3.json); [ "${#T3}" = 64 ] && [ "$CT1" != "$T3" ] && ok "in another airdrop the wallet's tag doesn't link to the first" || bad "claim tags link across domains"
 "$R" verify @claim1.txt --domain airdrop-other --height "$SNAP" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim-wrong.txt 2>&1 && bad "a claim passed for the wrong airdrop" || ok "a claim for one airdrop is refused for another"
 "$R" verify @claim1.txt --domain airdrop-e2e --height $((SNAP + 1)) --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim-wrong.txt 2>&1 && bad "a claim passed for another snapshot" || ok "and for another snapshot block"
 echo "== Payer tags: a round counts different wallets, not payments"
@@ -240,7 +240,7 @@ for t in HOP PAY2 DEP; do "$R" verify @tag-$t.txt --json --domain round-e2e --re
 TH=$(jq -r .tag tag-HOP.json); TD=$(jq -r .tag tag-DEP.json)
 [ "${#TH}" = 64 ] && [ "$TH" = "$(jq -r .tag tag-PAY2.json)" ] && [ "${#TD}" = 64 ] && [ "$TD" != "$TH" ] \
   && ok "payer tags: the saver's two payments share a tag, the customer's differs (2 wallets, 3 payments)" || bad "payer tags"
-jq -n --rawfile c claim2.txt --argjson h "$SNAP" '{claim: ($c | rtrimstr("\n")), domain: "airdrop-e2e", height: $h}' | curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$T1" '.valid and .tag == $t' >/dev/null \
+jq -n --rawfile c claim2.txt --argjson h "$SNAP" '{claim: ($c | rtrimstr("\n")), domain: "airdrop-e2e", height: $h}' | curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$CT1" '.valid and .tag == $t' >/dev/null \
   && ok "the API checks a claim and returns the same tag" || bad "API claim verify"
 jq -n --rawfile c tag-DEP.txt '{claim: ($c | rtrimstr("\n")), domain: "round-e2e"}' | curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$TD" '.kind == "payer_tag" and .tag == $t' >/dev/null \
   && ok "and a payer tag" || bad "API payer tag verify"
@@ -253,6 +253,11 @@ sync merchant
   && ok "income from at least 2 different payers: the merchant's proof plus the payers' tags" || { bad "income from distinct payers"; tail -3 income2-report.txt; }
 "$R" verify @income2.txt --payer-tag @tag-PAY2.txt --payer-tag @tag-PAY2.txt --domain round-e2e --min-payers 2 --regtest ./heights.toml -s "127.0.0.1:$GRPC" > income2-same.txt 2>&1 && bad "one payer counted twice" || ok "one payer's tag twice counts once"
 "$R" verify @income2.txt --payer-tag @tag-HOP.txt --domain round-e2e --regtest ./heights.toml -s "127.0.0.1:$GRPC" > income2-other.txt 2>&1 && bad "a tag for an uncounted payment passed" || ok "a tag for a payment the proof doesn't count is refused"
+# The npm package checks the same files offline (raw transactions given), as a browser would.
+T1HEX=$("$R" tx "$T1" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex 2>tx-t1.err) || { bad "fetch T1 for npm"; tail -2 tx-t1.err; }
+DEPHEX=$("$R" tx "$DEP" --network regtest --heights ./heights.toml -s "127.0.0.1:$GRPC" --hex 2>tx-dep.err) || { bad "fetch DEP for npm"; tail -2 tx-dep.err; }
+node "$ROOT/scripts/e2e-npm.mjs" "$PWD" "$(tail -1 <<<"$T1HEX")" "$(head -1 <<<"$T1HEX" | grep -o '[0-9]*' | head -1)" "$(tail -1 <<<"$DEPHEX")" "$(head -1 <<<"$DEPHEX" | grep -o '[0-9]*' | head -1)" > npm-e2e.txt 2>&1
+[ "$(grep -c ' true$' npm-e2e.txt)" = 5 ] && ok "the npm package verifies the one-verifier and delegated receipts and a payer tag, and refuses the other key and the over-limit receipt" || { bad "npm checks"; cat npm-e2e.txt | tail -5; }
 "$R" verify @tag-HOP.txt --domain round-other --regtest ./heights.toml -s "127.0.0.1:$GRPC" > tag-wrong.txt 2>&1 && bad "a payer tag passed for another round" || ok "a payer tag is refused for another round"
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done

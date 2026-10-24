@@ -189,7 +189,72 @@ pub fn txid_of(raw_tx: &[u8], height: u32, coin_type: u32) -> Result<String, JsE
 /// Returns JSON describing what the receipt proves, or throws why it is invalid.
 #[wasm_bindgen]
 pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources: Option<String>) -> Result<String, JsError> {
-    verify_inner(parse(receipt)?, raw_tx, height, regtest, sources, None)
+    verify_inner(parse(receipt)?, raw_tx, height, regtest, sources, None, Auth::Signed)
+}
+
+/// Verifies a receipt made for one verifier (`zip311d1…`), with that verifier's secret key (hex,
+/// from `receipts verifier-key`): a receipt for another key proves nothing to it. Returns what
+/// [`verify`] returns.
+#[wasm_bindgen]
+pub fn verify_designated(text: &str, verifier_secret: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Result<String, JsError> {
+    let d = receipts_core::designated::DesignatedReceipt::from_text(text).map_err(|e| JsError::new(&e.to_string()))?;
+    let y: [u8; 32] = hex::decode(verifier_secret.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| JsError::new("not a verifier key"))?;
+    if receipts_core::designated::public_key(&y).map_err(|_| JsError::new("not a verifier key"))? != d.verifier {
+        return Err(JsError::new("this receipt was made for another verifier's key, so it proves nothing to you"));
+    }
+    verify_inner(d.receipt.clone(), raw_tx, height, regtest, None, None, Auth::Designated(&d))
+}
+
+/// Verifies a delegated receipt (`zip311a1…`): its certificate, links, session signature and
+/// policy, then the receipt. Returns what [`verify`] returns, with `delegation` added.
+#[wasm_bindgen]
+pub fn verify_delegated(text: &str, raw_tx: &[u8], height: u32, regtest: bool) -> Result<String, JsError> {
+    let d = receipts_core::delegated::DelegatedReceipt::from_text(text).map_err(|e| JsError::new(&e.to_string()))?;
+    let out = verify_inner(d.receipt.clone(), raw_tx, height, regtest, None, None, Auth::Delegated(&d))?;
+    let mut v: serde_json::Value = serde_json::from_str(&out)?;
+    v["delegation"] = serde_json::json!({ "max_zatoshis": d.cert.max_zats, "until_height": d.cert.until_height, "payees": d.cert.payees.len() });
+    Ok(v.to_string())
+}
+
+/// Checks a payer tag (`zip311t1…` with no snapshot) for `domain` against the payment it names
+/// (`raw_tx` mined at `height`). Returns `{ txid, tag }`: payments with different tags in one
+/// domain were made by different wallets.
+#[wasm_bindgen]
+pub fn verify_payer_tag(text: &str, domain: &str, raw_tx: &[u8], height: u32) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let c = receipts_core::claim::Claim::from_text(text).map_err(|e| JsError::new(&e.to_string()))?;
+    let (net, _, _) = net_of(c.coin_type)?;
+    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    let txid: [u8; 32] = *tx.txid().as_ref();
+    let bundle = match c.pool {
+        Pool::Orchard => tx.orchard_bundle(),
+        Pool::Ironwood => tx.ironwood_bundle(),
+    }
+    .ok_or_else(|| JsError::new("the payment has no bundle in the tag's pool"))?;
+    let nfs: Vec<[u8; 32]> = bundle.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
+    let tag = receipts_core::claim::verify_payer_tag(&c, domain.as_bytes(), &txid, &bundle.anchor().to_bytes(), &nfs)
+        .map_err(|_| JsError::new("the payer tag doesn't hold for this payment and domain"))?;
+    Ok(serde_json::json!({ "valid": true, "kind": "payer_tag", "txid": receipts_core::display_txid(&txid), "domain": domain, "tag": hex::encode(tag) }).to_string())
+}
+
+/// What a payer tag names, to fetch before [`verify_payer_tag`]: `{ txid, network, domain }`.
+#[wasm_bindgen]
+pub fn inspect_payer_tag(text: &str) -> Result<String, JsError> {
+    let c = receipts_core::claim::Claim::from_text(text).map_err(|e| JsError::new(&e.to_string()))?;
+    let txid = std::str::from_utf8(&c.msg).ok().and_then(|m| m.strip_prefix("payer-tag:")).ok_or_else(|| JsError::new("not a payer tag"))?;
+    let (_, _, network) = net_of(c.coin_type)?;
+    Ok(serde_json::json!({ "txid": txid, "network": network, "domain": String::from_utf8_lossy(&c.domain) }).to_string())
+}
+
+/// The receipt inside a one-verifier (`zip311d1…`) or delegated (`zip311a1…`) receipt, as
+/// `zip311r1…` text with empty signatures: for [`inspect`], to know which payment to fetch.
+#[wasm_bindgen]
+pub fn inner_receipt(text: &str) -> Result<String, JsError> {
+    let t = text.trim();
+    if t.starts_with(receipts_core::designated::DESIGNATED_TEXT_PREFIX) {
+        return Ok(receipts_core::designated::DesignatedReceipt::from_text(t).map_err(|e| JsError::new(&e.to_string()))?.receipt.to_text());
+    }
+    Ok(receipts_core::delegated::DelegatedReceipt::from_text(t).map_err(|e| JsError::new(&e.to_string()))?.receipt.to_text())
 }
 
 /// Verifies an aggregated batch (`zip311b1…` version 2): `txs` is JSON `[{ raw, height }]`, each
@@ -208,11 +273,18 @@ pub fn verify_aggregated(batch: &str, txs: &str, regtest: bool) -> Result<String
     let mut out = Vec::with_capacity(txs.len());
     for (r, t) in b.receipts.into_iter().zip(txs) {
         let raw = hex::decode(t.raw.trim()).map_err(|_| JsError::new("bad transaction hex"))?;
-        out.push(serde_json::from_str::<serde_json::Value>(&verify_inner(r, &raw, t.height, regtest, None, Some(&mut instances))?)?);
+        out.push(serde_json::from_str::<serde_json::Value>(&verify_inner(r, &raw, t.height, regtest, None, Some(&mut instances), Auth::Signed)?)?);
     }
     VK.with(|vk| receipts_core::verify_aggregate(vk.get_or_init(receipts_core::verifying_key), &instances, &proof))
         .map_err(|e| JsError::new(&format!("{e}: a receipt in the batch was changed after it was made, or not made by the wallet that paid")))?;
     Ok(serde_json::to_string(&out)?)
+}
+
+/// What stands in for a receipt's signatures.
+enum Auth<'a> {
+    Signed,
+    Designated(&'a receipts_core::designated::DesignatedReceipt),
+    Delegated(&'a receipts_core::delegated::DelegatedReceipt),
 }
 
 fn verify_inner(
@@ -222,6 +294,7 @@ fn verify_inner(
     regtest: bool,
     sources: Option<String>,
     deferred: Option<&mut Vec<orchard::circuit::Instance>>,
+    auth: Auth<'_>,
 ) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
     let u = &r.unsigned;
@@ -265,9 +338,12 @@ fn verify_inner(
     let v = VK
         .with(|vk| {
             let vk = vk.get_or_init(receipts_core::verifying_key);
-            match deferred {
-                Some(st) => receipts_core::verify_tx_bundles_deferred(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
-                None => receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+            match (deferred, auth) {
+                (_, Auth::Designated(d)) => receipts_core::verify_designated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+                (_, Auth::Delegated(d)) => receipts_core::verify_delegated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+                    .and_then(|v| receipts_core::delegated::check_policy(&d.cert, &v, height).map(|_| v)),
+                (Some(st), Auth::Signed) => receipts_core::verify_tx_bundles_deferred(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
+                (None, Auth::Signed) => receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
             }
         })
         .map_err(|e| match e {

@@ -124,6 +124,8 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
   payments, without learning who they are.
 - **Same wallet:** prove two tagged payments came from two accounts of one wallet, without
   saying which (ZIP 32 key derivation checked inside the proof).
+- **Delegate receipts:** let an agent or back office issue receipts for your payments
+  without your spend key, within a policy you sign (most per receipt, last block, payees).
 - **For one shop only:** `receipts sign --for <shop key>` makes a receipt the shop can check
   but can't pass on as proof you paid.
 - **One request, several payments:** a batch answers a proof request for invoices A and B at

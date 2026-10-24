@@ -424,6 +424,34 @@ nothing else about them.
 The circuit is a local addition to the vendored orchard crate (`src/circuit/claim.rs`), so
 claims need this build; a stock Orchard verifier can't check them.
 
+## Delegated receipts (`zip311a1`, certificates `zip311g1`)
+
+```
+cert      := "ZRCG" | version:u8 = 1 | coinType:u32le | S[32] | maxZats:u64le | untilHeight:u32le
+           | nPayees:u8 | { address[43] }^nPayees | rk_c[32] | sig_c[64]
+sig_c     := SpendAuthSig by rk_c = ak + [alpha_c]G over BLAKE2b-256("ZIP311Deleg\0" || coinType, cert without sig_c)
+delegated := "ZRCA" | version:u8 = 1 | certLen:u16le | cert | n:u8 | { R[32] | z[32] }^n
+           | sessionSig[64] | receipt (zip311r1 bytes, every spendAuthSig 64 zero bytes)
+c         := ToScalar(BLAKE2b-512("ZIP311DLink\0" || coinType, digest || rk_c || every rk || every R))
+link      := [z_i]G == R_i + [c](rk_i - rk_c)
+sessionSig:= Schnorr (R, z) by S over BLAKE2b-512("ZIP311DSess\0" || coinType, digest || cert || links || S || R)
+```
+
+The spend key signs a certificate for a session key `S`: the most a receipt may show paid, the
+last block a payment may be in, and optionally the only payees. The delegate holds the viewing
+key, `S`'s secret and `alpha_c` (`receipts delegate` writes them to a session file). For a
+payment, it proves each spend's `rk` is under the certificate's key (`rk_i - rk_c` is a known
+multiple of G) and signs with `S` (`receipts sign --session`). The verifier checks the
+certificate, the links, the session signature, the policy against the disclosed outputs and the
+payment's block, then the receipt as usual. The delegate can't spend; every receipt under one
+certificate carries it, so they link to each other.
+
+## Proof of income from several payers
+
+`receipts verify <zip311i1…> --payer-tag @t1 --payer-tag @t2 --domain D --min-payers 2`: each
+payer tag must be on one of the payments the proof of income counts, and the distinct tags are
+distinct paying wallets. A payment the recipient made to itself would count its own tag.
+
 ## Sibling accounts (`zip311w1`)
 
 ```

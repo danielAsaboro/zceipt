@@ -8,7 +8,7 @@
 // lightwalletd grpc-web server (the transaction, or its block's list and transactions with an
 // h= hint), which you can override or skip entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated, verify_keyset, key_set_keys, verify_policy, inspect_income, verify_income } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated, verify_keyset, key_set_keys, verify_policy, inspect_income, verify_income, verify_designated, verify_delegated, verify_payer_tag, inspect_payer_tag, inner_receipt } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -321,6 +321,60 @@ export async function verifyIncome(input, options = {}) {
   if (options.minZatoshis != null && v.at_least_zatoshis < options.minZatoshis) throw new Error(`the proof shows ${v.at_least_zatoshis} zatoshis, less than ${options.minZatoshis}`);
   if (options.minPayments != null && v.payments < options.minPayments) throw new Error(`the proof counts ${v.payments} payments, fewer than ${options.minPayments}`);
   return { valid: true, kind: "income", network: info.network, ...v };
+}
+
+// The payment a receipt-like proof names, fetched by txid (or given as `rawTx` + `height`).
+async function fetchPayment(network, txid, options) {
+  if (options.rawTx != null) {
+    const raw = typeof options.rawTx === "string" ? hexToBytes(options.rawTx.trim()) : options.rawTx;
+    return { raw, height: options.height };
+  }
+  const endpoint = options.endpoint || DEFAULT_ENDPOINTS[network];
+  if (!endpoint) throw new Error(`no lightwalletd endpoint for ${network}`);
+  return fetchTransaction(endpoint, txid);
+}
+
+/**
+ * Verifies a receipt made for you alone (`zip311d1…`, `receipts sign --for`) with your verifier
+ * secret key (hex, from `receipts verifier-key`). It convinces you; you can't pass it on as proof.
+ * Options: `endpoint`, `rawTx` + `height`, `regtest`.
+ */
+export async function verifyDesignated(input, verifierSecret, options = {}) {
+  await load();
+  const text = (safeDecode(String(input)).match(/zip311d1[A-Za-z0-9_-]+/) || [])[0];
+  if (!text) throw new Error("no zip311d1 receipt found");
+  const summary = JSON.parse(inspect(inner_receipt(text)));
+  const { raw, height } = await fetchPayment(summary.network, summary.txid, options);
+  return { ...JSON.parse(verify_designated(text, verifierSecret, raw, height, !!options.regtest)), designated: true };
+}
+
+/**
+ * Verifies a receipt a delegate issued (`zip311a1…`, `receipts sign --session`): the spend key's
+ * certificate, the session key's signature, and the policy (most shown paid, last block, payees).
+ * Options: `endpoint`, `rawTx` + `height`, `regtest`.
+ */
+export async function verifyDelegated(input, options = {}) {
+  await load();
+  const text = (safeDecode(String(input)).match(/zip311a1[A-Za-z0-9_-]+/) || [])[0];
+  if (!text) throw new Error("no zip311a1 receipt found");
+  const summary = JSON.parse(inspect(inner_receipt(text)));
+  const { raw, height } = await fetchPayment(summary.network, summary.txid, options);
+  return JSON.parse(verify_delegated(text, raw, height, !!options.regtest));
+}
+
+/**
+ * Verifies a payer tag (`zip311t1…`, `receipts tag`) for your `domain` against the payment it
+ * names. Payments with different tags in one domain were made by different wallets. Options:
+ * `endpoint`, `rawTx` + `height`.
+ */
+export async function verifyPayerTag(input, { domain, ...options } = {}) {
+  await load();
+  if (!domain) throw new Error("a payer tag is checked for your domain: pass { domain }");
+  const text = (safeDecode(String(input)).match(/zip311t1[A-Za-z0-9_-]+/) || [])[0];
+  if (!text) throw new Error("no zip311t1 payer tag found");
+  const info = JSON.parse(inspect_payer_tag(text));
+  const { raw, height } = await fetchPayment(info.network, info.txid, options);
+  return JSON.parse(verify_payer_tag(text, domain, raw, height));
 }
 
 /** Extracts a `zsig1…` sign-in from a link, a fragment or bare text, or returns null. */

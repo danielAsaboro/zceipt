@@ -2457,3 +2457,49 @@ fn designated_receipts_convince_only_their_verifier() {
         designated::DesignatedReceipt::from_text(v[k].as_str().unwrap()).unwrap().check_proofs().unwrap();
     }
 }
+
+#[test]
+fn delegated_receipts_stay_within_their_policy() {
+    use receipts_core::{delegated, prepare, verify_delegated_tx_bundles, ViewingSpendWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External).to_raw_address_bytes();
+    let prep = || {
+        let w = ViewingSpendWitness { index: s.spend_index, fvk: fvk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None };
+        prepare(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"Order 11", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[], &[w], OsRng).unwrap()
+    };
+    let none = |_: Pool, _: &[u8; 32], _: u32| None;
+    // The spend key authorizes a session key: at most 0.5 ZEC, until block 1000, to the merchant only.
+    let session = delegated::delegate(COIN_TYPE_TESTNET, &ask, 50_000, 1000, vec![merchant], OsRng).unwrap();
+    let session = delegated::Session::from_text(&session.to_text()).unwrap();
+    let d = delegated::issue(prep(), &session, OsRng).unwrap();
+    let back = delegated::DelegatedReceipt::from_text(&d.to_text()).unwrap();
+    assert_eq!(back, d);
+    let v = verify_delegated_tx_bundles(&keys().1, &back, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    delegated::check_policy(&back.cert, &v, 900).unwrap();
+    // Too late, too much, or to someone not listed: refused.
+    assert!(delegated::check_policy(&back.cert, &v, 1001).is_err());
+    let small = delegated::delegate(COIN_TYPE_TESTNET, &ask, 10_000, 1000, vec![], OsRng).unwrap();
+    let ds = delegated::issue(prep(), &small, OsRng).unwrap();
+    let vs = verify_delegated_tx_bundles(&keys().1, &ds, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    assert!(delegated::check_policy(&ds.cert, &vs, 900).is_err());
+    let elsewhere = delegated::delegate(COIN_TYPE_TESTNET, &ask, 50_000, 1000, vec![[1; 43]], OsRng).unwrap();
+    let de = delegated::issue(prep(), &elsewhere, OsRng).unwrap();
+    let ve = verify_delegated_tx_bundles(&keys().1, &de, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    assert!(delegated::check_policy(&de.cert, &ve, 900).is_err());
+    // Another wallet's certificate can't cover this payment: its spends aren't under that key.
+    let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([8; 32]).unwrap());
+    let foreign = delegated::delegate(COIN_TYPE_TESTNET, &other, 50_000, 1000, vec![], OsRng).unwrap();
+    assert!(delegated::issue(prep(), &foreign, OsRng).is_err());
+    let mut swapped = d.clone();
+    swapped.cert = foreign.cert.clone();
+    assert!(swapped.check_authorization().is_err());
+    // A policy edited after signing, or an edited receipt: refused.
+    let mut e = d.clone();
+    e.cert.max_zats = 1 << 40;
+    assert!(e.check_authorization().is_err());
+    let mut e = d.clone();
+    e.receipt.unsigned.msg = b"Order 12".to_vec();
+    assert!(e.check_authorization().is_err());
+}

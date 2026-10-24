@@ -503,7 +503,7 @@ pub fn verify_offline_with_sources(
             .collect();
         map.insert(id, SourceTx { tx: stx, height: *h, transparent_inputs });
     }
-    let mut r = report_for(receipt, net, &tx, height, &map, None, None)?;
+    let mut r = report_for(receipt, net, &tx, height, &map, None, None, None)?;
     r.chain_checked = false;
     Ok(r)
 }
@@ -612,7 +612,7 @@ pub async fn verify_against_chain_hinted(
         }
     };
     let sources = fetch_sources(receipt, net, server).await?;
-    let mut report = report_for(receipt, net, &tx, height, &sources, None, None)?;
+    let mut report = report_for(receipt, net, &tx, height, &sources, None, None, None)?;
     report.anonymity_set = set;
     Ok(report)
 }
@@ -629,7 +629,29 @@ pub async fn verify_designated_against_chain(
     d.check_proofs().map_err(|e| anyhow!("{e}"))?;
     let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
     let sources = fetch_sources_checked(receipt, net, server).await?;
-    report_for(receipt, net, &tx, height, &sources, None, Some(d))
+    report_for(receipt, net, &tx, height, &sources, None, Some(d), None)
+}
+
+/// Verifies a delegated receipt against the chain: its certificate, links and session signature,
+/// the policy against what it discloses and the payment's block, then every check of
+/// [`verify_against_chain`].
+pub async fn verify_delegated_against_chain(
+    d: &receipts_core::delegated::DelegatedReceipt,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<Report> {
+    let receipt = &d.receipt;
+    let net = net::for_receipt(receipt.unsigned.coin_type, regtest)?;
+    d.check_authorization().map_err(|e| anyhow!("{e}"))?;
+    let (tx, height) = fetch_mined_tx(net, server, receipt.unsigned.txid).await?;
+    let sources = fetch_sources_checked(receipt, net, server).await?;
+    report_for(receipt, net, &tx, height, &sources, None, None, Some(d)).map_err(|e| {
+        if e.to_string().contains("delegation") {
+            anyhow!("the receipt is outside its delegation's policy (amount, last block or payees), or not authorized by it")
+        } else {
+            e
+        }
+    })
 }
 
 /// Verifies an aggregated batch (`ReceiptBatch::aggregate`): each receipt against its mined
@@ -656,7 +678,7 @@ pub async fn verify_aggregated_batch(
                 (tx, height, None)
             }
         };
-        let mut report = report_for(r, net, &tx, height, &Default::default(), Some(&mut instances), None)?;
+        let mut report = report_for(r, net, &tx, height, &Default::default(), Some(&mut instances), None, None)?;
         report.anonymity_set = set;
         reports.push(report);
     }
@@ -666,6 +688,7 @@ pub async fn verify_aggregated_batch(
     Ok(reports)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn report_for(
     receipt: &Receipt,
     net: Net,
@@ -674,6 +697,7 @@ fn report_for(
     sources: &std::collections::BTreeMap<[u8; 32], SourceTx>,
     deferred: Option<&mut Vec<orchard::circuit::Instance>>,
     designated: Option<&receipts_core::designated::DesignatedReceipt>,
+    delegated: Option<&receipts_core::delegated::DelegatedReceipt>,
 ) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
     static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
@@ -691,6 +715,12 @@ fn report_for(
         receipts_core::output_cmx(bundle, index)
     };
     let v = match (deferred, designated) {
+        _ if delegated.is_some() => {
+            let d = delegated.unwrap();
+            receipts_core::verify_delegated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup).and_then(|v| {
+                receipts_core::delegated::check_policy(&d.cert, &v, height).map_err(|_| receipts_core::Error::BadDelegation).map(|_| v)
+            })
+        }
         (_, Some(d)) => receipts_core::verify_designated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
         (Some(st), None) => receipts_core::verify_tx_bundles_deferred(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
         (None, None) => receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),

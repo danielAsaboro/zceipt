@@ -111,6 +111,16 @@ BDAY=$(sed -n 's/^birthday = //p' sender/keys.toml)
 "$R" sign dv-prepared.txt --yes -w ./signer -i ./sender.age --for "$(cat shop.pub)" --out dv.txt >/dev/null 2>&1 || bad "sign for the shop"
 "$R" verify @dv.txt --verifier-key shop.key --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" > dv-verify.log 2>&1 && grep -q "made for your key only" dv-verify.log \
   && ok "a receipt made for the shop alone verifies with the shop's key" || { bad "designated receipt"; tail -3 dv-verify.log; }
+# A back office issues receipts under the sender's delegation: no spend key, within a policy.
+"$R" delegate -w ./sender -i ./sender.age --max 0.5 --until 100000 --payee "$MERCHANT" --out office.session > delegate.log 2>&1 || { bad "delegate"; tail -2 delegate.log; }
+"$R" create -w ./watch --unsigned dg-prepared.txt --txid "$T1" -m "Order 7 (back office)" -s "127.0.0.1:$GRPC" >/dev/null 2>&1 || bad "prepare for the back office"
+"$R" sign dg-prepared.txt --session office.session --out dg.txt >/dev/null 2>&1 || bad "issue under the delegation"
+"$R" verify @dg.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" --expect-address "$MERCHANT" > dg-verify.log 2>&1 && grep -q "session key the spend key authorized" dg-verify.log \
+  && ok "a back office issued a receipt under the sender's delegation (no spend key)" || { bad "delegated receipt"; tail -3 dg-verify.log; }
+"$R" delegate -w ./sender -i ./sender.age --max 0.1 --until 100000 --out tight.session > /dev/null 2>&1
+"$R" create -w ./watch --unsigned dg2-prepared.txt --txid "$T1" -m "Order 7 (over the limit)" -s "127.0.0.1:$GRPC" >/dev/null 2>&1
+"$R" sign dg2-prepared.txt --session tight.session --out dg2.txt >/dev/null 2>&1
+"$R" verify @dg2.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > dg2-verify.log 2>&1 && bad "a receipt over its delegation's limit passed" || { grep -q "outside its delegation" dg2-verify.log && ok "and one for more than its delegation allows is refused" || { bad "delegation limit: unexpected error"; tail -2 dg2-verify.log; }; }
 "$R" verifier-key --out other.key > /dev/null 2>&1
 "$R" verify @dv.txt --verifier-key other.key --regtest ./heights.toml -s "127.0.0.1:$GRPC" > dv-other.log 2>&1 && bad "a designated receipt convinced another verifier" || { grep -q "another verifier" dv-other.log && ok "and convinces no one else (another key is told it proves nothing)" || { bad "designated: unexpected error"; tail -2 dv-other.log; }; }
 
@@ -237,6 +247,12 @@ jq -n --rawfile c tag-DEP.txt '{claim: ($c | rtrimstr("\n")), domain: "round-e2e
 "$R" siblings -w ./saver -i ./saver.age --accounts 0,1 --domain round-e2e --out sib.txt > sib.log 2>&1 || { bad "sibling-account proof"; tail -3 sib.log; }
 "$R" verify @sib.txt --json --domain round-e2e > sib.json 2> sib.err && jq -e --arg t "$TH" '.valid and .tags[0] == $t' sib.json >/dev/null \
   && ok "sibling accounts: the saver's payer tag and its account 1's are proven one wallet's (ZIP 32 in the circuit)" || { bad "verify sibling accounts"; tail -3 sib.err; }
+sync merchant
+"$R" income -w ./merchant -i ./merchant.age --txid "$PAY2" --txid "$DEP" --min 0.1 -s "127.0.0.1:$GRPC" --out income2.txt > income2.log 2>&1 || { bad "merchant income proof"; tail -3 income2.log; }
+"$R" verify @income2.txt --payer-tag @tag-PAY2.txt --payer-tag @tag-DEP.txt --domain round-e2e --min-payers 2 --regtest ./heights.toml -s "127.0.0.1:$GRPC" > income2-report.txt 2>&1 && grep -q "2 different wallet" income2-report.txt \
+  && ok "income from at least 2 different payers: the merchant's proof plus the payers' tags" || { bad "income from distinct payers"; tail -3 income2-report.txt; }
+"$R" verify @income2.txt --payer-tag @tag-PAY2.txt --payer-tag @tag-PAY2.txt --domain round-e2e --min-payers 2 --regtest ./heights.toml -s "127.0.0.1:$GRPC" > income2-same.txt 2>&1 && bad "one payer counted twice" || ok "one payer's tag twice counts once"
+"$R" verify @income2.txt --payer-tag @tag-HOP.txt --domain round-e2e --regtest ./heights.toml -s "127.0.0.1:$GRPC" > income2-other.txt 2>&1 && bad "a tag for an uncounted payment passed" || ok "a tag for a payment the proof doesn't count is refused"
 "$R" verify @tag-HOP.txt --domain round-other --regtest ./heights.toml -s "127.0.0.1:$GRPC" > tag-wrong.txt 2>&1 && bad "a payer tag passed for another round" || ok "a payer tag is refused for another round"
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done

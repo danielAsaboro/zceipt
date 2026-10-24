@@ -190,9 +190,9 @@ enum Cmd {
     Sign {
         /// The file `create --unsigned` wrote. It is deleted once signed.
         prepared: PathBuf,
-        #[arg(short, long, required_unless_present = "seed_stdin")]
+        #[arg(short, long, required_unless_present_any = ["seed_stdin", "session"])]
         wallet: Option<PathBuf>,
-        #[arg(short, long, required_unless_present = "seed_stdin")]
+        #[arg(short, long, required_unless_present_any = ["seed_stdin", "session"])]
         identity: Option<PathBuf>,
         /// Sign with a seed phrase read from standard input instead of a wallet's files (the
         /// confirmation is then asked on the terminal).
@@ -217,6 +217,32 @@ enum Cmd {
         /// show your receipt to anyone else as proof you paid.
         #[arg(long = "for")]
         for_verifier: Option<String>,
+        /// Issue it under a delegation (the session file `receipts delegate` wrote) instead of
+        /// the spend key: no wallet or identity needed.
+        #[arg(long, conflicts_with_all = ["wallet", "identity", "seed_stdin", "for_verifier"])]
+        session: Option<PathBuf>,
+    },
+    /// Let an agent or back office issue receipts for your payments without your spend key:
+    /// signs a policy (most per receipt, last block, payees) for a fresh session key, and writes
+    /// the session file to give them with your viewing key.
+    #[command(display_order = 13)]
+    Delegate {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// The most a receipt may show paid (ZEC).
+        #[arg(long)]
+        max: String,
+        /// The last block a payment may be mined in.
+        #[arg(long)]
+        until: u32,
+        /// Only payments to this address (repeat it). Default: any.
+        #[arg(long = "payee")]
+        payees: Vec<String>,
+        /// Where to write the session file (created; never overwritten).
+        #[arg(long)]
+        out: PathBuf,
     },
     /// Shops: make a key for receipts meant for you alone (`receipts sign --for`). Keeps the
     /// secret half in a file and prints the half to give payers.
@@ -237,6 +263,13 @@ enum Cmd {
         /// For a proof of income: require at least this many separate payments.
         #[arg(long)]
         min_payments: Option<usize>,
+        /// For a proof of income: a payer tag (`zip311t1…` or `@file`) the payer of one of its
+        /// payments made in --domain. Repeat it, one per payment.
+        #[arg(long = "payer-tag", requires = "domain")]
+        payer_tags: Vec<String>,
+        /// For a proof of income: require payer tags from at least this many different wallets.
+        #[arg(long, requires = "domain")]
+        min_payers: Option<usize>,
         /// lightwalletd server, host:port. Default: zec.rocks for the receipt's network.
         #[arg(short, long)]
         server: Option<String>,
@@ -406,6 +439,9 @@ enum Cmd {
         /// A challenge or purpose to bind in (e.g. the lender's nonce).
         #[arg(short, long, default_value = "")]
         msg: String,
+        /// lightwalletd server, host:port, for payments the wallet keeps no full copy of.
+        #[arg(short, long)]
+        server: Option<String>,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -1295,7 +1331,32 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("Kept the secret half in {}. Give payers this (receipts sign --for <it>):", out.display());
             println!("{}", hex(&v));
         }
-        Cmd::Sign { prepared, wallet, identity, seed_stdin, network, regtest, out, link_base, yes, for_verifier } => {
+        Cmd::Delegate { wallet, identity, max, until, payees, out } => {
+            let s = wallet::delegate(&wallet, &identity, parse_zec(&max)?, until, &payees)?;
+            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).with_context(|| format!("creating {}", out.display()))?;
+            std::io::Write::write_all(&mut f, s.to_text().as_bytes())?;
+            eprintln!(
+                "Wrote the session to {}: receipts of at most {max} ZEC, for payments by block {until}{}. Give it to the delegate with your viewing key; it can't spend.",
+                out.display(),
+                if payees.is_empty() { String::new() } else { format!(", to {} address(es)", payees.len()) }
+            );
+            println!("{}", s.cert.to_text());
+        }
+        Cmd::Sign { prepared, session: Some(session), out, .. } => {
+            let text = std::fs::read_to_string(&prepared).with_context(|| format!("reading {}", prepared.display()))?;
+            let p = receipts_core::PreparedReceipt::from_text(text.lines().next().unwrap_or("")).map_err(|e| anyhow!("not a prepared receipt: {e}"))?;
+            let s = receipts_core::delegated::Session::from_text(&std::fs::read_to_string(&session)?).map_err(|_| anyhow!("{} isn't a session file", session.display()))?;
+            let d = receipts_core::delegated::issue(p, &s, rand::rand_core::UnwrapErr(rand::rngs::SysRng))
+                .map_err(|_| anyhow!("this payment wasn't made by the wallet that delegated the session"))?;
+            let text = d.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            std::fs::remove_file(&prepared).with_context(|| format!("deleting {}", prepared.display()))?;
+            println!("{text}");
+        }
+        Cmd::Sign { prepared, wallet, identity, seed_stdin, network, regtest, out, link_base, yes, for_verifier, .. } => {
             let text = std::fs::read_to_string(&prepared).with_context(|| format!("reading {}", prepared.display()))?;
             let p = receipts_core::PreparedReceipt::from_text(text.lines().next().unwrap_or("")).map_err(|e| anyhow!("not a prepared receipt: {e}"))?;
             // Only the block hint is taken from the file, and only as digits: it decides where a
@@ -1745,7 +1806,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
             bail!("the input holds more than one receipt; verify one at a time");
         }
-        Cmd::Verify { receipt, server, regtest, json, min_payments, .. } if read_arg_text(&receipt)?.contains(receipts_core::income::INCOME_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, regtest, json, min_payments, payer_tags, min_payers, domain, .. }
+            if read_arg_text(&receipt)?.contains(receipts_core::income::INCOME_TEXT_PREFIX) =>
+        {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::income::INCOME_TEXT_PREFIX).unwrap();
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
@@ -1779,10 +1842,31 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             if let Some(n) = min_payments.filter(|n| txs < *n) {
                 bail!("the proof counts {txs} separate payment(s), fewer than the {n} required");
             }
+            // Distinct payers: each payer tag is on one of the counted payments, and the tags tell
+            // the paying wallets apart (equal tags, one wallet).
+            let mut payers = std::collections::BTreeSet::new();
+            for t in &payer_tags {
+                let text = read_arg_text(t)?;
+                let c = receipts_core::claim::Claim::from_text(text.trim()).map_err(|_| anyhow!("malformed payer tag {t}"))?;
+                let txid = std::str::from_utf8(&c.msg)
+                    .ok()
+                    .and_then(|m| m.strip_prefix("payer-tag:"))
+                    .map(parse_txid)
+                    .transpose()?
+                    .ok_or_else(|| anyhow!("{t} is not a payer tag"))?;
+                if !p.items.iter().any(|i| i.txid == txid) {
+                    bail!("the payer tag {t} is for tx {}, which the proof of income doesn't count", receipts_core::display_txid(&txid));
+                }
+                let d = domain.as_deref().unwrap_or_default();
+                payers.insert(chain::verify_payer_tag_against_chain(&c, d.as_bytes(), txid, net, server.as_deref()).await?);
+            }
+            if let Some(n) = min_payers.filter(|n| payers.len() < *n) {
+                bail!("the payer tags show {} different wallet(s), fewer than the {n} required", payers.len());
+            }
             if json {
                 println!(
                     "{}",
-                    serde_json::json!({ "valid": true, "kind": "income", "network": net.name(), "at_least_zatoshis": total, "payments": p.items.len(), "message": String::from_utf8_lossy(&p.msg) })
+                    serde_json::json!({ "valid": true, "kind": "income", "network": net.name(), "at_least_zatoshis": total, "payments": p.items.len(), "payers": (!payer_tags.is_empty()).then_some(payers.len()), "message": String::from_utf8_lossy(&p.msg) })
                 );
             } else {
                 println!("VALID proof of income");
@@ -1796,9 +1880,34 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 for it in &p.items {
                     println!("  payment   tx {}… output {} (block {})", &receipts_core::display_txid(&it.txid)[..12], it.index, it.height);
                 }
+                if !payer_tags.is_empty() {
+                    println!("  payers    {} different wallet(s), by their payer tags; not who they are", payers.len());
+                }
                 if !p.msg.is_empty() {
                     println!("  message   {}", chain::shown(&String::from_utf8_lossy(&p.msg), "            "));
                 }
+            }
+        }
+        Cmd::Verify { receipt, server, json, regtest, expect_address, .. } if read_arg_text(&receipt)?.contains(receipts_core::delegated::DELEGATED_TEXT_PREFIX) => {
+            let text = read_arg_text(&receipt)?;
+            let i = text.find(receipts_core::delegated::DELEGATED_TEXT_PREFIX).unwrap();
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let d = receipts_core::delegated::DelegatedReceipt::from_text(&body).map_err(|_| anyhow!("malformed delegated receipt"))?;
+            let report = chain::verify_delegated_against_chain(&d, server.as_deref(), regtest.as_deref()).await?;
+            check_expected_payee(&report, expect_address.as_deref())?;
+            let c = &d.cert;
+            if json {
+                let mut v = serde_json::to_value(&report)?;
+                v["delegated"] = serde_json::json!({ "max_zatoshis": c.max_zats, "until_height": c.until_height, "payees": c.payees.len() });
+                println!("{}", serde_json::to_string_pretty(&v)?);
+            } else {
+                report.print();
+                println!(
+                    "  issued by a session key the spend key authorized: at most {} ZEC, payments by block {}{}",
+                    chain::zec(c.max_zats),
+                    c.until_height,
+                    if c.payees.is_empty() { String::new() } else { format!(", to {} listed address(es)", c.payees.len()) }
+                );
             }
         }
         Cmd::Verify { receipt, server, json, regtest, verifier_key, expect_address, .. }
@@ -2271,9 +2380,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             }
         }
         Cmd::Key { wallet } => println!("{}", wallet::spend_validating_key(&wallet)?),
-        Cmd::Income { wallet, identity, txids, min, msg, out } => {
+        Cmd::Income { wallet, identity, txids, min, msg, server, out } => {
             let ids = txids.iter().map(|t| parse_txid(t)).collect::<anyhow::Result<Vec<_>>>()?;
-            let p = wallet::prove_income(&wallet, &identity, &ids, parse_zec(&min)?, msg.as_bytes(), None).await?;
+            let p = wallet::prove_income(&wallet, &identity, &ids, parse_zec(&min)?, msg.as_bytes(), server.as_deref()).await?;
             let text = p.to_text();
             if let Some(out) = out {
                 std::fs::write(&out, &text)?;

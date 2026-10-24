@@ -88,6 +88,10 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    wallet's account without a BLAKE2b or Poseidon collision. `receipts-kce`;
    `against_orchard::accounts_are_children_of_the_coin_key` checks the derivation equals
    orchard's, and the regtest e2e ties a proof to a real payer tag.
+14. **Delegation (a `zip311a1` receipt).** The certificate's SpendAuthSig under `rk_c` shows the
+   spend key's holder authorized `S` under the policy; each link is a Schnorr proof that
+   `rk_i - rk_c` is a known multiple of G, so the spends are under the same `ak`; `S`'s signature
+   covers the receipt's digest and the links. `roundtrip.rs::delegated_receipts_stay_within_their_policy`.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

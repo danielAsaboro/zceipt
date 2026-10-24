@@ -307,6 +307,14 @@ pub fn designate_prepared(wallet: &Path, identity: &Path, prepared: PreparedRece
     })
 }
 
+/// The spend key authorizes a session key to issue receipts under a policy (`receipts_core::delegated`).
+pub fn delegate(wallet: &Path, identity: &Path, max_zats: u64, until_height: u32, payees: &[String]) -> anyhow::Result<receipts_core::delegated::Session> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let payees = payees.iter().map(|a| receipts_chain::chain::orchard_receiver_of(a)).collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(receipts_core::delegated::delegate(net.coin_type(), &SpendAuthorizingKey::from(usk.orchard()), max_zats, until_height, payees, OsRng)?)
+}
+
 /// The account's spend validating key `ak` (hex), the key a published key set lists
 /// (`receipts_core::keyset`). It shows no payment: receipts carry only randomizations of it.
 pub fn spend_validating_key(wallet: &Path) -> anyhow::Result<String> {

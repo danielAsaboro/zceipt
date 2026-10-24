@@ -43,6 +43,8 @@ mod encoding;
 #[cfg(all(feature = "extensions", feature = "orchard-ext"))]
 pub mod claim;
 #[cfg(feature = "extensions")]
+pub mod delegated;
+#[cfg(feature = "extensions")]
 pub mod designated;
 #[cfg(feature = "extensions")]
 pub mod income;
@@ -449,6 +451,8 @@ pub enum Error {
     NoSpends,
     #[error("the batch's aggregate proof doesn't hold, or a receipt in it carries its own proof")]
     BadAggregate,
+    #[error("the delegation doesn't hold")]
+    BadDelegation,
     #[error("the designated-verifier proof doesn't hold")]
     BadDesignated,
     #[error("the claim doesn't hold")]
@@ -1196,6 +1200,33 @@ pub fn verify_designated_tx_bundles<A: Authorization, V>(
     sources: SourceLookup<'_>,
 ) -> Result<VerifiedReceipt, Error> {
     d.check_proofs()?;
+    let u = &d.receipt.unsigned;
+    let pick = |p: Pool| match p {
+        Pool::Orchard => orchard,
+        Pool::Ironwood => ironwood,
+    };
+    let spends = pick(u.pool).ok_or(Error::PoolMismatch)?;
+    let outs = match u.output_pool {
+        None => spends,
+        Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
+    };
+    verify_cross(vk, &d.receipt, expected_coin_type, u.pool, txid, spends, outs, sources, None, true)
+}
+
+/// Verifies a delegated receipt (`delegated::DelegatedReceipt`): its certificate, links and session
+/// signature in place of signatures, then every other check of [`verify_tx_bundles`]. Check the
+/// policy with `delegated::check_policy` and the payment's block.
+#[cfg(feature = "extensions")]
+pub fn verify_delegated_tx_bundles<A: Authorization, V>(
+    vk: &VerifyingKey,
+    d: &delegated::DelegatedReceipt,
+    expected_coin_type: u32,
+    txid: [u8; 32],
+    orchard: Option<&Bundle<A, V>>,
+    ironwood: Option<&Bundle<A, V>>,
+    sources: SourceLookup<'_>,
+) -> Result<VerifiedReceipt, Error> {
+    d.check_authorization()?;
     let u = &d.receipt.unsigned;
     let pick = |p: Pool| match p {
         Pool::Orchard => orchard,

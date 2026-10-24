@@ -271,6 +271,7 @@ fn all_signing_domains_are_distinct() {
         include_str!("../src/policy.rs"),
         include_str!("../src/claim.rs"),
         include_str!("../src/designated.rs"),
+        include_str!("../src/delegated.rs"),
     ]
     .concat();
     let mut tags: Vec<&str> = src
@@ -280,10 +281,10 @@ fn all_signing_domains_are_distinct() {
             &rest[..rest.find('"').unwrap()]
         })
         .collect();
-    assert_eq!(tags.len(), 11, "{tags:?}");
+    assert_eq!(tags.len(), 14, "{tags:?}");
     tags.sort();
     tags.dedup();
-    assert_eq!(tags.len(), 11, "two formats share a signing domain: {tags:?}");
+    assert_eq!(tags.len(), 14, "two formats share a signing domain: {tags:?}");
     assert!(tags.iter().all(|t| t.replace("\\0", "\0").len() == 12), "{tags:?}");
 }
 

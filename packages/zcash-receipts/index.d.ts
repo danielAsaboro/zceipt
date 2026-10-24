@@ -53,3 +53,9 @@ export function checkPaymentLink(uri: string, options?: { network?: "mainnet" | 
 export interface AttestationClaims { iss: string; iat: number; vct: string; network: string; pool_proof: "zip311"; paid_at_least_zatoshis: number; paid_on_or_before: string; final: boolean; livemode: boolean; sandbox: boolean; net_of_refunds: true; revealed: Partial<{ txid: string; amount_zatoshis: number; paid_at: number; request: string; label: string }> }
 /** Verifies a payment-fact attestation (SD-JWT, Ed25519) locally. */
 export function verifyAttestation(presentation: string, options: { issuer?: string; jwks?: { keys: object[] } | string; allowTest?: boolean }): Promise<AttestationClaims>;
+/** A receipt made for you alone (`zip311d1…`), checked with your verifier secret key (hex). */
+export function verifyDesignated(input: string, verifierSecret: string, options?: VerifyOptions): Promise<Verification & { designated: true }>;
+/** A receipt a delegate issued (`zip311a1…`): the certificate, session signature and policy. */
+export function verifyDelegated(input: string, options?: VerifyOptions): Promise<Verification & { delegation: { max_zatoshis: number; until_height: number; payees: number } }>;
+/** A payer tag (`zip311t1…`) for your domain: different tags, different paying wallets. */
+export function verifyPayerTag(input: string, options: VerifyOptions & { domain: string }): Promise<{ valid: true; kind: "payer_tag"; txid: string; domain: string; tag: string }>;

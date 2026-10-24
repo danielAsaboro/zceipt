@@ -254,6 +254,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic-polyfill"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cf2bce30dfe09ef0bfaef228b9d414faaf7e563035494d7fe092dba54b300f4"
+dependencies = [
+ "critical-section",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -464,6 +473,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array 0.4.15",
+]
+
+[[package]]
+name = "bls12_381"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7bc6d6292be3a19e6379786dac800f551e5865a5bb51ebbe3064ab80433f403"
+dependencies = [
+ "ff 0.13.1",
+ "rand_core 0.6.4",
+ "subtle",
 ]
 
 [[package]]
@@ -732,6 +752,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-crc32-nostd"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "808ac43170e95b11dd23d78aa9eaac5bea45776a602955552c4e833f3f0f823d"
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -781,6 +807,12 @@ checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "crossbeam-channel"
@@ -988,6 +1020,17 @@ name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
+
+[[package]]
+name = "derive-getters"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74ef43543e701c01ad77d3a5922755c6a1d71b22d942cb8042be4994b380caff"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "digest"
@@ -1300,6 +1343,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "frost-core"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81ef2787af391c7e8bedc037a3b9ea03dde803fbd93e778e6bb369547800e5cd"
+dependencies = [
+ "byteorder",
+ "const-crc32-nostd",
+ "derive-getters",
+ "document-features",
+ "hex",
+ "itertools",
+ "postcard",
+ "rand_core 0.6.4",
+ "serde",
+ "serdect",
+ "thiserror 2.0.21",
+ "visibility",
+ "zeroize",
+ "zeroize_derive",
+]
+
+[[package]]
+name = "frost-rerandomized"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f4c5cedd2426728adef2c0b1720f57676354c473836d1ccc50d0f0d1c91942b"
+dependencies = [
+ "derive-getters",
+ "document-features",
+ "frost-core",
+ "hex",
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "fs-err"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1560,7 +1638,7 @@ dependencies = [
  "group 0.14.0",
  "halo2_poseidon",
  "halo2_proofs",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "rand 0.10.3",
  "sinsemilla",
  "subtle",
@@ -1582,7 +1660,7 @@ dependencies = [
  "bitvec",
  "ff 0.14.0",
  "group 0.14.0",
- "pasta_curves",
+ "pasta_curves 0.6.1",
 ]
 
 [[package]]
@@ -1597,10 +1675,19 @@ dependencies = [
  "halo2_legacy_pdqsort",
  "indexmap 2.14.2",
  "maybe-rayon",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "rand 0.10.3",
  "rand_core 0.10.1",
  "tracing",
+]
+
+[[package]]
+name = "hash32"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0c35f58762feb77d74ebe43bdbc3210f09be9fe6742234d573bacc26ed92b67"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]
@@ -1631,6 +1718,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "heapless"
+version = "0.7.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdc6457c0eb62c71aac4bc17216026d8410337c4126773b9c5daba343f17964f"
+dependencies = [
+ "atomic-polyfill",
+ "hash32",
+ "rustc_version",
+ "serde",
+ "spin",
+ "stable_deref_trait",
 ]
 
 [[package]]
@@ -2159,12 +2260,26 @@ dependencies = [
 
 [[package]]
 name = "jubjub"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8499f7a74008aafbecb2a2e608a3e13e4dd3e84df198b604451efe93f2de6e61"
+dependencies = [
+ "bitvec",
+ "bls12_381 0.8.0",
+ "ff 0.13.1",
+ "group 0.13.0",
+ "rand_core 0.6.4",
+ "subtle",
+]
+
+[[package]]
+name = "jubjub"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95fdd9a071f72385ed8b17d819f273d73c3887a93d34d2ac1419fca5b25dbbd2"
 dependencies = [
  "bitvec",
- "bls12_381",
+ "bls12_381 0.9.0",
  "ff 0.14.0",
  "group 0.14.0",
  "rand_core 0.10.1",
@@ -2458,10 +2573,10 @@ dependencies = [
  "lazy_static",
  "memuse",
  "nonempty",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "rand 0.10.3",
  "rand_core 0.10.1",
- "reddsa",
+ "reddsa 0.6.1",
  "serde",
  "sinsemilla",
  "subtle",
@@ -2528,6 +2643,19 @@ dependencies = [
 
 [[package]]
 name = "pasta_curves"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3437083215c505e867eea5478371feba43d7689d6d15ec0a209eb46fb0d4cda6"
+dependencies = [
+ "ff 0.13.1",
+ "group 0.13.0",
+ "rand 0.8.8",
+ "static_assertions",
+ "subtle",
+]
+
+[[package]]
+name = "pasta_curves"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0ed53ba43531a06e1f82020907cf192fc3c25d7c0baf5c49c547b74e7103b62"
@@ -2559,13 +2687,13 @@ version = "0.10.0-pre.1"
 source = "git+https://github.com/zcash/librustzcash.git?rev=9e3b2e15d0f7042d42106276830e3e8e0c0165c6#9e3b2e15d0f7042d42106276830e3e8e0c0165c6"
 dependencies = [
  "blake2b_simd",
- "bls12_381",
+ "bls12_381 0.9.0",
  "ff 0.14.0",
  "getset",
- "jubjub",
+ "jubjub 0.11.1",
  "nonempty",
  "orchard",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "postcard",
  "rand_core 0.10.1",
  "redjubjub",
@@ -2714,6 +2842,7 @@ dependencies = [
  "cobs",
  "embedded-io 0.4.0",
  "embedded-io 0.6.1",
+ "heapless",
  "serde",
 ]
 
@@ -3129,15 +3258,18 @@ dependencies = [
  "base64 0.22.1",
  "blake2b_simd",
  "ff 0.14.0",
+ "frost-rerandomized",
  "group 0.14.0",
  "halo2_proofs",
  "incrementalmerkletree",
  "orchard",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "qrcode",
  "rand 0.10.3",
  "rand_core 0.10.1",
+ "rand_core 0.6.4",
  "receipts-core",
+ "reddsa 0.5.2",
  "serde_json",
  "shardtree",
  "thiserror 2.0.21",
@@ -3249,6 +3381,25 @@ dependencies = [
 
 [[package]]
 name = "reddsa"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4784b85c8bfd17b36b86e664e6e504ecdb586001086ee23749e4a633bbb84832"
+dependencies = [
+ "blake2b_simd",
+ "byteorder",
+ "frost-rerandomized",
+ "group 0.13.0",
+ "hex",
+ "jubjub 0.10.0",
+ "pasta_curves 0.5.2",
+ "rand_core 0.6.4",
+ "serde",
+ "thiserror 2.0.21",
+ "zeroize",
+]
+
+[[package]]
+name = "reddsa"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a70b6dbd7b3277cbd4d89ee750a30bebab3b9951ee4e166ce15c00975fe410f"
@@ -3257,8 +3408,8 @@ dependencies = [
  "byteorder",
  "group 0.14.0",
  "hex",
- "jubjub",
- "pasta_curves",
+ "jubjub 0.11.1",
+ "pasta_curves 0.6.1",
  "rand_core 0.10.1",
  "serde",
  "thiserror 2.0.21",
@@ -3272,7 +3423,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19ff57b3369b472353110bea305ced2612a1380e2d2079dd26c200ed42064421"
 dependencies = [
  "rand_core 0.10.1",
- "reddsa",
+ "reddsa 0.6.1",
  "thiserror 2.0.21",
  "zeroize",
 ]
@@ -3540,7 +3691,7 @@ dependencies = [
  "bitvec",
  "blake2b_simd",
  "blake2s_simd",
- "bls12_381",
+ "bls12_381 0.9.0",
  "corez",
  "document-features",
  "ff 0.14.0",
@@ -3550,7 +3701,7 @@ dependencies = [
  "group 0.14.0",
  "hex",
  "incrementalmerkletree",
- "jubjub",
+ "jubjub 0.11.1",
  "lazy_static",
  "memuse",
  "rand 0.10.3",
@@ -3796,6 +3947,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serdect"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a84f14a19e9a014bb9f4512488d9829a68e04ecabffb0f9904cd1ace94598177"
+dependencies = [
+ "base16ct",
+ "serde",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3882,7 +4043,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72744738b764bb3bb7bb5dcf71b62d19c2de8a09f850a7388f6088f244037299"
 dependencies = [
  "group 0.14.0",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "subtle",
 ]
 
@@ -4998,7 +5159,7 @@ source = "git+https://github.com/zcash/librustzcash.git?rev=9e3b2e15d0f7042d4210
 dependencies = [
  "base64 0.22.1",
  "bech32",
- "bls12_381",
+ "bls12_381 0.9.0",
  "bs58",
  "byteorder",
  "document-features",
@@ -5011,7 +5172,7 @@ dependencies = [
  "memuse",
  "nonempty",
  "orchard",
- "pasta_curves",
+ "pasta_curves 0.6.1",
  "percent-encoding",
  "prost",
  "rand_core 0.10.1",
@@ -5050,7 +5211,7 @@ dependencies = [
  "group 0.14.0",
  "hex",
  "incrementalmerkletree",
- "jubjub",
+ "jubjub 0.11.1",
  "maybe-rayon",
  "nonempty",
  "orchard",
@@ -5100,7 +5261,7 @@ source = "git+https://github.com/zcash/librustzcash.git?rev=9e3b2e15d0f7042d4210
 dependencies = [
  "bech32",
  "blake2b_simd",
- "bls12_381",
+ "bls12_381 0.9.0",
  "bs58",
  "corez",
  "document-features",
@@ -5166,7 +5327,7 @@ dependencies = [
  "ff 0.14.0",
  "hex",
  "incrementalmerkletree",
- "jubjub",
+ "jubjub 0.11.1",
  "memuse",
  "nonempty",
  "orchard",

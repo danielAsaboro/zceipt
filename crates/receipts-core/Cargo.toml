@@ -44,6 +44,10 @@ halo2_proofs = { version = "0.4", default-features = false }
 rand = { version = "0.10", features = ["std", "sys_rng"] }
 incrementalmerkletree = "0.9"
 shardtree = "0.8"
+# tests/frost.rs: a 2-of-3 FROST treasury signs a receipt (Zcash Foundation re-randomized FROST).
+reddsa05 = { package = "reddsa", version = "0.5.2", features = ["frost"] }
+frost-rerandomized = "3.0.0"
+rand_core06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
 serde_json = "1"
 
 [[example]]

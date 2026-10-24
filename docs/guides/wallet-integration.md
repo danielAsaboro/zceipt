@@ -64,6 +64,15 @@ Until a wallet ships the button, its users make receipts in the browser: the ver
 and makes the proofs on the device, then signs with the seed phrase there or exports the
 prepared receipt for another signer.
 
+## Multisig (FROST) wallets
+
+A wallet whose spending key is split with re-randomized FROST signs a receipt the way it signs a
+transaction: the coordinator hands each signer `signing_digest(prepared.unsigned())` as the
+message and `prepared.alphas()[i]` as the randomizer (`frost_rerandomized::RandomizedParams::
+from_randomizer`), the threshold signs, and `apply_signatures` takes the aggregated signature.
+The prover needs only the full viewing key. `crates/receipts-core/tests/frost.rs` does this for
+a 2-of-3 key with the Zcash Foundation's crates and verifies the result.
+
 ## What not to do
 
 - Never sign a digest handed to the signer: recompute it from the unsigned receipt.

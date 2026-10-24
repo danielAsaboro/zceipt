@@ -119,6 +119,9 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
 - **One request, several payments:** a batch answers a proof request for invoices A and B at
   once; every receipt signs the request, and the total is checked
   ([example](examples/testnet/batch-request)).
+- **Multisig treasuries:** a treasury whose key is split with FROST (2-of-3, say) makes receipts
+  like any wallet: any two signers sign with the receipt's randomizer, and the receipt doesn't
+  show which two (`crates/receipts-core/tests/frost.rs`, with the Zcash Foundation's FROST).
 - **Same payer:** a batch proves every payment was signed with one spend key, without revealing
   it, so a DAO or grant program shows one treasury paid everyone (`k=zip311k1…` on the link).
 - **Batches, incoming receipts, memo-withheld outputs, refunds:** see

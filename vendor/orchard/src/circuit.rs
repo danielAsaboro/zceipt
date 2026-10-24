@@ -64,6 +64,7 @@ use halo2_gadgets::{
 mod commit_ivk;
 #[cfg(feature = "unstable-voting-circuits")]
 pub mod commit_ivk;
+pub mod claim;
 pub mod gadget;
 #[cfg(not(feature = "unstable-voting-circuits"))]
 mod note_commit;
@@ -523,6 +524,17 @@ impl Circuit {
         config: &Config,
         layouter: &mut impl Layouter<pallas::Base>,
     ) -> Result<AddressPoints, plonk::Error> {
+        self.synthesize_inner(config, layouter, true).map(|(addrs, _)| addrs)
+    }
+
+    /// The common checks; with `expose_nf` false the nullifier is derived but not made public,
+    /// and the witnessed `nk` is returned (local patch for Receipts' claim tags, `claim.rs`).
+    fn synthesize_inner(
+        &self,
+        config: &Config,
+        layouter: &mut impl Layouter<pallas::Base>,
+        expose_nf: bool,
+    ) -> Result<(AddressPoints, halo2_proofs::circuit::AssignedCell<pallas::Base, pallas::Base>), plonk::Error> {
         // Load the Sinsemilla generator lookup table used by the whole circuit.
         SinsemillaChip::load(config.sinsemilla_config_1.clone(), layouter)?;
 
@@ -590,6 +602,7 @@ impl Circuit {
 
             (psi_old, rho_old, cm_old, g_d_old, ak_P, nk, v_old, v_new)
         };
+        let nk_out = nk.clone();
 
         // Merkle path validity check (https://p.z.cash/ZKS:action-merkle-path-validity?partial).
         let root = {
@@ -678,7 +691,9 @@ impl Circuit {
             )?;
 
             // Constrain nf_old to equal public input
-            layouter.constrain_instance(nf_old.inner().cell(), config.primary, NF_OLD)?;
+            if expose_nf {
+                layouter.constrain_instance(nf_old.inner().cell(), config.primary, NF_OLD)?;
+            }
 
             nf_old
         };
@@ -887,12 +902,15 @@ impl Circuit {
             },
         )?;
 
-        Ok(AddressPoints {
-            g_d_old,
-            pk_d_old,
-            g_d_new,
-            pk_d_new,
-        })
+        Ok((
+            AddressPoints {
+                g_d_old,
+                pk_d_old,
+                g_d_new,
+                pk_d_new,
+            },
+            nk_out,
+        ))
     }
 
     /// Enforces the post-NU 6.3 cross-address restriction for one action: when

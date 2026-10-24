@@ -118,6 +118,10 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
   hops (shielding → self-transfer → payment) proves the whole chain, and its same-payer proof
   shows one controller made every hop.
 - **Proof of funds:** prove you hold at least an amount, showing only the total if you choose.
+- **Claims:** one per wallet in an airdrop or grant round, from a note held at the snapshot
+  block. Two claims from one wallet carry the same tag, and tags in different rounds don't link.
+- **Distinct payers:** tag a payment for a round, so it counts different wallets, not
+  payments, without learning who they are.
 - **One request, several payments:** a batch answers a proof request for invoices A and B at
   once; every receipt signs the request, and the total is checked
   ([example](examples/testnet/batch-request)).

@@ -391,6 +391,39 @@ of the receipt (signing digest `digest`) has `rk = K_j + [alpha]G` for some `j` 
 `alpha` for, by a one-of-many Schnorr proof. The verifier learns the payment was authorized
 under one of the set's keys, not which. Size: 64 bytes per key per spend.
 
+## Claims (`zip311t1`)
+
+```
+claim  := "ZRCT" | version:u8 = 1 | coinType:u32le | pool:u8 | domainLen:u16le | domain
+        | msgLen:u16le | msg | height:u32le | anchor[32] | floor:u64le | rk[32] | cmx[32]
+        | tag[32] | hasNf:u8 | (nf[32] if hasNf) | proofLen:u32le | proof | spendAuthSig[64]
+domainField := ToBase(BLAKE2b-512("ZIP311ClaimDom", domain))
+tag    := Poseidon(nk, domainField)
+digest := BLAKE2b-256("ZIP311Claim\0" || coinType, claim without spendAuthSig)
+```
+
+One claim per wallet in an airdrop, a grant round or a vote, for wallets that held at least
+`floor` at a snapshot. The proof is the Orchard Action statement for one note at `anchor`, with
+`cv_net = ValueCommit_0(floor)` (so the note holds at least `floor`), plus two public inputs:
+`domainField` and `tag`. Every claim a key makes in one domain has the same tag, so the verifier
+keeps one per tag; tags in two domains don't link. `spendAuthSig` by `rk` covers the claim.
+
+For a chain snapshot (`height` > 0), `anchor` must be the pool's tree root at `height`, set by
+the verifier (`receipts verify --domain D --height H`), and `nf` must be revealed and not
+published up to `height`. For a published list of commitments the verifier knows were held
+(`height` = 0, `anchor` its root), `nf` may stay private, and the claim then doesn't mark the
+note's later spend. The two modes are two circuits (two verifying keys).
+
+A **payer tag** is a claim with `height` = 0, `floor` = 1 and `msg` = `"payer-tag:" || txid`
+(display order) on a note the payment spent: the verifier fetches the payment and checks `nf` is
+one of its spend nullifiers and `anchor` its anchor (`receipts tag`, then `receipts verify
+--domain D`). Payments in one domain with different tags were paid by different keys; with equal
+tags, by one. A round that matches donations can count donors this way, not payments, and learns
+nothing else about them.
+
+The circuit is a local addition to the vendored orchard crate (`src/circuit/claim.rs`), so
+claims need this build; a stock Orchard verifier can't check them.
+
 ## Policy proofs (`zip311p1`)
 
 ```

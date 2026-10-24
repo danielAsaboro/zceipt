@@ -40,6 +40,8 @@ pub mod builder;
 #[cfg(feature = "extensions")]
 pub mod deposit;
 mod encoding;
+#[cfg(all(feature = "extensions", feature = "orchard-ext"))]
+pub mod claim;
 #[cfg(feature = "extensions")]
 pub mod income;
 #[cfg(feature = "orchard-ext")]
@@ -445,6 +447,8 @@ pub enum Error {
     NoSpends,
     #[error("the batch's aggregate proof doesn't hold, or a receipt in it carries its own proof")]
     BadAggregate,
+    #[error("the claim doesn't hold")]
+    BadClaim,
     #[error("the key-set proof doesn't hold for this receipt")]
     BadKeySet,
     #[error("the policy proof doesn't hold for this receipt")]

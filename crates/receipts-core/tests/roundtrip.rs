@@ -2320,3 +2320,99 @@ fn key_set_proof_names_the_set_not_the_key() {
     let another = prepared_for(&s, b"Payroll November").sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
     assert_eq!(verify(&p, &another).unwrap_err(), Error::BadKeySet);
 }
+
+#[test]
+fn claims_are_one_per_key_per_domain() {
+    use receipts_core::{claim, screened};
+    let mut rng = OsRng;
+    let version = BundleVersion::ironwood_v3();
+    // Two notes of one key, one note of another; the snapshot holds all three.
+    let a1 = scenario_from(version, 100_000, 1_000, 7);
+    let a2 = scenario_from(version, 60_000, 1_000, 7);
+    let b = scenario_from(version, 80_000, 1_000, 8);
+    let cmx = |s: &Scenario| ExtractedNoteCommitment::from(s.funding_note.commitment()).to_bytes();
+    let set = vec![cmx(&a1), cmx(&b), cmx(&a2)];
+    let anchor = screened::set_root(&set).unwrap();
+    let make = |s: &Scenario, floor: u64, domain: &[u8], rng: &mut _| {
+        let fvk = FullViewingKey::from(&s.sender_sk);
+        let path = claim::snapshot_path(&set, &cmx(s)).unwrap();
+        claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, path, floor, domain, b"payout to me", 0, false, rng)
+    };
+
+    let c1 = make(&a1, 50_000, b"airdrop-1", &mut rng).unwrap();
+    let back = claim::Claim::from_text(&c1.to_text()).unwrap();
+    assert_eq!(back, c1);
+    let t1 = claim::verify(&back, b"airdrop-1", &anchor).unwrap();
+    // The same key with its other note: the same tag, so a verifier keeps only one.
+    let c2 = make(&a2, 50_000, b"airdrop-1", &mut rng).unwrap();
+    assert_eq!(claim::verify(&c2, b"airdrop-1", &anchor).unwrap(), t1);
+    assert_ne!(c1.rk, c2.rk);
+    // Another key: another tag.
+    let c3 = make(&b, 50_000, b"airdrop-1", &mut rng).unwrap();
+    assert_ne!(claim::verify(&c3, b"airdrop-1", &anchor).unwrap(), t1);
+    // Another domain: a tag that doesn't link to the first.
+    let c4 = make(&a1, 50_000, b"airdrop-2", &mut rng).unwrap();
+    assert_ne!(claim::verify(&c4, b"airdrop-2", &anchor).unwrap(), t1);
+
+    // Below the floor, the wrong domain or snapshot, or any edit: refused.
+    assert!(make(&a2, 60_001, b"airdrop-1", &mut rng).is_err());
+    assert!(claim::verify(&c1, b"airdrop-2", &anchor).is_err());
+    assert!(claim::verify(&c1, b"airdrop-1", &screened::set_root(&set[..2]).unwrap()).is_err());
+    let mut forged = c1.clone();
+    forged.tag = c3.tag;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    let mut forged = c1.clone();
+    forged.floor = 90_000;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    let mut forged = c1.clone();
+    forged.msg = b"payout to someone else".to_vec();
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    // The proof alone can't be moved to a fresh tag even when re-signed: the tag is in the proof.
+    let mut forged = c3.clone();
+    forged.tag = c1.tag;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+
+    // For a chain snapshot the nullifier is revealed, and it's the note's real one.
+    let fvk = FullViewingKey::from(&a1.sender_sk);
+    let path = claim::snapshot_path(&set, &cmx(&a1)).unwrap();
+    let c5 = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&a1.sender_sk), a1.funding_note, path, 50_000, b"airdrop-1", b"x", 0, true, &mut rng).unwrap();
+    assert_eq!(c5.nf, Some(a1.funding_note.nullifier(&fvk).to_bytes()));
+    let back = claim::Claim::from_text(&c5.to_text()).unwrap();
+    assert_eq!(claim::verify(&back, b"airdrop-1", &anchor).unwrap(), t1);
+    let mut forged = c5.clone();
+    forged.nf = Some(a2.funding_note.nullifier(&fvk).to_bytes());
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    let mut forged = c5.clone();
+    forged.nf = None;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+}
+
+#[test]
+fn payer_tags_tell_wallets_apart() {
+    use receipts_core::claim;
+    let mut rng = OsRng;
+    let version = BundleVersion::ironwood_v3();
+    let a1 = scenario_from(version, 100_000, 1_000, 7);
+    let a2 = scenario_from(version, 60_000, 2_000, 7);
+    let b = scenario_from(version, 80_000, 3_000, 8);
+    let txids = [[1u8; 32], [2; 32], [3; 32]];
+    let tag = |s: &Scenario, txid: &[u8; 32], rng: &mut _| {
+        let fvk = FullViewingKey::from(&s.sender_sk);
+        let c = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, s.funding_path.clone(), 1, b"round-7", &claim::payer_tag_msg(txid), 0, true, rng).unwrap();
+        let nfs: Vec<[u8; 32]> = s.payment.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
+        let t = claim::verify_payer_tag(&c, b"round-7", txid, &s.payment.anchor().to_bytes(), &nfs).unwrap();
+        (c, t, nfs)
+    };
+    let (c1, t1, nfs1) = tag(&a1, &txids[0], &mut rng);
+    let (_, t2, _) = tag(&a2, &txids[1], &mut rng);
+    let (_, t3, nfs3) = tag(&b, &txids[2], &mut rng);
+    // One donor's two payments share a tag; another donor's differs.
+    assert_eq!(t1, t2);
+    assert_ne!(t1, t3);
+    // A tag doesn't move to another payment, round or anchor.
+    let anchor = a1.payment.anchor().to_bytes();
+    assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[2], &anchor, &nfs1).is_err());
+    assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &anchor, &nfs3).is_err());
+    assert!(claim::verify_payer_tag(&c1, b"round-8", &txids[0], &anchor, &nfs1).is_err());
+    assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &b.payment.anchor().to_bytes(), &nfs1).is_err());
+}

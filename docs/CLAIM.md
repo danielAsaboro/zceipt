@@ -63,6 +63,20 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    branches make every `j` look alike). So the signer holds one of the keys, or knows its relation
    to one. `src/keyset.rs`; `roundtrip.rs::key_set_proof_names_the_set_not_the_key`, and the spec
    verifier checks `conformance/keyset.json`.
+11. **Claim (a separate `zip311t1` proof, a local circuit).** The claimant owns a note holding at
+   least `floor` in the tree at `anchor`, and `tag = Poseidon(nk, domain)` for that note's `nk`.
+   The circuit is the Orchard Action circuit (`orchard::circuit::claim`) with the same `nk` cell
+   feeding both `ivk = CommitIvk(ak, nk, rivk)`, which the note's address must match, and the tag
+   hash, plus two public inputs (`domain`, `tag`). So every claim one key makes in one domain
+   carries one tag, whichever note it uses (every address and both scopes of an account share
+   `nk`), and finding a second tag for a key would need a CommitIvk collision. Against a chain
+   snapshot, the claim reveals the note's nullifier and the verifier checks it wasn't published
+   up to the snapshot block: the tree keeps spent notes, so without that a balance could claim
+   from each key it passed through. Tags in different domains are unrelated values (Poseidon as a
+   PRF keyed by `nk`). `src/claim.rs`; `roundtrip.rs::claims_are_one_per_key_per_domain`, and the
+   regtest e2e claims twice from one wallet. A payer tag is the same proof on a note a payment
+   spent (its nullifier one of the payment's, its anchor the payment's), so different tags mean
+   different paying keys; `roundtrip.rs::payer_tags_tell_wallets_apart`.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

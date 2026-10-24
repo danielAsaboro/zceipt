@@ -1,9 +1,10 @@
 # vendor/
 
 `vendor/orchard` is the published `orchard` 0.16.0 crate from crates.io, unchanged except for the
-small patch in [`orchard-0.16.0-receipts.patch`](orchard-0.16.0-receipts.patch) (about 60 changed
-lines across four files). Every other file, including its `AGENTS.md`, licences and CI config, is
-upstream's, copied as published. Nothing in the circuit or in proving changes.
+patch in [`orchard-0.16.0-receipts.patch`](orchard-0.16.0-receipts.patch). Every other file,
+including its `AGENTS.md`, licences and CI config, is upstream's, copied as published. The Action
+circuit and its keys are unchanged (`params_match_derivation` and every testnet receipt check
+that); the patch adds one new circuit beside it, for claims.
 
 What the patch adds, and why Receipts needs it:
 
@@ -14,6 +15,8 @@ What the patch adds, and why Receipts needs it:
 | `DiversifiedTransmissionKey::from_bytes` public | `src/keys.rs` | same |
 | `Note::esk_bytes` | `src/note.rs` | incoming receipts: the recipient reveals one output's ephemeral secret |
 | `Note::commitment_opening`, `extracted_commitment_from_opening` | `src/note.rs` | format v5: disclose recipient and amount by the note-commitment opening without `rseed`, so the memo stays encrypted |
+| `Circuit::synthesize_inner` (the Action synthesis, with the nullifier's public input optional and `nk`'s cell returned) | `src/circuit.rs` | the claim circuit reuses the Action constraints as they are |
+| `circuit::claim` (new) | `src/circuit/claim.rs` | claims (`zip311t1`): the Action statement plus public `domain` and `tag = Poseidon(nk, domain)`, its own keys |
 
 Check it yourself:
 

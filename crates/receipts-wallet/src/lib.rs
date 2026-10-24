@@ -1056,6 +1056,135 @@ pub fn create_reserve_proof(
     Ok(make(&receipts_core::proving_key(), net.coin_type(), pool, height, anchor.expect("at least one note"), msg, &sk, &witnesses, OsRng)?)
 }
 
+/// A payer tag for `txid` in `domain`: a claim on the first note this wallet spent in it, at the
+/// payment's anchor, so a verifier can tell payments by different wallets apart (and see when
+/// two came from one) without learning more. Reveals that note's nullifier, already on chain.
+pub async fn create_payer_tag(wallet: &Path, identity: &Path, txid: [u8; 32], domain: &str, server: Option<&str>) -> anyhow::Result<receipts_core::claim::Claim> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let db_path = wallet.join("data.sqlite");
+    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    let tx = db.get_transaction(TxId::from_bytes(txid))?.ok_or_else(|| anyhow!("this wallet has no record of that transaction; sync it first"))?;
+    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mined: Option<u32> = conn.query_row("SELECT mined_height FROM transactions WHERE txid = ?1", [txid.as_slice()], |r| r.get(0))?;
+    let mined = mined.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?;
+    let spent = spent_notes_in_db(&db, &conn, &fvk, &tx)?;
+    for pool in [Pool::Ironwood, Pool::Orchard] {
+        let Some(bundle) = (match pool {
+            Pool::Ironwood => tx.ironwood_bundle(),
+            Pool::Orchard => tx.orchard_bundle(),
+        }) else {
+            continue;
+        };
+        let Some(stored) = bundle.actions().iter().find_map(|a| spent.get(&(pool, a.nullifier().to_bytes()))) else { continue };
+        if stored.note.value().inner() == 0 {
+            continue;
+        }
+        let anchor = *bundle.anchor();
+        let path = match stored.position.and_then(|p| witness_at_anchor(&mut db, pool, p, anchor, BlockHeight::from_u32(mined)).ok()) {
+            Some(p) => p,
+            None => {
+                let h = stored.mined_height.ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
+                receipts_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, anchor, mined).await?
+            }
+        };
+        eprintln!("Proving the payer tag on the note spent in {pool:?}…");
+        return Ok(receipts_core::claim::prove(
+            net.coin_type(),
+            pool,
+            &fvk,
+            &SpendAuthorizingKey::from(&sk),
+            stored.note,
+            path,
+            1,
+            domain.as_bytes(),
+            &receipts_core::claim::payer_tag_msg(&txid),
+            0,
+            true,
+            OsRng,
+        )?);
+    }
+    bail!("this wallet did not spend any notes in that transaction, so it has no payer tag for it")
+}
+
+/// Claims in `domain` with the wallet's largest note that held at least `floor` at the snapshot
+/// `height` (default: the wallet's latest checkpoint; it must be one the wallet still keeps).
+/// Reveals that note's nullifier, so the verifier can check it was unspent then.
+pub fn create_claim(
+    wallet: &Path,
+    identity: &Path,
+    pool: Pool,
+    domain: &str,
+    floor: u64,
+    msg: &[u8],
+    height: Option<u32>,
+) -> anyhow::Result<receipts_core::claim::Claim> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let db_path = wallet.join("data.sqlite");
+    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let (notes_t, spends_t, cp_t) = match pool {
+        Pool::Ironwood => ("ironwood_received_notes", "ironwood_received_note_spends", "ironwood_tree_checkpoints"),
+        Pool::Orchard => ("orchard_received_notes", "orchard_received_note_spends", "orchard_tree_checkpoints"),
+    };
+    let fk = match pool {
+        Pool::Ironwood => "ironwood_received_note_id",
+        Pool::Orchard => "orchard_received_note_id",
+    };
+    let height: u32 = match height {
+        Some(h) => conn
+            .query_row(&format!("SELECT checkpoint_id FROM {cp_t} WHERE checkpoint_id = ?1"), [h], |r| r.get(0))
+            .map_err(|_| anyhow!("the wallet keeps no tree checkpoint at block {h}; claim from a wallet synced to it"))?,
+        None => conn.query_row(&format!("SELECT max(checkpoint_id) FROM {cp_t}"), [], |r| r.get(0)).map_err(|_| anyhow!("the wallet has no tree checkpoint; sync it"))?,
+    };
+    // Notes mined by the snapshot and not spent by it.
+    let sql = format!(
+        "SELECT rn.nf FROM {notes_t} rn JOIN transactions t ON t.id_tx = rn.transaction_id
+         WHERE t.mined_height <= ?1 AND rn.nf IS NOT NULL AND rn.value >= ?2 AND rn.id NOT IN (
+           SELECT s.{fk} FROM {spends_t} s JOIN transactions st ON st.id_tx = s.transaction_id WHERE st.mined_height <= ?1)"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let nfs: Vec<Vec<u8>> = stmt.query_map(rusqlite::params![height, floor as i64], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let mut best: Option<StoredNote> = None;
+    for nf in nfs {
+        let nf: [u8; 32] = nf.try_into().map_err(|_| anyhow!("bad nullifier in wallet"))?;
+        if let Some(n) = find_spent_note(&conn, pool, &fvk, &nf)? {
+            if best.as_ref().is_none_or(|b| n.note.value().inner() > b.note.value().inner()) {
+                best = Some(n);
+            }
+        }
+    }
+    let n = best.ok_or_else(|| anyhow!("no {pool:?} note of at least {} ZEC was held at block {height}", receipts_chain::chain::zec(floor)))?;
+    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    type E = ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>;
+    let id = BlockHeight::from_u32(height);
+    let pos = Position::from(n.position);
+    let path = match pool {
+        Pool::Orchard => db.with_orchard_tree_mut::<_, _, E>(|t| t.witness_at_checkpoint_id_caching(pos, &id))?,
+        Pool::Ironwood => db.with_ironwood_tree_mut::<_, _, E>(|t| t.witness_at_checkpoint_id_caching(pos, &id))?.ok_or_else(|| anyhow!("the wallet has no Ironwood tree"))?,
+    };
+    let path = path.ok_or_else(|| anyhow!("no witness for the note at block {height}; sync the wallet"))?;
+    eprintln!("Proving a note against the {pool:?} tree at block {height}…");
+    Ok(receipts_core::claim::prove(
+        net.coin_type(),
+        pool,
+        &fvk,
+        &SpendAuthorizingKey::from(&sk),
+        n.note,
+        MerklePath::from(path),
+        floor,
+        domain.as_bytes(),
+        msg,
+        height,
+        true,
+        OsRng,
+    )?)
+}
+
 /// A shop's proof-request link: `…#request=<challenge>&to=<payee>&min=<zatoshis>` (or the older
 /// `…?request=…` form).
 #[derive(Clone, Debug, PartialEq, Eq)]

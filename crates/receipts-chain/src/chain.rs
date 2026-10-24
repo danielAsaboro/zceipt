@@ -1257,3 +1257,101 @@ mod window_tests {
         assert_eq!(witness_window_start(5), 1);
     }
 }
+
+#[derive(Serialize)]
+pub struct ClaimReport {
+    pub valid: bool,
+    pub kind: &'static str,
+    pub network: &'static str,
+    pub pool: &'static str,
+    pub domain: String,
+    pub message: String,
+    /// The claim's tag: one per key in this domain. Keep one claim per tag.
+    pub tag: String,
+    pub floor_zatoshis: u64,
+    pub floor_zec: String,
+    /// The snapshot: the block whose tree root the note was proven against.
+    pub snapshot_height: u32,
+}
+
+impl ClaimReport {
+    pub fn print(&self) {
+        println!("VALID claim");
+        println!("  network   {}", self.network);
+        println!("  pool      {}", self.pool);
+        println!("  domain    {}", shown(&self.domain, "            "));
+        if !self.message.is_empty() {
+            println!("  message   {}", shown(&self.message, "            "));
+        }
+        println!("  holds     at least {} ZEC at block {}, unspent then", self.floor_zec, self.snapshot_height);
+        println!("  tag       {} (one per key in this domain: accept one claim per tag)", self.tag);
+        println!("  revealed  the note's nullifier (so whoever holds this can see when it is spent); not the address, the value or other notes");
+    }
+}
+
+/// Verifies a claim against the chain: the anchor is the pool's tree root at the claim's height,
+/// the proof and signature hold, and the note's nullifier wasn't published up to that height (the
+/// tree keeps spent notes, so without this one balance could claim from every key it moved through).
+pub async fn verify_claim_against_chain(
+    c: &receipts_core::claim::Claim,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+    cache: Option<&std::path::Path>,
+) -> anyhow::Result<ClaimReport> {
+    use zcash_client_backend::proto::service::BlockId;
+    let net = net::for_receipt(c.coin_type, regtest)?;
+    let nf = c.nf.ok_or_else(|| anyhow!("this claim hides its nullifier, so it can only be checked against a published list, not the chain"))?;
+    let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    let ts = client
+        .get_tree_state(BlockId { height: u64::from(c.height), hash: vec![] })
+        .await
+        .map_err(|e| anyhow!("tree state at {}: {}", c.height, e.message()))?
+        .into_inner();
+    let tree = match c.pool {
+        Pool::Ironwood => ts.ironwood_tree()?,
+        Pool::Orchard => ts.orchard_tree()?,
+    };
+    let root = tree.root().to_bytes();
+    if root != c.anchor {
+        bail!("the claim's anchor isn't the {:?} tree root at block {}", c.pool, c.height);
+    }
+    let tag = receipts_core::claim::verify(c, &c.domain, &root).map_err(|e| anyhow!("{e}"))?;
+    let from = pool_activation(net, c.pool).max(1);
+    if from <= c.height && published_nullifiers(net, server, c.pool, from, c.height, cache).await?.contains(&nf) {
+        bail!("the note was spent before block {}: it wasn't held at the snapshot", c.height);
+    }
+    Ok(ClaimReport {
+        valid: true,
+        kind: "claim",
+        network: net.name(),
+        pool: if c.pool == Pool::Orchard { "Orchard" } else { "Ironwood" },
+        domain: String::from_utf8_lossy(&c.domain).into_owned(),
+        message: String::from_utf8_lossy(&c.msg).into_owned(),
+        tag: tag.iter().map(|b| format!("{b:02x}")).collect(),
+        floor_zatoshis: c.floor,
+        floor_zec: zec(c.floor),
+        snapshot_height: c.height,
+    })
+}
+
+/// Verifies a payer tag (a claim with no snapshot, `receipts_core::claim::verify_payer_tag`)
+/// against the payment it names: fetched from the chain, its anchor and spend nullifiers. Returns
+/// the payment's txid and the tag.
+pub async fn verify_payer_tag_against_chain(
+    c: &receipts_core::claim::Claim,
+    domain: &[u8],
+    txid: [u8; 32],
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<[u8; 32]> {
+    let net = net::for_receipt(c.coin_type, regtest)?;
+    let (tx, _) = fetch_mined_tx(net, server, txid).await?;
+    let bundle = match c.pool {
+        Pool::Ironwood => tx.ironwood_bundle(),
+        Pool::Orchard => tx.orchard_bundle(),
+    }
+    .ok_or_else(|| anyhow!("the payment has no {:?} bundle", c.pool))?;
+    let nfs: Vec<[u8; 32]> = bundle.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
+    receipts_core::claim::verify_payer_tag(c, domain, &txid, &bundle.anchor().to_bytes(), &nfs)
+        .map_err(|_| anyhow!("the payer tag doesn't hold for this payment and domain"))
+}

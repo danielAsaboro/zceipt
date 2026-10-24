@@ -268,9 +268,12 @@ enum Cmd {
         /// Needs --height.
         #[arg(long, requires = "height")]
         raw_tx: Option<PathBuf>,
-        /// Block height of --raw-tx.
+        /// Block height of --raw-tx, or a claim's snapshot block.
         #[arg(long)]
         height: Option<u32>,
+        /// For a claim: the domain it must be for (the airdrop's or round's name).
+        #[arg(long)]
+        domain: Option<String>,
         /// Offline exchange deposits: the second ZIP 320 step's raw transaction (hex file).
         #[arg(long, requires = "raw_tx")]
         second_raw_tx: Option<PathBuf>,
@@ -413,6 +416,51 @@ enum Cmd {
         /// Show only the total, not each note's value.
         #[arg(long)]
         hide_values: bool,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Claim once per wallet in an airdrop, grant round or vote: shows a note of at least the
+    /// floor was held at the snapshot block, and carries a tag that's the same for every claim
+    /// this wallet makes in that domain. Reveals that note's nullifier, nothing else.
+    #[command(display_order = 8)]
+    Claim {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// What is being claimed (the airdrop's or round's name); one claim per wallet in it.
+        #[arg(long)]
+        domain: String,
+        /// The least a note must have held (ZEC).
+        #[arg(long)]
+        floor: String,
+        /// The snapshot block. Default: the wallet's latest synced block.
+        #[arg(long)]
+        height: Option<u32>,
+        /// Bound into the claim (where to pay out, say).
+        #[arg(short, long, default_value = "")]
+        msg: String,
+        /// orchard or ironwood (default ironwood).
+        #[arg(long, default_value = "ironwood")]
+        pool: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Tag a payment you made for a campaign or round, so its organiser can count different
+    /// wallets (one donor can't pass as several by splitting donations) without learning who.
+    #[command(display_order = 8)]
+    Tag {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        #[arg(long)]
+        txid: String,
+        /// The campaign's or round's name.
+        #[arg(long)]
+        domain: String,
+        #[arg(short, long)]
+        server: Option<String>,
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -765,6 +813,7 @@ fn count_receipts(text: &str) -> usize {
         receipts_core::incoming::INCOMING_TEXT_PREFIX,
         receipts_core::reserve::RESERVE_TEXT_PREFIX,
         receipts_core::income::INCOME_TEXT_PREFIX,
+        receipts_core::claim::CLAIM_TEXT_PREFIX,
     ]
     .iter()
     .map(|p| text.matches(p).count())
@@ -1693,6 +1742,60 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
         }
+        Cmd::Verify { receipt, server, json, regtest, domain, height, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
+            let text = read_arg_text(&receipt)?;
+            let i = text.find(receipts_core::claim::CLAIM_TEXT_PREFIX).unwrap();
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let c = receipts_core::claim::Claim::from_text(&body).map_err(|_| anyhow!("malformed claim"))?;
+            if c.height == 0 {
+                // A payer tag: on a note a payment spent, named in its message.
+                let domain = domain.ok_or_else(|| anyhow!("a payer tag is checked for your domain: give --domain"))?;
+                let txid = std::str::from_utf8(&c.msg).ok().and_then(|m| m.strip_prefix("payer-tag:")).ok_or_else(|| anyhow!("this claim has no snapshot block and names no payment"))?;
+                let txid = parse_txid(txid)?;
+                let tag = chain::verify_payer_tag_against_chain(&c, domain.as_bytes(), txid, server.as_deref(), regtest.as_deref()).await?;
+                let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
+                if json {
+                    println!("{}", serde_json::json!({ "valid": true, "kind": "payer_tag", "domain": domain, "txid": receipts_core::display_txid(&txid), "tag": tag }));
+                } else {
+                    println!("VALID payer tag");
+                    println!("  payment   tx {}", receipts_core::display_txid(&txid));
+                    println!("  domain    {}", chain::shown(&domain, "            "));
+                    println!("  tag       {tag} (payments with different tags here were made by different wallets; equal tags, by one)");
+                }
+                return Ok(());
+            }
+            // The verifier sets the domain and the snapshot; a claimant could otherwise pick their own.
+            let (Some(domain), Some(height)) = (domain, height) else {
+                bail!("a claim is checked for your domain and snapshot block: give --domain and --height");
+            };
+            if c.domain != domain.as_bytes() {
+                bail!("the claim is for {:?}, not {domain:?}", String::from_utf8_lossy(&c.domain));
+            }
+            if c.height != height {
+                bail!("the claim is against block {}, not the snapshot {height}", c.height);
+            }
+            let net = net::for_receipt(c.coin_type, regtest.as_deref())?;
+            let cache = std::env::var_os("HOME").map(|h| {
+                PathBuf::from(h).join(".cache/receipts").join(format!(
+                    "{}-{}-{}-nullifiers.bin",
+                    net.name(),
+                    if c.pool == Pool::Orchard { "orchard" } else { "ironwood" },
+                    server.as_deref().unwrap_or("default").replace([':', '/'], "_")
+                ))
+            });
+            eprintln!("Checking the proof and that the note was unspent at block {height}…");
+            let rep = chain::verify_claim_against_chain(&c, server.as_deref(), regtest.as_deref(), cache.as_deref()).await?;
+            if let (_, Some(ch), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
+                if receipts_server::verify::challenge_of(&rep.message).as_deref() != Some(ch.to_lowercase().as_str()) {
+                    bail!("the claim doesn't sign challenge {ch}");
+                }
+            }
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rep)?);
+            } else {
+                rep.print();
+            }
+        }
         Cmd::Verify { receipt, expect_address: Some(_), .. } if read_arg_text(&receipt)?.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) => {
             bail!("--expect-address doesn't apply to a proof of funds (it proves holdings, not a payment)");
         }
@@ -2095,6 +2198,31 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 "It reveals {} and each note's nullifier (the verifier can see when they are spent), nothing else.",
                 if hide_values { "the total" } else { "each note's value" }
             );
+            println!("{text}");
+        }
+        Cmd::Tag { wallet, identity, txid, domain, server, out } => {
+            let c = wallet::create_payer_tag(&wallet, &identity, parse_txid(&txid)?, &domain, server.as_deref()).await?;
+            let text = c.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!("Payer tag in {domain:?} for tx {txid}, {} bytes.", c.to_bytes().len());
+            println!("{text}");
+        }
+        Cmd::Claim { wallet, identity, domain, floor, height, msg, pool, out } => {
+            let pool = match pool.as_str() {
+                "ironwood" => Pool::Ironwood,
+                "orchard" => Pool::Orchard,
+                p => bail!("unknown pool {p}"),
+            };
+            let c = wallet::create_claim(&wallet, &identity, pool, &domain, parse_zec(&floor)?, msg.as_bytes(), height)?;
+            let text = c.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!("Claim in {domain:?}: at least {} ZEC held at block {}, {} bytes.", chain::zec(c.floor), c.height, c.to_bytes().len());
             println!("{text}");
         }
         Cmd::Request { wallet, identity, domain, amount, memo, code, expires_in, payee } => {

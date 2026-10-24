@@ -203,6 +203,26 @@ HELD=$(grep -o 'Proof of funds: [0-9.]* ZEC' reserve.log | grep -o '[0-9.]*')
 "$R" reserve -w ./saver -i ./saver.age -m "challenge:otc-e2e" --hide-values --out reserve-hidden.txt > reserve-hidden.log 2>&1 || bad "hidden-value proof of funds"
 "$R" verify @reserve-hidden.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-hidden-report.txt 2>&1 && grep -q "holds     $HELD TAZ" reserve-hidden-report.txt && grep -q "not each note's value" reserve-hidden-report.txt \
   && ok "proof of funds with values hidden: the same total, no per-note values" || { bad "verify hidden-value proof of funds"; tail -3 reserve-hidden-report.txt; }
+echo "== Claims: one per wallet per airdrop, from a note held at the snapshot block"
+"$R" claim -w ./saver -i ./saver.age --domain "airdrop-e2e" --floor 0.1 -m "payout to me" --out claim1.txt > claim1.log 2>&1 || { bad "claim"; tail -3 claim1.log; }
+SNAP=$(grep -o 'held at block [0-9]*' claim1.log | grep -o '[0-9]*$')
+"$R" claim -w ./saver -i ./saver.age --domain "airdrop-e2e" --floor 0.1 --height "$SNAP" --out claim2.txt > claim2.log 2>&1 || bad "second claim"
+"$R" claim -w ./saver -i ./saver.age --domain "airdrop-other" --floor 0.1 --height "$SNAP" --out claim3.txt > claim3.log 2>&1 || bad "claim in another domain"
+for f in 1 2; do "$R" verify @claim$f.txt --json --domain airdrop-e2e --height "$SNAP" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim$f.json 2> claim$f.err || { bad "verify claim $f"; tail -3 claim$f.err; }; done
+"$R" verify @claim3.txt --json --domain airdrop-other --height "$SNAP" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim3.json 2> claim3.err || { bad "verify claim 3"; tail -3 claim3.err; }
+T1=$(jq -r .tag claim1.json); [ "${#T1}" = 64 ] && [ "$T1" = "$(jq -r .tag claim2.json)" ] && ok "two claims from one wallet carry the same tag at block $SNAP: the second is caught" || bad "claim tags differ"
+T3=$(jq -r .tag claim3.json); [ "${#T3}" = 64 ] && [ "$T1" != "$T3" ] && ok "in another airdrop the wallet's tag doesn't link to the first" || bad "claim tags link across domains"
+"$R" verify @claim1.txt --domain airdrop-other --height "$SNAP" --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim-wrong.txt 2>&1 && bad "a claim passed for the wrong airdrop" || ok "a claim for one airdrop is refused for another"
+"$R" verify @claim1.txt --domain airdrop-e2e --height $((SNAP + 1)) --regtest ./heights.toml -s "127.0.0.1:$GRPC" > claim-wrong.txt 2>&1 && bad "a claim passed for another snapshot" || ok "and for another snapshot block"
+echo "== Payer tags: a round counts different wallets, not payments"
+for t in HOP PAY2; do "$R" tag -w ./saver -i ./saver.age --txid "${!t}" --domain round-e2e -s "127.0.0.1:$GRPC" --out tag-$t.txt > tag-$t.log 2>&1 || { bad "payer tag $t"; tail -3 tag-$t.log; }; done
+sync customer
+"$R" tag -w ./customer -i ./customer.age --txid "$DEP" --domain round-e2e -s "127.0.0.1:$GRPC" --out tag-DEP.txt > tag-DEP.log 2>&1 || { bad "payer tag DEP"; tail -3 tag-DEP.log; }
+for t in HOP PAY2 DEP; do "$R" verify @tag-$t.txt --json --domain round-e2e --regtest ./heights.toml -s "127.0.0.1:$GRPC" > tag-$t.json 2> tag-$t.err || { bad "verify payer tag $t"; tail -3 tag-$t.err; }; done
+TH=$(jq -r .tag tag-HOP.json); TD=$(jq -r .tag tag-DEP.json)
+[ "${#TH}" = 64 ] && [ "$TH" = "$(jq -r .tag tag-PAY2.json)" ] && [ "${#TD}" = 64 ] && [ "$TD" != "$TH" ] \
+  && ok "payer tags: the saver's two payments share a tag, the customer's differs (2 wallets, 3 payments)" || bad "payer tags"
+"$R" verify @tag-HOP.txt --domain round-other --regtest ./heights.toml -s "127.0.0.1:$GRPC" > tag-wrong.txt 2>&1 && bad "a payer tag passed for another round" || ok "a payer tag is refused for another round"
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done
 grep -q "has been spent" reserve-after.txt && ok "after the saver spends, the same proof is refused (its nullifier is on chain)" || { bad "spent funds still proven"; tail -3 reserve-after.txt; }

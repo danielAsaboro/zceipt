@@ -61,7 +61,7 @@ let v = verify_transaction(&vk, &Receipt::from_text(&link)?, Network::Testnet.co
 - **Bindings:** the browser verifier (WebAssembly, no server), an npm package and
   `<zcash-receipt>` web component, a CLI, and a REST API with SDKs for TypeScript, Python, Rust
   and Go.
-- **A small patch to `orchard` 0.16** (about 60 lines, no circuit change) that this workspace
+- **A patch to `orchard` 0.16** (the Action circuit is unchanged; it adds accessors and, for claims, a forked circuit beside it: see [vendor/README.md](../vendor/README.md)) that this workspace
   applies for its own binaries, behind receipts-core's `orchard-ext` feature: precomputed
   verifier parameters (about 2.7x faster key building), incoming receipts and memo-withheld outputs. A
   crate that depends on receipts-core gets stock `orchard` and everything else

@@ -1,0 +1,48 @@
+---
+title: "Key sets"
+description: "Prove a receipt was signed under one of a published set of keys, without saying which."
+---
+
+A department, program or co-op publishes its members' spend keys. A receipt shows it was signed
+by *a* member, not which one.
+
+## Use
+
+Each member prints their key:
+
+```bash
+receipts key -w <wallet>
+```
+
+The organisation publishes the lines as `keys.txt`. A member makes a receipt over the set:
+
+```bash
+receipts create -w <wallet> -i <identity> --txid <txid> --key-set keys.txt
+```
+
+A verifier names the set it expects:
+
+```bash
+receipts verify "#$(cat link.txt)" --key-set keys.txt
+```
+
+A real testnet example, a four-wallet co-op, is in `examples/testnet/keyset`.
+
+## How it works
+
+For a set `K_1..K_n`, every spend's `rk` is `K_j + [alpha]G` for some `j` whose `alpha` the prover
+knows. It is a one-of-many Schnorr proof: special soundness extracts `alpha` for at least one
+`j`, and the simulated branches make every `j` look alike.
+
+So the signer holds one of the keys, or knows its relation to one. No circuit.
+
+## Limits
+
+- The set is whatever the verifier supplies. A verifier who accepts the wrong set learns the wrong
+  thing; the page and CLI make you name it.
+- It hides which member, not that a member signed.
+- Distinct from [FROST policy](/composability/frost-policy): a key set is *n separate keys*, a
+  policy is *one key held by n parties*.
+
+Code: `crates/receipts-core/src/keyset.rs`. Test: `roundtrip.rs::key_set_proof_names_the_set_not_the_key`.
+The spec verifier checks `conformance/keyset.json`.

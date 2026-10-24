@@ -1,0 +1,65 @@
+---
+title: "Quickstart"
+description: "Verify a real testnet receipt, and watch an edited copy fail."
+---
+
+## Without Rust
+
+The verifier page runs in the browser. Open it from a checkout:
+
+```bash
+./scripts/serve-verifier.sh
+```
+
+Then use its three examples:
+
+| Example | Result |
+|---|---|
+| Try a real testnet receipt | PAID TO YOU, when opened as the merchant it paid |
+| Try an edited copy | NOT VALID: the signed message changed from "Order #42" to "Order #43" |
+| Try a claim by someone who only saw it | NOT PROVEN BY THE PAYER |
+
+The second verifier needs no Rust either. It checks everything except the Halo 2 proofs:
+
+```bash
+python3 -m unittest discover -s spec-verifier/tests
+```
+
+## With Rust
+
+```bash
+cargo install --locked --path crates/receipts-cli
+receipts demo
+```
+
+The first build takes about ten minutes.
+
+## Make a receipt
+
+From a viewing key and a seed phrase, on separate machines if you like:
+
+```bash
+receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
+receipts sign r.txt --seed-stdin
+```
+
+`create` makes the proofs with no spending key. `sign` shows everything the receipt reveals and
+asks before signing. The seed phrase is typed or piped in, never put on the command line.
+
+## Verify
+
+```bash
+receipts verify @examples/testnet/receipt-link.txt \
+  --expect-address "$(cat examples/testnet/merchant.ua)"
+```
+
+## Compose
+
+A batch of payments proves they were signed by one key:
+
+```bash
+receipts create -w <wallet> -i <identity> --txid <txid1> --txid <txid2>
+```
+
+The other relationships have their own commands; start from the
+[composability overview](/composability/overview).

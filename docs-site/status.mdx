@@ -1,0 +1,66 @@
+---
+title: "Status"
+description: "What runs where, what is new cryptography, and what has not been reviewed."
+---
+
+## Summary
+
+- **Network:** Zcash public testnet and private regtest chains. Nothing has been run on mainnet.
+- **Review:** unaudited. The only review is by the author ([crypto review](/reference/assurance)),
+  which found and fixed one forgery. No external cryptographer has looked at it.
+- **Circuits:** the base receipt uses the stock Orchard Action circuit. Two proofs use circuits
+  written or forked here; they carry most of the risk.
+
+## Per proof
+
+| Proof | Prefix | New cryptography | Evidence |
+|---|---|---|---|
+| Spend-authority receipt | `zip311r1` | None: stock Orchard Action circuit | Real testnet payment, verified by CLI and browser; regtest Orchard, Ironwood and cross-pool; 278 conformance vectors |
+| Batch, same payer | `zip311b1`, `zip311k1` | Schnorr links, no circuit | Testnet batch in `examples/testnet` |
+| Key set | `zip311m1` | One-of-many Schnorr, no circuit | Testnet link in `examples/testnet/keyset` |
+| Screened set, source of funds | `zip311s1` | Action circuit against a one-leaf tree | Testnet and regtest |
+| Income | `zip311i1` | Action circuit against a one-leaf tree | Testnet proof over four real payments |
+| FROST policy | `zip311p1` | Schnorr, no circuit | Unit test with the Zcash Foundation's FROST and conformance vectors; **not run on a chain** |
+| Delegation | `zip311a1`, `zip311g1` | Schnorr links, no circuit | Regtest end-to-end, decoder fuzzing; **not on testnet** |
+| One verifier only | `zip311d1` | OR-Schnorr in place of the spend signature | Regtest end-to-end; **not on testnet** |
+| Claims and payer tags | `zip311t1` | **Forked Orchard Action circuit** (`vendor/orchard/src/circuit/claim.rs`) | Regtest end-to-end and tests; **not on testnet; unaudited** |
+| Sibling accounts | `zip311w1` | **New Halo 2 circuit with a ported BLAKE2b gadget**, k=17 | Regtest end-to-end; **not on testnet; the gadget and the port are unaudited** |
+
+## What to be careful about
+
+<AccordionGroup>
+  <Accordion title="The forked claim circuit">
+    It reuses the Action constraints as they are and adds two public inputs. A soundness bug in
+    it would let someone claim twice or forge a payer tag. Only the claim and payer-tag proofs
+    depend on it; the base receipt does not. See [forked circuits](/reference/forked-circuits).
+  </Accordion>
+  <Accordion title="The BLAKE2b gadget">
+    The gadget comes from `eryxcoop/blake2b_halo2`, whose authors say it is unaudited. Porting it
+    to the `zcash/halo2` API changed import paths and the lookup and gate API, and added a
+    personalization option. The port is unaudited too. Only sibling-account proofs use it.
+  </Accordion>
+  <Accordion title="A patched orchard crate">
+    Binaries in this workspace build on `orchard` 0.16 plus a patch that adds accessors, the claim
+    circuit and precomputed verifier parameters. A wallet that depends on `receipts-core` without
+    the `orchard-ext` feature builds on stock `orchard` and gets the base receipt, batches and source
+    proofs, as `scripts/check-stock-orchard.sh` checks. Claims need the patch.
+  </Accordion>
+  <Accordion title="A pinned librustzcash revision">
+    Ironwood (NU6.3, which librustzcash calls NU7) is not in a release, so eight crates are
+    pinned to a git revision.
+  </Accordion>
+  <Accordion title="What a receipt does not claim">
+    That the transaction is mined (a lightwalletd server's word, unless you cross-check a second
+    one); that a disclosed output went to someone other than the payer; anything about the
+    person presenting it (a receipt is a bearer proof; use a challenge). Details in the
+    [claim](/concepts/what-a-receipt-reveals).
+  </Accordion>
+  <Accordion title="Sapling and transparent spends">
+    Out of scope. ZIP 311 already covers Sapling.
+  </Accordion>
+</AccordionGroup>
+
+## Next
+
+After ZECATHON: propose the ZIP text, offer the core crate to librustzcash, and get an external
+review, starting with the two circuits above. See [upstreaming](/reference/upstreaming).

@@ -1,0 +1,75 @@
+---
+title: "Distinct payers"
+description: "Count different wallets, not different payments, using claim tags and payer tags."
+---
+
+<Warning>
+This proof uses a **forked Orchard Action circuit**. It has not been reviewed. It has run on a
+private regtest chain and in tests, not on testnet. See [forked circuits](/reference/forked-circuits).
+</Warning>
+
+Two questions need the same primitive:
+
+- **Claims.** One claim per wallet in an airdrop, grant round or vote.
+- **Distinct payers.** A donation round counts *wallets*, so one donor splitting a gift into ten
+  payments is one donor.
+
+## The tag
+
+A tag is `Poseidon(nk, domain)`, where `nk` is the note's nullifier deriving key and `domain` is
+the round's name. In the circuit the same `nk` cell feeds both the address check
+(`ivk = CommitIvk(ak, nk, rivk)`) and the tag hash. So:
+
+- Every claim one key makes in one domain carries **one tag**, whatever note it uses. Every
+  address and both scopes of an account share `nk`.
+- Finding a second tag for a key would need a `CommitIvk` collision.
+- Tags in different domains are unrelated values, as Poseidon keyed by `nk` is a PRF.
+
+## Claim tags
+
+Shows a note of at least `floor` was held in the tree at a snapshot block, and carries the tag.
+
+```bash
+receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
+  -m "payout to my address" --out claim.txt
+receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block>
+```
+
+Against a chain snapshot the claim reveals the note's nullifier, and the verifier checks it was
+not published up to the snapshot block. The tree keeps spent notes, so without that check a balance
+could claim from each key it moved through.
+
+Two claims from one wallet in one domain carry the same tag, which is how the second is caught.
+The regtest end-to-end run does exactly this, and checks a claim is refused for another domain
+or another snapshot block.
+
+## Payer tags
+
+A payer tag is the same proof on a note a payment **spent**: its nullifier is one of the
+payment's, its anchor is the payment's.
+
+```bash
+receipts tag -w <wallet> -i <identity> --txid <txid> --domain round-2026 --out tag.txt
+```
+
+Different tags mean different paying keys. A round that wants *k* different wallets collects one
+tag per payment and counts distinct values.
+
+## Combining with income
+
+[Proof of income](/composability/income) accepts payer tags: a lender can require that a total
+came from at least *k* different wallets.
+
+```bash
+receipts verify @income.txt --payer-tag @tag1.txt --payer-tag @tag2.txt --min-payers 2
+```
+
+## Limits
+
+- A person with two *independent* wallets gets two tags. Use [sibling accounts](/composability/sibling-accounts)
+  to catch accounts of one wallet; nothing catches independent wallets.
+- Claims against a published list (not a chain snapshot) use a second key mode where the
+  nullifier stays private, since there is no chain to check it against.
+
+Code: `crates/receipts-core/src/claim.rs`, circuit in `vendor/orchard/src/circuit/claim.rs`.
+Tests: `roundtrip.rs::claims_are_one_per_key_per_domain`, `::payer_tags_tell_wallets_apart`.

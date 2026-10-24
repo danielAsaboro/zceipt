@@ -1,0 +1,54 @@
+---
+title: "CLI"
+description: "The receipts commands, grouped by what they prove."
+---
+
+Install with `cargo install --locked --path crates/receipts-cli`. Run `receipts <command> --help`
+for every option.
+
+## Spend authority
+
+| Command | Does |
+|---|---|
+| `create` | Make a receipt for a payment you sent, from a seed phrase (`--seed-stdin`), a viewing key (`--ufvk`) or a zcash-devtool wallet (`-w`, `-i`). `--unsigned` makes the proofs only. |
+| `sign` | Sign a prepared receipt on the machine that holds the key. Shows what it signs and asks first. |
+| `verify` | Verify a receipt, batch, claim or proof against the chain. |
+| `inspect` | Decode a receipt with no network. |
+| `export` | Verify many receipts into a spreadsheet, with a record per receipt. |
+| `demo` | A real testnet receipt verified and an edited copy refused. |
+
+## Relationships
+
+| Command | Proves | Page |
+|---|---|---|
+| `create --txid … --txid …` | One key made every payment (batch with `zip311k1`) | [Same payer](/composability/same-payer) |
+| `claim` | One claim per wallet in a domain, from a note held at a snapshot | [Distinct payers](/composability/distinct-payers) |
+| `tag` | A payer tag for a payment, for a round | [Distinct payers](/composability/distinct-payers) |
+| `siblings` | Two tags come from accounts of one wallet | [Sibling accounts](/composability/sibling-accounts) |
+| `key`, `create --key-set` | Signed under one of a published set | [Key sets](/composability/key-sets) |
+| `delegate`, `sign --session` | Issue receipts under a policy without the spend key | [Delegation](/composability/delegation) |
+| `income` | Received at least an amount across payments | [Income](/composability/income) |
+| `create --prove-source`, `--screened-set` | Which output funded it, or a vetted set | [Source of funds](/composability/source-of-funds) |
+| `verifier-key`, `sign --for` | A receipt a single verifier can check but not pass on | |
+| `received`, `reserve` | The recipient's side; proof of funds | |
+
+## Verify options that state a relationship
+
+| Option | Requires |
+|---|---|
+| `--key-set <file>` | A key-set proof over this set |
+| `--domain <name>` | A claim or payer tag for this domain |
+| `--height <n>` | A claim's snapshot block, or the height of `--raw-tx` |
+| `--payer-tag <tag>`, `--min-payers <k>` | An income proof whose payments came from at least k wallets |
+| `--min-payments <n>` | At least n separate payments |
+| `--verifier-key <file>` | A receipt made for this verifier alone |
+| `--challenge <hex>` | The receipt signs this challenge |
+| `--expect-address`, `--min` | A disclosed output paid this address at least this much |
+| `--cross-check <host:port>` | A second server confirms the block (it learns the txid) |
+| `--raw-tx <file>` | Offline verification |
+
+## Payment API
+
+`receipts shop` is the REST API, webhooks, SDK-facing commands and an MCP server for shops
+and exchanges. It is optional tooling around the same core; see `docs/QUICKSTART.md` in the
+repository.

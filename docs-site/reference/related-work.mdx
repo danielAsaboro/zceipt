@@ -1,0 +1,36 @@
+---
+title: "Related work"
+description: "What others proved, what they did not, and what Receipts adds."
+---
+
+Dates are from each project's public commit history, read on 2026-10-22.
+
+| Project | Proves | Does not prove |
+|---|---|---|
+| [zreceipt](https://github.com/Cosmiq2025/zreceipt) | One output's recipient, amount and memo, opened with the sender's outgoing cipher key, for Sapling, Orchard and Ironwood. Proposed the output-disclosure text for ZIP 311 in zcash/zips#1406 | Who sent the payment. Spend authority exists as a prototype test, not in the product |
+| [zcash-delivery-proof](https://github.com/saplingcash/zcash-delivery-proof) | That a transaction delivered one note (receiver, value, memo), checked with no key | Who sent it, and that it was mined |
+| [`zcash_disclosure`](https://github.com/auzum197/zcash-disclosure) | Chosen outputs as Bech32m disclosures, a candidate encoding | A signature or spend authority |
+| Viewing-key processors (BTCPay plugin, CipherPay) | Everything the key can see | Nothing is withheld |
+
+All of these stop at the part of ZIP 311 that reveals an output. Receipts implements the part
+ZIP 311 says makes a disclosure complete: proof that the payer's spend authority made the payment.
+
+## What Receipts adds
+
+1. **Spend authority** for Orchard and Ironwood: a fresh Action proof plus a spend-authorization
+   signature, so a receipt can't be made by someone who only watched the payment.
+2. **Relationships between payments**: same payer, distinct payers, sibling accounts, key sets,
+   delegation, income, threshold policy ([composability](/composability/overview)). None of the
+   projects above has any of these.
+3. **A chain check**: the verifier fetches the transaction by txid, with a block hint so the
+   server sees only a block.
+4. **A second verifier** written independently in Python.
+
+## Spend authority, by date
+
+Receipts' first commit on 2026-10-14 creates and verifies the spend-authority proof. zreceipt
+added a prototype test of a similar construction on 2026-10-20; its product discloses outputs
+only.
+
+The repository's `docs/RELATED-WORK.md` has the full comparison and `docs/COMPARISON.md`
+compares viewing-key payment processors.

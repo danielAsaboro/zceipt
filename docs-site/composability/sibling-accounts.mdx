@@ -1,0 +1,59 @@
+---
+title: "Sibling accounts"
+description: "Prove two payer tags come from accounts of one wallet, without saying which wallet or accounts."
+---
+
+<Warning>
+This proof uses a **new Halo 2 circuit** with a **ported BLAKE2b gadget**. The gadget's authors
+say theirs is unaudited, and the port is too. It has run on a private regtest chain, not on
+testnet. See [forked circuits](/reference/forked-circuits).
+</Warning>
+
+[Payer tags](/composability/distinct-payers) tell wallets apart by account. A donor with two
+accounts of one wallet would get two tags and count twice. A sibling-account proof closes that
+gap.
+
+## Use
+
+```bash
+receipts siblings -w <wallet> -i <identity> --accounts 0,1 --domain round-2026 --out s.txt
+receipts verify @s.txt --domain round-2026
+```
+
+The output lists the two tags the proof is about. With payer tags from real payments (each tag
+tied to its payment by the payer-tag proof), a verifier learns the two payments came from accounts
+of one wallet.
+
+## How it works
+
+Orchard account keys are hardened ZIP 32 children of the wallet's coin-level key:
+
+```text
+I  = BLAKE2b-512("Zcash_ExpandSeed", c_par || 0x81 || sk_par || i)
+sk = I[..32]
+nk = ToBase(BLAKE2b-512("Zcash_ExpandSeed", sk || 0x07))
+tag = Poseidon(nk, domain)
+```
+
+The circuit takes private `(sk_par, c_par)` and indices `i_1`, `i_2`, computes both children's
+`nk` with BLAKE2b, hashes them to tags, and checks them against public `tag_1`, `tag_2` and
+`domain`. The parent key, the indices and the `nk`s stay private.
+
+So a tag can't be claimed for another wallet's account without a BLAKE2b or Poseidon collision.
+A test (`against_orchard::accounts_are_children_of_the_coin_key`) checks that the in-circuit
+derivation equals the `orchard` crate's.
+
+## Cost
+
+BLAKE2b runs inside the circuit: four compressions, so the circuit is `k = 17` (the gadget's
+16-bit XOR table). Proving takes about 72 seconds on the development machine, far larger than
+an Action proof. The parameters are cached at `~/.cache/receipts/kce-params-17.bin` and checked
+by digest.
+
+## Limits
+
+- Hardened derivation only, so it covers accounts of one seed, not independently generated
+  wallets.
+- Unaudited gadget and port.
+
+Code: `crates/receipts-kce`. The regtest end-to-end run ties a sibling proof to a real payer tag.

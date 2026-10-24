@@ -1,0 +1,57 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Receipts",
+  "colors": {
+    "primary": "#B8860B",
+    "light": "#E8B923",
+    "dark": "#8A6508"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start",
+        "pages": ["index", "quickstart", "status"]
+      },
+      {
+        "group": "Spend authority",
+        "pages": ["concepts/spend-authority", "concepts/what-a-receipt-reveals"]
+      },
+      {
+        "group": "Composability",
+        "pages": [
+          "composability/overview",
+          "composability/same-payer",
+          "composability/distinct-payers",
+          "composability/key-sets",
+          "composability/sibling-accounts",
+          "composability/delegation",
+          "composability/income",
+          "composability/frost-policy",
+          "composability/source-of-funds"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": ["guides/held-deposit", "guides/grants-and-airdrops", "guides/wallets"]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/technical-note",
+          "reference/cli",
+          "reference/formats",
+          "reference/forked-circuits",
+          "reference/assurance",
+          "reference/related-work",
+          "reference/upstreaming"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/danielAsaboro/zecathon-receipts"
+    }
+  }
+}

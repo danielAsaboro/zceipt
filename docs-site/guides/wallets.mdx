@@ -1,0 +1,49 @@
+---
+title: "Wallets"
+description: "Add a Prove this payment button with two calls."
+---
+
+## Where it goes
+
+On a sent transaction's detail screen, next to *Share* or *View on explorer*: **Prove this
+payment**. Only for transactions this wallet sent from Orchard or Ironwood notes.
+
+## The flow
+
+1. **Choose what to show.** Default: outputs sent to someone else, with memos. Options: hide the
+   memos, add a message (an invoice number, or a request link that fills in its challenge).
+2. **Confirm.** One screen listing the transaction, the outputs, the message and any extra
+   disclosure in plain words.
+3. **Share** the link, or save it as a file.
+
+## The calls
+
+```rust
+// 1. Proofs, from the full viewing key. About 2.5 s per spend on a laptop.
+let prepared = ReceiptBuilder::new(Network::Mainnet, &tx)
+    .message(b"Invoice 42")
+    .disclose(output_index, ovk)
+    .spend(ViewingSpendWitness { index, fvk, note, merkle_path, prove_address: None, source: None })
+    .prepare(&proving_key, &mut rng)?;
+
+// 2. The signature, where the spending key is. A hardware signer is given
+//    prepared.unsigned() and prepared.alphas() and recomputes the digest itself.
+let sigs = sign_prepared(prepared.unsigned(), prepared.alphas(), &[ask], &mut rng)?;
+let receipt = prepared.apply_signatures(sigs)?;
+```
+
+Wallets on the Zcash Android or iOS SDK get the same two calls from Swift and Kotlin bindings:
+`prepareReceipt(dbPath, …)` and `signPrepared(…)` (`crates/receipts-ffi`).
+
+## Composing from a wallet
+
+The relationship proofs reuse the same prepared material. A wallet that offers *Prove this
+payment* can add *Prove I'm one donor* (a payer tag), or issue [delegated
+receipts](/composability/delegation) to a back office, without new key handling.
+
+## Building on stock orchard
+
+`receipts-core` without the `orchard-ext` feature builds on stock `orchard` 0.16 and gives receipts,
+batches, source proofs, sign-in, payment requests and proof of funds. Claim tags need the
+patched crate. `scripts/check-stock-orchard.sh` builds the stock profile and runs real testnet
+receipts through it.

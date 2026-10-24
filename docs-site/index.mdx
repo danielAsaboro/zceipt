@@ -1,0 +1,58 @@
+---
+title: "Receipts"
+description: "ZIP 311 for Orchard and Ironwood, extended so payments can be proven in relation to each other."
+---
+
+Receipts proves one Zcash payment without handing over a viewing key. It then goes further: it
+proves facts about **sets** of payments (one payer, different payers, one wallet's accounts, a
+delegated issuer, a total) without revealing the wallet's history.
+
+## The contrast
+
+<Steps>
+  <Step title="Output disclosure: anyone who saw the payment can claim it">
+    Reveal an outgoing viewing key's output (what [zreceipt](/reference/related-work) and the
+    ZIP 311 output-disclosure draft do) and the verifier learns who was paid and how much. It cannot
+    tell the payer from anyone else who saw the payment. The verifier page's *Try a claim by someone
+    who only saw it* example shows this: same payment, another key, **NOT PROVEN BY THE PAYER**.
+  </Step>
+  <Step title="Spend authority: only the payer can make the receipt">
+    A fresh Orchard Action proof for the note the payment spent, plus a signature by the key that
+    spent it. This is the part of ZIP 311 that says `TODO` for Orchard. See
+    [spend authority](/concepts/spend-authority).
+  </Step>
+  <Step title="Composability: prove relationships between payments">
+    Same payer, different payers, one wallet's sibling accounts, one of a published set of keys, a
+    delegated issuer, a total across payments, a threshold treasury. See the
+    [overview](/composability/overview).
+  </Step>
+</Steps>
+
+## What each step answers
+
+| Question | Proof | Page |
+|---|---|---|
+| Did the payer make this payment? | Spend-authority receipt | [Spend authority](/concepts/spend-authority) |
+| Did one key make all of these payments? | Same-payer proof | [Same payer](/composability/same-payer) |
+| Did N different wallets pay, not one wallet N times? | Payer tags, claim tags | [Distinct payers](/composability/distinct-payers) |
+| Are these two payers accounts of one wallet? | Sibling-account proof | [Sibling accounts](/composability/sibling-accounts) |
+| Was it signed by one of this department's keys? | Key-set proof | [Key sets](/composability/key-sets) |
+| Can a back office issue receipts without my spend key? | Delegation | [Delegation](/composability/delegation) |
+| Did I receive at least X across payments? | Income proof | [Income](/composability/income) |
+| Was it authorized by this 2-of-3 treasury? | Policy proof | [FROST policy](/composability/frost-policy) |
+| Did the money come from this vetted set? | Source and screened-set proofs | [Source of funds](/composability/source-of-funds) |
+
+## Where it stands
+
+Testnet and regtest only, and unaudited. Two of the proofs run on circuits this project
+modified or wrote, which no one else has reviewed. [Status](/status) lists each proof with its
+evidence and its caveats.
+
+<CardGroup cols={2}>
+  <Card title="Try it" icon="play" href="/quickstart">
+    Verify a real testnet receipt and an edited copy in minutes.
+  </Card>
+  <Card title="Technical note" icon="file-lines" href="/reference/technical-note">
+    The design in order: the forked circuit, tags, siblings, delegation.
+  </Card>
+</CardGroup>

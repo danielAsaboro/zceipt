@@ -1,0 +1,43 @@
+---
+title: "Grants and airdrops"
+description: "Pay a round with one link, count wallets not payments, and claim once per wallet."
+---
+
+<Warning>
+Claims and payer tags use the forked circuit and have run on regtest only. See
+[status](/status).
+</Warning>
+
+## Prove a payout round
+
+A treasury proves it paid everyone, with one link:
+
+```bash
+receipts create -w treasury -i key.age --txid <a> --txid <b> --txid <c> -m "Grant round 3"
+```
+
+The batch link verifies every payment and fails if any is dropped, added or reordered. The
+verifier shows totals per recipient. It carries a [same-payer proof](/composability/same-payer),
+so the round shows one treasury key paid every grant. The treasury's address and balance stay
+private.
+
+## Run a campaign that counts wallets
+
+1. The organiser names a domain, for example `round-2026`.
+2. Each donor tags the payment: `receipts tag -w <wallet> -i <identity> --txid <txid> --domain round-2026`.
+3. The organiser verifies each tag with `--domain` and counts distinct tag values. One donor
+   splitting a gift into ten payments gives one tag.
+4. If a donor might use several accounts of one wallet, ask for a
+   [sibling-account proof](/composability/sibling-accounts) over the two tags.
+
+## Airdrop: one claim per wallet
+
+```bash
+receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
+  -m "payout to my address" --out claim.txt
+receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block>
+```
+
+The claim shows a note of at least the floor was held at the snapshot block. Two claims from one
+wallet carry one tag; tags in other airdrops don't link. See
+[distinct payers](/composability/distinct-payers) for how this works and what it doesn't stop.

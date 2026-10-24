@@ -1,0 +1,33 @@
+---
+title: "Assurance"
+description: "The checks whose verdict isn't ours, and the one review that has happened."
+---
+
+## Evidence not from the author
+
+| Check | What it shows | Re-run |
+|---|---|---|
+| The chain | Every example receipt is for a transaction mined on public testnet, fetched by txid and verified | `receipts verify @examples/testnet/receipt.txt` |
+| A second verifier | `spec-verifier`, Python standard library, written from the protocol spec with no shared code. Checks everything except the Halo 2 proofs; agrees on all 278 vectors (two are rejected only by the Halo 2 check) and 232 adversarial receipts | `python3 -m unittest discover -s spec-verifier/tests` |
+| Published test vectors | Group hash, Sinsemilla, Merkle roots, note commitments, ZIP 244 txids against Zcash's vectors | same |
+| Conformance | 278 vectors from 7 real Orchard and Ironwood transactions, run by the Rust and WebAssembly builds | `cargo test -p receipts-cli --test conformance` |
+| Mutation testing, fuzzing, Miri | `cargo-mutants` on the core, `cargo-fuzz` on the receipt and batch decoders plus the delegation decoders, Miri on the encoding | `docs/ASSURANCE.md` |
+| Wire recording | What the chain server receives, byte for byte | `docs/evidence` |
+
+## The one review
+
+The author reviewed `receipts-core` on 2026-10-15 (`docs/CRYPTO-REVIEW.md`): ten invariants, each
+with its test. It originally missed that the address proof took its value commitment from
+the prover. A zero-value note could then forge any address. That was found later, fixed, and the
+old artifacts kept as must-fail vectors.
+
+## Not reviewed
+
+- Anything by someone other than the author.
+- The claim circuit and the sibling-account circuit ([forked circuits](/reference/forked-circuits)).
+- `orchard`, `reddsa` and Halo 2 themselves. The review covers how Receipts uses them.
+
+## Where each requirement is checked
+
+`docs/TRACEABILITY.md` maps every requirement to the code and the test that checks it, in both
+verifiers. `docs/SPEC-AMBIGUITIES.md` lists where the underlying specs are silent.

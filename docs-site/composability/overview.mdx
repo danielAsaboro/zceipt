@@ -1,0 +1,42 @@
+---
+title: "Composability"
+description: "From proving a payment to proving anything about a set of payments."
+---
+
+A spend-authority receipt proves one payment. Each proof below states one **relationship**
+between payments, wallets or keys, and reveals nothing else about the wallet.
+
+## Proofs
+
+| Relationship | Proof | New cryptography | Where it was run |
+|---|---|---|---|
+| Every payment by one key | [Same payer](/composability/same-payer) `zip311k1` | Schnorr links | testnet |
+| One payment per wallet, not per payment | [Payer tags and claim tags](/composability/distinct-payers) `zip311t1` | Forked Action circuit | regtest |
+| Two accounts, one wallet | [Sibling accounts](/composability/sibling-accounts) `zip311w1` | New circuit, BLAKE2b gadget | regtest |
+| Signed by one of a published set | [Key set](/composability/key-sets) `zip311m1` | One-of-many Schnorr | testnet |
+| Issued by an agent, not the spend key | [Delegation](/composability/delegation) `zip311a1` | Schnorr links | regtest |
+| Received at least X across payments | [Income](/composability/income) `zip311i1` | Action circuit, one-leaf tree | testnet |
+| Authorized by a threshold treasury | [FROST policy](/composability/frost-policy) `zip311p1` | Schnorr | unit test |
+| Funded by a vetted set of outputs | [Source of funds](/composability/source-of-funds) `zip311s1` | Action circuit, one-leaf tree | testnet |
+
+Every proof builds on the same pieces. Where a proof needs the verifier to trust a value, the
+verifier computes it instead of reading it from the proof; the address-proof forgery found in review
+came from not doing this.
+
+## Combining them
+
+Two combinations are tested end to end:
+
+- **Income from distinct payers.** An income proof plus payer tags for each payment. The
+  verifier requires tags from at least *k* different wallets (`--payer-tag`, `--min-payers`),
+  so a lender sees a total that came from several payers without seeing any amount.
+- **Distinct payers who are one wallet.** Two payer tags, plus a sibling-account proof, show
+  that two accounts counted as different payers are one wallet.
+
+## What is not composed
+
+Proofs are separate objects checked separately. A same-payer proof is bound to its batch's
+receipts, a policy proof to its receipt, a claim to its domain. None of them can be moved to
+another payment.
+
+Status for each, with its caveats, is on the [status page](/status).

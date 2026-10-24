@@ -1,0 +1,46 @@
+---
+title: "What a receipt reveals"
+description: "Who learns what, for one receipt and for the chain server."
+---
+
+## The verifier
+
+| Learns | Does not learn |
+|---|---|
+| The `txid`, and so the whole public transaction | The payer's addresses, viewing keys, balance or other payments |
+| For each disclosed output: recipient, amount, memo | Anything about undisclosed outputs (each `ock` opens one output) |
+| Which spends the signer authorized, by index | The values of the spent notes (the value commitment is hiding) |
+| The signed message | A link between this receipt's `rk` and the transaction's own, or another receipt's |
+| The payer's address, only if the payer chose to prove it | When the recipient later spends a disclosed note |
+
+Each disclosure uses a fresh `alpha`, value commitment and dummy output, so two receipts for one
+spend cannot be linked to each other or to the on-chain action.
+
+## The chain server
+
+| When | Learns |
+|---|---|
+| Someone verifies | The payment's block (or, in a quiet block, its run of four) and up to 64 transactions in each; the verifier's IP. Not which transaction. |
+| You make a receipt | The block range being scanned. Not which note, payment or transaction. |
+
+A link carries an `h=` block hint so the page fetches the payment among its block's
+transactions. In a block with one shielded transaction that hides nothing, and the page says how
+many there were. `--cross-check` sends a second server the `txid`.
+
+## Why linkage claims matter here
+
+The relationship proofs under [composability](/composability/overview) each reveal one more
+fact on purpose, and say exactly which:
+
+| Proof | The verifier additionally learns |
+|---|---|
+| Same payer | That every listed payment shares one key. Not the key. |
+| Payer tag | A tag equal across a wallet's payments in one domain; unrelated across domains. |
+| Claim | The note's nullifier, and that it was unspent at the snapshot block. |
+| Sibling accounts | That two tags come from accounts of one wallet. Not which wallet or accounts. |
+| Key set | That the signer holds one of the listed keys. Not which. |
+| Delegation | The policy, and that all receipts under one certificate are linkable to each other. |
+| Income | The counted outputs, each note's nullifier, the floors. Not the amounts. |
+
+The full analysis is `docs/THREAT-MODEL.md` and the exact claims, with the argument for each,
+are `docs/CLAIM.md`.

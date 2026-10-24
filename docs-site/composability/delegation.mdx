@@ -1,0 +1,62 @@
+---
+title: "Delegation"
+description: "Let an agent or back office issue receipts for your payments without your spend key."
+---
+
+A wallet, a back office or an AI agent can answer "prove you paid" requests for you, within a
+policy you sign, and **can't spend**.
+
+## Use
+
+The spend-key holder signs a policy for a fresh session key and writes a session file:
+
+```bash
+receipts delegate -w <wallet> -i <identity> \
+  --max 0.5 --until 100000 --payee <address> --out office.session
+```
+
+| Option | Limit |
+|---|---|
+| `--max` | The most a receipt may show paid (ZEC) |
+| `--until` | The last block a payment may be mined in |
+| `--payee` | Only payments to this address (repeatable). Default: any |
+
+The delegate holds the session file and the viewing key. It makes the proofs, then issues the
+receipt with no spend key:
+
+```bash
+receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
+receipts sign r.txt --session office.session --out receipt.txt
+```
+
+A verifier checks it like any receipt. A receipt over its policy, for example more than `--max`,
+is refused with `outside its delegation`; the regtest end-to-end run covers both.
+
+## How it works
+
+The spend key signs a certificate under `rk_c = ak + [alpha_c]G`: the session key `S`, the
+policy, and nothing else. For each spend the delegate:
+
+1. proves `rk_i − rk_c = [alpha_i − alpha_c]G` with a Schnorr proof, as in
+   [same payer](/composability/same-payer), so all the spends are under the same `ak`;
+2. signs the receipt's digest and the links with `S`.
+
+The verifier checks the certificate, the links, the session signature and the policy against what
+the receipt discloses, then the Action proofs as usual.
+
+## What it proves
+
+The spend key's holder authorized `S` under this policy; the payment's spends are under that
+key; `S` vouched for this receipt within the policy.
+
+## Limits
+
+- The delegate can't spend, but it can decline to answer.
+- There is no revocation mechanism. Bound a delegation with `--until`.
+- Every receipt under one certificate carries it, so they are linkable to each other (not to the
+  wallet's other payments).
+
+Formats: `zip311a1` (the delegated receipt) and `zip311g1` (the certificate). Code:
+`crates/receipts-core/src/delegated.rs`. Test:
+`roundtrip.rs::delegated_receipts_stay_within_their_policy`. The decoders are fuzzed, and the
+spec verifier checks `conformance/delegated.json`.

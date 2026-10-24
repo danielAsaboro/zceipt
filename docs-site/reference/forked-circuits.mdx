@@ -1,0 +1,55 @@
+---
+title: "Forked circuits"
+description: "The two pieces of circuit code written for this project, and what to review first."
+---
+
+The base receipt uses the stock Orchard Action circuit and keys, unchanged
+(`params_match_derivation` and every testnet receipt check this). Two proofs depend on code
+written here. Neither has been reviewed.
+
+## 1. Claim circuit
+
+`vendor/orchard/src/circuit/claim.rs`, shipped as a patch to `orchard` 0.16.0
+(`vendor/orchard-0.16.0-receipts.patch`).
+
+| Change | File |
+|---|---|
+| `Circuit::synthesize_inner`: the Action synthesis, with the nullifier's public input optional and `nk`'s cell returned | `src/circuit.rs` |
+| `circuit::claim`: the Action statement plus public `domain` and `tag = Poseidon(nk, domain)`, with its own keys | `src/circuit/claim.rs` |
+
+The fork keeps every Action constraint and adds a Poseidon hash fed by the same `nk` cell that
+feeds `CommitIvk`. Two modes: the nullifier public (chain snapshots) or private (published
+lists).
+
+**Review first:** that `nk`'s cell is the one used by `CommitIvk`, that making the nullifier
+optional drops no constraint, and that `domain` and `tag` are the only new public inputs.
+
+Diff against the published crate:
+
+```bash
+curl -sL https://static.crates.io/crates/orchard/orchard-0.16.0.crate | tar xz -C /tmp
+diff -ru /tmp/orchard-0.16.0/src vendor/orchard/src
+```
+
+The patch also adds accessors (`Address::pk_d`, `Note::esk_bytes`, `Note::commitment_opening`),
+precomputed verifier parameters, and nothing that changes the Action circuit.
+
+## 2. Sibling-account circuit
+
+`crates/receipts-kce`. A new Halo 2 circuit that proves two tags come from two hardened ZIP 32
+children of one hidden coin-level key. BLAKE2b runs in the circuit, so it is `k = 17`.
+
+The BLAKE2b gadget is [eryxcoop/blake2b_halo2](https://github.com/eryxcoop/blake2b_halo2) at
+`6ed2fa2` (Apache-2.0, licence kept beside it), ported from `midnight-proofs` to Zcash's
+`halo2_proofs` 0.4: import paths, the lookup and gate API, and a personalization option for the
+initial state. Its authors say it is not audited; neither is the port.
+
+**Review first:** the port's diff against upstream, the personalization option, the XOR table
+range, and that the derivation matches ZIP 32 (a test checks it against `orchard`).
+
+## Blast radius
+
+| If this is wrong | Affected | Not affected |
+|---|---|---|
+| Claim circuit unsound | Claims, payer tags | Base receipts, batches, key sets, delegation, income, source proofs |
+| BLAKE2b gadget unsound | Sibling-account proofs | Everything else |

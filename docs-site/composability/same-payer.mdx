@@ -1,0 +1,52 @@
+---
+title: "Same payer"
+description: "Prove several payments were all signed with one spend key, without revealing it."
+---
+
+A DAO, grant program or payroll shows that **one treasury** paid everyone, with one link.
+
+## Use
+
+A batch is several receipts in one link. Pass more than one `--txid`:
+
+```bash
+receipts create -w <wallet> -i <identity> --txid <txid1> --txid <txid2> --txid <txid3>
+```
+
+The link carries a same-payer proof (`k=zip311k1…`). Verifying the batch checks it:
+
+```bash
+receipts verify @batch-same-payer-link.txt
+```
+
+A real three-payment testnet batch, total 0.022 ZEC, is at `examples/testnet/batch.txt`, and one
+with its same-payer proof is `examples/testnet/batch-same-payer.txt`.
+
+## How it works
+
+Every receipt's spend signs under `rk_i = ak + [alpha_i]G`. If all payments came from one key,
+then `rk_i − rk_0 = [alpha_i − alpha_0]G` for every `i`. The proof is a Schnorr proof of knowledge
+of each difference, made non-interactive by hashing the whole statement (every `rk`, the
+receipts' digests, the message) with the commitments.
+
+- **Sound:** a valid proof means the prover knows every `alpha_i − alpha_0`. For different keys
+  `x_i`, `x_0` that difference is `x_i − x_0`, and knowing it without both secrets would solve a
+  discrete log.
+- **Zero knowledge:** `(R_i, s_i)` can be simulated from `rk_i − rk_0` alone, so it reveals the
+  relation it states and nothing about `ak`.
+- **Bound:** the proof signs the receipts' digests in order. It can't be moved to other receipts,
+  reordered or bent.
+
+No circuit is involved; it is Schnorr proofs over the Pallas curve.
+
+## Limits
+
+- It shows one *signing key* made the payments, or keys whose relation the maker knows. It
+  doesn't say which wallet, or who holds it.
+- Two wallets that pool their keys can produce one.
+- Payments made through [sibling accounts](/composability/sibling-accounts) have different
+  keys; this proof does not link them.
+
+Code: `crates/receipts-core/src/link.rs`. Test:
+`roundtrip.rs::same_payer_proof_links_one_key_and_nothing_else`. The spec verifier checks the
+testnet batch's proof independently.

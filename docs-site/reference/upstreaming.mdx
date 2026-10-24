@@ -1,0 +1,21 @@
+---
+title: "Upstreaming"
+description: "The order in which this goes into Zcash after the hackathon."
+---
+
+1. **Pins.** Eight librustzcash crates are pinned to a git revision because NU6.3 (Ironwood) isn't
+   in a release. When `zcash_primitives` and siblings release with it, replace each `git` and `rev`
+   with the version.
+2. **orchard.** Propose the five accessors to `orchard` as one PR. `build_with_params` and
+   `params_bytes` only speed up the verifier and can stay local. Until they land, the ZIP 311
+   profile builds on stock `orchard`.
+3. **ZIP text.** Fold `docs/ZIP311-ORCHARD.md` into ZIP 311 beside zcash/zips#1406, with
+   `conformance/` as its vectors. This is the spend-authority core only.
+4. **receipts-core** to crates.io with the default (ZIP 311 profile) feature set. The relationship
+   proofs stay behind `extensions` until each has its own ZIP text.
+5. **Review.** An external review of the claim circuit and the sibling-account circuit, before
+   either goes beyond testnet.
+6. **Wallets.** The two-call surface in the [wallet guide](/guides/wallets) first, then a uniffi
+   binding for mobile wallets.
+
+Sapling is out of scope: ZIP 311 already specifies it.

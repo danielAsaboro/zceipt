@@ -1,0 +1,54 @@
+---
+title: "Income"
+description: "A recipient proves it received at least an amount across payments, without showing any payment's amount."
+---
+
+A lender or landlord asks for proof of income. The recipient proves a **total** and shows no
+single payment.
+
+## Use
+
+```bash
+receipts income -w <wallet> -i <identity> \
+  --txid <txid1> --txid <txid2> --txid <txid3> --txid <txid4> \
+  --min 0.02 -m "challenge:10a4e7c3d2b1"
+```
+
+The verifier checks it with the challenge it issued:
+
+```bash
+receipts verify @proof.txt --challenge 10a4e7c3d2b1 --min 0.02
+```
+
+A real proof over four testnet payments is at `examples/testnet/income`. It reveals which
+outputs were counted and each note's nullifier, and nothing else.
+
+## Requiring separate payments and separate payers
+
+```bash
+receipts verify @proof.txt --min 0.02 --min-payments 4
+receipts verify @proof.txt --min 0.02 --payer-tag @t1.txt --payer-tag @t2.txt --min-payers 2
+```
+
+`--min-payers` needs [payer tags](/composability/distinct-payers) from the payers. That makes the
+total one that came from several wallets.
+
+## How it works
+
+For each counted output the verifier reads the note commitment from the chain and builds a
+one-leaf Merkle tree from it. The recipient makes an Action proof against that tree, with the
+value commitment fixed by the verifier to `ValueCommit_0(floor)`. The circuit's 64-bit range checks on the note's
+value and on the hidden output's `v − floor` give `v ≥ floor`, and `floor ≥ 1` forces the anchor
+check. One `SpendAuthSig` by `rk` covers every item.
+
+The proof shows the sum of the floors, not the amounts.
+
+## Limits
+
+- It proves *at least* the sum of the floors the recipient chose.
+- Payments appear as outputs with nullifiers, so the verifier knows how many were counted.
+- Whoever gives the lender the proof chose the payments; a lender who needs a full history asks
+  for a viewing key, which is the thing receipts avoid.
+
+Code: `crates/receipts-core/src/income.rs`. Test:
+`roundtrip.rs::proof_of_income_shows_a_total_not_the_amounts`.

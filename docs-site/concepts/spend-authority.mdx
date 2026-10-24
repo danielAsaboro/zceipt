@@ -1,0 +1,67 @@
+---
+title: "Spend authority"
+description: "How a receipt proves the payer, and only the payer, made it."
+---
+
+ZIP 311 calls a payment disclosure complete only with a proof that the payer's spend authority
+made the payment. For Sapling it specifies a fresh Spend proof and a `spendAuthSig`. For Orchard
+it says `TODO`. Receipts fills that in for Orchard and Ironwood by carrying the Sapling design
+over to the Orchard Action circuit.
+
+## Construction
+
+For each spend of the payment being disclosed:
+
+1. Take the **anchor** and the **nullifier** from the transaction, never from the receipt.
+2. Make a fresh Halo 2 proof of the stock Orchard Action circuit for those two values, under a
+   re-randomized key `rk = ak + [alpha]G`, with a fresh value commitment and a dummy output.
+3. Sign the whole receipt with `rk` using RedPallas (`SpendAuthSig`). The signature covers the
+   network, the pools, the `txid`, the message, every disclosed output and every spend.
+
+For each output being disclosed, the receipt carries the output's `ock`, which opens that one
+on-chain ciphertext: recipient, amount and memo.
+
+The proofs need only the **full viewing key**. The spending key signs afterwards, so it can stay
+on a hardware wallet or an offline machine. A separate signer is given the unsigned receipt and
+the randomizers, never a digest, so it computes the digest itself and checks each `rk` against
+its key.
+
+## Why only the payer can make it
+
+The verifier checks the proof against the nullifier the transaction published. By knowledge
+soundness of Halo 2 the prover knows a witness for that nullifier. Any witness for the same
+nullifier describes the same note unless it breaks discrete logarithms on Pallas, so the
+extracted `(ak, nk, rivk)` are the owner's. A valid signature under `rk` then needs `ask + alpha`,
+so the signer knows `ask`.
+
+```text
+output disclosure   anyone with the payment's viewing key can make it
+spend authority     only the holder of the spend key behind the spent note can make it
+```
+
+Output disclosure alone, an `ock` or a note opening, can be made by anyone who saw the payment.
+That is the difference the verifier page demonstrates with *Try a claim by someone who only saw
+it*.
+
+## What it does not prove
+
+- **Mined.** The verifier fetches the transaction from a lightwalletd server, so "mined" rests on
+  that server's word. `receipts verify --cross-check <host:port>` asks a second server.
+- **Payee.** The payer chooses which outputs to disclose. Change discloses like any other
+  output. A verifier checks the recipient it expects (`--expect-address`).
+- **Presenter.** A receipt is a bearer proof. A verifier who needs freshness issues a challenge,
+  which the signer puts in the message.
+- **Amount in.** A dummy spend, a zero-value note to a throwaway key, can't be claimed by an honest
+  wallet. `--prove-source --reveal-source-value` fixes each spent note's value when that matters.
+
+The one forgery found in review is worth knowing: the optional address proof once took its value
+commitment from the prover, which let a zero-value note forge any address. The verifier now fixes
+it. The old artifacts are kept as must-fail vectors in `examples/testnet/pre-fix`.
+
+## Size
+
+One Action proof per disclosed spend, about 4.9 KB. A receipt with one spend and one output is
+5,268 bytes, about 7 KB as a link. There is no new circuit and no new trusted setup.
+
+The exact statement, its assumptions and the argument are in `docs/CLAIM.md`; the proposed ZIP
+text is in `docs/ZIP311-ORCHARD.md`.

@@ -1,0 +1,38 @@
+---
+title: "Formats"
+description: "Text prefixes and what each object is."
+---
+
+Each object is a canonical binary encoding, a version byte, and a text form: a prefix plus
+base64url without padding. Decoding is strict, so an object has exactly one encoding.
+Every signed format has its own personalization, so a signature for one purpose is never
+valid for another.
+
+| Prefix | Object | Magic |
+|---|---|---|
+| `zip311r1` | Receipt: spend-authority proofs, disclosed outputs, signatures | |
+| `zip311b1` | Batch of receipts, with an aggregated proof by default | |
+| `zip311u1` | Unsigned, prepared receipt (output of `create --unsigned`) | |
+| `zip311k1` | Same-payer proof | |
+| `zip311m1` | Key-set proof | |
+| `zip311p1` | FROST policy proof | `ZRCP` |
+| `zip311s1` | Screened-set proof | |
+| `zip311i1` | Income proof | `ZRCI` |
+| `zip311t1` | Claim or payer tag (forked circuit) | `ZRCL` |
+| `zip311w1` | Sibling-account proof (new circuit) | |
+| `zip311a1` | Delegated receipt | `ZRCA` |
+| `zip311g1` | Delegation certificate | `ZRCG` |
+| `zip311d1` | Receipt for one verifier only | `ZRCD` |
+| `zreq1` | Signed payment request | |
+| `zrsv1` | Proof of funds | |
+| `zrcin1` | Incoming receipt | |
+
+A link puts the receipt in the `#fragment`, which browsers don't send to the page's host, with an
+`h=` block hint. A link is about 7 KB; some chat apps cut long ones, so the page also saves a
+receipt as a file and opens one.
+
+The prefix was `zrcpt1` early on, which clashed with another project's incompatible text format
+(zreceipt). It moved to `zip311r1` on 2026-10-22, and the verifier recognises a zreceipt link and
+says what it is.
+
+The normative text is `docs/ZIP311-ORCHARD.md` and the extensions are `docs/SPEC.md`.

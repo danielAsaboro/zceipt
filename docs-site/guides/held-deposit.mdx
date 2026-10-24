@@ -1,0 +1,48 @@
+---
+title: "Held deposit"
+description: "Give an exchange, bridge or swap desk one link instead of a viewing key."
+---
+
+A desk is holding a deposit you made from shielded ZEC and asks where it came from, or that it was
+you. A viewing key shows them every payment your wallet ever made or received. A receipt shows
+this one deposit and, if you choose, where its money came from and an address you control.
+
+## What to send
+
+Make the proofs with the viewing key on an online machine, then sign where the seed is:
+
+```bash
+receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <deposit txid> \
+  --prove-source --reveal-source-value \
+  --prove-address <an address the desk knows> \
+  -m "Deposit for account 7731" --unsigned deposit.prepared
+receipts sign deposit.prepared --seed-stdin
+```
+
+`sign` shows everything the receipt reveals and asks before signing. If the desk gave you a request
+link, add `--request '<link>'` so the receipt answers that request and can't be reused.
+
+| Option | The desk learns | Leave out if |
+|---|---|---|
+| (always) | Your spend authority made this payment; recipient, amount, memo | |
+| `--prove-source` | Which earlier output created each spent note | The desk doesn't ask |
+| `--reveal-source-value` | Each spent note's exact value | You only need the link |
+| `--prove-address` | The same spend authority controls an address you name | You don't want deposit and address linked |
+| `--refund-to` | A refund address only you could have chosen | |
+
+It never shows your balance, other notes or transactions, or your viewing key.
+
+## For the desk
+
+A desk screens the funding with a [screened set](/composability/source-of-funds): it publishes the
+commitments of outputs it has vetted, and the payer proves the deposit came from that list
+without saying which. For a two-step ZIP 320 TEX deposit, `--tex-deposit` and `--second-tx` prove
+who made it.
+
+## Before you send
+
+- A receipt is evidence you give for one deposit, not a standing permission. Nothing here runs
+  without you.
+- `--prove-source` lets the desk tie this deposit to the transaction that funded it. Send it only to
+  the desk that asked.
+- It is a bearer proof. A receipt that answers the desk's request is useless to anyone else.

@@ -1,0 +1,41 @@
+---
+title: "FROST policy"
+description: "A threshold treasury makes receipts like any wallet, and proves they were authorized under its published t-of-n key."
+---
+
+A treasury whose spend key is split with FROST, 2-of-3 for instance, makes receipts like any
+wallet. Any two signers sign with the receipt's own randomizer; the signature is an ordinary
+`SpendAuthSig`, and the receipt doesn't show which two signed.
+
+<Note>
+Tested with the Zcash Foundation's re-randomized FROST over Pallas (`reddsa` 0.5.2) in a unit test
+and conformance vectors. It has not been run on a chain.
+</Note>
+
+## Policy proof
+
+Plain threshold receipts prove spend authority. A **policy proof** (`zip311p1`) adds that the
+receipt was authorized under the treasury's *published* key.
+
+The holders publish the verifiable-secret-sharing commitment `C_0..C_{t−1}` and the number of
+holders `n`. `C_0` is the key's `ak`. A receipt signed by any `t` carries `rk = C_0 + [alpha]G`
+for each spend. The proof is a Schnorr proof of knowledge of each spend's `alpha` for
+`rk − C_0`, bound to the receipt's digest, the commitment and a verifier's challenge.
+
+The verifier learns "this payment was authorized under that t-of-n key".
+
+## What the commitment shows
+
+The key is shared with a polynomial of degree `t − 1`, so any `t` of `n` holders, and no fewer,
+can sign; each holder checks its share against the commitment.
+
+It does not show the dealer discarded the whole key. With a trusted dealer that is a trust
+assumption; distributed key generation removes it.
+
+## Related
+
+- [Key sets](/composability/key-sets) are *n separate keys*; a policy is *one key held by n parties*.
+- The signer-side flow is the one in [spend authority](/concepts/spend-authority): the proofs need
+  only the viewing key, so a multisig signs a prepared receipt.
+
+Code: `crates/receipts-core/src/policy.rs`, `crates/receipts-core/tests/frost.rs`.

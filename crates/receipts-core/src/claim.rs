@@ -233,7 +233,7 @@ pub fn prove(
     msg: &[u8],
     height: u32,
     reveal_nf: bool,
-    mut rng: impl CryptoRng,
+    rng: impl CryptoRng,
 ) -> Result<Claim, Error> {
     let v = note.value().inner();
     if floor == 0 || floor > v || domain.len() > u16::MAX as usize || msg.len() > u16::MAX as usize {

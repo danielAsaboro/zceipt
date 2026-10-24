@@ -170,6 +170,32 @@ class Testnet(unittest.TestCase):
         with self.assertRaisesRegex(v.Invalid, "root"):
             v.check_screened(fx["proof"], list(reversed(leaves)), *args)
 
+    def test_screened_list_root(self):
+        """The testnet screened-set proof is against the root of the published list, computed here."""
+        with open(os.path.join(EX, "screened", "list.txt")) as f:
+            leaves = [bytes.fromhex(l.strip()) for l in f if l.strip() and not l.startswith("#")]
+        with open(os.path.join(EX, "screened", "proof.txt")) as f:
+            p = rc.decode_screened(f.read())
+        self.assertEqual(len(leaves), 16)
+        self.assertEqual(v.screened_set_root(leaves), p.set_root)
+        self.assertNotEqual(v.screened_set_root(leaves[:-1]), p.set_root)
+
+    def test_same_payer_proof(self):
+        """The batch's same-payer proof holds for its receipts, in order, and for nothing else."""
+        import re as _re
+        from specverify import link
+        with open(os.path.join(EX, "batch-same-payer-link.txt")) as f:
+            t = f.read()
+        rs = rc.decode_batch(rc.b64decode(_re.search(r"zip311b1[A-Za-z0-9_-]+", t).group(0)[8:]))
+        proof = link.decode(_re.search(r"zip311k1[A-Za-z0-9_-]+", t).group(0))
+        self.assertEqual(proof["msg"], b"batch:" + rc.check_batch(rs).encode())
+        self.assertEqual(link.verify(proof, rs), 3)
+        with self.assertRaises(ValueError):
+            link.verify(proof, [rs[1], rs[0], rs[2]])
+        bent = dict(proof, links=[(r, bytes([s[0] ^ 1]) + s[1:]) for r, s in proof["links"]])
+        with self.assertRaises(ValueError):
+            link.verify(bent, rs)
+
     def test_prepared_receipts(self):
         """conformance/prepared.json, shared with the Rust tests."""
         import json as _json, hashlib as _h

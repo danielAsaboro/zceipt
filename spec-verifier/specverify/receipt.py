@@ -215,12 +215,20 @@ def decode_batch(b: bytes):
     r = _R(b)
     if r.take(4) != b"ZRCB":
         raise DecodeError("bad batch magic")
-    if r.take(1)[0] != 1:
+    version = r.take(1)[0]
+    if version not in (1, 2):
         raise DecodeError("unsupported batch version")
     n = r.int(2)
     if n == 0 or n > 256:
         raise DecodeError("bad batch size")
     out = [decode(r.take(r.int(4))) for _ in range(n)]
+    # Version 2, aggregated: one Halo 2 proof for every spend follows, and the receipts carry none
+    # of their own; version 1 receipts all carry theirs.
+    aggregate = r.take(r.int(4)) if version == 2 else None
+    if aggregate is not None and (not aggregate or any(s.proof or s.address or s.source for x in out for s in x.spends)):
+        raise DecodeError("non-canonical aggregated batch")
+    if aggregate is None and any(not s.proof for x in out for s in x.spends):
+        raise DecodeError("non-canonical: a receipt without its proof")
     if r.i != len(b):
         raise DecodeError("trailing bytes")
     return out

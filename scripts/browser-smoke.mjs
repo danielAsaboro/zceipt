@@ -53,6 +53,12 @@ try {
   await evaluate(`document.querySelector('#sampleEdited').click()`);
   const edited = await until(`(${resultText}).includes('NOT VALID') ? 'NOT VALID' : ''`, 60);
   check(edited === "NOT VALID", "edited copy shows NOT VALID");
+  await evaluate(`document.querySelector('.samples details.more').open = true; document.querySelector('#sampleBatch').click()`);
+  const batch = await until(`(${resultText}).includes('one payer, proven') ? 'one' : ''`, 120);
+  check(batch === "one", "the sample batch shows one payer, proven by its same-payer proof");
+  await evaluate(`document.querySelector('#sampleScreened').click()`);
+  const screened = await until(`(${resultText}).match(/FUNDS FROM THE SCREENED LIST|NOT FROM THE SCREENED LIST/)?.[0] || ''`, 120);
+  check(screened === "FUNDS FROM THE SCREENED LIST", `a deposit from a screened list shows it came from the list, which output hidden (got ${screened})`);
   await evaluate(`document.querySelector('#sampleObserver').click()`);
   await sleep(500);
   const observer = await until(`(${resultText}).includes('NOT PROVEN BY THE PAYER') ? 'NOT PROVEN' : ''`, 60);
@@ -90,6 +96,12 @@ try {
   await sleep(500);
   const bare = await until(`(${resultText}).includes('VERIFIED') && !document.querySelector('.reqhead') ? ${stampNow} : ''`, 90);
   check(bare === "VERIFIED · RECIPIENT NOT CHECKED|stamp warn", `a signed challenge with no request anywhere proves nothing (got ${bare})`);
+  // One request answered by a batch of two payments.
+  const br = readFileSync(new URL("../examples/testnet/batch-request/link.txt", import.meta.url), "utf8").trim();
+  await evaluate(`localStorage.clear(); true`);
+  await send("Page.navigate", { url: url.replace(/#.*$/, "") + "#" + br });
+  const brh = await until(`document.querySelector('.reqhead')?.innerText || ''`, 120);
+  check(brh === "MATCHES THE REQUEST IN THIS LINK", `a batch answers one request (got ${brh})`);
   // A link with other text carrying a stray "%" still verifies.
   await evaluate(`(async () => { const m = await import('./samples.js'); location.hash = m.SAMPLE_REAL + '&h=' + m.SAMPLE_HEIGHT + '&note=50%off'; return true })()`);
   await sleep(500);

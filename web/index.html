@@ -109,6 +109,9 @@
     .qr { width: 200px; margin: 10px 0; background: #fff; border-radius: 10px; padding: 6px; }
     .qr svg { width: 100%; height: auto; display: block; }
     a.paybtn { display: inline-block; font: 600 15px var(--sans); border-radius: 10px; padding: 12px 18px; background: var(--paper); color: var(--ink); text-decoration: none; }
+    details.screened { margin-top: 10px; color: var(--ink-2); font-size: 13px; }
+    details.screened textarea { min-height: 60px; background: #fff; color: var(--ink); border-color: var(--rule); }
+    details.screened label { display: block; margin: 8px 0 4px; }
     #makeOwn { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
     #makeOwn input { flex: 1 1 200px; }
     button.ghost { background: transparent; color: inherit; border: 1px solid currentColor; padding: 8px 12px; font-size: 13px; opacity: .85; }
@@ -162,6 +165,7 @@
         <details class="more"><summary>More examples</summary>
           <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
           <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>
+          <button type="button" class="ghost" id="sampleScreened">Try a deposit from a screened list</button>
         </details>
       </div>
       <div id="warm" class="warm" data-state="busy" hidden></div>

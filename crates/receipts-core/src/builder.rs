@@ -119,6 +119,16 @@ impl<'t> ReceiptBuilder<'t> {
     /// Makes every proof. The result is signed with
     /// [`PreparedReceipt::sign`] here or [`sign_prepared`](crate::sign_prepared) on another device.
     pub fn prepare(self, pk: &ProvingKey, rng: impl CryptoRng) -> Result<PreparedReceipt, Error> {
+        self.prepare_maybe_deferred(pk, rng, None)
+    }
+
+    /// For a receipt of an aggregated batch: the spends' statements go to `statements` instead of
+    /// being proved here (see [`crate::prepare_deferred`]).
+    pub fn prepare_deferred(self, pk: &ProvingKey, rng: impl CryptoRng, statements: &mut crate::Statements) -> Result<PreparedReceipt, Error> {
+        self.prepare_maybe_deferred(pk, rng, Some(statements))
+    }
+
+    fn prepare_maybe_deferred(self, pk: &ProvingKey, rng: impl CryptoRng, statements: Option<&mut crate::Statements>) -> Result<PreparedReceipt, Error> {
         let txid: [u8; 32] = *self.tx.txid().as_ref();
         let spend_pool = self.spend_pool.unwrap_or(if self.tx.ironwood_bundle().is_some() { Pool::Ironwood } else { Pool::Orchard });
         let output_pool = self.output_pool.unwrap_or(spend_pool);
@@ -128,6 +138,36 @@ impl<'t> ReceiptBuilder<'t> {
         };
         let spends = bundle(spend_pool).ok_or(Error::NoBundle(spend_pool))?;
         let outputs = bundle(output_pool).ok_or(Error::NoBundle(output_pool))?;
-        prepare(pk, self.network.coin_type(), spend_pool, spends, output_pool, outputs, txid, &self.msg, &self.outputs, &self.withheld_memo, &self.spends, rng)
+        match statements {
+            Some(st) if self.withheld_memo.is_empty() => crate::prepare_deferred(
+                pk,
+                self.network.coin_type(),
+                spend_pool,
+                spends,
+                output_pool,
+                outputs,
+                txid,
+                &self.msg,
+                &self.outputs,
+                &self.spends,
+                rng,
+                st,
+            ),
+            Some(_) => Err(Error::NeedsOrchardExt("outputs without their memo in an aggregated batch")),
+            None => prepare(
+                pk,
+                self.network.coin_type(),
+                spend_pool,
+                spends,
+                output_pool,
+                outputs,
+                txid,
+                &self.msg,
+                &self.outputs,
+                &self.withheld_memo,
+                &self.spends,
+                rng,
+            ),
+        }
     }
 }

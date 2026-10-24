@@ -116,7 +116,7 @@ fn batch_positions_are_checked() {
                 r
             })
             .collect();
-        check_batch(&ReceiptBatch { receipts })
+        check_batch(&ReceiptBatch { receipts, aggregate: None })
     };
     assert_eq!(batch(&["batch:ab 1/2", "batch:ab 2/2"]).unwrap(), "ab");
     assert!(batch(&["batch:ab 0/2", "batch:ab 2/2"]).is_err());

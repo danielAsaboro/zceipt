@@ -306,6 +306,22 @@ fn viewing_key_in_db(db: &Path, net: Net) -> anyhow::Result<FullViewingKey> {
     ufvk.orchard().cloned().ok_or_else(|| anyhow!("the wallet's viewing key has no Orchard part"))
 }
 
+/// Like [`prepare_receipt`] for one receipt of an aggregated batch: its spends' statements are
+/// added to `statements` for the batch's one proof (`receipts_core::aggregate_proof`).
+pub async fn prepare_receipt_deferred(
+    wallet: &Path,
+    txid: [u8; 32],
+    msg: &[u8],
+    server: Option<&str>,
+    statements: &mut receipts_core::Statements,
+) -> anyhow::Result<(PreparedReceipt, u32)> {
+    let (net, fvk) = viewing_key(wallet)?;
+    let (p, mined, _) =
+        prepare_with_db(&wallet.join("data.sqlite"), net, fvk, txid, msg, &[], None, WitnessSource::Auto, server, None, None, false, None, Some(statements))
+            .await?;
+    Ok((p, mined))
+}
+
 /// For a mobile or desktop wallet built on `zcash_client_sqlite` (the Zcash Android and iOS
 /// SDKs keep one): makes every proof of a receipt for `txid` straight from that wallet
 /// database, with the account's viewing key read from it. Sign the result where the spending key
@@ -314,7 +330,7 @@ fn viewing_key_in_db(db: &Path, net: Net) -> anyhow::Result<FullViewingKey> {
 /// note commitment tree gives the Merkle paths, so nothing is fetched unless it pruned them.
 pub async fn prepare_receipt_from_db(db: &Path, net: Net, txid: [u8; 32], msg: &[u8], server: Option<&str>) -> anyhow::Result<(PreparedReceipt, u32)> {
     let fvk = viewing_key_in_db(db, net)?;
-    let (p, mined, _) = prepare_with_db(db, net, fvk, txid, msg, &[], None, WitnessSource::Auto, server, None, None, false, None).await?;
+    let (p, mined, _) = prepare_with_db(db, net, fvk, txid, msg, &[], None, WitnessSource::Auto, server, None, None, false, None, None).await?;
     Ok((p, mined))
 }
 
@@ -416,6 +432,7 @@ async fn prepare_with(
         prove_source,
         withhold_memo,
         screened_set,
+        None,
     )
     .await
 }
@@ -435,6 +452,7 @@ async fn prepare_with_db(
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
     screened_set: Option<Screened<'_>>,
+    deferred: Option<&mut receipts_core::Statements>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let mut db = WalletDb::for_path(db_path, net, SystemClock, OsRng)?;
     let tx = db.get_transaction(TxId::from_bytes(txid))?.ok_or_else(|| anyhow!("this wallet has no record of that transaction; sync it first"))?;
@@ -449,7 +467,25 @@ async fn prepare_with_db(
             None
         }
     };
-    build_prepared(net, &fvk, txid, &tx, mined, &spent, &mut local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo, screened_set).await
+    build_prepared(
+        net,
+        &fvk,
+        txid,
+        &tx,
+        mined,
+        &spent,
+        &mut local,
+        msg,
+        outputs,
+        pool,
+        server,
+        prove_address,
+        prove_source,
+        withhold_memo,
+        screened_set,
+        deferred,
+    )
+    .await
 }
 
 /// A wallet held as keys alone, such as the seed phrase or viewing key of Zodl, Zingo or
@@ -544,8 +580,25 @@ pub async fn prepare_receipt_from_keys(
         bail!("none of this wallet's notes from block {} on were spent in that transaction (wrong wallet, account or birthday?)", w.birthday);
     }
     let mut no_local = |_: Pool, _: u64, _: orchard::Anchor| None;
-    build_prepared(w.net, &w.fvk, txid, &tx, mined, &spent, &mut no_local, msg, outputs, pool, server, prove_address, prove_source, withhold_memo, screened_set)
-        .await
+    build_prepared(
+        w.net,
+        &w.fvk,
+        txid,
+        &tx,
+        mined,
+        &spent,
+        &mut no_local,
+        msg,
+        outputs,
+        pool,
+        server,
+        prove_address,
+        prove_source,
+        withhold_memo,
+        screened_set,
+        None,
+    )
+    .await
 }
 
 /// Trial-decrypts the compact blocks from the birthday to `end` and returns this wallet's notes,
@@ -618,6 +671,7 @@ async fn build_prepared(
     prove_source: Option<SourceMode>,
     withhold_memo: bool,
     screened_set: Option<Screened<'_>>,
+    deferred: Option<&mut receipts_core::Statements>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
     let coin_type = net.coin_type();
     let prove_address = match prove_address {
@@ -725,7 +779,11 @@ async fn build_prepared(
     for w in &spends {
         b = b.spend(w.clone());
     }
-    let prepared = b.prepare(&pk, OsRng)?;
+    let prepared = match deferred {
+        // An aggregated batch: the statements wait for the batch's one proof.
+        Some(st) => b.prepare_deferred(&pk, OsRng, st)?,
+        None => b.prepare(&pk, OsRng)?,
+    };
     // Screened-set proofs need each spend's randomizer, so they are made here, with the receipt.
     let mut screened = Vec::new();
     if let Some(Screened { set, amount }) = screened_set {

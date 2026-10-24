@@ -332,15 +332,58 @@ kept between the two machines and discarded after signing. `roundtrip.rs::prepar
 ## Batches
 
 ```
-batch := "ZRCB" | version:u8 = 1 | count:u16le | { len:u32le | receipt }*
+batch := "ZRCB" | version:u8 | count:u16le | { len:u32le | receipt }*
+       | [aggLen:u32le | aggregate  if version = 2]
 text  := "zip311b1" || base64url_nopad(batch)
 ```
 
+Version 2 is an aggregated batch: one Halo 2 proof (`aggregate`) for the Action statements of
+every spend of every receipt, in batch then spend order, so each receipt's own `proof` is empty
+(and it carries no address or source proofs). A decoder refuses a version 2 batch whose receipts
+carry proofs, and a version 1 batch whose receipts don't. A verifier runs every check of each
+receipt but its proof, collecting the statements `(anchor, cv_net, nf, rk, cmx)`, then checks
+`aggregate` against all of them at once. The empty proof fields are part of what each receipt
+signs, so a receipt taken out of an aggregated batch never verifies on its own. One proof of `n`
+actions is about 2.7 KB + 2.3 KB·n instead of 5 KB·n: a three-payment batch link is a third
+shorter (`receipts create` makes batches this way unless `--no-aggregate`).
+
 Every receipt in a batch carries `batch:<id> <i>/<n>` as the first line of `msg`, which its
 signature covers. A verifier checks that all ids match, `n` equals the count, and each
-position `1..n` appears exactly once, then verifies each receipt on its own. Spend
-authorities are not linked across receipts: each proof uses a fresh `rk`, so a batch does
-not reveal that the payments came from one wallet.
+position `1..n` appears exactly once, then verifies each receipt on its own. Each proof uses
+a fresh `rk`, so the receipts alone don't show that the payments came from one wallet; a
+same-payer proof does, without revealing the key.
+
+A batch can answer one proof request with several payments (invoices A and B): every receipt
+then carries the request's `challenge:<hex>` on the line after its batch line, and a verifier
+checks that each one does and that together they paid the requested address at least the
+requested amount (`verify --challenge … --expect-address … --min …` on a batch).
+
+## Same-payer proofs (`zip311k1`)
+
+```
+link  := "ZRCK" | version:u8 = 1 | coinType:u32le | msgLen:u16le | msg
+       | nReceipts:u8 | { digest[32] }^nReceipts | nLinks:u16le | { R[32] | s[32] }^nLinks
+text  := "zip311k1" || base64url_nopad(link)
+```
+
+Every spend carries `rk = ak + [alpha]G` (`G` the SpendAuthSig base, `GroupHash("z.cash:Orchard",
+"G")`), so two spends of one key differ by `rk_i - rk_0 = [alpha_i - alpha_0]G`. The proof
+holds a Schnorr proof of knowledge of each `delta_i = alpha_i - alpha_0`, for every spend of
+every listed receipt after the first, in receipt then spend order:
+
+```
+c     := ToScalar(BLAKE2b-512("ZIP311Linked" || coinType, link without the s values || every rk))
+s_i   := k_i + c·delta_i,  R_i := [k_i]G
+check := [s_i]G == R_i + [c](rk_i - rk_0), R_i not the identity
+```
+
+`digest` is each receipt's signing digest, so the proof names exact receipts and their order;
+`msg` binds a context (a batch's `batch:<id>`, or a verifier's `challenge:<hex>`). The prover
+needs the `alpha`s, so the proof is made while the prepared receipts are at hand; a batch made
+by `receipts create --txid … --txid …` carries one after `&k=`. What it shows: the maker knows
+how every `rk` relates to the first. For different holders that relation is the difference of
+their secret keys, which neither knows, so the receipts share one key or keys their holders
+pooled. It links these receipts only.
 
 ## Verification
 

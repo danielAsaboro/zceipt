@@ -81,9 +81,14 @@ fn scenario(version: BundleVersion) -> Scenario {
 
 /// Sender is funded with `fund` zats, then pays a merchant `pay` zats with a memo.
 fn scenario_valued(version: BundleVersion, fund: u64, pay: u64) -> Scenario {
+    scenario_from(version, fund, pay, 7)
+}
+
+/// The same, paid by the wallet whose spending key is `[sender; 32]`.
+fn scenario_from(version: BundleVersion, fund: u64, pay: u64, sender: u8) -> Scenario {
     let mut rng = OsRng;
     let pk = network_pk(version);
-    let sender_sk = SpendingKey::from_bytes([7; 32]).unwrap();
+    let sender_sk = SpendingKey::from_bytes([sender; 32]).unwrap();
     let sender_fvk = FullViewingKey::from(&sender_sk);
     let sender_addr = sender_fvk.address_at(0u32, Scope::External);
     let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
@@ -254,7 +259,7 @@ fn batch_roundtrip_and_checks() {
     // checked here, not signatures).
     let mut second = mk(2, 2);
     second.unsigned.txid[0] ^= 1;
-    let batch = ReceiptBatch { receipts: vec![mk(1, 2), second] };
+    let batch = ReceiptBatch { receipts: vec![mk(1, 2), second], aggregate: None };
     let text = batch.to_text();
     assert!(text.starts_with("zip311b1"));
     let parsed = ReceiptBatch::from_text(&text).unwrap();
@@ -262,10 +267,10 @@ fn batch_roundtrip_and_checks() {
     assert_eq!(check_batch(&parsed).unwrap(), "ab12cd34");
 
     // Dropping one receipt is detected.
-    let short = ReceiptBatch { receipts: vec![batch.receipts[0].clone()] };
+    let short = ReceiptBatch { receipts: vec![batch.receipts[0].clone()], aggregate: None };
     assert!(check_batch(&short).is_err());
     // Duplicating a position is detected.
-    let dup = ReceiptBatch { receipts: vec![mk(1, 2), mk(1, 2)] };
+    let dup = ReceiptBatch { receipts: vec![mk(1, 2), mk(1, 2)], aggregate: None };
     assert!(check_batch(&dup).is_err());
 }
 
@@ -276,7 +281,7 @@ fn batch_refuses_one_output_counted_twice() {
     // transaction: the batch total would count one payment twice.
     let s = scenario(BundleVersion::ironwood_v3());
     let mk = |i: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/2").as_bytes());
-    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), mk(2)] }).unwrap_err();
+    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), mk(2)], aggregate: None }).unwrap_err();
     assert!(err.contains("disclosed more than once"), "{err}");
 }
 
@@ -288,7 +293,7 @@ fn batch_refuses_mixed_networks() {
     let mut second = mk(2);
     second.unsigned.txid[0] ^= 1;
     second.unsigned.coin_type = 133;
-    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), second] }).unwrap_err();
+    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), second], aggregate: None }).unwrap_err();
     assert!(err.contains("different networks"), "{err}");
 }
 
@@ -2067,4 +2072,155 @@ fn proof_of_funds_can_hide_each_value_and_show_only_the_total() {
     e.hidden_total.as_mut().unwrap().0 = 200_000;
     __resign_for_tests(&mut e, &mut { OsRng });
     assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadProof(0));
+}
+
+/// Prepared receipts for `s`'s payment from its sender's viewing key.
+fn prepared_for(s: &Scenario, msg: &[u8]) -> receipts_core::PreparedReceipt {
+    use receipts_core::{prepare, ViewingSpendWitness};
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness {
+        index: s.spend_index,
+        fvk: fvk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: None,
+    };
+    prepare(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        &s.payment,
+        Pool::Ironwood,
+        &s.payment,
+        TXID,
+        msg,
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[],
+        &[witness],
+        OsRng,
+    )
+    .unwrap()
+}
+
+#[test]
+fn same_payer_proof_links_one_key_and_nothing_else() {
+    use receipts_core::link;
+    let a = scenario_from(BundleVersion::ironwood_v3(), 100_000, 42_000, 7);
+    let other = scenario_from(BundleVersion::ironwood_v3(), 100_000, 42_000, 8);
+    let ask = |s: &Scenario| SpendAuthorizingKey::from(&s.sender_sk);
+    // Two receipts from wallet 7 (fresh alphas, so their rks differ), one from wallet 8.
+    let (p1, p2, q) = (prepared_for(&a, b"Invoice 1"), prepared_for(&a, b"Invoice 2"), prepared_for(&other, b"Invoice 3"));
+    assert_ne!(p1.unsigned().spends[0].rk, p2.unsigned().spends[0].rk);
+    let proof = link::prove(&[&p1, &p2], b"challenge:5a3e11", OsRng).unwrap();
+    let text = proof.to_text();
+    assert_eq!(link::LinkProof::from_text(&text).unwrap(), proof);
+    let (r1, r2) = (p1.clone().sign(&[ask(&a)], OsRng).unwrap(), p2.clone().sign(&[ask(&a)], OsRng).unwrap());
+    let r3 = q.clone().sign(&[ask(&other)], OsRng).unwrap();
+    link::verify(&proof, &[&r1, &r2]).unwrap();
+
+    // Another wallet's prepared receipt can't be proven linked: the prover refuses.
+    assert_eq!(link::prove(&[&p1, &q], b"", OsRng).unwrap_err(), Error::BadLink);
+    // Nor can a proof be moved to other receipts, reordered, or have a value changed.
+    assert_eq!(link::verify(&proof, &[&r1, &r3]).unwrap_err(), Error::BadLink);
+    assert_eq!(link::verify(&proof, &[&r2, &r1]).unwrap_err(), Error::BadLink);
+    let mut bent = proof.clone();
+    bent.msg = b"challenge:000000".to_vec();
+    assert_eq!(link::verify(&bent, &[&r1, &r2]).unwrap_err(), Error::BadLink);
+    let mut bent = proof.clone();
+    bent.links[0].1[0] ^= 1;
+    assert!(link::verify(&bent, &[&r1, &r2]).is_err());
+    // A forger who knows only the public rks (no alphas) and tries a proof for wallet 8's receipt
+    // as if it were wallet 7's: pick s at random and solve for R; the challenge then differs.
+    let g = link::spend_auth_base();
+    use group::GroupEncoding;
+    let rk = |r: &receipts_core::Receipt| <pasta_curves::pallas::Point as GroupEncoding>::from_bytes(&r.unsigned.spends[0].rk).unwrap();
+    let mut rng = OsRng;
+    let s = <pasta_curves::pallas::Scalar as group::ff::Field>::random(&mut rng);
+    let guess_c = <pasta_curves::pallas::Scalar as group::ff::Field>::random(&mut rng);
+    let big_r = g * s - (rk(&r3) - rk(&r1)) * guess_c;
+    let forged = link::LinkProof {
+        coin_type: COIN_TYPE_TESTNET,
+        msg: vec![],
+        receipts: vec![receipts_core::signing_digest(&r1.unsigned), receipts_core::signing_digest(&r3.unsigned)],
+        links: vec![(big_r.to_bytes(), group::ff::PrimeField::to_repr(&s))],
+    };
+    assert_eq!(link::verify(&forged, &[&r1, &r3]).unwrap_err(), Error::BadLink);
+}
+
+#[test]
+fn spend_auth_base_is_the_orchard_generator() {
+    // rk = ak.randomize(alpha) = ak + [alpha]G, so (rk - ak) = [alpha]G for the base G.
+    use group::GroupEncoding;
+    let ask = SpendAuthorizingKey::from(&SpendingKey::from_bytes([7; 32]).unwrap());
+    let mut rng = OsRng;
+    let alpha = <pasta_curves::pallas::Scalar as group::ff::Field>::random(&mut rng);
+    let vk = orchard::keys::SpendValidatingKey::from(&ask);
+    let ak: [u8; 32] = (&vk.randomize(&<pasta_curves::pallas::Scalar as group::ff::Field>::ZERO)).into();
+    let rk: [u8; 32] = (&vk.randomize(&alpha)).into();
+    let p = |b: [u8; 32]| <pasta_curves::pallas::Point as GroupEncoding>::from_bytes(&b).unwrap();
+    assert_eq!(p(rk) - p(ak), receipts_core::link::spend_auth_base() * alpha);
+}
+
+#[test]
+fn an_aggregated_batch_proves_every_spend_with_one_proof() {
+    use receipts_core::{aggregate_proof, prepare_deferred, verify_aggregate, verify_tx_bundles_deferred, ViewingSpendWitness};
+    let (a, b) = (scenario_from(BundleVersion::ironwood_v3(), 100_000, 42_000, 7), scenario_from(BundleVersion::ironwood_v3(), 90_000, 30_000, 8));
+    let mut statements = vec![];
+    let prep = |s: &Scenario, msg: &[u8], st: &mut receipts_core::Statements| {
+        let fvk = FullViewingKey::from(&s.sender_sk);
+        let w = ViewingSpendWitness {
+            index: s.spend_index,
+            fvk: fvk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: None,
+        };
+        prepare_deferred(
+            &keys().0,
+            COIN_TYPE_TESTNET,
+            Pool::Ironwood,
+            &s.payment,
+            Pool::Ironwood,
+            &s.payment,
+            TXID,
+            msg,
+            &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+            &[w],
+            OsRng,
+            st,
+        )
+        .unwrap()
+    };
+    let (pa, pb) = (prep(&a, b"batch:ab 1/2", &mut statements), prep(&b, b"batch:ab 2/2", &mut statements));
+    assert!(pa.unsigned().spends[0].proof.is_empty());
+    let proof = aggregate_proof(&keys().0, statements, OsRng).unwrap();
+    let ra = pa.sign(&[SpendAuthorizingKey::from(&a.sender_sk)], OsRng).unwrap();
+    let rb = pb.sign(&[SpendAuthorizingKey::from(&b.sender_sk)], OsRng).unwrap();
+    // One proof, smaller than two proved alone (about 5 KB each).
+    assert!(proof.len() < 2 * 4992, "{} bytes", proof.len());
+
+    let check = |rs: &[&Receipt], proof: &[u8]| -> Result<(), Error> {
+        let mut instances = vec![];
+        for (r, s) in rs.iter().zip([&a, &b]) {
+            verify_tx_bundles_deferred(&keys().1, r, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &mut instances)?;
+        }
+        verify_aggregate(&keys().1, &instances, proof)
+    };
+    check(&[&ra, &rb], &proof).unwrap();
+    // A receipt without its own proof never verifies alone.
+    assert!(verify(&keys().1, &ra, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &a.payment).is_err());
+    // The proof covers exactly these statements in this order.
+    let mut instances = vec![];
+    verify_tx_bundles_deferred(&keys().1, &ra, COIN_TYPE_TESTNET, TXID, None, Some(&a.payment), &mut instances).unwrap();
+    verify_tx_bundles_deferred(&keys().1, &rb, COIN_TYPE_TESTNET, TXID, None, Some(&b.payment), &mut instances).unwrap();
+    instances.swap(0, 1);
+    assert_eq!(verify_aggregate(&keys().1, &instances, &proof).unwrap_err(), Error::BadAggregate);
+    let mut bent = proof.clone();
+    bent[100] ^= 1;
+    assert_eq!(check(&[&ra, &rb], &bent).unwrap_err(), Error::BadAggregate);
+    let mut instances = vec![];
+    verify_tx_bundles_deferred(&keys().1, &ra, COIN_TYPE_TESTNET, TXID, None, Some(&a.payment), &mut instances).unwrap();
+    assert_eq!(verify_aggregate(&keys().1, &instances, &proof).unwrap_err(), Error::BadAggregate);
 }

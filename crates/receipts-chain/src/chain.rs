@@ -503,7 +503,7 @@ pub fn verify_offline_with_sources(
             .collect();
         map.insert(id, SourceTx { tx: stx, height: *h, transparent_inputs });
     }
-    let mut r = report_for(receipt, net, &tx, height, &map)?;
+    let mut r = report_for(receipt, net, &tx, height, &map, None)?;
     r.chain_checked = false;
     Ok(r)
 }
@@ -607,12 +607,53 @@ pub async fn verify_against_chain_hinted(
         }
     };
     let sources = fetch_sources(receipt, net, server).await?;
-    let mut report = report_for(receipt, net, &tx, height, &sources)?;
+    let mut report = report_for(receipt, net, &tx, height, &sources, None)?;
     report.anonymity_set = set;
     Ok(report)
 }
 
-fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, sources: &std::collections::BTreeMap<[u8; 32], SourceTx>) -> anyhow::Result<Report> {
+/// Verifies an aggregated batch (`ReceiptBatch::aggregate`): each receipt against its mined
+/// transaction (by block with `hints`, one per receipt), then the batch's one proof for every
+/// spend. Returns the receipts' reports, in batch order.
+pub async fn verify_aggregated_batch(
+    batch: &receipts_core::ReceiptBatch,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+    hints: Option<&[u32]>,
+) -> anyhow::Result<Vec<Report>> {
+    let proof = batch.aggregate.as_deref().ok_or_else(|| anyhow!("not an aggregated batch"))?;
+    let mut instances = Vec::new();
+    let mut reports = Vec::with_capacity(batch.receipts.len());
+    for (i, r) in batch.receipts.iter().enumerate() {
+        let net = net::for_receipt(r.unsigned.coin_type, regtest)?;
+        let (tx, height, set) = match hints.map(|h| h[i]) {
+            Some(h) => {
+                let (tx, height, set) = fetch_mined_tx_in_block(net, server, r.unsigned.txid, h).await?;
+                (tx, height, Some(set))
+            }
+            None => {
+                let (tx, height) = fetch_mined_tx(net, server, r.unsigned.txid).await?;
+                (tx, height, None)
+            }
+        };
+        let mut report = report_for(r, net, &tx, height, &Default::default(), Some(&mut instances))?;
+        report.anonymity_set = set;
+        reports.push(report);
+    }
+    static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
+    receipts_core::verify_aggregate(VK.get_or_init(receipts_core::verifying_key), &instances, proof)
+        .map_err(|e| anyhow!("{e}: a receipt in the batch was changed after it was made, or not made by the wallet that paid"))?;
+    Ok(reports)
+}
+
+fn report_for(
+    receipt: &Receipt,
+    net: Net,
+    tx: &Transaction,
+    height: u32,
+    sources: &std::collections::BTreeMap<[u8; 32], SourceTx>,
+    deferred: Option<&mut Vec<orchard::circuit::Instance>>,
+) -> anyhow::Result<Report> {
     let u = &receipt.unsigned;
     static VK: std::sync::OnceLock<orchard::circuit::VerifyingKey> = std::sync::OnceLock::new();
     let vk = VK.get_or_init(receipts_core::verifying_key);
@@ -628,15 +669,17 @@ fn report_for(receipt: &Receipt, net: Net, tx: &Transaction, height: u32, source
         }?;
         receipts_core::output_cmx(bundle, index)
     };
-    let v = receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup).map_err(
-        |e| match e {
-            // An edited or forged receipt: the reason is enough.
-            receipts_core::Error::BadSignature(_) | receipts_core::Error::BadProof(_) => {
-                anyhow!("{e}: the receipt was changed after it was made, or not made by the wallet that paid")
-            }
-            e => anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)),
-        },
-    )?;
+    let v = match deferred {
+        Some(st) => receipts_core::verify_tx_bundles_deferred(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
+        None => receipts_core::verify_tx_bundles_with_sources(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+    }
+    .map_err(|e| match e {
+        // An edited or forged receipt: the reason is enough.
+        receipts_core::Error::BadSignature(_) | receipts_core::Error::BadProof(_) => {
+            anyhow!("{e}: the receipt was changed after it was made, or not made by the wallet that paid")
+        }
+        e => anyhow!("{e} (pools: spends {:?}, outputs {:?})", u.pool, u.output_pool.unwrap_or(u.pool)),
+    })?;
     let report_sources = v
         .sources
         .iter()

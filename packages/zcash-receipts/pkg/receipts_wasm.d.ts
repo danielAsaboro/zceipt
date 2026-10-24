@@ -1,39 +1,9 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
- * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
+ * `text` as a QR code, an SVG image (for a payment or request link a phone can scan).
  */
-export function check_payment_uri(uri: string, network: string): string;
-/**
- * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
- */
-export function secret_kind(text: string): string;
-/**
- * The network a unified address belongs to: "mainnet", "testnet" or "regtest". A receipt's
- * recipient bytes carry no network, so an expected address is checked against the receipt's
- * network with this before its receiver is compared.
- */
-export function address_network(ua: string): string;
-/**
- * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
- * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
- * The caller must still make sure the nonce was its own, unexpired and is used only once.
- */
-export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
-/**
- * Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
- */
-export function inspect_incoming(receipt: string): string;
-/**
- * The txid (block-explorer hex) of `raw_tx`, mined at `height`: lets the block-level fetch
- * check that each transaction a server sent is the one asked for, not a stand-in.
- */
-export function txid_of(raw_tx: Uint8Array, height: number, coin_type: number): string;
-/**
- * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
- */
-export function orchard_receiver_hex(ua: string): string;
+export function qr_svg(text: string): string;
 /**
  * Verifies an incoming receipt (`zrcin1…`: the recipient proves it was paid) against `raw_tx`
  * mined at `height`. Returns JSON `{ valid, kind: "incoming", network, pool, txid, mined_height,
@@ -41,12 +11,40 @@ export function orchard_receiver_hex(ua: string): string;
  */
 export function verify_incoming(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
 /**
- * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
- * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
- * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
- * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
+ * Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
+ * Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
  */
-export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_height: number, tx2_raw: Uint8Array, tx2_height: number, regtest: boolean): string;
+export function open_batch(batch: string): string;
+/**
+ * The Orchard receiver of a unified address, hex-encoded, for "is this address paid?" checks.
+ */
+export function orchard_receiver_hex(ua: string): string;
+/**
+ * If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
+ */
+export function secret_kind(text: string): string;
+/**
+ * Lints a ZIP-321 payment URI (see `receipts_core::preflight`). `network` may be "".
+ * Returns JSON `{ ok, payments, total_zatoshis, qr, findings }`.
+ */
+export function check_payment_uri(uri: string, network: string): string;
+/**
+ * The txid (block-explorer hex) of `raw_tx`, mined at `height`: lets the block-level fetch
+ * check that each transaction a server sent is the one asked for, not a stand-in.
+ */
+export function txid_of(raw_tx: Uint8Array, height: number, coin_type: number): string;
+/**
+ * Verifies an aggregated batch (`zip311b1…` version 2): `txs` is JSON `[{ raw, height }]`, each
+ * receipt's mined transaction (raw hex) in batch order. Checks every receipt, then the batch's
+ * one proof for all their spends. Returns a JSON list of what [`verify`] returns for each.
+ */
+export function verify_aggregated(batch: string, txs: string, regtest: boolean): string;
+/**
+ * Signs a prepared `zip311u1…` receipt for `message` with a 32-byte Orchard spending key (hex),
+ * the second half of `receipts create --unsigned`. It makes no proofs, so it is instant; the key
+ * never leaves this call. Returns the `zip311r1…` text.
+ */
+export function sign_prepared_text(prepared: string, spending_key_hex: string, message: string): string;
 /**
  * The outputs a receipt claims, opened with their `ock`s and nothing else checked (JSON list of
  * `{ action, recipient, zatoshis, memo }`): what a receipt that failed its spend proof says it
@@ -54,19 +52,22 @@ export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_heig
  */
 export function claimed_outputs(receipt: string, raw_tx: Uint8Array, height: number, regtest: boolean): string;
 /**
- * Splits a `zip311b1…` batch into its receipts after checking it is complete and consistent.
- * Returns JSON `{ "id": "<batch id>", "receipts": ["zip311r1…", …] }`.
+ * Checks screened-set proofs (`zip311s1…`, any number in `proofs`) for a receipt already verified
+ * against `raw_tx`: each spend the receipt proves was of a note in `set` (the published list, one
+ * note commitment in hex per line, `#` comments allowed), which one hidden. The root is computed
+ * here from the list. Returns JSON `{ root, size, covered_zatoshis }`.
  */
-export function open_batch(batch: string): string;
+export function verify_screened(receipt: string, raw_tx: Uint8Array, height: number, proofs: string, set: string): string;
+/**
+ * The network a unified address belongs to: "mainnet", "testnet" or "regtest". A receipt's
+ * recipient bytes carry no network, so an expected address is checked against the receipt's
+ * network with this before its receiver is compared.
+ */
+export function address_network(ua: string): string;
 /**
  * Decodes a receipt without verifying it. Returns JSON.
  */
 export function inspect(receipt: string): string;
-/**
- * Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
- * JSON `{ address, zatoshis }`, for showing who funded a source transaction.
- */
-export function transparent_output(raw_tx: Uint8Array, height: number, index: number, coin_type: number, regtest: boolean): string;
 /**
  * Checks a signed payment request (`zreq1…`) at Unix time `now`: the signature, that its signer
  * controls the payee address, and the expiry. Returns JSON `{ payee, domain, amount_zatoshis,
@@ -75,19 +76,37 @@ export function transparent_output(raw_tx: Uint8Array, height: number, index: nu
  */
 export function verify_payment_request(request: string, now: number): string;
 /**
+ * Reads output `index` of a transparent transaction output (`raw_tx`, mined at `height`):
+ * JSON `{ address, zatoshis }`, for showing who funded a source transaction.
+ */
+export function transparent_output(raw_tx: Uint8Array, height: number, index: number, coin_type: number, regtest: boolean): string;
+/**
+ * For a deposit receipt (it signs `tex-deposit:` and `second-tx:`): checks that `tx2_raw` (the
+ * second ZIP 320 step, mined at `tx2_height`) spends the receipt's transaction `tx1_raw` and
+ * pays the TEX address. Call `verify` on the receipt first; this adds the TEX hop.
+ * Returns JSON `{ tex_address, deposit_zatoshis, first_tx, second_tx, warning }`.
+ */
+export function check_tex_deposit(receipt: string, tx1_raw: Uint8Array, tx1_height: number, tx2_raw: Uint8Array, tx2_height: number, regtest: boolean): string;
+/**
+ * Decodes an incoming receipt without verifying it: JSON `{ network, pool, txid, message, outputs, bytes }`.
+ */
+export function inspect_incoming(receipt: string): string;
+/**
  * Builds the verifying key now (a few seconds), so `verify` is fast later.
  */
 export function warm_up(): void;
 /**
- * `text` as a QR code, an SVG image (for a payment or request link a phone can scan).
+ * Checks a `zsig1…` "Sign in with Zcash" proof for `domain` and `nonce`, offline: no chain
+ * and no server. Returns JSON `{ "address": "u1…|utest1…", "network", "issued_at" }` or throws.
+ * The caller must still make sure the nonce was its own, unexpired and is used only once.
  */
-export function qr_svg(text: string): string;
+export function verify_sign_in(sign_in: string, domain: string, nonce: string): string;
 /**
- * Signs a prepared `zip311u1…` receipt for `message` with a 32-byte Orchard spending key (hex),
- * the second half of `receipts create --unsigned`. It makes no proofs, so it is instant; the key
- * never leaves this call. Returns the `zip311r1…` text.
+ * Checks a same-payer proof (`zip311k1…`) for a batch (`zip311b1…`): every payment in it was
+ * signed with one spend key. Returns how many spends it links. Checks only the link; verify the
+ * batch's receipts as usual.
  */
-export function sign_prepared_text(prepared: string, spending_key_hex: string, message: string): string;
+export function verify_same_payer(link: string, batch: string): number;
 /**
  * Verifies `receipt` against `raw_tx` (the transaction bytes) mined at `height`.
  * `regtest` marks a local test chain (receipts there carry the testnet coin type).
@@ -196,8 +215,11 @@ export interface InitOutput {
   readonly transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly txid_of: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+  readonly verify_aggregated: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly verify_incoming: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly verify_payment_request: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly verify_same_payer: (a: number, b: number, c: number, d: number) => [number, number, number];
+  readonly verify_screened: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
   readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly warm_up_prover: () => void;
   readonly warm_up: () => void;

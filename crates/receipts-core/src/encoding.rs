@@ -392,6 +392,8 @@ impl crate::PreparedReceipt {
 pub const BATCH_TEXT_PREFIX: &str = "zip311b1";
 const BATCH_MAGIC: &[u8; 4] = b"ZRCB";
 const MAX_BATCH: usize = 256;
+/// An aggregated batch's proof: about 2.7 KB plus 2.3 KB per spend.
+const MAX_AGGREGATE: usize = 4 << 20;
 
 /// Several receipts shared as one link, e.g. every payout of a grant round.
 ///
@@ -405,18 +407,25 @@ const MAX_BATCH: usize = 256;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptBatch {
     pub receipts: Vec<Receipt>,
+    /// Version 2, an aggregated batch: one Halo 2 proof for every spend of every receipt, in
+    /// order, whose own proof fields are then empty (`receipts_core::verify_aggregate`).
+    pub aggregate: Option<Vec<u8>>,
 }
 
 impl ReceiptBatch {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut v = Vec::new();
         v.extend_from_slice(BATCH_MAGIC);
-        v.push(VERSION);
+        v.push(if self.aggregate.is_some() { 2 } else { VERSION });
         v.extend_from_slice(&(self.receipts.len() as u16).to_le_bytes());
         for r in &self.receipts {
             let b = r.to_bytes();
             v.extend_from_slice(&(b.len() as u32).to_le_bytes());
             v.extend_from_slice(&b);
+        }
+        if let Some(p) = &self.aggregate {
+            v.extend_from_slice(&(p.len() as u32).to_le_bytes());
+            v.extend_from_slice(p);
         }
         v
     }
@@ -427,7 +436,7 @@ impl ReceiptBatch {
             return Err(DecodeError::BadMagic);
         }
         let version = r.u8()?;
-        if version != VERSION {
+        if version != VERSION && version != 2 {
             return Err(DecodeError::UnsupportedVersion(version));
         }
         let n = r.u16()? as usize;
@@ -439,10 +448,26 @@ impl ReceiptBatch {
             let len = r.u32()? as usize;
             receipts.push(Receipt::from_bytes(r.take(len)?)?);
         }
+        let aggregate = if version == 2 {
+            let len = r.u32()? as usize;
+            if len == 0 || len > MAX_AGGREGATE {
+                return Err(DecodeError::TooLarge);
+            }
+            Some(r.take(len)?.to_vec())
+        } else {
+            None
+        };
+        // One form only: an aggregated batch's receipts carry no proofs of their own, and a plain
+        // batch's receipts all do.
+        let empty = |r: &Receipt| r.unsigned.spends.iter().any(|s| s.proof.is_empty());
+        let own = |r: &Receipt| r.unsigned.spends.iter().any(|s| !s.proof.is_empty() || s.address.is_some() || s.source.is_some());
+        if (aggregate.is_some() && receipts.iter().any(own)) || (aggregate.is_none() && receipts.iter().any(empty)) {
+            return Err(DecodeError::NonCanonical);
+        }
         if !r.buf.is_empty() {
             return Err(DecodeError::TrailingBytes);
         }
-        Ok(ReceiptBatch { receipts })
+        Ok(ReceiptBatch { receipts, aggregate })
     }
 
     pub fn to_text(&self) -> String {

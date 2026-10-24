@@ -189,8 +189,41 @@ pub fn txid_of(raw_tx: &[u8], height: u32, coin_type: u32) -> Result<String, JsE
 /// Returns JSON describing what the receipt proves, or throws why it is invalid.
 #[wasm_bindgen]
 pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources: Option<String>) -> Result<String, JsError> {
+    verify_inner(parse(receipt)?, raw_tx, height, regtest, sources, None)
+}
+
+/// Verifies an aggregated batch (`zip311b1…` version 2): `txs` is JSON `[{ raw, height }]`, each
+/// receipt's mined transaction (raw hex) in batch order. Checks every receipt, then the batch's
+/// one proof for all their spends. Returns a JSON list of what [`verify`] returns for each.
+#[wasm_bindgen]
+pub fn verify_aggregated(batch: &str, txs: &str, regtest: bool) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
-    let r = parse(receipt)?;
+    let b = receipts_core::ReceiptBatch::from_text(batch).map_err(|e| JsError::new(&e.to_string()))?;
+    let proof = b.aggregate.clone().ok_or_else(|| JsError::new("not an aggregated batch"))?;
+    let txs: Vec<SourceTxIn> = serde_json::from_str(txs).map_err(|e| JsError::new(&format!("bad transactions: {e}")))?;
+    if txs.len() != b.receipts.len() {
+        return Err(JsError::new("one transaction per receipt, in batch order"));
+    }
+    let mut instances = Vec::new();
+    let mut out = Vec::with_capacity(txs.len());
+    for (r, t) in b.receipts.into_iter().zip(txs) {
+        let raw = hex::decode(t.raw.trim()).map_err(|_| JsError::new("bad transaction hex"))?;
+        out.push(serde_json::from_str::<serde_json::Value>(&verify_inner(r, &raw, t.height, regtest, None, Some(&mut instances))?)?);
+    }
+    VK.with(|vk| receipts_core::verify_aggregate(vk.get_or_init(receipts_core::verifying_key), &instances, &proof))
+        .map_err(|e| JsError::new(&format!("{e}: a receipt in the batch was changed after it was made, or not made by the wallet that paid")))?;
+    Ok(serde_json::to_string(&out)?)
+}
+
+fn verify_inner(
+    r: Receipt,
+    raw_tx: &[u8],
+    height: u32,
+    regtest: bool,
+    sources: Option<String>,
+    deferred: Option<&mut Vec<orchard::circuit::Instance>>,
+) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
     let u = &r.unsigned;
     let (net, mut nt, mut name) = net_of(u.coin_type)?;
     if regtest {
@@ -232,7 +265,10 @@ pub fn verify(receipt: &str, raw_tx: &[u8], height: u32, regtest: bool, sources:
     let v = VK
         .with(|vk| {
             let vk = vk.get_or_init(receipts_core::verifying_key);
-            receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+            match deferred {
+                Some(st) => receipts_core::verify_tx_bundles_deferred(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
+                None => receipts_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+            }
         })
         .map_err(|e| match e {
             // The signature holds but the spend proof doesn't: whoever signed doesn't hold the
@@ -344,7 +380,7 @@ pub fn open_batch(batch: &str) -> Result<String, JsError> {
     let b = receipts_core::ReceiptBatch::from_text(batch).map_err(|e| JsError::new(&e.to_string()))?;
     let id = receipts_core::check_batch(&b).map_err(|e| JsError::new(&e))?;
     let receipts: Vec<String> = b.receipts.iter().map(|r| r.to_text()).collect();
-    Ok(serde_json::json!({ "id": id, "receipts": receipts }).to_string())
+    Ok(serde_json::json!({ "id": id, "receipts": receipts, "aggregated": b.aggregate.is_some() }).to_string())
 }
 
 /// If `text` contains a viewing key, spending key or seed phrase, its kind; otherwise "".
@@ -371,6 +407,65 @@ pub fn verify_sign_in(sign_in: &str, domain: &str, nonce: &str) -> Result<String
         .map(|a| a.encode(&nt))
         .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(serde_json::json!({ "address": ua, "network": name, "issued_at": s.issued_at }).to_string())
+}
+
+/// Checks screened-set proofs (`zip311s1…`, any number in `proofs`) for a receipt already verified
+/// against `raw_tx`: each spend the receipt proves was of a note in `set` (the published list, one
+/// note commitment in hex per line, `#` comments allowed), which one hidden. The root is computed
+/// here from the list. Returns JSON `{ root, size, covered_zatoshis }`.
+#[wasm_bindgen]
+pub fn verify_screened(receipt: &str, raw_tx: &[u8], height: u32, proofs: &str, set: &str) -> Result<String, JsError> {
+    let r = parse(receipt)?;
+    let u = &r.unsigned;
+    let (net, _, _) = net_of(u.coin_type)?;
+    let tx =
+        Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    if tx.txid().as_ref() != &u.txid {
+        return Err(JsError::new("the transaction does not match the receipt's txid"));
+    }
+    let set: Vec<[u8; 32]> = set
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| hex::decode(l).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| JsError::new(&format!("not a note commitment: {l}"))))
+        .collect::<Result<_, _>>()?;
+    let proofs: Vec<_> = proofs
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .filter(|w| w.starts_with(receipts_core::screened::SCREENED_TEXT_PREFIX))
+        .map(|w| receipts_core::screened::ScreenedProof::from_text(w).ok_or_else(|| JsError::new("malformed screened-set proof")))
+        .collect::<Result<_, _>>()?;
+    let bundle = match u.pool {
+        Pool::Orchard => tx.orchard_bundle(),
+        Pool::Ironwood => tx.ironwood_bundle(),
+    }
+    .ok_or_else(|| JsError::new("the transaction has no bundle in the receipt's pool"))?;
+    let mut covered = 0u64;
+    for s in &u.spends {
+        let nf = bundle.actions().get(s.index as usize).ok_or_else(|| JsError::new("bad action index"))?.nullifier().to_bytes();
+        let p =
+            proofs.iter().find(|p| p.index == s.index).ok_or_else(|| JsError::new(&format!("no screened-set proof for the spend in action {}", s.index)))?;
+        VK.with(|vk| receipts_core::screened::verify(vk.get_or_init(receipts_core::verifying_key), &r, &nf, p, &set))
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        covered += p.floor;
+    }
+    let root = receipts_core::screened::set_root(&set).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(serde_json::json!({ "root": hex::encode(root), "size": set.len(), "covered_zatoshis": covered }).to_string())
+}
+
+/// Checks a same-payer proof (`zip311k1…`) for a batch (`zip311b1…`): every payment in it was
+/// signed with one spend key. Returns how many spends it links. Checks only the link; verify the
+/// batch's receipts as usual.
+#[wasm_bindgen]
+pub fn verify_same_payer(link: &str, batch: &str) -> Result<usize, JsError> {
+    let b = receipts_core::ReceiptBatch::from_text(batch).map_err(|e| JsError::new(&e.to_string()))?;
+    let id = receipts_core::check_batch(&b).map_err(|e| JsError::new(&e.to_string()))?;
+    let proof = receipts_core::link::LinkProof::from_text(link).map_err(|e| JsError::new(&e.to_string()))?;
+    if proof.msg != format!("batch:{id}").as_bytes() {
+        return Err(JsError::new("the same-payer proof is for another batch"));
+    }
+    receipts_core::link::verify(&proof, &b.receipts.iter().collect::<Vec<_>>())
+        .map_err(|_| JsError::new("the same-payer proof doesn't hold: these payments weren't all signed by one key"))?;
+    Ok(proof.links.len() + 1)
 }
 
 /// `text` as a QR code, an SVG image (for a payment or request link a phone can scan).

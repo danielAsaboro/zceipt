@@ -21,6 +21,9 @@ if [ -n "$R" ]; then
   L=$(tr -d '\n' < examples/testnet/request-answer-link.txt); TO=$(echo "$L" | grep -o 'to=[a-z0-9]*' | cut -c4-)
   "$R" verify "$L" --challenge e1e14a5d182a --expect-address "$TO" --min 0.01 >/dev/null 2>&1 && ! "$R" verify "$L" --challenge ffffff >/dev/null 2>&1 && ! "$R" verify "$L" --expect-address "$TO" --min 0.02 >/dev/null 2>&1 && echo "request checks: right one passes, other challenge and higher minimum refused" || { echo "request checks failed"; exit 1; }
   ! "$R" verify @examples/testnet/batch-link.txt --challenge 7f3a9c21e0b4 >/dev/null 2>&1 && echo "request checks on a batch: refused, not skipped" || { echo "a batch passed --challenge"; exit 1; }
+  # One request answered by a batch of two payments: every receipt signs it, the total is checked.
+  B="#$(cat examples/testnet/batch-request/link.txt)"; M=$(cat examples/testnet/merchant.ua)
+  "$R" verify "$B" --challenge b7e2c41a9d03 --expect-address "$M" --min 0.01 >/dev/null 2>&1 && ! "$R" verify "$B" --challenge 000000aaaaaa >/dev/null 2>&1 && ! "$R" verify "$B" --expect-address "$M" --min 0.02 >/dev/null 2>&1 && echo "a batch answers one request: right challenge and total pass, others refused" || { echo "batch request checks failed"; exit 1; }
   # The public demo wallet: anyone can sign for it, so it shows as a demo and answers no challenge.
   D=$(mktemp); "$R" demo -m "challenge:abcdef12" 2>/dev/null > "$D"
   "$R" verify @"$D" 2>/dev/null | grep >/dev/null "public demo wallet" && ! "$R" verify @"$D" --challenge abcdef12 >/dev/null 2>&1 && echo "a demo-wallet receipt says so and answers no challenge" || { echo "a demo-wallet receipt passed as a real one"; exit 1; }

@@ -44,6 +44,35 @@ test("testnet batch of three payments verifies", { skip: !!process.env.OFFLINE }
   assert.equal(Object.values(b.totals).reduce((s, z) => s + z, 0), 2_200_000);
 });
 
+test("a deposit from a screened list: proven from the list, which output hidden", { skip: !!process.env.OFFLINE }, async () => {
+  const { verifyReceipt } = await import("../index.js");
+  const [receipt, proofs, set] = await Promise.all(["receipt", "proof", "list"].map((f) => readFile(ex(`testnet/screened/${f}.txt`), "utf8")));
+  const v = await verifyReceipt(receipt, { height: 4500997, screened: { proofs, set } });
+  assert.equal(v.screened.size, 16);
+  assert.ok(v.screened.covered_zatoshis >= 1_000_000);
+  // Against a list without the note, refused.
+  const others = set.split("\n").filter((l) => !l.startsWith("#")).slice(0, 3).join("\n");
+  await assert.rejects(verifyReceipt(receipt, { height: 4500997, screened: { proofs, set: others } }), /not in the screened set|screened/);
+});
+
+test("one request answered by a batch of two payments", { skip: !!process.env.OFFLINE }, async () => {
+  const { verifyBatch } = await import("../index.js");
+  const link = await readFile(ex("testnet/batch-request/link.txt"), "utf8");
+  const merchant = (await readFile(ex("testnet/merchant.ua"), "utf8")).trim();
+  const b = await verifyBatch(link, { challenge: "b7e2c41a9d03", expectAddress: merchant, minZatoshis: 1_000_000 });
+  assert.equal(b.results.length, 2);
+  await assert.rejects(verifyBatch(link, { challenge: "000000aaaaaa" }), /challenge/);
+});
+
+test("a batch with a same-payer proof shows one payer; the proof doesn't move to another batch", { skip: !!process.env.OFFLINE }, async () => {
+  const { verifyBatch } = await import("../index.js");
+  const linked = await readFile(ex("testnet/batch-same-payer-link.txt"), "utf8");
+  const b = await verifyBatch(linked);
+  assert.equal(b.onePayer.spends, 3);
+  const other = await readFile(ex("testnet/batch.txt"), "utf8");
+  await assert.rejects(verifyBatch(`${other.trim()}&k=${linked.match(/zip311k1[A-Za-z0-9_-]+/)[0]}`), /another batch/);
+});
+
 test("Sign in with Zcash verifies locally, only for its domain and nonce", async () => {
   const { verifySignIn } = await import("../index.js");
   const s = await readFile(ex("testnet/sign-in.txt"), "utf8");

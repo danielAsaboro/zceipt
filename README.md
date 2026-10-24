@@ -116,6 +116,11 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
 - **Source of funds:** prove which earlier output funded a deposit, or, with a screened-set
   proof, that it came from one of an exchange's vetted outputs without saying which.
 - **Proof of funds:** prove you hold at least an amount, showing only the total if you choose.
+- **One request, several payments:** a batch answers a proof request for invoices A and B at
+  once; every receipt signs the request, and the total is checked
+  ([example](examples/testnet/batch-request)).
+- **Same payer:** a batch proves every payment was signed with one spend key, without revealing
+  it, so a DAO or grant program shows one treasury paid everyone (`k=zip311k1…` on the link).
 - **Batches, incoming receipts, memo-withheld outputs, refunds:** see
   [DEVELOPERS.md](docs/DEVELOPERS.md#beyond-one-payment).
 

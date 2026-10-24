@@ -118,6 +118,9 @@ enum Cmd {
         /// encrypted; the receipt carries no key that opens it).
         #[arg(long)]
         withhold_memo: bool,
+        /// A batch (several --txid): one proof per receipt instead of one aggregated proof for all.
+        #[arg(long)]
+        no_aggregate: bool,
         /// For campaigns: a note you choose to show publicly (signed into the receipt).
         #[arg(long)]
         public_note: Option<String>,
@@ -809,9 +812,39 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     let id = receipts_core::check_batch(&batch).map_err(|e| anyhow!("batch is inconsistent: {e}"))?;
     // `h=` block hints, one per receipt: fetch each payment by block, not by txid.
     let hints = chain::height_hints(text).filter(|h| h.len() == batch.receipts.len());
+    // A same-payer proof (`k=zip311k1…`) bound to this batch: every payment signed by one key.
+    let same_payer = match text.find(receipts_core::link::LINK_TEXT_PREFIX) {
+        None => None,
+        Some(i) => {
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let proof = receipts_core::link::LinkProof::from_text(&body)?;
+            if proof.msg != format!("batch:{id}").as_bytes() {
+                bail!("the same-payer proof is for another batch");
+            }
+            receipts_core::link::verify(&proof, &batch.receipts.iter().collect::<Vec<_>>())
+                .map_err(|_| anyhow!("the same-payer proof doesn't hold: these payments weren't all signed by one key"))?;
+            Some(format!("every payment was signed by the same spend key (proven, {} spends)", proof.links.len() + 1))
+        }
+    };
     let mut reports = Vec::new();
-    for (i, r) in batch.receipts.iter().enumerate() {
-        reports.push(chain::verify_against_chain_hinted(r, server, regtest, hints.as_ref().map(|h| h[i])).await?);
+    if batch.aggregate.is_some() {
+        reports = chain::verify_aggregated_batch(&batch, server, regtest, hints.as_deref()).await?;
+    } else {
+        for (i, r) in batch.receipts.iter().enumerate() {
+            reports.push(chain::verify_against_chain_hinted(r, server, regtest, hints.as_ref().map(|h| h[i])).await?);
+        }
+    }
+    let (min, challenge, _) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
+    // Answering one request with several payments: every receipt signs its challenge.
+    if let Some(c) = &challenge {
+        for r in &reports {
+            if r.public_demo {
+                bail!("a receipt in the batch is from the public demo wallet, whose key anyone has: it can't answer challenge {c}");
+            }
+            if receipts_server::verify::challenge_of(&r.message).as_deref() != Some(c.to_lowercase().as_str()) {
+                bail!("payment {}… in the batch doesn't sign challenge {c}: the batch wasn't made for that request", &r.txid[..12]);
+            }
+        }
     }
     if let Some(addr) = expect_address {
         let want = chain::orchard_receiver_on(reports[0].network, addr)?;
@@ -819,13 +852,22 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
         if paid == 0 {
             bail!("no disclosed output in the batch pays {addr}");
         }
+        if let Some(min) = min.filter(|m| paid < *m) {
+            bail!("the batch paid {addr} {} {} in total, less than the {} expected", chain::zec(paid), chain::unit(reports[0].network), chain::zec(min));
+        }
+    } else if min.is_some() {
+        bail!("--min checks what --expect-address received: give the address too");
     }
     if json {
         println!("{}", serde_json::to_string_pretty(&reports)?);
         return Ok(());
     }
     let mut totals: std::collections::BTreeMap<String, u64> = Default::default();
-    println!("VALID batch {id}: {} payments, each proven by its sender", reports.len());
+    println!(
+        "VALID batch {id}: {} payments, each proven by its sender{}",
+        reports.len(),
+        batch.aggregate.as_ref().map(|p| format!(" (one aggregated proof, {} bytes)", p.len())).unwrap_or_default()
+    );
     for rep in &reports {
         for o in &rep.outputs {
             if !o.memo_withheld {
@@ -836,6 +878,9 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
     }
     let sum: u64 = totals.values().sum();
     println!("  total {} {} to {} recipient(s) (sum of the outputs the senders disclosed)", chain::zec(sum), chain::unit(reports[0].network), totals.len());
+    if let Some(one) = same_payer {
+        println!("  one payer: {one}");
+    }
     for line in provenance_lines(&reports) {
         println!("{line}");
     }
@@ -980,12 +1025,13 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
         // than pass a batch, an incoming receipt or a proof of funds without checking.
         if min.is_some() || challenge.is_some() || memo_contains.is_some() || screened_set.is_some() {
             let text = read_arg_text(receipt)?;
-            for (prefix, what) in [(receipts_core::BATCH_TEXT_PREFIX, "a batch"), (receipts_core::incoming::INCOMING_TEXT_PREFIX, "an incoming receipt")] {
-                if text.contains(prefix) {
-                    bail!(
-                        "--min, --challenge, --memo-contains and --screened-set check one payment receipt; this is {what}. Verify each payment's own receipt."
-                    );
-                }
+            // A batch answers a request as a whole: every receipt signs its challenge, and --min
+            // is what the batch paid --expect-address in total.
+            if text.contains(receipts_core::BATCH_TEXT_PREFIX) && (memo_contains.is_some() || screened_set.is_some()) {
+                bail!("--memo-contains and --screened-set check one payment receipt; this is a batch. Verify each payment's own receipt.");
+            }
+            if text.contains(receipts_core::incoming::INCOMING_TEXT_PREFIX) {
+                bail!("--min, --challenge, --memo-contains and --screened-set check one payment receipt; this is an incoming receipt.");
             }
             if text.contains(receipts_core::reserve::RESERVE_TEXT_PREFIX) && (memo_contains.is_some() || screened_set.is_some()) {
                 bail!("a proof of funds has no memo or spends to check: use --challenge and --min with it");
@@ -1214,6 +1260,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             prove_source,
             reveal_source_value,
             withhold_memo,
+            no_aggregate,
             public_note,
             refund_to,
             tex_deposit,
@@ -1363,38 +1410,76 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
                 let id = format!("{:016x}", rand::random::<u64>());
                 let n = txids.len();
-                let mut receipts = Vec::with_capacity(n);
+                let mut prepared = Vec::with_capacity(n);
                 let mut heights = Vec::with_capacity(n);
+                // Aggregated by default: one proof for every spend (shorter links, faster checks),
+                // unless something only a per-receipt proof can carry is asked for.
+                let aggregate = !no_aggregate && prove_address.is_none() && prove_source.is_none() && !withhold_memo;
+                let mut statements = Vec::new();
                 for (i, t) in txids.iter().enumerate() {
                     let m = if msg.is_empty() { format!("batch:{id} {}/{n}", i + 1) } else { format!("batch:{id} {}/{n}\n{msg}", i + 1) };
                     eprintln!("[{}/{n}] {t}", i + 1);
-                    let (r, h) = wallet::create_receipt(
-                        &wallet,
-                        &identity,
-                        parse_txid(t)?,
-                        m.as_bytes(),
-                        &[],
-                        pool,
-                        source,
-                        server.as_deref(),
-                        prove_address.as_deref(),
-                        prove_source,
-                        withhold_memo,
-                    )
-                    .await?;
-                    receipts.push(r);
+                    let (p, h) = if aggregate {
+                        wallet::prepare_receipt_deferred(&wallet, parse_txid(t)?, m.as_bytes(), server.as_deref(), &mut statements).await?
+                    } else {
+                        let (p, h, _) = wallet::prepare_receipt(
+                            &wallet,
+                            parse_txid(t)?,
+                            m.as_bytes(),
+                            &[],
+                            pool,
+                            source,
+                            server.as_deref(),
+                            prove_address.as_deref(),
+                            prove_source,
+                            withhold_memo,
+                            None,
+                        )
+                        .await?;
+                        (p, h)
+                    };
+                    prepared.push(p);
                     heights.push(h.to_string());
                 }
-                let batch = receipts_core::ReceiptBatch { receipts };
+                let aggregate = if aggregate {
+                    eprintln!("Proving all {} spends at once…", statements.len());
+                    Some(receipts_core::aggregate_proof(&receipts_core::proving_key(), statements, rand::rng())?)
+                } else {
+                    None
+                };
+                // One payer: every receipt's spends are of this wallet's key, which the batch
+                // proves with the randomizers still at hand (receipts_core::link).
+                let link = receipts_core::link::prove(&prepared.iter().collect::<Vec<_>>(), format!("batch:{id}").as_bytes(), rand::rng())?;
+                let receipts = prepared.into_iter().map(|p| wallet::sign_prepared(&wallet, &identity, p)).collect::<anyhow::Result<Vec<_>>>()?;
+                let batch = receipts_core::ReceiptBatch { receipts, aggregate };
                 receipts_core::check_batch(&batch).map_err(|e| anyhow!(e))?;
+                if let Some(r) = &req {
+                    // One request, several payments: what they paid the requested address together.
+                    let mut paid = 0;
+                    for rc in &batch.receipts {
+                        let report = chain::verify_against_chain(rc, server.as_deref(), None).await?;
+                        paid += match &r.to {
+                            Some(to) => {
+                                let want = chain::orchard_receiver_on(report.network, to)?;
+                                report.outputs.iter().filter(|o| o.recipient_raw == want && !o.memo_withheld).map(|o| o.zatoshis).sum()
+                            }
+                            None => report.outputs.iter().filter(|o| !o.memo_withheld).map(|o| o.zatoshis).sum::<u64>(),
+                        };
+                    }
+                    if paid == 0 || paid < r.min {
+                        bail!("these payments paid {} ZEC to the requested address, less than the requested {}", chain::zec(paid), chain::zec(r.min.max(1)));
+                    }
+                    eprintln!("Answers request {} with {n} payments: {} ZEC to the requested address in total.", r.code, chain::zec(paid));
+                }
                 let text = batch.to_text();
+                let link = link.to_text();
                 if let Some(out) = out {
-                    std::fs::write(&out, &text)?;
+                    std::fs::write(&out, format!("{text}\n{link}\n"))?;
                     eprintln!("wrote {}", out.display());
                 }
                 warn_if_local(&link_base);
-                eprintln!("Batch {id}: {n} receipts, {} bytes.\n\nShare this link (`h=` lists each payment's block, so verifiers fetch each payment among others from its block, not by its id):", batch.to_bytes().len());
-                println!("{}", answer_link(&link_base, &text, &heights.join(",")));
+                eprintln!("Batch {id}: {n} receipts, {} bytes, with a proof that one key signed them all.\n\nShare this link (`h=` lists each payment's block, so verifiers fetch each payment among others from its block, not by its id):", batch.to_bytes().len());
+                println!("{}&k={link}", answer_link(&link_base, &text, &heights.join(",")));
                 return Ok(());
             }
             let txid = &txids[0];

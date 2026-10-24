@@ -46,8 +46,8 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
-import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg } from "./zcash-receipts/pkg/receipts_wasm.js";
+import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT, SAMPLE_SCREENED, SAMPLE_SCREENED_PROOF, SAMPLE_SCREENED_SET } from "./samples.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg, verify_same_payer, verify_screened } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
 const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
@@ -336,6 +336,14 @@ function render(v, net) {
       </ul>
       ${localBadge()}
       <div id="reqChecks"></div>
+      <div id="screenedOut"></div>
+      <details class="screened"><summary>Check where the money came from</summary>
+        <label for="screenedSet">The exchange's screened list (note commitments, one per line)</label>
+        <textarea id="screenedSet" spellcheck="false"></textarea>
+        <label for="screenedProof">The payer's screened-set proof (zip311s1…)</label>
+        <textarea id="screenedProof" spellcheck="false"></textarea>
+        <button type="button" id="screenedBtn">Check</button>
+      </details>
       <p class="fine"><button type="button" class="ghost" id="copyLink">Copy link</button> <button type="button" class="ghost" id="saveFile">Save as file</button> <button type="button" class="ghost" id="printBtn">Print or save as PDF</button></p>
       <div class="check">
         <label for="mine">Was it paid to you? Your address</label>
@@ -346,6 +354,12 @@ function render(v, net) {
     </div>`;
   verdict = { v, paid: null, req: null };
   paintStamp();
+  $("#screenedBtn").onclick = () => checkScreened($("#screenedProof").value, $("#screenedSet").value);
+  if (pendingScreened) {
+    const { proofs, set } = pendingScreened;
+    pendingScreened = null;
+    checkScreened(proofs, set);
+  }
   renderRequestChecks(v);
   shareButtons(`receipt-${v.txid.slice(0, 12)}`);
   $("#mineBtn").onclick = async () => {
@@ -390,6 +404,23 @@ function render(v, net) {
   }
 }
 const MY_ADDRESS = "receipts.myAddress";
+// The transaction the showing card was checked against, for the screened-set check.
+let lastCheck = null;
+let pendingScreened = null;
+
+// A screened-set proof: the spent note was one of the exchange's vetted outputs, which one hidden.
+async function checkScreened(proofs, set) {
+  const out = $("#screenedOut");
+  if (!proofs.trim()) return need("#screenedProof", "Paste the payer's zip311s1… proof.");
+  if (!set.trim()) return need("#screenedSet", "Paste the exchange's list.");
+  try {
+    await local;
+    const s = JSON.parse(verify_screened(lastCheck.receiptText, lastCheck.raw, lastCheck.height, proofs, set));
+    out.innerHTML = `<div class="reqbox" data-ok="true"><div class="reqhead">FUNDS FROM THE SCREENED LIST</div><ul><li data-ok="true">✓ Every spend of this payment used a note from the list of ${s.size} outputs, at least ${zec(s.covered_zatoshis)} ${UNIT} of it. Which output is not revealed.</li></ul></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="reqbox" data-ok="false"><div class="reqhead">NOT FROM THE SCREENED LIST</div><ul><li data-ok="false">✗ ${escapeHtml(e.message)}</li></ul></div>`;
+  }
+}
 let sampleAs = null;
 
 async function renderRequestChecks(v) {
@@ -582,6 +613,7 @@ async function run(receiptText) {
       await local;
       v.deposit = JSON.parse(check_tex_deposit(receiptText, tx.raw, tx.height, tx2.raw, tx2.height, regtest()));
     }
+    lastCheck = { receiptText, raw: tx.raw, height: tx.height };
     ok() && render(v, summary.network);
   } catch (e) {
     ok() && setStep("verify", "fail", plainFailure(e.message));
@@ -662,7 +694,12 @@ async function runBatch(batchText) {
       : { mode: "batch-txids", host, n: txs.length };
     ok() && setStep("fetch", "done", useHints ? `${txs.length} blocks' transactions fetched (${set} in all)` : `${txs.length} transactions fetched by id`);
     await local;
-    for (const [i, r] of b.receipts.entries()) {
+    // An aggregated batch: one proof for every spend, checked once with all the transactions.
+    if (b.aggregated) {
+      ok() && setStep("verify", "busy", `checking ${b.receipts.length} receipts and their one aggregated proof`);
+      results.push(...(await call("aggregated", { batch: batchText, txs: JSON.stringify(txs.map((t) => ({ raw: bytesToHex(t.raw), height: t.height }))), regtest: regtest() })));
+    }
+    for (const [i, r] of (b.aggregated ? [] : b.receipts).entries()) {
       ok() && setStep("verify", "busy", `checking proof ${i + 1} of ${b.receipts.length}`);
       // Receipts that prove their source of funds need the source transactions too.
       const needed = JSON.parse(source_txids(r));
@@ -677,10 +714,21 @@ async function runBatch(batchText) {
       results.push(await call("verify", { receipt: r, rawTx: txs[i].raw, height: txs[i].height, regtest: regtest(), sources }));
     }
     ok() && setStep("fetch", "done", `${results.length} transactions fetched`);
-    ok() && setStep("verify", "done", `all ${results.length} proofs and signatures valid`);
+    ok() && setStep("verify", "done", b.aggregated ? `all ${results.length} signatures and the one aggregated proof valid` : `all ${results.length} proofs and signatures valid`);
   } catch (e) {
     ok() && setStep("verify", "fail", e.message);
     return ok() && showError(`Payment ${results.length + 1} of the batch failed: ${e.message}`);
+  }
+  // A same-payer proof with the batch (`k=zip311k1…`): one key signed every payment.
+  const linkText = (safeDecode(location.hash).match(/zip311k1[A-Za-z0-9_-]+/) || [])[0];
+  let onePayer = 0;
+  if (linkText) {
+    try {
+      await local;
+      onePayer = verify_same_payer(linkText, batchText);
+    } catch (e) {
+      return ok() && showError(e.message, "forged");
+    }
   }
   UNIT = unitFor(results[0].network);
   const lines = results.flatMap((v) => v.outputs.map((o) => ({ v, o })));
@@ -699,17 +747,19 @@ async function runBatch(batchText) {
       <div class="dash"></div>
       <div class="line paid"><span class="k">TOTAL</span><span class="v amount">${zec(total)} <small>${UNIT}</small></span></div>
       <div class="line"><span class="k">TO</span><span class="v">${recipients} recipient${recipients === 1 ? "" : "s"}</span></div>
+      ${onePayer ? `<div class="line"><span class="k">FROM</span><span class="v">one payer, proven</span></div>` : ""}
       ${provenanceHtml(results)}
       <div class="dash"></div>
       <div class="stamp warn">VERIFIED · RECIPIENTS NOT CHECKED</div>
       <ul class="facts">
         <li>Every payment was signed by the key that spent its money.</li>
+        ${onePayer ? `<li><strong>One payer:</strong> every payment was signed with the same spend key (proven over ${onePayer} spends), and the key stays hidden.</li>` : ""}
         <li>This batch is complete: each receipt signs its place in it, so none of its payments were dropped or added, and none is counted twice. (It doesn't show the sender made no other payments.)</li>
         <li><strong>Not revealed:</strong> the treasury's address, balance, or any other transaction.</li>
       </ul>
     </div>
     ${localBadge()}
-    ${requestFromUrl() ? `<div class="reqbox" data-ok="false"><div class="reqhead">REQUEST NOT SATISFIED</div><ul><li data-ok="false">✗ This is a batch of payments. It doesn't answer a payment request: ask for a receipt made with the request link.</li></ul></div>` : ""}
+    <div id="reqChecks"></div>
     <p class="fine"><button type="button" class="ghost" id="copyLink">Copy link</button> <button type="button" class="ghost" id="saveFile">Save as file</button> <button type="button" class="ghost" id="printBtn">Print or save as PDF</button></p>
     <div class="check">
       <label for="mine">Were you paid in this batch? Your address</label>
@@ -717,6 +767,7 @@ async function runBatch(batchText) {
       <div id="mineOut" class="fine"></div>
     </div>`;
   shareButtons(`batch-${results[0].txid.slice(0, 12)}`);
+  batchRequestChecks(results);
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
     if (!ua) return need("#mine", "Paste your address.");
@@ -733,6 +784,43 @@ async function runBatch(batchText) {
     }
   };
   $("#mine").onkeydown = (e) => { if (e.key === "Enter") $("#mineBtn").click(); };
+}
+
+// One request answered by several payments (invoices A and B): every receipt in the batch signs
+// the request's challenge, and together they paid the requested address at least the amount.
+async function batchRequestChecks(results) {
+  const fromUrl = requestFromUrl();
+  if (!fromUrl) return;
+  const mine = loadRequests()[fromUrl.code];
+  const req = mine || fromUrl;
+  const rows = [];
+  const row = (ok, text) => rows.push(`<li data-ok="${ok}">${ok ? "✓" : "✗"} ${escapeHtml(text)}</li>`);
+  if (!mine) rows.push(`<li data-ok="info">ℹ Request ${fromUrl.code} wasn't made in this browser, so these checks compare the batch with the request written in the link. Trust them only if you made that request.</li>`);
+  const signs = results.every((v) => challengeIn(v.message) === fromUrl.code);
+  row(signs, signs ? `All ${results.length} payments sign this request's challenge` : "Not every payment signs this request's challenge");
+  if (req.to) {
+    try {
+      const want = await quick("receiverOn", { ua: req.to, network: results[0].network });
+      let total = 0;
+      for (const v of results) for (const o of v.outputs) if (!o.memo_withheld && (await quick("receiver", { ua: o.recipient })) === want) total += o.zatoshis;
+      row(total > 0, total ? `Paid ${zec(total)} ${UNIT} to the requested address in total` : "Nothing was paid to the requested address");
+      if (req.min) row(total >= req.min, `${total >= req.min ? "At least" : "Less than"} the requested ${zec(req.min)} ${UNIT}`);
+    } catch (e) {
+      row(false, `Could not check the payee: ${friendlyAddressError(e, req.to)}`);
+    }
+  }
+  if (mine && mine.tip) {
+    const fresh = results.every((v) => v.mined_height > mine.tip);
+    row(fresh, fresh ? "Every payment was made after you created the request" : "A payment was made before you created this request");
+  }
+  if (results.some((v) => v.public_demo)) row(false, "A payment is from the public demo wallet, whose key anyone has");
+  const ok = !rows.some((r) => r.includes('data-ok="false"'));
+  $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok ? (mine ? "true" : "info") : "false"}"><div class="reqhead">${!ok ? "REQUEST NOT SATISFIED" : mine ? "REQUEST SATISFIED" : "MATCHES THE REQUEST IN THIS LINK"}</div><ul>${rows.join("")}</ul></div>`;
+  const stamp = $("#result .stamp");
+  if (stamp) {
+    stamp.textContent = !ok ? "VALID · REQUEST NOT MET" : mine ? "PAID AS REQUESTED" : "VERIFIED · MATCHES THE LINK'S REQUEST";
+    stamp.className = ok && mine ? "stamp good" : "stamp warn";
+  }
 }
 
 // Copy, save and print for the card showing: the link can be too long for some chat apps, and a
@@ -843,10 +931,11 @@ function receiptFromHash() {
 // How the transaction was obtained, for the privacy badge.
 let fetchMode = null;
 
-for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#sampleEdited", SAMPLE_EDITED, SAMPLE_HEIGHT], ["#sampleObserver", SAMPLE_OBSERVER, SAMPLE_HEIGHT], ["#sampleBatch", SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS], ["#sampleSource", SAMPLE_SOURCE, SAMPLE_HEIGHT]]) {
+for (const [id, text, hint] of [["#sampleReal", SAMPLE_REAL, SAMPLE_HEIGHT], ["#sampleEdited", SAMPLE_EDITED, SAMPLE_HEIGHT], ["#sampleObserver", SAMPLE_OBSERVER, SAMPLE_HEIGHT], ["#sampleBatch", SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS], ["#sampleSource", SAMPLE_SOURCE, SAMPLE_HEIGHT], ["#sampleScreened", SAMPLE_SCREENED, SAMPLE_HEIGHT]]) {
   const b = $(id);
   if (b) b.onclick = () => {
     sampleAs = id === "#sampleReal" ? SAMPLE_MERCHANT : null;
+    pendingScreened = id === "#sampleScreened" ? { proofs: SAMPLE_SCREENED_PROOF, set: SAMPLE_SCREENED_SET } : null;
     const h = `${text}&h=${hint}`;
     if (safeDecode(location.hash.slice(1)) === h) (text.startsWith("zip311b1") ? runBatch(text) : run(text));
     else location.hash = h;

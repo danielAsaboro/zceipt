@@ -8,7 +8,7 @@
 // lightwalletd grpc-web server (the transaction, or its block's list and transactions with an
 // h= hint), which you can override or skip entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -88,6 +88,8 @@ export async function orchardReceiver(ua) {
  *
  * Resolves to `{ valid: true, network, pool, txid, mined_height, message, proven_spend_actions,
  * outputs: [{ action, recipient, zatoshis, memo }], paidToExpected }` or throws with the reason.
+ * `screened: { proofs, set, minZatoshis? }` also checks screened-set proofs (`zip311s1…`) against
+ * the exchange's published list, and adds `screened: { root, size, covered_zatoshis }`.
  * `public_demo: true` marks the public demo wallet's payment: anyone can sign those, so a
  * receipt for it never answers a challenge.
  */
@@ -129,6 +131,14 @@ export async function verifyReceipt(input, options = {}) {
     sources = JSON.stringify(list.map((t) => ({ raw: typeof (t.rawTx ?? t.raw) === "string" ? (t.rawTx ?? t.raw) : bytesToHex(t.rawTx ?? t.raw), height: Number(t.height) })));
   }
   const v = JSON.parse(verify(receipt, raw, Number(height), !!options.regtest, sources));
+  // `screened: { proofs, set }`: the money came from one of an exchange's screened outputs
+  // (`set`, its published list), which one hidden. Each spend the receipt proves needs a proof.
+  if (options.screened) {
+    v.screened = JSON.parse(verify_screened(receipt, raw, Number(height), String(options.screened.proofs), String(options.screened.set)));
+    if (options.screened.minZatoshis != null && v.screened.covered_zatoshis < options.screened.minZatoshis) {
+      throw new Error(`the screened-set proof shows ${v.screened.covered_zatoshis} zatoshis from the list, less than ${options.screened.minZatoshis}`);
+    }
+  }
   // Who funded each source transaction in the clear (its transparent inputs' previous outputs).
   if (v.sources && options.sourceFunding !== false && options.sourceTxs == null) {
     const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
@@ -236,18 +246,39 @@ export async function verifyBatch(input, options = {}) {
   await load();
   const text = extractBatch(input);
   if (!text) throw new Error("no zip311b1 batch found");
-  const { id, receipts } = JSON.parse(open_batch(text));
-  const { rawTx, height, expectAddress, minZatoshis, ...rest } = options;
+  const { id, receipts, aggregated } = JSON.parse(open_batch(text));
+  const { rawTx, height, expectAddress, minZatoshis, challenge, ...rest } = options;
   const results = [];
   // Fetches overlap; each proof is checked as its transaction arrives.
   // The link's block hints (`&h=a,b,c`, one per receipt): fetch each payment by block, not txid.
   const m = /[#?&]h=(\d{1,9}(?:,\d{1,9})*)(?:&|$)/.exec(safeDecode(String(input)));
   const hints = m ? m[1].split(",").map(Number) : [];
   const useHints = hints.length === receipts.length;
-  results.push(...(await Promise.all(receipts.map((r, i) => verifyReceipt(useHints ? `${r}&h=${hints[i]}` : r, rest)))));
+  if (aggregated) {
+    // One proof for every spend: fetch every transaction, then check the receipts and the proof together.
+    const txs = await Promise.all(receipts.map(async (r, i) => {
+      const s = JSON.parse(inspect(r));
+      const endpoint = rest.endpoint || DEFAULT_ENDPOINTS[s.network];
+      const t = useHints
+        ? await fetchTransactionPrivately(endpoint, s.txid, hints[i], { txidOf: (raw, h) => txid_of(raw, h, s.network === "mainnet" ? 133 : 1) })
+        : await fetchTransaction(endpoint, s.txid);
+      return { raw: Array.from(t.raw, (b) => b.toString(16).padStart(2, "0")).join(""), height: t.height };
+    }));
+    results.push(...JSON.parse(verify_aggregated(text, JSON.stringify(txs), !!rest.regtest)));
+  } else {
+    results.push(...(await Promise.all(receipts.map((r, i) => verifyReceipt(useHints ? `${r}&h=${hints[i]}` : r, rest)))));
+  }
   const totals = {};
   for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
   const out = { id, results, totals };
+  // One request answered by several payments: every receipt signs its challenge.
+  if (challenge != null) {
+    if (results.some((v) => v.public_demo)) throw new Error("a payment in the batch is from the public demo wallet, whose key anyone has: it can't answer a challenge");
+    if (!results.every((v) => challengeIn(v.message) === String(challenge))) throw new Error("not every payment in the batch signs the expected challenge");
+  }
+  // A same-payer proof with the batch (`k=zip311k1…`): every payment signed by one key.
+  const link = (safeDecode(String(input)).match(/zip311k1[A-Za-z0-9_-]+/) || [])[0];
+  if (link) out.onePayer = { spends: verify_same_payer(link, text) };
   if (expectAddress) {
     out.paidToExpected = paidTo(results, expectAddress);
     if (out.paidToExpected === 0) throw new Error("no disclosed output in the batch paid the expected address");

@@ -43,6 +43,12 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    `roundtrip.rs::screened_set_proof_shows_membership_not_which_member`. It covers the spends the
    receipt proves (the payer's own), not inputs other parties added to the transaction, and shows
    only a lower bound (the floor) on each such note's value.
+8. **Same payer (optional, a separate `zip311k1` proof).** For the receipts it names (by signing
+   digest, in order), whoever made the proof knows `alpha_i - alpha_0` for every spend's `rk`
+   relative to the first, so every `rk` is `ak + [alpha]G` for one `ak`, or for keys whose
+   relation the maker knows (keys pooled by their holders). The key and every other payment stay
+   hidden. `src/link.rs`; `roundtrip.rs::same_payer_proof_links_one_key_and_nothing_else`, and
+   the spec verifier checks the testnet batch's proof independently.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the
@@ -163,6 +169,18 @@ forgery the fixed `cv` prevents: the owner of a zero-value note, witnessing it a
 output's tree, satisfies the circuit with their own `cv` (checked), and is refused with every
 `cv` the verifier allows. `::source_claims_are_bound_by_the_signature_and_the_proof` re-signs
 lies about the value (lower and higher), relabelled proofs and borrowed proofs; all are refused.
+
+**Same payer (8).** Each link is a Schnorr proof for `D_i = rk_i - rk_0` with base `G`, made
+non-interactive by hashing the whole statement (every `rk`, the receipts' digests, `msg`) with
+the commitments. By special soundness, a prover who answers two challenges for the same `R_i`
+yields `delta_i` with `D_i = [delta_i]G`, so in the random-oracle model a valid proof means the
+prover knows every `delta_i`. If `rk_0 = [x_0]G` and `rk_i = [x_i]G` for different holders' keys,
+`delta_i = x_i - x_0`, and knowing it without both secrets would solve a discrete log. It is
+zero knowledge for the same reason a Schnorr signature is: `(R_i, s_i)` can be simulated from
+`D_i` alone, so it reveals the `rk` relation it states and nothing about `ak`.
+`roundtrip.rs::same_payer_proof_links_one_key_and_nothing_else` checks that another wallet's
+receipt can't be linked, that a proof can't be moved, reordered or bent, and that a simulated
+proof without the `alpha`s fails; `::spend_auth_base_is_the_orchard_generator` checks `G`.
 
 ## Assumptions
 

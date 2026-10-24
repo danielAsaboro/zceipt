@@ -43,6 +43,8 @@ mod encoding;
 #[cfg(feature = "orchard-ext")]
 pub mod incoming;
 #[cfg(feature = "extensions")]
+pub mod link;
+#[cfg(feature = "extensions")]
 pub mod payreq;
 #[cfg(feature = "extensions")]
 pub mod preflight;
@@ -435,6 +437,10 @@ pub struct VerifiedOutput {
 pub enum Error {
     #[error("the receipt must prove spend authority for at least one action")]
     NoSpends,
+    #[error("the batch's aggregate proof doesn't hold, or a receipt in it carries its own proof")]
+    BadAggregate,
+    #[error("the same-payer proof doesn't hold for these receipts")]
+    BadLink,
     #[error("the transaction has no {0:?} bundle")]
     NoBundle(Pool),
     #[error("action index {0} is out of range for this bundle")]
@@ -874,7 +880,73 @@ pub fn prepare<A: Authorization, V>(
     outputs: &[(usize, OutgoingViewingKey)],
     withheld_memo: &[(usize, OutgoingViewingKey)],
     spends: &[ViewingSpendWitness],
+    rng: impl CryptoRng,
+) -> Result<PreparedReceipt, Error> {
+    prepare_inner(pk, coin_type, pool, bundle, output_pool, output_bundle, txid, msg, outputs, withheld_memo, spends, rng, None)
+}
+
+/// The Action statements of an aggregated batch, waiting for their one proof ([`aggregate_proof`]).
+pub type Statements = Vec<(Circuit, Instance)>;
+
+/// Like [`prepare`], but each spend's Action statement is added to `statements` instead of being
+/// proved on its own, and its `proof` is left empty. Prove them all at once with
+/// [`aggregate_proof`] (an aggregated batch, `ReceiptBatch::aggregate`). A receipt with an empty
+/// proof never verifies on its own.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_deferred<A: Authorization, V>(
+    pk: &ProvingKey,
+    coin_type: u32,
+    pool: Pool,
+    bundle: &Bundle<A, V>,
+    output_pool: Pool,
+    output_bundle: &Bundle<A, V>,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[(usize, OutgoingViewingKey)],
+    spends: &[ViewingSpendWitness],
+    rng: impl CryptoRng,
+    statements: &mut Statements,
+) -> Result<PreparedReceipt, Error> {
+    if spends.iter().any(|w| w.prove_address.is_some() || w.source.is_some()) {
+        return Err(Error::NeedsOrchardExt("address and source proofs in an aggregated batch"));
+    }
+    prepare_inner(pk, coin_type, pool, bundle, output_pool, output_bundle, txid, msg, outputs, &[], spends, rng, Some(statements))
+}
+
+/// One Halo 2 proof for every Action statement of an aggregated batch, in order. About
+/// 2.7 KB plus 2.3 KB per spend, instead of 5 KB per spend proved alone.
+pub fn aggregate_proof(pk: &ProvingKey, statements: Statements, mut rng: impl CryptoRng) -> Result<Vec<u8>, Error> {
+    if statements.is_empty() {
+        return Err(Error::NoSpends);
+    }
+    let (circuits, instances): (Vec<_>, Vec<_>) = statements.into_iter().unzip();
+    Ok(Proof::create(pk, &circuits, &instances, &mut rng).map_err(|_| Error::Proving)?.as_ref().to_vec())
+}
+
+/// Checks an aggregated batch's proof against the statements its receipts' checks collected
+/// ([`verify_tx_bundles_deferred`]), in batch order.
+pub fn verify_aggregate(vk: &VerifyingKey, instances: &[Instance], proof: &[u8]) -> Result<(), Error> {
+    if instances.is_empty() {
+        return Err(Error::NoSpends);
+    }
+    Proof::new(proof.to_vec()).verify(vk, instances).map_err(|_| Error::BadAggregate)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_inner<A: Authorization, V>(
+    pk: &ProvingKey,
+    coin_type: u32,
+    pool: Pool,
+    bundle: &Bundle<A, V>,
+    output_pool: Pool,
+    output_bundle: &Bundle<A, V>,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[(usize, OutgoingViewingKey)],
+    withheld_memo: &[(usize, OutgoingViewingKey)],
+    spends: &[ViewingSpendWitness],
     mut rng: impl CryptoRng,
+    mut deferred: Option<&mut Statements>,
 ) -> Result<PreparedReceipt, Error> {
     if spends.is_empty() {
         return Err(Error::NoSpends);
@@ -958,7 +1030,13 @@ pub fn prepare<A: Authorization, V>(
 
         let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, RECEIPT_CIRCUIT).ok_or(Error::Proving)?;
         let instance = Instance::from_parts(*bundle.anchor(), cv_net.clone(), nf_old, rk.clone(), cmx, Flags::ENABLED).ok_or(Error::Proving)?;
-        let proof = Proof::create(pk, &[circuit], &[instance], &mut rng).map_err(|_| Error::Proving)?;
+        let proof = match deferred.as_deref_mut() {
+            Some(st) => {
+                st.push((circuit, instance));
+                vec![]
+            }
+            None => Proof::create(pk, &[circuit], &[instance], &mut rng).map_err(|_| Error::Proving)?.as_ref().to_vec(),
+        };
 
         let address = match w.prove_address {
             Some(addr) => Some(address_proof(pk, pool, &fvk, addr, alpha, &rk, &mut rng)?),
@@ -973,7 +1051,7 @@ pub fn prepare<A: Authorization, V>(
             cv_net: cv_net.to_bytes(),
             rk: (&rk).into(),
             cmx: cmx.to_bytes(),
-            proof: proof.as_ref().to_vec(),
+            proof,
             address,
             source,
         });
@@ -1006,7 +1084,7 @@ pub fn verify<A: Authorization, V>(
     if receipt.unsigned.output_pool.is_some() {
         return Err(Error::PoolMismatch); // needs both bundles: use verify_tx_bundles
     }
-    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, &no_sources)
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, &no_sources, None)
 }
 
 /// A `SourceLookup` that knows no transactions: receipts with source proofs are refused.
@@ -1027,7 +1105,7 @@ pub fn verify_with_sources<A: Authorization, V>(
     if receipt.unsigned.output_pool.is_some() {
         return Err(Error::PoolMismatch);
     }
-    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, sources)
+    verify_cross(vk, receipt, expected_coin_type, pool, txid, bundle, bundle, sources, None)
 }
 
 /// Verifies a receipt against a whole transaction, computing its txid here: the entry point for
@@ -1082,7 +1160,33 @@ pub fn verify_tx_bundles_with_sources<A: Authorization, V>(
         None => spends,
         Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
     };
-    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, sources)
+    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, sources, None)
+}
+
+/// For a receipt of an aggregated batch: every check of [`verify_tx_bundles`] except the spends'
+/// Halo 2 proofs, whose statements are appended to `instances` for [`verify_aggregate`]. Its own
+/// proof fields must be empty.
+pub fn verify_tx_bundles_deferred<A: Authorization, V>(
+    vk: &VerifyingKey,
+    receipt: &Receipt,
+    expected_coin_type: u32,
+    txid: [u8; 32],
+    orchard: Option<&Bundle<A, V>>,
+    ironwood: Option<&Bundle<A, V>>,
+    instances: &mut Vec<Instance>,
+) -> Result<VerifiedReceipt, Error> {
+    let u = &receipt.unsigned;
+    let pick = |p: Pool| match p {
+        Pool::Orchard => orchard,
+        Pool::Ironwood => ironwood,
+    };
+    let spends = pick(u.pool).ok_or(Error::PoolMismatch)?;
+    let outs = match u.output_pool {
+        None => spends,
+        Some(p) => pick(p).ok_or(Error::PoolMismatch)?,
+    };
+    let no_sources = |_: Pool, _: &[u8; 32], _: u32| None;
+    verify_cross(vk, receipt, expected_coin_type, u.pool, txid, spends, outs, &no_sources, Some(instances))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1095,6 +1199,7 @@ fn verify_cross<A: Authorization, V>(
     bundle: &Bundle<A, V>,
     output_bundle: &Bundle<A, V>,
     sources: SourceLookup<'_>,
+    mut deferred: Option<&mut Vec<Instance>>,
 ) -> Result<VerifiedReceipt, Error> {
     let u = &receipt.unsigned;
     let output_pool = u.output_pool.unwrap_or(u.pool);
@@ -1130,7 +1235,12 @@ fn verify_cross<A: Authorization, V>(
         let cv_net = Option::<ValueCommitment>::from(ValueCommitment::from_bytes(&s.cv_net)).ok_or(Error::Malformed(s.index))?;
         let cmx = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&s.cmx)).ok_or(Error::Malformed(s.index))?;
         let instance = Instance::from_parts(*bundle.anchor(), cv_net, *action.nullifier(), rk, cmx, Flags::ENABLED).ok_or(Error::Malformed(s.index))?;
-        Proof::new(s.proof.clone()).verify(vk, &[instance]).map_err(|_| Error::BadProof(s.index))?;
+        match deferred.as_deref_mut() {
+            // In an aggregated batch the batch's one proof covers this statement.
+            Some(st) if s.proof.is_empty() && s.address.is_none() && s.source.is_none() => st.push(instance),
+            Some(_) => return Err(Error::BadAggregate),
+            None => Proof::new(s.proof.clone()).verify(vk, &[instance]).map_err(|_| Error::BadProof(s.index))?,
+        }
         if let Some(a) = &s.address {
             let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
             verify_address_proof(vk, pool, s.index, &rk, a)?;

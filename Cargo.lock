@@ -3297,6 +3297,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "receipts-kce"
+version = "0.1.0"
+dependencies = [
+ "blake2b_simd",
+ "ff 0.14.0",
+ "halo2_gadgets",
+ "halo2_proofs",
+ "hex",
+ "num-bigint 0.4.8",
+ "orchard",
+ "pasta_curves 0.6.1",
+ "rand 0.10.3",
+ "zip32",
+]
+
+[[package]]
 name = "receipts-server"
 version = "0.1.0"
 dependencies = [

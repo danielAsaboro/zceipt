@@ -45,3 +45,10 @@ path = "fuzz_targets/decode_text.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "decode_proofs"
+path = "fuzz_targets/decode_proofs.rs"
+test = false
+doc = false
+bench = false

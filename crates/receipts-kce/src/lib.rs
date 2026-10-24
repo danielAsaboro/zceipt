@@ -405,6 +405,37 @@ mod tests {
         let other = tag(nk(&child(&[4u8; 32], &c_par, idx[1]).0), domain);
         let p = MockProver::run(K, &c, vec![instance(domain, [tags[0], other])]).unwrap();
         assert!(p.verify().is_err());
+        // A sibling under another chain code: refused.
+        let other = tag(nk(&child(&sk_par, &[6u8; 32], idx[1]).0), domain);
+        assert!(MockProver::run(K, &c, vec![instance(domain, [tags[0], other])]).unwrap().verify().is_err());
+        // The right tags for another domain: refused.
+        let d2 = pallas::Base::from(43);
+        assert!(MockProver::run(K, &c, vec![instance(d2, tags)]).unwrap().verify().is_err());
+        let t2 = idx.map(|i| tag(nk(&child(&sk_par, &c_par, i).0), d2));
+        assert!(MockProver::run(K, &c, vec![instance(domain, t2)]).unwrap().verify().is_err());
+        // The tag of the account's sk itself rather than its nk: refused (the circuit derives nk).
+        let raw = idx.map(|i| {
+            let sk = child(&sk_par, &c_par, i).0;
+            let mut acc = pallas::Base::ZERO;
+            for b in sk.iter().rev() {
+                acc = acc * pallas::Base::from(256) + pallas::Base::from(*b as u64);
+            }
+            tag(acc, domain)
+        });
+        assert!(MockProver::run(K, &c, vec![instance(domain, raw)]).unwrap().verify().is_err());
+    }
+
+    #[test]
+    fn mock_many_parents_and_indices() {
+        // Several parents and account numbers, including account 0 and a large one.
+        for (seed, accounts) in [(1u8, [0u32, 1]), (2, [5, 0]), (3, [0x7fff_fffe, 17])] {
+            let (sk_par, c_par) = ([seed; 32], [seed.wrapping_mul(31); 32]);
+            let idx = accounts.map(|a| a | 0x8000_0000);
+            let domain = pallas::Base::from(seed as u64);
+            let tags = idx.map(|i| tag(nk(&child(&sk_par, &c_par, i).0), domain));
+            let c = SiblingCircuit { sk_par: Value::known(sk_par), c_par: Value::known(c_par), indices: idx.map(Value::known), domain: Value::known(domain) };
+            assert_eq!(MockProver::run(K, &c, vec![instance(domain, tags)]).unwrap().verify(), Ok(()), "seed {seed}");
+        }
     }
 }
 
@@ -476,5 +507,94 @@ mod real {
         verify(&vk, &back, domain).unwrap();
         eprintln!("verify (vk only) {:?}", t.elapsed());
         assert!(verify(&vk, &back, pallas::Base::from(43)).is_err());
+    }
+}
+
+/// The ported BLAKE2b gadget on its own: personalized digests against blake2b_simd, and inputs
+/// that aren't bytes refused.
+#[cfg(test)]
+mod gadget {
+    use super::*;
+    use halo2_proofs::dev::MockProver;
+
+    #[derive(Clone, Default)]
+    struct HashCircuit {
+        input: Vec<Value<pallas::Base>>,
+        personal: Option<[u8; 16]>,
+    }
+
+    impl Circuit<pallas::Base> for HashCircuit {
+        type Config = (Blake2bConfig, [Column<Advice>; NB_BLAKE2B_ADVICE_COLS], Column<Instance>);
+        type FloorPlanner = SimpleFloorPlanner;
+        fn without_witnesses(&self) -> Self {
+            HashCircuit { input: vec![Value::unknown(); self.input.len()], personal: self.personal }
+        }
+        fn configure(meta: &mut ConstraintSystem<pallas::Base>) -> Self::Config {
+            let advice: [Column<Advice>; NB_BLAKE2B_ADVICE_COLS] = std::array::from_fn(|_| meta.advice_column());
+            let constants = meta.fixed_column();
+            let instance = meta.instance_column();
+            meta.enable_equality(instance);
+            (Blake2bChip::configure(meta, constants, advice[0], advice[1..].try_into().unwrap()), advice, instance)
+        }
+        fn synthesize(&self, (cfg, advice, instance): Self::Config, mut layouter: impl Layouter<pallas::Base>) -> Result<(), Error> {
+            let chip = Blake2bChip::new(&cfg);
+            chip.load(&mut layouter)?;
+            let input = layouter.assign_region(
+                || "input",
+                |mut region| self.input.iter().enumerate().map(|(k, v)| region.assign_advice(|| "byte", advice[1 + k % 8], k / 8, || *v)).collect::<Result<Vec<_>, _>>(),
+            )?;
+            let out = chip.hash_personalized(&mut layouter, &input, &[], 64, self.personal)?;
+            for (k, b) in out.iter().enumerate() {
+                layouter.constrain_instance(b.cell(), instance, k)?;
+            }
+            Ok(())
+        }
+    }
+
+    fn digest(input: &[u8], personal: Option<[u8; 16]>) -> Vec<pallas::Base> {
+        let mut p = blake2b_simd::Params::new();
+        p.hash_length(64);
+        if let Some(pe) = personal {
+            p.personal(&pe);
+        }
+        p.hash(input).as_bytes().iter().map(|b| pallas::Base::from(*b as u64)).collect()
+    }
+
+    fn run(input: Vec<Value<pallas::Base>>, personal: Option<[u8; 16]>, expected: Vec<pallas::Base>) -> bool {
+        MockProver::run(K, &HashCircuit { input, personal }, vec![expected]).unwrap().verify().is_ok()
+    }
+
+    #[test]
+    fn matches_blake2b_for_many_lengths() {
+        // One and two blocks, the block boundary, and the two lengths ZIP 32 uses (33 and 69).
+        for (n, personal) in [(0, Some(PERSONAL)), (1, None), (33, Some(PERSONAL)), (69, Some(PERSONAL)), (127, None), (128, Some(PERSONAL)), (129, Some(*b"ZcashIP32Orchard"))] {
+            let bytes: Vec<u8> = (0..n).map(|i| (i * 37 + n * 11) as u8).collect();
+            let input = bytes.iter().map(|b| Value::known(pallas::Base::from(*b as u64))).collect();
+            assert!(run(input, personal, digest(&bytes, personal)), "length {n}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_personalization_or_digest_is_refused() {
+        let bytes = [7u8; 33];
+        let input: Vec<_> = bytes.iter().map(|b| Value::known(pallas::Base::from(*b as u64))).collect();
+        assert!(!run(input.clone(), Some(PERSONAL), digest(&bytes, None)));
+        let mut wrong = digest(&bytes, Some(PERSONAL));
+        wrong[63] += pallas::Base::ONE;
+        assert!(!run(input, Some(PERSONAL), wrong));
+    }
+
+    #[test]
+    fn inputs_that_are_not_bytes_are_refused() {
+        // 256 at position 0 is the same as 0 at position 0 plus 1 at position 1, as a field sum,
+        // so an unchecked gadget would accept it for another input. It must be range-checked.
+        let mut input: Vec<_> = [0u8; 33].iter().map(|b| Value::known(pallas::Base::from(*b as u64))).collect();
+        input[0] = Value::known(pallas::Base::from(256));
+        let mut alias = [0u8; 33];
+        alias[1] = 1;
+        let r = std::panic::catch_unwind(|| run(input.clone(), Some(PERSONAL), digest(&alias, Some(PERSONAL))));
+        assert_eq!(r.ok(), Some(false));
+        let r = std::panic::catch_unwind(|| run(input, Some(PERSONAL), digest(&[0u8; 33], Some(PERSONAL))));
+        assert_eq!(r.ok(), Some(false));
     }
 }

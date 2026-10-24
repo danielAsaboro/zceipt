@@ -8,6 +8,7 @@ description = "Make ZIP 311 receipts and Sign in with Zcash proofs from a zcash-
 
 [dependencies]
 receipts-core = { path = "../receipts-core", features = ["orchard-ext", "extensions"] }
+receipts-kce = { path = "../receipts-kce" }
 receipts-chain = { path = "../receipts-chain" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

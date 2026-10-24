@@ -82,6 +82,12 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    special soundness gives the verifier, who knows it didn't use its own `y`, the spend key's
    authorization; to anyone else the proof is one the verifier could have simulated
    (`designated::simulate`). `roundtrip.rs::designated_receipts_convince_only_their_verifier`.
+13. **Sibling accounts (a separate `zip311w1` proof).** The two tags are `Poseidon(nk_j, domain)`
+   for the `nk` of two ZIP 32 hardened children of one hidden coin-level key: the circuit
+   computes the child derivation and `nk` with BLAKE2b, so a tag can't be claimed for another
+   wallet's account without a BLAKE2b or Poseidon collision. `receipts-kce`;
+   `against_orchard::accounts_are_children_of_the_coin_key` checks the derivation equals
+   orchard's, and the regtest e2e ties a proof to a real payer tag.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

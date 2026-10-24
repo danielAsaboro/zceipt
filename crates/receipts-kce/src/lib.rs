@@ -220,9 +220,126 @@ fn to_base(config: &Config, layouter: &mut impl Layouter<pallas::Base>, bytes: &
     )
 }
 
+/// The coin-level key `m/32'/coin'` of a seed (ZIP 32 Orchard), the parent of every account.
+pub fn coin_key(seed: &[u8], coin_type: u32) -> ([u8; 32], [u8; 32]) {
+    let h = blake2b_simd::Params::new().hash_length(64).personal(b"ZcashIP32Orchard").hash(seed);
+    let (sk, c): ([u8; 32], [u8; 32]) = (h.as_bytes()[..32].try_into().unwrap(), h.as_bytes()[32..].try_into().unwrap());
+    let (sk, c) = child(&sk, &c, 32 | 0x8000_0000);
+    child(&sk, &c, coin_type | 0x8000_0000)
+}
+
+pub const SIBLINGS_TEXT_PREFIX: &str = "zip311w1";
+const MAGIC: &[u8; 4] = b"ZRCW";
+
+/// A sibling-account proof: the two tags (in `domain`) are of two accounts of one wallet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Siblings {
+    pub coin_type: u32,
+    pub domain: Vec<u8>,
+    pub tags: [[u8; 32]; 2],
+    pub proof: Vec<u8>,
+}
+
+impl Siblings {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut v = MAGIC.to_vec();
+        v.push(1);
+        v.extend_from_slice(&self.coin_type.to_le_bytes());
+        v.extend_from_slice(&(self.domain.len() as u16).to_le_bytes());
+        v.extend_from_slice(&self.domain);
+        v.extend_from_slice(&self.tags[0]);
+        v.extend_from_slice(&self.tags[1]);
+        v.extend_from_slice(&(self.proof.len() as u32).to_le_bytes());
+        v.extend_from_slice(&self.proof);
+        v
+    }
+
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let mut p = 0usize;
+        let mut take = |n: usize| -> Option<&[u8]> {
+            let s = b.get(p..p + n)?;
+            p += n;
+            Some(s)
+        };
+        if take(4)? != MAGIC || take(1)? != [1] {
+            return None;
+        }
+        let coin_type = u32::from_le_bytes(take(4)?.try_into().ok()?);
+        let n = u16::from_le_bytes(take(2)?.try_into().ok()?) as usize;
+        let domain = take(n)?.to_vec();
+        let tags = [take(32)?.try_into().ok()?, take(32)?.try_into().ok()?];
+        let n = u32::from_le_bytes(take(4)?.try_into().ok()?) as usize;
+        if n == 0 || n > 1 << 16 {
+            return None;
+        }
+        let proof = take(n)?.to_vec();
+        (p == b.len()).then_some(Siblings { coin_type, domain, tags, proof })
+    }
+
+    pub fn to_text(&self) -> String {
+        use base64::Engine;
+        format!("{SIBLINGS_TEXT_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(self.to_bytes()))
+    }
+
+    pub fn from_text(s: &str) -> Option<Self> {
+        use base64::Engine;
+        let body = s.trim().strip_prefix(SIBLINGS_TEXT_PREFIX)?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).ok()?;
+        (base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes) == body).then_some(())?;
+        Self::from_bytes(&bytes)
+    }
+}
+
+/// Proves accounts `a` and `b` of `seed` are siblings, for tags in the domain whose field element
+/// is `domain_field`.
+pub fn prove(keys: &Keys, seed: &[u8], coin_type: u32, accounts: [u32; 2], domain: &[u8], domain_field: pallas::Base, rng: impl rand::CryptoRng) -> Result<Siblings, Error> {
+    let (sk_par, c_par) = coin_key(seed, coin_type);
+    let idx = accounts.map(|a| a | 0x8000_0000);
+    let tags = idx.map(|i| tag(nk(&child(&sk_par, &c_par, i).0), domain_field));
+    let c = SiblingCircuit { sk_par: Value::known(sk_par), c_par: Value::known(c_par), indices: idx.map(Value::known), domain: Value::known(domain_field) };
+    let proof = keys.prove(c, &instance(domain_field, tags), rng)?;
+    Ok(Siblings { coin_type, domain: domain.to_vec(), tags: tags.map(|t| t.to_repr()), proof })
+}
+
+/// Checks a sibling-account proof for the domain whose field element is `domain_field`.
+pub fn verify(vk: &VerifyingKey, s: &Siblings, domain_field: pallas::Base) -> Result<(), Error> {
+    let tags = s.tags.map(|t| Option::<pallas::Base>::from(pallas::Base::from_repr(t)));
+    let [Some(t0), Some(t1)] = tags else { return Err(Error::Synthesis) };
+    if t0 == t1 {
+        return Err(Error::Synthesis);
+    }
+    vk.verify(&s.proof, &instance(domain_field, [t0, t1]))
+}
+
 /// Public inputs: `[domain, tag_1, tag_2]`.
 pub fn instance(domain: pallas::Base, tags: [pallas::Base; 2]) -> Vec<pallas::Base> {
     vec![domain, tags[0], tags[1]]
+}
+
+/// BLAKE2b-256 of the k = 17 parameters' bytes, so a cached copy is used only if it is exactly
+/// what `Params::new(K)` derives.
+const PARAMS_DIGEST: &str = "375331e30b21a0188a9dcc63a67a11979ac7df716c93148a09bff27cd6c743c7";
+
+/// `Params::new(K)` (deriving 2^17 points takes most of a key build), cached under `cache` when
+/// given and checked against [`PARAMS_DIGEST`] when read back.
+pub fn params(cache: Option<&std::path::Path>) -> Params<vesta::Affine> {
+    let digest = |b: &[u8]| blake2b_simd::Params::new().hash_length(32).hash(b).to_hex().to_string();
+    if let Some(bytes) = cache.and_then(|c| std::fs::read(c).ok()) {
+        if digest(&bytes) == PARAMS_DIGEST {
+            if let Ok(p) = Params::read(&mut &bytes[..]) {
+                return p;
+            }
+        }
+    }
+    let p = Params::new(K);
+    if let Some(c) = cache {
+        let mut bytes = vec![];
+        if p.write(&mut bytes).is_ok() && digest(&bytes) == PARAMS_DIGEST {
+            let _ = c.parent().map(std::fs::create_dir_all);
+            let _ = std::fs::write(c, bytes);
+        }
+    }
+    p
 }
 
 /// Proving and verifying keys (built once; slow).
@@ -232,8 +349,8 @@ pub struct Keys {
 }
 
 impl Keys {
-    pub fn build() -> Self {
-        let params = Params::new(K);
+    pub fn build(cache: Option<&std::path::Path>) -> Self {
+        let params = params(cache);
         let vk = plonk::keygen_vk(&params, &SiblingCircuit::default()).expect("keygen_vk");
         let pk = plonk::keygen_pk(&params, vk, &SiblingCircuit::default()).expect("keygen_pk");
         Keys { params, pk }
@@ -248,6 +365,25 @@ impl Keys {
     pub fn verify(&self, proof: &[u8], public: &[pallas::Base]) -> Result<(), Error> {
         let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(proof);
         plonk::verify_proof(&self.params, self.pk.get_vk(), SingleVerifier::new(&self.params), &[&[public]], &mut transcript)
+    }
+}
+
+/// The verifying key alone (no proving key: quicker to build).
+pub struct VerifyingKey {
+    params: Params<vesta::Affine>,
+    vk: plonk::VerifyingKey<vesta::Affine>,
+}
+
+impl VerifyingKey {
+    pub fn build(cache: Option<&std::path::Path>) -> Self {
+        let params = params(cache);
+        let vk = plonk::keygen_vk(&params, &SiblingCircuit::default()).expect("keygen_vk");
+        VerifyingKey { params, vk }
+    }
+
+    pub fn verify(&self, proof: &[u8], public: &[pallas::Base]) -> Result<(), Error> {
+        let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(proof);
+        plonk::verify_proof(&self.params, &self.vk, SingleVerifier::new(&self.params), &[&[public]], &mut transcript)
     }
 }
 
@@ -277,14 +413,6 @@ mod against_orchard {
     use super::*;
     use orchard::keys::{FullViewingKey, SpendingKey};
 
-    /// The coin-level key `m/32'/coin'` of a seed, by ZIP 32 (the parent of every account).
-    fn coin_key(seed: &[u8], coin: u32) -> ([u8; 32], [u8; 32]) {
-        let h = blake2b_simd::Params::new().hash_length(64).personal(b"ZcashIP32Orchard").hash(seed);
-        let (sk, c): ([u8; 32], [u8; 32]) = (h.as_bytes()[..32].try_into().unwrap(), h.as_bytes()[32..].try_into().unwrap());
-        let (sk, c) = child(&sk, &c, 32 | 0x8000_0000);
-        child(&sk, &c, coin | 0x8000_0000)
-    }
-
     #[test]
     fn accounts_are_children_of_the_coin_key() {
         let seed = [7u8; 32];
@@ -301,6 +429,19 @@ mod against_orchard {
 }
 
 #[cfg(test)]
+mod params_digest {
+    #[test]
+    #[ignore = "slow: derives the k = 17 parameters"]
+    fn print_params_digest() {
+        let t = std::time::Instant::now();
+        let p = halo2_proofs::poly::commitment::Params::<pasta_curves::vesta::Affine>::new(super::K);
+        let mut b = vec![];
+        p.write(&mut b).unwrap();
+        eprintln!("params {:?} digest {}", t.elapsed(), blake2b_simd::Params::new().hash_length(32).hash(&b).to_hex());
+    }
+}
+
+#[cfg(test)]
 mod real {
     use super::*;
 
@@ -308,7 +449,10 @@ mod real {
     #[ignore = "slow: k = 17 keygen and proof"]
     fn prove_and_verify() {
         let t = std::time::Instant::now();
-        let keys = Keys::build();
+        let vk = VerifyingKey::build(None);
+        eprintln!("vk {:?}", t.elapsed());
+        let t = std::time::Instant::now();
+        let keys = Keys::build(None);
         eprintln!("keys {:?}", t.elapsed());
         let (sk_par, c_par) = ([3u8; 32], [5u8; 32]);
         let idx = [0x8000_0000u32, 0x8000_0002];
@@ -323,5 +467,14 @@ mod real {
         keys.verify(&proof, &instance(domain, tags)).unwrap();
         eprintln!("verify {:?}", t.elapsed());
         assert!(keys.verify(&proof, &instance(domain, [tags[1], tags[0]])).is_err());
+        // Through the text format, from a seed, with the verifying key alone.
+        let rng = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
+        let s = prove(&keys, &[7u8; 32], 1, [0, 3], b"round", domain, rng).unwrap();
+        let back = Siblings::from_text(&s.to_text()).unwrap();
+        assert_eq!(back, s);
+        let t = std::time::Instant::now();
+        verify(&vk, &back, domain).unwrap();
+        eprintln!("verify (vk only) {:?}", t.elapsed());
+        assert!(verify(&vk, &back, pallas::Base::from(43)).is_err());
     }
 }

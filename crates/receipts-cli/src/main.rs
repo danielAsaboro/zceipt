@@ -480,6 +480,23 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Prove two accounts of your wallet are one wallet's, for their payer tags in a domain,
+    /// without saying which wallet or which accounts.
+    #[command(display_order = 8)]
+    Siblings {
+        #[arg(short, long)]
+        wallet: PathBuf,
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// The two accounts, e.g. 0,1.
+        #[arg(long, value_delimiter = ',', required = true)]
+        accounts: Vec<u32>,
+        /// The domain of the payer tags (the round's name).
+        #[arg(long)]
+        domain: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Shops: sign a payment request (`zreq1…`) so payers can check nothing was changed.
     ///
     /// Shops: sign a payment request (`zreq1…`) with your wallet's key, so payers' wallets can
@@ -1809,6 +1826,28 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("  for you   made for your key only: it convinces you, and you can't show it to anyone else as proof");
             }
         }
+        Cmd::Verify { receipt, json, domain, .. } if read_arg_text(&receipt)?.contains(receipts_kce::SIBLINGS_TEXT_PREFIX) => {
+            let text = read_arg_text(&receipt)?;
+            let i = text.find(receipts_kce::SIBLINGS_TEXT_PREFIX).unwrap();
+            let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let s = receipts_kce::Siblings::from_text(&body).ok_or_else(|| anyhow!("malformed sibling-account proof"))?;
+            let domain = domain.ok_or_else(|| anyhow!("a sibling-account proof is checked for your domain: give --domain"))?;
+            if s.domain != domain.as_bytes() {
+                bail!("the proof is for {:?}, not {domain:?}", String::from_utf8_lossy(&s.domain));
+            }
+            eprintln!("Building the verifying key (the first run derives its parameters, a few minutes)…");
+            let vk = receipts_kce::VerifyingKey::build(wallet::kce_params_cache().as_deref());
+            receipts_kce::verify(&vk, &s, receipts_core::claim::domain_field(domain.as_bytes())).map_err(|_| anyhow!("the sibling-account proof doesn't hold"))?;
+            let hex = |b: &[u8; 32]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+            if json {
+                println!("{}", serde_json::json!({ "valid": true, "kind": "siblings", "domain": domain, "tags": [hex(&s.tags[0]), hex(&s.tags[1])] }));
+            } else {
+                println!("VALID sibling accounts");
+                println!("  domain    {}", chain::shown(&domain, "            "));
+                println!("  tags      {} and {}", hex(&s.tags[0]), hex(&s.tags[1]));
+                println!("  shows     the payer tags above are of two accounts of one wallet; not which wallet or accounts");
+            }
+        }
         Cmd::Verify { receipt, server, json, regtest, domain, height, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::claim::CLAIM_TEXT_PREFIX).unwrap();
@@ -2266,6 +2305,17 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 "It reveals {} and each note's nullifier (the verifier can see when they are spent), nothing else.",
                 if hide_values { "the total" } else { "each note's value" }
             );
+            println!("{text}");
+        }
+        Cmd::Siblings { wallet, identity, accounts, domain, out } => {
+            let [a, b] = accounts[..] else { bail!("--accounts takes two accounts, e.g. 0,1") };
+            let s = wallet::create_siblings(&wallet, &identity, [a, b], &domain)?;
+            let text = s.to_text();
+            if let Some(out) = out {
+                std::fs::write(&out, &text)?;
+                eprintln!("wrote {}", out.display());
+            }
+            eprintln!("Sibling accounts in {domain:?}, {} bytes.", s.to_bytes().len());
             println!("{text}");
         }
         Cmd::Tag { wallet, identity, txid, domain, server, out } => {

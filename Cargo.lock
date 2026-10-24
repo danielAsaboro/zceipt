@@ -3214,6 +3214,7 @@ dependencies = [
  "receipts-chain",
  "receipts-client",
  "receipts-core",
+ "receipts-kce",
  "receipts-server",
  "receipts-wallet",
  "reqwest",
@@ -3300,6 +3301,7 @@ dependencies = [
 name = "receipts-kce"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "blake2b_simd",
  "ff 0.14.0",
  "halo2_gadgets",
@@ -3356,6 +3358,7 @@ dependencies = [
  "rand 0.10.3",
  "receipts-chain",
  "receipts-core",
+ "receipts-kce",
  "rusqlite",
  "secrecy 0.8.0",
  "serde",

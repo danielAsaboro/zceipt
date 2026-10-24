@@ -14,6 +14,7 @@ pasta_curves.workspace = true
 num-bigint = "0.4"
 blake2b_simd = "1"
 hex = "0.4"
+base64 = "0.22"
 rand = { workspace = true, features = ["std", "sys_rng"] }
 
 

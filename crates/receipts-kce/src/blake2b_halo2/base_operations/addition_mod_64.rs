@@ -1,4 +1,3 @@
-use halo2_proofs::plonk::Constraints;
 use super::*;
 use crate::blake2b_halo2::base_operations::types::bit::AssignedBit;
 use crate::blake2b_halo2::base_operations::types::blake2b_word::{AssignedBlake2bWord, Blake2bWord};

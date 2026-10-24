@@ -1138,6 +1138,25 @@ pub async fn create_payer_tag(wallet: &Path, identity: &Path, txid: [u8; 32], do
     bail!("this wallet did not spend any notes in that transaction, so it has no payer tag for it")
 }
 
+/// Where the sibling-account circuit's parameters are cached (deriving them takes minutes).
+pub fn kce_params_cache() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/receipts/kce-params-17.bin"))
+}
+
+/// Proves accounts `accounts` of this wallet's seed are siblings (one wallet), for payer tags in
+/// `domain`. The parent key and the account numbers stay private.
+pub fn create_siblings(wallet: &Path, identity: &Path, accounts: [u32; 2], domain: &str) -> anyhow::Result<receipts_kce::Siblings> {
+    if accounts[0] == accounts[1] {
+        bail!("give two different accounts");
+    }
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    eprintln!("Building the sibling-account circuit's keys (the first run derives its parameters, a few minutes)…");
+    let keys = receipts_kce::Keys::build(kce_params_cache().as_deref());
+    eprintln!("Proving…");
+    let d = receipts_core::claim::domain_field(domain.as_bytes());
+    receipts_kce::prove(&keys, seed.expose_secret(), net.coin_type(), accounts, domain.as_bytes(), d, OsRng).map_err(|e| anyhow!("proving: {e:?}"))
+}
+
 /// Claims in `domain` with the wallet's largest note that held at least `floor` at the snapshot
 /// `height` (default: the wallet's latest checkpoint; it must be one the wallet still keeps).
 /// Reveals that note's nullifier, so the verifier can check it was unspent then.

@@ -30,3 +30,7 @@ receipts-core's `orchard-ext` feature, which this workspace's binaries turn on. 
 depends on receipts-core without that feature builds on stock orchard 0.16 and gets receipts
 v1-v4, batches, source proofs, sign-in, payment requests and proof of funds;
 `scripts/check-stock-orchard.sh` builds it and runs real testnet receipts through it.
+
+`crates/receipts-kce/src/blake2b_halo2` is eryxcoop/blake2b_halo2 at 6ed2fa2 (Apache-2.0, its
+LICENSE beside it), ported from midnight-proofs to zcash's halo2_proofs 0.4: import paths, the
+lookup and gate API, and a personalization option for the initial state.

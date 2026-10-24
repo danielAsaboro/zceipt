@@ -424,6 +424,23 @@ nothing else about them.
 The circuit is a local addition to the vendored orchard crate (`src/circuit/claim.rs`), so
 claims need this build; a stock Orchard verifier can't check them.
 
+## Sibling accounts (`zip311w1`)
+
+```
+siblings := "ZRCW" | version:u8 = 1 | coinType:u32le | domainLen:u16le | domain | tag1[32] | tag2[32]
+          | proofLen:u32le | proof
+public   := [domainField, tag1, tag2], tag1 != tag2
+```
+
+Two payer tags in one domain are of two accounts of one ZIP 32 wallet. The proof (crate
+`receipts-kce`, k = 17) shows there are a coin-level key `(sk_par, c_par)` and indices `i1`, `i2`
+with, for each `j`, `sk_j = BLAKE2b-512("Zcash_ExpandSeed", c_par || 0x81 || sk_par ||
+I2LEOSP32(i_j))[..32]`, `nk_j = ToBase(BLAKE2b-512("Zcash_ExpandSeed", sk_j || 0x07))` and
+`tag_j = Poseidon(nk_j, domainField)`. BLAKE2b runs in the circuit through a port of
+eryxcoop/blake2b_halo2 (Apache-2.0) to zcash's halo2 on Pallas. With the payer tags binding
+each tag to a payment, the verifier learns the two payments came from one wallet, not which.
+Proving takes about a minute; the parameters are cached after the first run.
+
 ## Receipts for one verifier (`zip311d1`)
 
 ```

@@ -234,6 +234,9 @@ jq -n --rawfile c claim2.txt --argjson h "$SNAP" '{claim: ($c | rtrimstr("\n")),
   && ok "the API checks a claim and returns the same tag" || bad "API claim verify"
 jq -n --rawfile c tag-DEP.txt '{claim: ($c | rtrimstr("\n")), domain: "round-e2e"}' | curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$TD" '.kind == "payer_tag" and .tag == $t' >/dev/null \
   && ok "and a payer tag" || bad "API payer tag verify"
+"$R" siblings -w ./saver -i ./saver.age --accounts 0,1 --domain round-e2e --out sib.txt > sib.log 2>&1 || { bad "sibling-account proof"; tail -3 sib.log; }
+"$R" verify @sib.txt --json --domain round-e2e > sib.json 2> sib.err && jq -e --arg t "$TH" '.valid and .tags[0] == $t' sib.json >/dev/null \
+  && ok "sibling accounts: the saver's payer tag and its account 1's are proven one wallet's (ZIP 32 in the circuit)" || { bad "verify sibling accounts"; tail -3 sib.err; }
 "$R" verify @tag-HOP.txt --domain round-other --regtest ./heights.toml -s "127.0.0.1:$GRPC" > tag-wrong.txt 2>&1 && bad "a payer tag passed for another round" || ok "a payer tag is refused for another round"
 SPEND=$(send saver "$MERCHANT" 1000000 "spend after proving") || bad "spend after proving"
 for i in $(seq 1 10); do "$R" verify @reserve.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > reserve-after.txt 2>&1 && sleep 4 || break; done

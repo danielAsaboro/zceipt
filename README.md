@@ -122,6 +122,8 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
   block. Two claims from one wallet carry the same tag, and tags in different rounds don't link.
 - **Distinct payers:** tag a payment for a round, so it counts different wallets, not
   payments, without learning who they are.
+- **Same wallet:** prove two tagged payments came from two accounts of one wallet, without
+  saying which (ZIP 32 key derivation checked inside the proof).
 - **For one shop only:** `receipts sign --for <shop key>` makes a receipt the shop can check
   but can't pass on as proof you paid.
 - **One request, several payments:** a batch answers a proof request for invoices A and B at

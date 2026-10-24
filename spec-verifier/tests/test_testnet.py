@@ -225,6 +225,18 @@ class Testnet(unittest.TestCase):
         with self.assertRaises(ValueError):
             link.verify_designated("zip311d1" + rc.base64.urlsafe_b64encode(bytes(raw)).decode().rstrip("="))
 
+    def test_delegated_receipt(self):
+        """conformance/delegated.json: a receipt a session key issued under the spend key's policy."""
+        from specverify import link
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "conformance", "delegated.json")) as f:
+            vec = __import__("json").load(f)
+        _, policy = link.verify_delegated(vec["delegated"])
+        self.assertEqual((policy["max_zatoshis"], policy["until_height"], len(policy["payees"])), (50000, 1000, 1))
+        raw = bytearray(rc.b64decode(vec["delegated"][8:]))
+        raw[7 + 9 + 32] ^= 1  # the certificate's maxZats
+        with self.assertRaises(ValueError):
+            link.verify_delegated("zip311a1" + rc.base64.urlsafe_b64encode(bytes(raw)).decode().rstrip("="))
+
     def test_keyset_proof(self):
         """conformance/keyset.json: a receipt signed under one of four published keys."""
         import json as _json

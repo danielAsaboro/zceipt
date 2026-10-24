@@ -217,3 +217,64 @@ def verify_designated(text: str, verifier_key: bytes = None):
         if (c1 + c2) % pl.R != int.from_bytes(h.digest(), "little") % pl.R:
             raise ValueError("the one-verifier proof doesn't hold")
     return r, v
+
+
+def verify_delegated(text: str):
+    """A delegated receipt (zip311a1, crates/receipts-core/src/delegated.rs): the certificate's
+    SpendAuthSig under rk_c, a Schnorr link from every spend's rk to rk_c, and the session key's
+    Schnorr signature. Returns (receipt, policy); check the policy against the verified receipt."""
+    from . import receipt as rc
+    from . import orchard as o
+    s = text.strip()
+    if not s.startswith("zip311a1"):
+        raise DecodeError("not a zip311a1 receipt")
+    b = b64decode(s[8:])
+    if len(b) < 7 or b[:4] != b"ZRCA" or b[4] != 1:
+        raise DecodeError("bad magic or version")
+    n = int.from_bytes(b[5:7], "little")
+    cert = b[7:7 + n]
+    if len(cert) != n or cert[:4] != b"ZRCG" or cert[4] != 1:
+        raise DecodeError("bad certificate")
+    coin = int.from_bytes(cert[5:9], "little")
+    session, max_zats, until = cert[9:41], int.from_bytes(cert[41:49], "little"), int.from_bytes(cert[49:53], "little")
+    npay = cert[53]
+    payees = [cert[54 + i * 43: 97 + i * 43] for i in range(npay)]
+    q = 54 + npay * 43
+    rk_c, sig_c = cert[q:q + 32], cert[q + 32:q + 96]
+    if q + 96 != len(cert):
+        raise DecodeError("bad certificate length")
+    p = 7 + n
+    nl = b[p]
+    links = [(b[p + 1 + i * 64: p + 33 + i * 64], b[p + 33 + i * 64: p + 65 + i * 64]) for i in range(nl)]
+    p += 1 + nl * 64
+    session_sig = b[p:p + 64]
+    r = rc.decode(b[p + 64:])
+    if len(r.spends) != nl or nl == 0 or any(sig != bytes(64) for sig in r.sigs) or r.coin_type != coin:
+        raise DecodeError("malformed delegated receipt")
+    cdig = hashlib.blake2b(cert[:q + 32], digest_size=32, person=b"ZIP311Deleg\0" + coin.to_bytes(4, "little")).digest()
+    if not o.redpallas_verify(rk_c, cdig, sig_c):
+        raise ValueError("the certificate isn't signed by its spend key")
+    g = pl.group_hash(b"z.cash:Orchard", b"G")
+    digest = _digest(r)
+    h = hashlib.blake2b(digest_size=64, person=b"ZIP311DLink\0" + coin.to_bytes(4, "little"))
+    h.update(digest + rk_c)
+    for sp in r.spends:
+        h.update(sp.rk)
+    for big_r, _ in links:
+        h.update(big_r)
+    c = int.from_bytes(h.digest(), "little") % pl.R
+    rkc = pl.decode_point(rk_c)
+    for sp, (big_r, z) in zip(r.spends, links):
+        z = int.from_bytes(z, "little")
+        if z >= pl.R or pl.mul(z, g) != pl.add(pl.decode_point(big_r), pl.mul(c, pl.add(pl.decode_point(sp.rk), pl.neg(rkc)))):
+            raise ValueError("a spend isn't under the certificate's key")
+    sr, sz = session_sig[:32], int.from_bytes(session_sig[32:], "little")
+    h = hashlib.blake2b(digest_size=64, person=b"ZIP311DSess\0" + coin.to_bytes(4, "little"))
+    h.update(digest + cert)
+    for big_r, z in links:
+        h.update(big_r + z)
+    h.update(session + sr)
+    e = int.from_bytes(h.digest(), "little") % pl.R
+    if sz >= pl.R or pl.mul(sz, g) != pl.add(pl.decode_point(sr), pl.mul(e, pl.decode_point(session))):
+        raise ValueError("the session key didn't sign this receipt")
+    return r, {"max_zatoshis": max_zats, "until_height": until, "payees": payees}

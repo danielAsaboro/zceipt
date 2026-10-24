@@ -2502,4 +2502,12 @@ fn delegated_receipts_stay_within_their_policy() {
     let mut e = d.clone();
     e.receipt.unsigned.msg = b"Order 12".to_vec();
     assert!(e.check_authorization().is_err());
+    // RECEIPTS_WRITE_DELEGATED_VECTOR=1 refreshes conformance/delegated.json, which the spec verifier checks.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/delegated.json");
+    if std::env::var_os("RECEIPTS_WRITE_DELEGATED_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A delegated receipt: at most 50000 zatoshis, until block 1000, to one payee (roundtrip.rs).", "delegated": d.to_text() });
+        std::fs::write(path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    delegated::DelegatedReceipt::from_text(v["delegated"].as_str().unwrap()).unwrap().check_authorization().unwrap();
 }

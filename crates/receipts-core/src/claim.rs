@@ -20,7 +20,7 @@
 //!
 //! ```text
 //! height is the snapshot's block height (0 for a published list).
-//! claim  := "ZRCT" | version:u8 = 1 | coinType:u32le | pool:u8 | domainLen:u16le | domain
+//! claim  := "ZRCL" | version:u8 = 1 | coinType:u32le | pool:u8 | domainLen:u16le | domain
 //!         | msgLen:u16le | msg | height:u32le | anchor[32] | floor:u64le | rk[32] | cmx[32] | tag[32]
 //!         | hasNf:u8 | (nf[32] if hasNf = 1)
 //!         | proofLen:u32le | proof | spendAuthSig[64]
@@ -50,7 +50,7 @@ use pasta_curves::pallas;
 use rand_core::CryptoRng;
 
 pub const CLAIM_TEXT_PREFIX: &str = "zip311t1";
-const MAGIC: &[u8; 4] = b"ZRCT";
+const MAGIC: &[u8; 4] = b"ZRCL";
 
 /// The claim circuit's keys (nullifier public or private), each built once (a few seconds).
 pub fn keys(expose_nf: bool) -> &'static ClaimKeys {

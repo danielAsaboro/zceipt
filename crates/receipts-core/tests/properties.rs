@@ -325,3 +325,19 @@ fn prepared_receipts_decode_alike() {
         }
     }
 }
+
+/// Every binary format starts with its own magic, so bytes of one never decode as another. The
+/// one shared pair, ZRCI, is told apart by its text prefix (zrcin1 incoming receipts, zip311i1
+/// proofs of income) and by structure.
+#[test]
+fn binary_magics_are_distinct() {
+    let src = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))
+        .unwrap()
+        .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap_or_default())
+        .collect::<String>();
+    let mut magics: Vec<&str> = src.match_indices("&[u8; 4] = b\"").map(|(i, m)| &src[i + m.len()..i + m.len() + 4]).collect();
+    magics.sort();
+    let before = magics.len();
+    magics.dedup();
+    assert_eq!(before - magics.len(), 1, "{magics:?}");
+}

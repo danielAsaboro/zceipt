@@ -2446,4 +2446,14 @@ fn designated_receipts_convince_only_their_verifier() {
     let forged = designated::simulate(d.receipt.clone(), &y, OsRng).unwrap();
     assert_eq!(forged.verifier, v);
     verify_designated_tx_bundles(&keys().1, &forged, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    // RECEIPTS_WRITE_DESIGNATED_VECTOR=1 refreshes conformance/designated.json, which the spec verifier checks.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/designated.json");
+    if std::env::var_os("RECEIPTS_WRITE_DESIGNATED_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A receipt for one verifier, and one that verifier simulated with its key alone (roundtrip.rs).", "designated": d.to_text(), "simulated": forged.to_text() });
+        std::fs::write(path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for k in ["designated", "simulated"] {
+        designated::DesignatedReceipt::from_text(v[k].as_str().unwrap()).unwrap().check_proofs().unwrap();
+    }
 }

@@ -210,6 +210,21 @@ class Testnet(unittest.TestCase):
         with self.assertRaises(ValueError):
             link.verify_policy(vec["policy"], other)
 
+    def test_designated_receipt(self):
+        """conformance/designated.json: a receipt for one verifier, and one that verifier simulated."""
+        from specverify import link
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "conformance", "designated.json")) as f:
+            vec = __import__("json").load(f)
+        _, v = link.verify_designated(vec["designated"])
+        _, v2 = link.verify_designated(vec["simulated"])
+        self.assertEqual(v, v2)
+        with self.assertRaises(ValueError):
+            link.verify_designated(vec["designated"], verifier_key=bytes(32))
+        raw = bytearray(rc.b64decode(vec["designated"][8:]))
+        raw[40] ^= 1
+        with self.assertRaises(ValueError):
+            link.verify_designated("zip311d1" + rc.base64.urlsafe_b64encode(bytes(raw)).decode().rstrip("="))
+
     def test_keyset_proof(self):
         """conformance/keyset.json: a receipt signed under one of four published keys."""
         import json as _json

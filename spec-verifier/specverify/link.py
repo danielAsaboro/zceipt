@@ -181,3 +181,39 @@ def verify_keyset(text: str, receipt) -> int:
     if any(t != c for t in sums):
         raise ValueError("the key-set proof doesn't hold")
     return n
+
+
+def verify_designated(text: str, verifier_key: bytes = None):
+    """A receipt for one verifier (zip311d1, crates/receipts-core/src/designated.rs): per spend, a
+    one-of-two Schnorr proof that the prover knows rk's or V's discrete log, in place of the
+    signature. Returns (receipt, V); verify the receipt's proofs against the chain as usual. If
+    `verifier_key` is given, V must be it (a receipt for another key proves nothing to you)."""
+    from . import receipt as rc
+    s = text.strip()
+    if not s.startswith("zip311d1"):
+        raise DecodeError("not a zip311d1 receipt")
+    b = b64decode(s[8:])
+    if len(b) < 38 or b[:4] != b"ZRCD" or b[4] != 1:
+        raise DecodeError("bad magic or version")
+    v, n = b[5:37], b[37]
+    proofs = [[b[38 + i * 128 + j * 32: 38 + i * 128 + j * 32 + 32] for j in range(4)] for i in range(n)]
+    r = rc.decode(b[38 + n * 128:])
+    if len(r.spends) != n or n == 0 or any(sig != bytes(64) for sig in r.sigs):
+        raise DecodeError("malformed designated receipt")
+    if verifier_key is not None and v != verifier_key:
+        raise ValueError("made for another verifier's key: it proves nothing to you")
+    g = pl.group_hash(b"z.cash:Orchard", b"G")
+    vp = pl.decode_point(v)
+    digest = _digest(r)
+    for sp, (c1, s1, c2, s2) in zip(r.spends, proofs):
+        c1, s1, c2, s2 = (int.from_bytes(x, "little") for x in (c1, s1, c2, s2))
+        if max(c1, s1, c2, s2) >= pl.R:
+            raise ValueError("non-canonical scalar")
+        rk = pl.decode_point(sp.rk)
+        r1 = pl.add(pl.mul(s1, g), pl.neg(pl.mul(c1, rk)))
+        r2 = pl.add(pl.mul(s2, g), pl.neg(pl.mul(c2, vp)))
+        h = hashlib.blake2b(digest_size=64, person=b"ZIP311Desig\0" + r.coin_type.to_bytes(4, "little"))
+        h.update(digest + v + sp.rk + pl.repr_p(r1) + pl.repr_p(r2))
+        if (c1 + c2) % pl.R != int.from_bytes(h.digest(), "little") % pl.R:
+            raise ValueError("the one-verifier proof doesn't hold")
+    return r, v

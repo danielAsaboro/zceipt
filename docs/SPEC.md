@@ -394,7 +394,7 @@ under one of the set's keys, not which. Size: 64 bytes per key per spend.
 ## Claims (`zip311t1`)
 
 ```
-claim  := "ZRCT" | version:u8 = 1 | coinType:u32le | pool:u8 | domainLen:u16le | domain
+claim  := "ZRCL" | version:u8 = 1 | coinType:u32le | pool:u8 | domainLen:u16le | domain
         | msgLen:u16le | msg | height:u32le | anchor[32] | floor:u64le | rk[32] | cmx[32]
         | tag[32] | hasNf:u8 | (nf[32] if hasNf) | proofLen:u32le | proof | spendAuthSig[64]
 domainField := ToBase(BLAKE2b-512("ZIP311ClaimDom", domain))

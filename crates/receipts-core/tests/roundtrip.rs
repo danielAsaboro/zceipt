@@ -2511,3 +2511,27 @@ fn delegated_receipts_stay_within_their_policy() {
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     delegated::DelegatedReceipt::from_text(v["delegated"].as_str().unwrap()).unwrap().check_authorization().unwrap();
 }
+
+#[test]
+fn a_dishonest_claim_prover_is_caught_by_the_proof() {
+    use receipts_core::claim;
+    let s = scenario_from(BundleVersion::ironwood_v3(), 60_000, 1_000, 7);
+    let other = scenario_from(BundleVersion::ironwood_v3(), 60_000, 1_000, 8);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let cmx = |s: &Scenario| ExtractedNoteCommitment::from(s.funding_note.commitment()).to_bytes();
+    let set = vec![cmx(&s), cmx(&other)];
+    let anchor = receipts_core::screened::set_root(&set).unwrap();
+    let path = || claim::snapshot_path(&set, &cmx(&s)).unwrap();
+    let forge = |floor, out, tag| claim::__prove_dishonest_for_tests(&fvk, &ask, s.funding_note, path(), floor, out, tag, b"drop", OsRng).unwrap();
+    // Honest through the same path: accepted (all 60_000 claimed, nothing left over).
+    claim::verify(&forge(60_000, 0, None), b"drop", &anchor).unwrap();
+    // More than the note holds (the hidden output can't go negative, so the values don't balance).
+    assert!(claim::verify(&forge(90_000, 0, None), b"drop", &anchor).is_err());
+    // Another wallet's tag, to pass as a fresh claimant.
+    let d = claim::domain_field(b"drop");
+    let theirs = orchard::circuit::claim::claim_tag(&FullViewingKey::from(&other.sender_sk), d);
+    assert!(claim::verify(&forge(50_000, 10_000, Some(theirs)), b"drop", &anchor).is_err());
+    // A made-up tag.
+    assert!(claim::verify(&forge(50_000, 10_000, Some(d + pasta_curves::pallas::Base::from(1))), b"drop", &anchor).is_err());
+}

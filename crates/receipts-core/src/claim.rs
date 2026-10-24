@@ -239,6 +239,45 @@ pub fn prove(
     if floor == 0 || floor > v || domain.len() > u16::MAX as usize || msg.len() > u16::MAX as usize {
         return Err(Error::BadClaim);
     }
+    prove_inner(coin_type, pool, fvk, ask, note, path, floor, v - floor, None, domain, msg, height, reveal_nf, rng)
+}
+
+/// A dishonest prover, for tests: claims `floor` with the hidden output holding `out_value`
+/// (honestly `v - floor`), and the tag `tag` (honestly the key's). Signed with the real key, so
+/// only the proof can catch it.
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn __prove_dishonest_for_tests(
+    fvk: &FullViewingKey,
+    ask: &SpendAuthorizingKey,
+    note: Note,
+    path: MerklePath,
+    floor: u64,
+    out_value: u64,
+    tag: Option<pallas::Base>,
+    domain: &[u8],
+    rng: impl CryptoRng,
+) -> Result<Claim, Error> {
+    prove_inner(crate::COIN_TYPE_TESTNET, Pool::Ironwood, fvk, ask, note, path, floor, out_value, tag, domain, b"", 0, false, rng)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prove_inner(
+    coin_type: u32,
+    pool: Pool,
+    fvk: &FullViewingKey,
+    ask: &SpendAuthorizingKey,
+    note: Note,
+    path: MerklePath,
+    floor: u64,
+    out_value: u64,
+    tag: Option<pallas::Base>,
+    domain: &[u8],
+    msg: &[u8],
+    height: u32,
+    reveal_nf: bool,
+    mut rng: impl CryptoRng,
+) -> Result<Claim, Error> {
     let cm: ExtractedNoteCommitment = note.commitment().into();
     let anchor = path.root(cm);
     let alpha = crate::random_scalar(&mut rng);
@@ -246,7 +285,7 @@ pub fn prove(
     let nf = note.nullifier(fvk);
     let spend = SpendInfo::new(fvk.clone(), note, path).ok_or(Error::NoteNotOwned)?;
     let rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes())).ok_or(Error::Proving)?;
-    let out = note_to_throwaway(rho, NoteValue::from_raw(v - floor), pool_note_version(pool), &mut rng);
+    let out = note_to_throwaway(rho, NoteValue::from_raw(out_value), pool_note_version(pool), &mut rng);
     let cmx: ExtractedNoteCommitment = out.commitment().into();
     let d = domain_field(domain);
     let mut claim = Claim {
@@ -259,7 +298,7 @@ pub fn prove(
         floor,
         rk: (&rk).into(),
         cmx: cmx.to_bytes(),
-        tag: claim_tag(fvk, d).to_repr(),
+        tag: tag.unwrap_or_else(|| claim_tag(fvk, d)).to_repr(),
         nf: reveal_nf.then(|| nf.to_bytes()),
         proof: vec![],
         sig: [0; 64],

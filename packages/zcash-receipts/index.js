@@ -8,7 +8,7 @@
 // lightwalletd grpc-web server (the transaction, or its block's list and transactions with an
 // h= hint), which you can override or skip entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated, verify_keyset, key_set_keys, verify_policy, inspect_income, verify_income } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -131,6 +131,17 @@ export async function verifyReceipt(input, options = {}) {
     sources = JSON.stringify(list.map((t) => ({ raw: typeof (t.rawTx ?? t.raw) === "string" ? (t.rawTx ?? t.raw) : bytesToHex(t.rawTx ?? t.raw), height: Number(t.height) })));
   }
   const v = JSON.parse(verify(receipt, raw, Number(height), !!options.regtest, sources));
+  // A key-set proof on the link (`m=zip311m1…`): signed under one of a published set of keys.
+  // `keySet: [hex…]` requires it to be over exactly that set.
+  const ks = (safeDecode(String(input)).match(/zip311m1[A-Za-z0-9_-]+/) || [])[0];
+  if (ks) {
+    verify_keyset(ks, receipt);
+    v.keySet = JSON.parse(key_set_keys(ks));
+    if (options.keySet && [...options.keySet].map((k) => k.toLowerCase()).sort().join() !== [...v.keySet].sort().join()) throw new Error("the key-set proof is over other keys than the published set");
+  } else if (options.keySet) throw new Error("the receipt carries no key-set proof");
+  // A policy proof (`p=zip311p1…`): signed under a published t-of-n key.
+  const pol = (safeDecode(String(input)).match(/zip311p1[A-Za-z0-9_-]+/) || [])[0];
+  if (pol) v.policy = JSON.parse(verify_policy(pol, receipt));
   // `screened: { proofs, set }`: the money came from one of an exchange's screened outputs
   // (`set`, its published list), which one hidden. Each spend the receipt proves needs a proof.
   if (options.screened) {
@@ -287,6 +298,29 @@ export async function verifyBatch(input, options = {}) {
     throw new Error("minZatoshis needs expectAddress");
   }
   return out;
+}
+
+/**
+ * Verifies a proof of income (`zip311i1…`): the wallet behind it received at least
+ * `at_least_zatoshis` across `payments` separate payments, no payment's amount shown. Fetches
+ * each payment among its block's transactions. Options: `endpoint`, `minZatoshis`, `minPayments`,
+ * `challenge`.
+ */
+export async function verifyIncome(input, options = {}) {
+  await load();
+  const text = (safeDecode(String(input)).match(/zip311i1[A-Za-z0-9_-]+/) || [])[0];
+  if (!text) throw new Error("no zip311i1 proof of income found");
+  const info = JSON.parse(inspect_income(text));
+  if (options.challenge != null && challengeIn(info.message) !== String(options.challenge)) throw new Error("the proof doesn't sign the expected challenge");
+  const endpoint = options.endpoint || DEFAULT_ENDPOINTS[info.network];
+  const txs = await Promise.all(info.items.map(async (it) => {
+    const t = await fetchTransactionPrivately(endpoint, it.txid, it.height, { txidOf: (raw, h) => txid_of(raw, h, info.network === "mainnet" ? 133 : 1) });
+    return { raw: Array.from(t.raw, (b) => b.toString(16).padStart(2, "0")).join(""), height: t.height };
+  }));
+  const v = JSON.parse(verify_income(text, JSON.stringify(txs)));
+  if (options.minZatoshis != null && v.at_least_zatoshis < options.minZatoshis) throw new Error(`the proof shows ${v.at_least_zatoshis} zatoshis, less than ${options.minZatoshis}`);
+  if (options.minPayments != null && v.payments < options.minPayments) throw new Error(`the proof counts ${v.payments} payments, fewer than ${options.minPayments}`);
+  return { valid: true, kind: "income", network: info.network, ...v };
 }
 
 /** Extracts a `zsig1…` sign-in from a link, a fragment or bare text, or returns null. */

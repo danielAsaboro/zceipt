@@ -210,6 +210,20 @@ class Testnet(unittest.TestCase):
         with self.assertRaises(ValueError):
             link.verify_policy(vec["policy"], other)
 
+    def test_keyset_proof(self):
+        """conformance/keyset.json: a receipt signed under one of four published keys."""
+        import json as _json
+        from specverify import link
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "conformance", "keyset.json")) as f:
+            vec = _json.load(f)
+        r = rc.from_text(vec["receipt"])
+        self.assertEqual(link.verify_keyset(vec["keyset"], r), vec["keys"])
+        raw = bytearray(rc.b64decode(vec["keyset"][8:]))
+        raw[-1] ^= 1
+        import base64 as _b
+        with self.assertRaises((ValueError, rc.DecodeError)):
+            link.verify_keyset("zip311m1" + _b.urlsafe_b64encode(bytes(raw)).decode().rstrip("="), r)
+
     def test_same_payer_proof(self):
         """The batch's same-payer proof holds for its receipts, in order, and for nothing else."""
         import re as _re

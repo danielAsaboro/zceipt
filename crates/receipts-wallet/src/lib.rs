@@ -291,6 +291,13 @@ pub fn sign_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt) 
     })
 }
 
+/// The account's spend validating key `ak` (hex), the key a published key set lists
+/// (`receipts_core::keyset`). It shows no payment: receipts carry only randomizations of it.
+pub fn spend_validating_key(wallet: &Path) -> anyhow::Result<String> {
+    let (_, fvk) = viewing_key(wallet)?;
+    Ok(fvk.to_bytes()[..32].iter().map(|b| format!("{b:02x}")).collect())
+}
+
 /// The account's Orchard full viewing key, from the wallet database.
 fn viewing_key(wallet: &Path) -> anyhow::Result<(Net, FullViewingKey)> {
     let net = wallet_network(wallet)?;

@@ -118,6 +118,10 @@ enum Cmd {
         /// encrypted; the receipt carries no key that opens it).
         #[arg(long)]
         withhold_memo: bool,
+        /// A published set of spend keys (one `receipts key` per line) this wallet's key is in: the
+        /// link also proves the receipt was signed under one of them, without saying which.
+        #[arg(long)]
+        key_set: Option<PathBuf>,
         /// A batch (several --txid): one proof per receipt instead of one aggregated proof for all.
         #[arg(long)]
         no_aggregate: bool,
@@ -215,6 +219,12 @@ enum Cmd {
     Verify {
         /// The receipt (`zip311r1…`), a link containing it, or `@file`.
         receipt: String,
+        /// The published key set a key-set proof on the link (`m=zip311m1…`) must be over.
+        #[arg(long)]
+        key_set: Option<PathBuf>,
+        /// For a proof of income: require at least this many separate payments.
+        #[arg(long)]
+        min_payments: Option<usize>,
         /// lightwalletd server, host:port. Default: zec.rocks for the receipt's network.
         #[arg(short, long)]
         server: Option<String>,
@@ -350,6 +360,12 @@ enum Cmd {
         /// Write the receipt text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
+    },
+    /// Print this wallet's spend key (`ak`) for a published key set (`create --key-set`).
+    #[command(display_order = 8)]
+    Key {
+        #[arg(short, long)]
+        wallet: PathBuf,
     },
     /// Proof of income: prove you received at least an amount across payments, amounts hidden.
     ///
@@ -649,6 +665,21 @@ type ScreenedCheck = (Vec<[u8; 32]>, Vec<receipts_core::screened::ScreenedProof>
 static VERIFY_SCREENED: std::sync::OnceLock<ScreenedCheck> = std::sync::OnceLock::new();
 
 /// A screened list: one note commitment (64 hex digits) per line; blank lines and `#` comments skipped.
+/// A published key set: one spend validating key (`receipts key`, 64 hex digits) per line.
+fn read_key_set(path: &std::path::Path) -> anyhow::Result<Vec<[u8; 32]>> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let keys: Vec<[u8; 32]> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| hex::decode(l).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| anyhow!("{}: not a spend key: {l}", path.display())))
+        .collect::<anyhow::Result<_>>()?;
+    if keys.is_empty() {
+        bail!("{} lists no keys", path.display());
+    }
+    Ok(keys)
+}
+
 fn read_screened_set(path: &std::path::Path) -> anyhow::Result<Vec<[u8; 32]>> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     text.lines()
@@ -1290,6 +1321,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             reveal_source_value,
             withhold_memo,
             no_aggregate,
+            key_set,
             public_note,
             refund_to,
             tex_deposit,
@@ -1512,6 +1544,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 return Ok(());
             }
             let txid = &txids[0];
+            let key_set = key_set.as_deref().map(read_key_set).transpose()?;
+            let mut keyset_proof = None;
             let (receipt, mined_height) = match screened_set {
                 // The screened-set proofs need the spends' randomizers: prove, then sign here.
                 Some(set) => {
@@ -1532,6 +1566,30 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     write_screened(&screened)?;
                     (wallet::sign_prepared(&wallet, &identity, p)?, h)
                 }
+                // The key-set proof needs the spends' randomizers too.
+                None if key_set.is_some() => {
+                    let (p, h, _) = wallet::prepare_receipt(
+                        &wallet,
+                        parse_txid(txid)?,
+                        msg.as_bytes(),
+                        &outputs,
+                        pool,
+                        source,
+                        server.as_deref(),
+                        prove_address.as_deref(),
+                        prove_source,
+                        withhold_memo,
+                        None,
+                    )
+                    .await?;
+                    let keys = key_set.clone().unwrap_or_default();
+                    keyset_proof = Some(
+                        receipts_core::keyset::prove(&p, keys, msg.as_bytes(), rand::rng())
+                            .map_err(|_| anyhow!("this wallet's spend key isn't in the key set"))?
+                            .to_text(),
+                    );
+                    (wallet::sign_prepared(&wallet, &identity, p)?, h)
+                }
                 None => {
                     wallet::create_receipt(
                         &wallet,
@@ -1549,7 +1607,10 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     .await?
                 }
             };
-            let text = receipt.to_text();
+            let text = match &keyset_proof {
+                Some(k) => format!("{}&m={k}", receipt.to_text()),
+                None => receipt.to_text(),
+            };
             if let Some(r) = &req {
                 // Check the receipt answers the request before handing it over.
                 let paid = receipts_wallet::check_answers(&receipt, r, server.as_deref(), None).await?;
@@ -1576,7 +1637,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
             bail!("the input holds more than one receipt; verify one at a time");
         }
-        Cmd::Verify { receipt, server, regtest, json, .. } if read_arg_text(&receipt)?.contains(receipts_core::income::INCOME_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, regtest, json, min_payments, .. } if read_arg_text(&receipt)?.contains(receipts_core::income::INCOME_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::income::INCOME_TEXT_PREFIX).unwrap();
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
@@ -1604,6 +1665,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let total = receipts_core::income::verify(&receipts_core::verifying_key(), &p, &lookup).map_err(|e| anyhow!("{e}"))?;
             if let Some(m) = min.filter(|m| total < *m) {
                 bail!("the proof shows {} received, less than the {} expected", chain::zec(total), chain::zec(m));
+            }
+            // Separate payments: different transactions (the outputs and notes are distinct already).
+            let txs = p.items.iter().map(|i| i.txid).collect::<std::collections::BTreeSet<_>>().len();
+            if let Some(n) = min_payments.filter(|n| txs < *n) {
+                bail!("the proof counts {txs} separate payment(s), fewer than the {n} required");
             }
             if json {
                 println!(
@@ -1750,7 +1816,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 report.print();
             }
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, .. } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, key_set, .. } => {
             let text = read_arg_text(&receipt)?;
             // Route by the input's own receipt prefix, and refuse more than one: a batch pasted
             // after a receipt must not take the batch path past any check.
@@ -1762,6 +1828,29 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 return verify_batch(&text, server.as_deref(), regtest.as_deref(), json, expect_address.as_deref()).await;
             }
             let receipt = read_receipt_arg(&receipt)?;
+            // A key-set proof with the receipt (`m=zip311m1…`): signed under one of a published set.
+            let key_set_line = match text.find(receipts_core::keyset::KEYSET_TEXT_PREFIX) {
+                None => None,
+                Some(i) => {
+                    let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+                    let p = receipts_core::keyset::KeySetProof::from_text(&body)?;
+                    receipts_core::keyset::verify(&p, &receipt).map_err(|_| anyhow!("the key-set proof doesn't hold for this receipt"))?;
+                    match &key_set {
+                        Some(file) => {
+                            let (mut want, mut got) = (read_key_set(file)?, p.keys.clone());
+                            want.sort();
+                            got.sort();
+                            if want != got {
+                                bail!("the key-set proof is over other keys than {}", file.display());
+                            }
+                            Some(format!("signed under one of the {} keys in {}, not saying which", p.keys.len(), file.display()))
+                        }
+                        None => {
+                            Some(format!("signed under one of the {} keys the proof lists (check them against the published set with --key-set)", p.keys.len()))
+                        }
+                    }
+                }
+            };
             if receipts_chain::deposit::deposit_claim(&String::from_utf8_lossy(&receipt.unsigned.msg)).is_some() {
                 let (report, d) = receipts_chain::deposit::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
                 let report = with_screened(report, &receipt)?;
@@ -1795,6 +1884,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&report)?);
             } else {
                 report.print();
+                if let Some(line) = &key_set_line {
+                    println!("  key set   {line}");
+                }
                 // What the verdict rests on, and what it didn't check.
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
                 if let Ok(tip) = chain::chain_tip(net, server.as_deref()).await {
@@ -1968,6 +2060,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
+        Cmd::Key { wallet } => println!("{}", wallet::spend_validating_key(&wallet)?),
         Cmd::Income { wallet, identity, txids, min, msg, out } => {
             let ids = txids.iter().map(|t| parse_txid(t)).collect::<anyhow::Result<Vec<_>>>()?;
             let p = wallet::prove_income(&wallet, &identity, &ids, parse_zec(&min)?, msg.as_bytes(), None).await?;

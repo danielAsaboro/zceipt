@@ -102,6 +102,11 @@ try {
   await send("Page.navigate", { url: url.replace(/#.*$/, "") + "#" + br });
   const brh = await until(`document.querySelector('.reqhead')?.innerText || ''`, 120);
   check(brh === "MATCHES THE REQUEST IN THIS LINK", `a batch answers one request (got ${brh})`);
+  // Signed under one of a published key set (`m=` on the link).
+  const ksl = readFileSync(new URL("../examples/testnet/keyset/link.txt", import.meta.url), "utf8").trim();
+  await send("Page.navigate", { url: url.replace(/#.*$/, "") + "#" + ksl });
+  const ksr = await until(`(${resultText}).includes('One of 4 published keys') ? 'yes' : ''`, 120);
+  check(ksr === "yes", "a key-set proof on the link shows: one of 4 published keys");
   // A link with other text carrying a stray "%" still verifies.
   await evaluate(`(async () => { const m = await import('./samples.js'); location.hash = m.SAMPLE_REAL + '&h=' + m.SAMPLE_HEIGHT + '&note=50%off'; return true })()`);
   await sleep(500);

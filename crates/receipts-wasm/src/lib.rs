@@ -452,6 +452,76 @@ pub fn verify_screened(receipt: &str, raw_tx: &[u8], height: u32, proofs: &str, 
     Ok(serde_json::json!({ "root": hex::encode(root), "size": set.len(), "covered_zatoshis": covered }).to_string())
 }
 
+/// Checks a key-set proof (`zip311m1…`) for a receipt (`zip311r1…`): it was signed under one of
+/// the keys the proof lists, not saying which. Returns how many keys; compare them with the
+/// published set ([`key_set_keys`]).
+#[wasm_bindgen]
+pub fn verify_keyset(proof: &str, receipt: &str) -> Result<usize, JsError> {
+    let p = receipts_core::keyset::KeySetProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
+    receipts_core::keyset::verify(&p, &parse(receipt)?).map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// The keys a key-set proof lists, hex, for comparing with the published set.
+#[wasm_bindgen]
+pub fn key_set_keys(proof: &str) -> Result<String, JsError> {
+    let p = receipts_core::keyset::KeySetProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(serde_json::to_string(&p.keys.iter().map(hex::encode).collect::<Vec<_>>())?)
+}
+
+/// Checks a policy proof (`zip311p1…`) for a receipt: signed under the published t-of-n key.
+/// Returns JSON `{ threshold, holders, key }` (`key` hex, to compare with the published one).
+#[wasm_bindgen]
+pub fn verify_policy(proof: &str, receipt: &str) -> Result<String, JsError> {
+    let p = receipts_core::policy::PolicyProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
+    let (t, n) = receipts_core::policy::verify(&p, &parse(receipt)?).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(serde_json::json!({ "threshold": t, "holders": n, "key": hex::encode(p.commitment[0]) }).to_string())
+}
+
+/// The payments a proof of income counts, JSON `[{ txid, height, pool, index }]`, for fetching.
+#[wasm_bindgen]
+pub fn inspect_income(proof: &str) -> Result<String, JsError> {
+    let p = receipts_core::income::IncomeProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
+    let (_, _, name) = net_of(p.coin_type)?;
+    Ok(serde_json::json!({
+        "network": name,
+        "message": String::from_utf8_lossy(&p.msg),
+        "items": p.items.iter().map(|i| serde_json::json!({ "txid": display_txid(&i.txid), "height": i.height, "pool": pool_name(i.pool), "index": i.index })).collect::<Vec<_>>(),
+    })
+    .to_string())
+}
+
+/// Checks a proof of income against the transactions it counts (`txs`: JSON `[{ raw, height }]`,
+/// one per item, in order). Returns JSON `{ at_least_zatoshis, payments, message }`.
+#[wasm_bindgen]
+pub fn verify_income(proof: &str, txs: &str) -> Result<String, JsError> {
+    console_error_panic_hook::set_once();
+    let p = receipts_core::income::IncomeProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
+    let (net, _, _) = net_of(p.coin_type)?;
+    let txs: Vec<SourceTxIn> = serde_json::from_str(txs).map_err(|e| JsError::new(&format!("bad transactions: {e}")))?;
+    if txs.len() != p.items.len() {
+        return Err(JsError::new("one transaction per item, in order"));
+    }
+    let mut cmxs = std::collections::BTreeMap::new();
+    for (it, t) in p.items.iter().zip(txs) {
+        let raw = hex::decode(t.raw.trim()).map_err(|_| JsError::new("bad transaction hex"))?;
+        let tx = Transaction::read(&raw[..], BranchId::for_height(&net, BlockHeight::from_u32(t.height)))
+            .map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+        if tx.txid().as_ref() != &it.txid || t.height != it.height {
+            return Err(JsError::new("a transaction isn't the one the proof counts"));
+        }
+        let b = match it.pool {
+            Pool::Orchard => tx.orchard_bundle(),
+            Pool::Ironwood => tx.ironwood_bundle(),
+        };
+        cmxs.insert((it.txid, it.pool as u8), b.map(|b| b.actions().iter().map(|a| a.cmx().to_bytes()).collect::<Vec<[u8; 32]>>()).unwrap_or_default());
+    }
+    let lookup = |pool: Pool, txid: &[u8; 32], index: u32| cmxs.get(&(*txid, pool as u8)).and_then(|l| l.get(index as usize)).copied();
+    let total =
+        VK.with(|vk| receipts_core::income::verify(vk.get_or_init(receipts_core::verifying_key), &p, &lookup)).map_err(|e| JsError::new(&e.to_string()))?;
+    let payments = p.items.iter().map(|i| i.txid).collect::<std::collections::BTreeSet<_>>().len();
+    Ok(serde_json::json!({ "at_least_zatoshis": total, "payments": payments, "message": String::from_utf8_lossy(&p.msg) }).to_string())
+}
+
 /// Checks a same-payer proof (`zip311k1…`) for a batch (`zip311b1…`): every payment in it was
 /// signed with one spend key. Returns how many spends it links. Checks only the link; verify the
 /// batch's receipts as usual.

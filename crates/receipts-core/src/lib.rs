@@ -45,6 +45,8 @@ pub mod income;
 #[cfg(feature = "orchard-ext")]
 pub mod incoming;
 #[cfg(feature = "extensions")]
+pub mod keyset;
+#[cfg(feature = "extensions")]
 pub mod link;
 #[cfg(feature = "extensions")]
 pub mod payreq;
@@ -443,6 +445,8 @@ pub enum Error {
     NoSpends,
     #[error("the batch's aggregate proof doesn't hold, or a receipt in it carries its own proof")]
     BadAggregate,
+    #[error("the key-set proof doesn't hold for this receipt")]
+    BadKeySet,
     #[error("the policy proof doesn't hold for this receipt")]
     BadPolicy,
     #[error("the proof of income doesn't hold")]

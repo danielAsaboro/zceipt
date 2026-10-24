@@ -64,6 +64,24 @@ test("one request answered by a batch of two payments", { skip: !!process.env.OF
   await assert.rejects(verifyBatch(link, { challenge: "000000aaaaaa" }), /challenge/);
 });
 
+test("signed under one of a published key set; another set refused", { skip: !!process.env.OFFLINE }, async () => {
+  const { verifyReceipt } = await import("../index.js");
+  const link = await readFile(ex("testnet/keyset/link.txt"), "utf8");
+  const keys = (await readFile(ex("testnet/keyset/keys.txt"), "utf8")).trim().split("\n");
+  const v = await verifyReceipt(link, { keySet: keys });
+  assert.equal(v.keySet.length, 4);
+  await assert.rejects(verifyReceipt(link, { keySet: keys.slice(0, 2) }), /other keys/);
+});
+
+test("proof of income: at least 0.02 across 4 payments; more refused", { skip: !!process.env.OFFLINE }, async () => {
+  const { verifyIncome } = await import("../index.js");
+  const proof = await readFile(ex("testnet/income/proof.txt"), "utf8");
+  const v = await verifyIncome(proof, { challenge: "10a4e7c3d2b1", minZatoshis: 2_000_000, minPayments: 4 });
+  assert.equal(v.at_least_zatoshis, 2_000_000);
+  await assert.rejects(verifyIncome(proof, { minZatoshis: 3_000_000 }), /less than/);
+  await assert.rejects(verifyIncome(proof, { minPayments: 5 }), /fewer than/);
+});
+
 test("a batch with a same-payer proof shows one payer; the proof doesn't move to another batch", { skip: !!process.env.OFFLINE }, async () => {
   const { verifyBatch } = await import("../index.js");
   const linked = await readFile(ex("testnet/batch-same-payer-link.txt"), "utf8");

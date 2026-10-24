@@ -57,6 +57,12 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
    note's value and on the hidden output's `v - floor` give `v >= floor`, and `floor >= 1` makes
    it check the anchor. One SpendAuthSig by `rk` covers every item. Revealed: the outputs, each
    note's nullifier, the floors. `src/income.rs`; `roundtrip.rs::proof_of_income_shows_a_total_not_the_amounts`.
+10. **Key set (a separate `zip311m1` proof).** For a published set of keys `K_1..K_n`, every
+   spend's `rk` is `K_j + [alpha]G` for some `j` whose `alpha` the prover knows (a one-of-many
+   Schnorr proof: special soundness extracts `alpha` for at least one `j`, and the simulated
+   branches make every `j` look alike). So the signer holds one of the keys, or knows its relation
+   to one. `src/keyset.rs`; `roundtrip.rs::key_set_proof_names_the_set_not_the_key`, and the spec
+   verifier checks `conformance/keyset.json`.
 
 An **incoming receipt** (`zrcin1`, docs/SPEC.md) makes a separate claim: for each disclosed
 output `j` of `T`, a note of the reported value and memo was committed to address `A`, and the

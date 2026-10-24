@@ -47,7 +47,7 @@ const warmed = call("warm")
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT, SAMPLE_SCREENED, SAMPLE_SCREENED_PROOF, SAMPLE_SCREENED_SET } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg, verify_same_payer, verify_screened } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg, verify_same_payer, verify_screened, verify_keyset, verify_policy } from "./zcash-receipts/pkg/receipts_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
 const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
@@ -327,6 +327,8 @@ function render(v, net) {
       ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp warn">VERIFIED · RECIPIENT NOT CHECKED</div>`}
       <ul class="facts">
         <li>Signed with the key that spent the money in this payment (a zero-knowledge proof and a signature over this receipt).</li>
+        ${v.keySetSize ? `<li><strong>One of ${v.keySetSize} published keys:</strong> signed under one of the keys this link's proof lists, not saying which. Compare them with the set the payer's organization publishes.</li>` : ""}
+        ${v.policy ? `<li><strong>A ${v.policy.threshold}-of-${v.policy.holders} key:</strong> authorized under the shared key ${escapeHtml(v.policy.key.slice(0, 16))}…, not saying which holders signed.</li>` : ""}
         ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from ${fetchMode && fetchMode.mode === "offline" ? "the transaction you pasted" : "the transaction on chain"}.</li>` : ""}
         ${(v.sources || []).length ? `<li>The sender proved where the spent money came from (FUNDS above): only that link, read from the chain.</li>` : ""}
         ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>Whoever signed this receipt also controls the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
@@ -614,6 +616,13 @@ async function run(receiptText) {
       v.deposit = JSON.parse(check_tex_deposit(receiptText, tx.raw, tx.height, tx2.raw, tx2.height, regtest()));
     }
     lastCheck = { receiptText, raw: tx.raw, height: tx.height };
+    // A key-set proof (`m=zip311m1…`) or a policy proof (`p=zip311p1…`) on the link.
+    const hashText = safeDecode(location.hash);
+    const ks = (hashText.match(/zip311m1[A-Za-z0-9_-]+/) || [])[0];
+    const pol = (hashText.match(/zip311p1[A-Za-z0-9_-]+/) || [])[0];
+    await local;
+    if (ks) v.keySetSize = verify_keyset(ks, receiptText);
+    if (pol) v.policy = JSON.parse(verify_policy(pol, receiptText));
     ok() && render(v, summary.network);
   } catch (e) {
     ok() && setStep("verify", "fail", plainFailure(e.message));

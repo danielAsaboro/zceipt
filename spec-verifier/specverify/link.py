@@ -126,3 +126,58 @@ def verify_policy(text: str, receipt):
         if pl.mul(int.from_bytes(sc, "little"), g) != pl.add(pl.decode_point(big_r), pl.mul(c, pl.add(pl.decode_point(rk), pl.neg(ak)))):
             raise ValueError("the policy proof doesn't hold")
     return t, holders
+
+
+def verify_keyset(text: str, receipt) -> int:
+    """A key-set proof (zip311m1, crates/receipts-core/src/keyset.rs): for every spend, a
+    one-of-many Schnorr proof that rk - K_j = [alpha]G for one published key K_j. Returns the
+    number of keys."""
+    s = text.strip()
+    if not s.startswith("zip311m1"):
+        raise DecodeError("not a zip311m1 key-set proof")
+    b = b64decode(s[8:])
+    p = 0
+
+    def take(n):
+        nonlocal p
+        if p + n > len(b):
+            raise DecodeError("truncated")
+        out = b[p:p + n]
+        p += n
+        return out
+
+    if take(4) != b"ZRCM" or take(1)[0] != 1:
+        raise DecodeError("bad magic or version")
+    coin = int.from_bytes(take(4), "little")
+    take(int.from_bytes(take(2), "little"))
+    digest = take(32)
+    n = int.from_bytes(take(2), "little")
+    keys = [take(32) for _ in range(n)]
+    ns = take(1)[0]
+    head = b[:p]
+    spends = [[(take(32), take(32)) for _ in range(n)] for _ in range(ns)]
+    if p != len(b) or n == 0 or ns == 0:
+        raise DecodeError("malformed key-set proof")
+    if receipt.coin_type != coin or _digest(receipt) != digest or ns != len(receipt.spends):
+        raise ValueError("the proof is for another receipt")
+    g = pl.group_hash(b"z.cash:Orchard", b"G")
+    ks = [pl.decode_point(k) for k in keys]
+    h = hashlib.blake2b(digest_size=64, person=b"ZIP311KeySet" + coin.to_bytes(4, "little"))
+    h.update(head)
+    sums = []
+    for sp, pairs in zip(receipt.spends, spends):
+        rk = pl.decode_point(sp.rk)
+        h.update(sp.rk)
+        total = 0
+        for (c, z), k in zip(pairs, ks):
+            c, z = int.from_bytes(c, "little"), int.from_bytes(z, "little")
+            if c >= pl.R or z >= pl.R:
+                raise ValueError("non-canonical scalar")
+            r = pl.add(pl.mul(z, g), pl.neg(pl.mul(c, pl.add(rk, pl.neg(k)))))
+            h.update(pl.repr_p(r))
+            total = (total + c) % pl.R
+        sums.append(total)
+    c = int.from_bytes(h.digest(), "little") % pl.R
+    if any(t != c for t in sums):
+        raise ValueError("the key-set proof doesn't hold")
+    return n

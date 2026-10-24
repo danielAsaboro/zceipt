@@ -2282,3 +2282,41 @@ fn proof_of_income_shows_a_total_not_the_amounts() {
     let (wa, wb) = (found(&a, ta), found(&b, tb));
     assert!(prove(&keys().0, COIN_TYPE_TESTNET, &stranger, &ask, &[wa, wb], &floors, b"", OsRng).is_err());
 }
+
+#[test]
+fn key_set_proof_names_the_set_not_the_key() {
+    use receipts_core::keyset::{prove, verify, KeySetProof};
+    let ak = |b: u8| -> [u8; 32] {
+        let vk = orchard::keys::SpendValidatingKey::from(&SpendAuthorizingKey::from(&SpendingKey::from_bytes([b; 32]).unwrap()));
+        (&vk.randomize(&<pasta_curves::pallas::Scalar as group::ff::Field>::ZERO)).into()
+    };
+    // A department's four published keys; the payer (key [7; 32]) is the third.
+    let dept = vec![ak(1), ak(2), ak(7), ak(4)];
+    let s = scenario(BundleVersion::ironwood_v3());
+    let prepared = prepared_for(&s, b"Payroll October");
+    let p = prove(&prepared, dept.clone(), b"challenge:d3a1b9", OsRng).unwrap();
+    let receipt = prepared.clone().sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
+    assert_eq!(verify(&KeySetProof::from_text(&p.to_text()).unwrap(), &receipt).unwrap(), 4);
+    // RECEIPTS_WRITE_KEYSET_VECTOR=1 refreshes conformance/keyset.json, which the spec verifier checks.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/keyset.json");
+    if std::env::var_os("RECEIPTS_WRITE_KEYSET_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A receipt and its key-set proof over 4 published keys (roundtrip.rs).", "receipt": receipt.to_text(), "keyset": p.to_text(), "keys": 4 });
+        std::fs::write(path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let vr = receipts_core::Receipt::from_text(v["receipt"].as_str().unwrap()).unwrap();
+    assert_eq!(verify(&KeySetProof::from_text(v["keyset"].as_str().unwrap()).unwrap(), &vr).unwrap(), 4);
+    // Every key's pair looks alike: nothing marks the third as the real one.
+    assert!(p.spends[0].iter().all(|(c, s)| c != &[0; 32] && s != &[0; 32]));
+
+    // A set without the payer's key can't be proven, and a proof can't be moved or bent.
+    assert_eq!(prove(&prepared, vec![ak(1), ak(2)], b"", OsRng).unwrap_err(), Error::BadKeySet);
+    let mut other = p.clone();
+    other.keys[2] = ak(5);
+    assert_eq!(verify(&other, &receipt).unwrap_err(), Error::BadKeySet);
+    let mut bent = p.clone();
+    bent.msg = b"challenge:000000".to_vec();
+    assert_eq!(verify(&bent, &receipt).unwrap_err(), Error::BadKeySet);
+    let another = prepared_for(&s, b"Payroll November").sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
+    assert_eq!(verify(&p, &another).unwrap_err(), Error::BadKeySet);
+}

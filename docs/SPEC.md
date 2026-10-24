@@ -376,6 +376,21 @@ The verifier refuses an output or a nullifier listed twice, checks the signature
 `digest`, and reads a verifier's challenge from `msg`. Floors are chosen as even as the notes
 allow (`income::spread`), so they say little about the notes.
 
+## Key-set proofs (`zip311m1`)
+
+```
+keyset := "ZRCM" | version:u8 = 1 | coinType:u32le | msgLen:u16le | msg | digest[32]
+        | n:u16le | { K_j[32] }^n | nSpends:u8 | { { c_j[32] | s_j[32] }^n }^nSpends
+c      := ToScalar(BLAKE2b-512("ZIP311KeySet" || coinType, keyset without the (c, s) pairs
+                   || for each spend: rk, then every R_j = [s_j]G - [c_j](rk - K_j)))
+check  := for each spend, sum_j c_j == c
+```
+
+For a published set of spend keys `K_1..K_n` (a department's, a program's signers): every spend
+of the receipt (signing digest `digest`) has `rk = K_j + [alpha]G` for some `j` the prover knows
+`alpha` for, by a one-of-many Schnorr proof. The verifier learns the payment was authorized
+under one of the set's keys, not which. Size: 64 bytes per key per spend.
+
 ## Policy proofs (`zip311p1`)
 
 ```

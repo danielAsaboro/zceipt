@@ -114,7 +114,9 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
 - **Proof requests and P2P trades:** a verifier's challenge is signed in, so an old receipt can't
   answer a new request ([guide](docs/guides/p2p-trades.md)).
 - **Source of funds:** prove which earlier output funded a deposit, or, with a screened-set
-  proof, that it came from one of an exchange's vetted outputs without saying which.
+  proof, that it came from one of an exchange's vetted outputs without saying which. A batch of
+  hops (shielding → self-transfer → payment) proves the whole chain, and its same-payer proof
+  shows one controller made every hop.
 - **Proof of funds:** prove you hold at least an amount, showing only the total if you choose.
 - **One request, several payments:** a batch answers a proof request for invoices A and B at
   once; every receipt signs the request, and the total is checked
@@ -122,6 +124,8 @@ In a quiet block the server can narrow it down, and the page and CLI say so. Ful
 - **Proof of income:** a recipient proves it received at least an amount across several payments,
   for a lender or a landlord, without showing what any payment was
   ([example](examples/testnet/income)).
+- **One of a department's keys:** a receipt proves it was signed under one of a published set of
+  keys (a department's, a program's signers) without saying which (`receipts_core::keyset`).
 - **Multisig treasuries:** a treasury whose key is split with FROST (2-of-3, say) makes receipts
   like any wallet: any two signers sign with the receipt's randomizer, and the receipt doesn't
   show which two. A policy proof adds that it was authorized under the treasury's published

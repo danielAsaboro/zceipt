@@ -27,6 +27,10 @@ if [ -n "$R" ]; then
   # Proof of income: at least 0.02 TAZ across four payments, no amount shown.
   I=examples/testnet/income/proof.txt
   "$R" verify @$I --challenge 10a4e7c3d2b1 --min 0.02 >/dev/null 2>&1 && ! "$R" verify @$I --min 0.03 >/dev/null 2>&1 && ! "$R" verify @$I --challenge 000000aaaaaa >/dev/null 2>&1 && echo "proof of income: at least 0.02 across 4 payments, more refused" || { echo "proof of income checks failed"; exit 1; }
+  # Signed under one of a published key set: holds for the set, refused for another.
+  K="#$(cat examples/testnet/keyset/link.txt)"; KS=$(mktemp); head -2 examples/testnet/keyset/keys.txt > "$KS"
+  "$R" verify "$K" --key-set examples/testnet/keyset/keys.txt 2>/dev/null | grep >/dev/null "one of the 4 keys" && ! "$R" verify "$K" --key-set "$KS" >/dev/null 2>&1 && ! "$R" verify @$I --min-payments 5 >/dev/null 2>&1 && echo "key set: one of 4 published keys, another set refused; income needs 5 payments, has 4: refused" || { echo "key-set checks failed"; exit 1; }
+  rm -f "$KS"
   # The public demo wallet: anyone can sign for it, so it shows as a demo and answers no challenge.
   D=$(mktemp); "$R" demo -m "challenge:abcdef12" 2>/dev/null > "$D"
   "$R" verify @"$D" 2>/dev/null | grep >/dev/null "public demo wallet" && ! "$R" verify @"$D" --challenge abcdef12 >/dev/null 2>&1 && echo "a demo-wallet receipt says so and answers no challenge" || { echo "a demo-wallet receipt passed as a real one"; exit 1; }

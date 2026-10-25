@@ -136,6 +136,13 @@ pub fn new_id(prefix: &str) -> String {
     format!("{prefix}{}", hex::encode(b))
 }
 
+/// How an API key is stored: a SHA-256 digest of a 192-bit random key, so a copy of the database
+/// doesn't hold keys that work.
+pub fn key_digest(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("sha256:{}", hex::encode(Sha256::digest(key.as_bytes())))
+}
+
 impl Db {
     pub fn open(path: &str) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
@@ -164,6 +171,8 @@ impl Db {
         ] {
             let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
         }
+        // Who made a test clock (a digest of the API key), so one tenant cannot move another's.
+        let _ = conn.execute("ALTER TABLE test_clocks ADD COLUMN owner TEXT", []);
         for col in ["public_note TEXT", "refund_address TEXT"] {
             let _ = conn.execute(&format!("ALTER TABLE request_payments ADD COLUMN {col}"), []);
         }
@@ -180,26 +189,39 @@ impl Db {
         Ok(Db(Mutex::new(conn)))
     }
 
+    /// The keys to show the operator now: API keys are stored as digests (`sha256:…`), so only a key
+    /// made in this call, or a plaintext key from an older database being converted in this call,
+    /// can be shown; a later start shows none (the first start's printout, or the `.keys` file next
+    /// to the database, is where they are).
     pub fn ensure_keys(&self) -> rusqlite::Result<Vec<(String, String)>> {
         let c = self.0.lock().unwrap();
-        let mut keys: Vec<(String, String)> = c
-            .prepare("SELECT key, mode FROM api_keys WHERE revoked = 0 ORDER BY created")?
+        let mut shown: Vec<(String, String)> = Vec::new();
+        // Convert keys stored in the clear by earlier versions.
+        let old: Vec<(String, String)> = c
+            .prepare("SELECT key, mode FROM api_keys WHERE key NOT LIKE 'sha256:%'")?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
+        for (key, mode) in old {
+            c.execute("UPDATE api_keys SET key = ?1 WHERE key = ?2", params![key_digest(&key), key])?;
+            // Idempotency records were keyed by the clear key; they only live a day.
+            c.execute("DELETE FROM idempotency", [])?;
+            shown.push((key, mode));
+        }
         for mode in ["test", "live"] {
-            if !keys.iter().any(|(_, m)| m == mode) {
+            let have: i64 = c.query_row("SELECT COUNT(*) FROM api_keys WHERE mode = ?1 AND revoked = 0", [mode], |r| r.get(0))?;
+            if have == 0 {
                 let mut b = [0u8; 24];
                 getrandom::fill(&mut b).expect("OS RNG");
                 let key = format!("rcpt_{mode}_{}", hex::encode(b));
-                c.execute("INSERT INTO api_keys (key, mode, created) VALUES (?1, ?2, ?3)", params![key, mode, now()])?;
-                keys.push((key, mode.to_string()));
+                c.execute("INSERT INTO api_keys (key, mode, created) VALUES (?1, ?2, ?3)", params![key_digest(&key), mode, now()])?;
+                shown.push((key, mode.to_string()));
             }
         }
-        Ok(keys)
+        Ok(shown)
     }
 
     pub fn mode_for_key(&self, key: &str) -> rusqlite::Result<Option<String>> {
         let c = self.0.lock().unwrap();
-        c.query_row("SELECT mode FROM api_keys WHERE key = ?1 AND revoked = 0", [key], |r| r.get(0)).optional()
+        c.query_row("SELECT mode FROM api_keys WHERE key = ?1 AND revoked = 0", [key_digest(key)], |r| r.get(0)).optional()
     }
 }

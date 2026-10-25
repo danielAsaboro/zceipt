@@ -297,7 +297,7 @@ fn idem_lookup(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw
     let Some(k) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else { return Ok(None) };
     let c = st.db.0.lock().unwrap();
     let row: Option<(String, String, i64, String)> = c
-        .query_row("SELECT route, body_hash, status, response FROM idempotency WHERE api_key = ?1 AND idem_key = ?2", params![auth.key, k], |r| {
+        .query_row("SELECT route, body_hash, status, response FROM idempotency WHERE api_key = ?1 AND idem_key = ?2", params![crate::db::key_digest(&auth.key), k], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })
         .optional()?;
@@ -313,12 +313,33 @@ fn idem_lookup(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw
     }
 }
 
+/// Idempotency keys whose first call hasn't finished.
+struct InFlight(String);
+
+impl InFlight {
+    fn set() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+        static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+        S.get_or_init(Default::default)
+    }
+    fn enter(key: String) -> Option<InFlight> {
+        Self::set().lock().unwrap().insert(key.clone()).then_some(InFlight(key))
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        Self::set().lock().unwrap().remove(&self.0);
+    }
+}
+
 fn idem_store(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw: &str, status: StatusCode, body: &Value) {
     if let Some(k) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) {
         let c = st.db.0.lock().unwrap();
+        // Keys older than a day are forgotten, so a stale answer is not replayed forever.
+        let _ = c.execute("DELETE FROM idempotency WHERE created < ?1", [now() - 86_400]);
         let _ = c.execute(
             "INSERT OR IGNORE INTO idempotency (api_key, idem_key, route, body_hash, status, response, created) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![auth.key, k, route, body_hash(raw), status.as_u16(), body.to_string(), now()],
+            params![crate::db::key_digest(&auth.key), k, route, body_hash(raw), status.as_u16(), body.to_string(), now()],
         );
     }
 }
@@ -335,6 +356,15 @@ where
         Err(e) => return e.into_response(),
         Ok(None) => {}
     }
+    // The same key arriving while the first call is still running would run it twice: refuse it
+    // (the client retries after the first finishes and then gets the stored answer).
+    let _in_flight = match headers.get("idempotency-key").and_then(|v| v.to_str().ok()) {
+        Some(k) => match InFlight::enter(format!("{}\u{0}{k}", auth.key)) {
+            Some(g) => Some(g),
+            None => return ApiError::conflict("idempotency_in_progress", "a request with this Idempotency-Key is still running; retry in a moment").into_response(),
+        },
+        None => None,
+    };
     let (status, body) = match f().await {
         Ok(ok) => ok,
         // Transient failures are not stored, so a retry can succeed.
@@ -434,6 +464,10 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
     if let Some(c) = &req.challenge {
         if v.challenge.as_deref() != Some(c.as_str()) {
             return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this challenge"));
+        }
+        // Anyone can sign with the public demo wallet's key, so it can't answer a challenge.
+        if v.public_demo {
+            return Err(ApiError::verification("public_demo_key", "this receipt is from the public demo wallet, whose key anyone has; it proves nothing about who paid"));
         }
     }
     let mut body = serde_json::to_value(&v).unwrap();
@@ -649,16 +683,13 @@ pub(crate) fn check_test_webhook_url(url: &str) -> Result<(), ApiError> {
             Ok(())
         }
         Some(url::Host::Ipv4(ip)) => {
-            let o = ip.octets();
-            if ip.is_link_local() || ip.is_unspecified() || o == [100, 100, 100, 200] {
+            if webhooks::is_blocked_test_ip(ip.into()) {
                 return bad();
             }
             Ok(())
         }
         Some(url::Host::Ipv6(ip)) => {
-            let s = ip.segments();
-            let mapped = ip.to_ipv4_mapped().is_some_and(|v| v.is_link_local() || v.is_unspecified());
-            if ip.is_unspecified() || (s[0] & 0xffc0) == 0xfe80 || s[..3] == [0xfd00, 0x0ec2, 0] || mapped {
+            if webhooks::is_blocked_test_ip(ip.into()) {
                 return bad();
             }
             Ok(())

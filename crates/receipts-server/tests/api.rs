@@ -680,7 +680,7 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://127.0.0.1:3000/hooks" })), None).await;
     assert_eq!(s, StatusCode::CREATED);
     // A sandbox key can't aim the server at link-local or cloud metadata addresses either.
-    for bad in ["http://169.254.169.254/latest", "http://[fe80::1]/h", "http://[::ffff:169.254.169.254]/", "http://100.100.100.200/", "http://0.0.0.0:80/", "http://metadata.google.internal/"] {
+    for bad in ["http://169.254.169.254/latest", "http://[fe80::1]/h", "http://[::ffff:169.254.169.254]/", "http://100.100.100.200/", "http://0.0.0.0:80/", "http://metadata.google.internal/", "http://168.63.129.16/", "http://[64:ff9b::a9fe:a9fe]/", "http://[2002:a9fe:a9fe::1]/", "http://[fd00:ec2::254]/"] {
         let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": bad })), None).await;
         assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
     }
@@ -905,4 +905,50 @@ async fn deposit_desk_policy() {
     assert_eq!((s, e["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("not_held_for_review")));
     let (s, _, _) = call(&app, "POST", &format!("/v1/requests/{id}/review"), Some(&test), Some(json!({ "decision": "maybe" })), None).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn api_keys_are_digests_in_the_database_and_old_plaintext_keys_are_converted() {
+    let path = std::env::temp_dir().join(format!("receipts-keys-{}-{}.db", std::process::id(), rand_suffix()));
+    let path = path.to_str().unwrap().to_string();
+    // A database from an earlier version: a test key stored in the clear.
+    {
+        let db = receipts_server::db::Db::open(&path).unwrap();
+        db.0.lock().unwrap().execute("INSERT INTO api_keys (key, mode, created) VALUES ('rcpt_test_oldplaintextkey', 'test', 1)", []).unwrap();
+    }
+    let (router, keys) = receipts_server::build(&path, receipts_server::Config::new(Net::Test, "http://verifier.test/")).await.unwrap();
+    // The old key still works, and nothing in the file is a usable key any more.
+    let (s, _, _) = call(&router, "GET", "/v1/requests", Some("rcpt_test_oldplaintextkey"), None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(keys.iter().any(|(k, _)| k == "rcpt_test_oldplaintextkey"), "shown once more, so the operator can store it");
+    let stored: Vec<String> = {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        let mut st = c.prepare("SELECT key FROM api_keys").unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    };
+    assert!(stored.iter().all(|k| k.starts_with("sha256:")), "{stored:?}");
+    // A restart shows no keys (they can't be recovered) and the same keys still work.
+    drop(router);
+    let (router, keys) = receipts_server::build(&path, receipts_server::Config::new(Net::Test, "http://verifier.test/")).await.unwrap();
+    assert!(keys.is_empty());
+    let (s, _, _) = call(&router, "GET", "/v1/requests", Some("rcpt_test_oldplaintextkey"), None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, _, _) = call(&router, "GET", "/v1/requests", Some("sha256:whatever"), None, None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+
+    // Test clocks belong to the key that made them: a second test key can't move them.
+    let second = "rcpt_test_secondtenantkey";
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute("INSERT INTO api_keys (key, mode, created) VALUES (?1, 'test', 2)", [receipts_server::db::key_digest(second)]).unwrap();
+    }
+    let (s, clock, _) = call(&router, "POST", "/v1/test_clocks", Some("rcpt_test_oldplaintextkey"), Some(json!({ "height": 500 })), None).await;
+    assert_eq!(s, StatusCode::CREATED);
+    let cid = clock["id"].as_str().unwrap();
+    let (s, _, _) = call(&router, "GET", &format!("/v1/test_clocks/{cid}"), Some(second), None, None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _, _) = call(&router, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(second), Some(json!({ "blocks": 3 })), None).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, _, _) = call(&router, "GET", &format!("/v1/test_clocks/{cid}"), Some("rcpt_test_oldplaintextkey"), None, None).await;
+    assert_eq!(s, StatusCode::OK);
 }

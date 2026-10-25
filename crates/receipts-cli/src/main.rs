@@ -2366,7 +2366,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
             if !keys.is_empty() {
-                write_private(std::path::Path::new(&key_file), &lines)?;
+                // Keys are stored as digests: the file keeps the ones shown when they were made.
+                let old = std::fs::read_to_string(&key_file).unwrap_or_default();
+                write_private(std::path::Path::new(&key_file), &format!("{old}{lines}"))?;
+            } else {
+                eprintln!("  keys      stored as digests; the ones made at first start are in {key_file}");
             }
             eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
             axum::serve(listener, app)

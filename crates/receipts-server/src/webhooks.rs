@@ -111,14 +111,23 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
             }
         }
     } else {
-        // Test deliveries may reach localhost and private hosts, but not a name that now resolves
-        // to a link-local or metadata address (a DNS answer can change after the endpoint is created).
-        if let Err(e) = refuse_link_local_after_dns(&url).await {
-            let c = st.db.0.lock().unwrap();
-            c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
-            return Ok(());
+        // Test deliveries may reach localhost and private hosts, but not link-local or metadata addresses.
+        match test_mode_client(&url).await {
+            Ok(c) => c,
+            Err(e) => {
+                let c = st.db.0.lock().unwrap();
+                let attempts = attempts + 1;
+                if e.starts_with("DNS") && attempts < st.config.webhook_max_attempts {
+                    c.execute(
+                        "UPDATE deliveries SET status = 'pending', attempts = ?1, last_error = ?2, next_attempt_at = ?3 WHERE id = ?4",
+                        params![attempts, e, now() + backoff(st.config.webhook_backoff_secs, attempts), id],
+                    )?;
+                } else {
+                    c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
+                }
+                return Ok(());
+            }
         }
-        st.http.clone()
     };
     let res = client
         .post(&url)
@@ -149,23 +158,45 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
     Ok(())
 }
 
-async fn refuse_link_local_after_dns(url: &str) -> Result<(), String> {
-    crate::check_test_webhook_url(url).map_err(|e| e.message)?;
-    let u = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
-    let Some(host) = u.host_str().map(|h| h.trim_matches(|c| c == '[' || c == ']').to_string()) else { return Err("no host".into()) };
-    let port = u.port_or_known_default().unwrap_or(80);
-    if let Ok(addrs) = tokio::net::lookup_host((host.as_str(), port)).await {
-        for a in addrs {
-            let bad = match a.ip() {
-                std::net::IpAddr::V4(v) => v.is_link_local() || v.is_unspecified() || v.octets() == [100, 100, 100, 200],
-                std::net::IpAddr::V6(v) => (v.segments()[0] & 0xffc0) == 0xfe80 || v.is_unspecified() || v.to_ipv4_mapped().is_some_and(|m| m.is_link_local()),
-            };
-            if bad {
-                return Err(format!("refused: {host} resolves to a link-local or metadata address ({})", a.ip()));
-            }
+/// Link-local, unspecified and cloud-metadata addresses, including IPv6 forms that embed one.
+pub(crate) fn is_blocked_test_ip(ip: std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    let v4 = |v: std::net::Ipv4Addr| v.is_link_local() || v.is_unspecified() || matches!(v.octets(), [100, 100, 100, 200] | [168, 63, 129, 16] | [192, 0, 0, 192]);
+    match ip {
+        IpAddr::V4(v) => v4(v),
+        IpAddr::V6(v) => {
+            let s = v.segments();
+            let embedded = |a: u16, b: u16| std::net::Ipv4Addr::new((a >> 8) as u8, a as u8, (b >> 8) as u8, b as u8);
+            v.is_unspecified()
+                || (s[0] & 0xffc0) == 0xfe80
+                || s[..3] == [0xfd00, 0x0ec2, 0]
+                || v.to_ipv4_mapped().is_some_and(v4)
+                || (s[..6] == [0, 0, 0, 0, 0, 0] && v4(embedded(s[6], s[7])))
+                || (s[0] == 0x64 && s[1] == 0xff9b && v4(embedded(s[6], s[7])))
+                || (s[0] == 0x2002 && v4(embedded(s[1], s[2])))
         }
     }
-    Ok(())
+}
+
+/// A client for a test-mode delivery: the host is resolved once, refused if any answer is a
+/// link-local or metadata address, and the connection is pinned to what was checked, so a second
+/// DNS answer can't differ (rebinding). Localhost and private networks stay allowed.
+async fn test_mode_client(url: &str) -> Result<reqwest::Client, String> {
+    crate::check_test_webhook_url(url).map_err(|e| e.message)?;
+    let u = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
+    let host = u.host_str().ok_or("no host")?.to_string();
+    let port = u.port_or_known_default().unwrap_or(80);
+    let bare = host.trim_matches(|c| c == '[' || c == ']').to_string();
+    let mut b = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).redirect(reqwest::redirect::Policy::none());
+    if bare.parse::<std::net::IpAddr>().is_err() {
+        let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((bare.as_str(), port)).await.map_err(|e| format!("DNS: {e}"))?.collect();
+        let addr = addrs.first().copied().ok_or("DNS: no address")?;
+        if let Some(bad) = addrs.iter().find(|a| is_blocked_test_ip(a.ip())) {
+            return Err(format!("refused: {host} resolves to a link-local or metadata address ({})", bad.ip()));
+        }
+        b = b.resolve(&host, addr);
+    }
+    b.build().map_err(|e| e.to_string())
 }
 
 async fn pinned_public_client(url: &str) -> Result<reqwest::Client, String> {

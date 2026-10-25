@@ -217,6 +217,7 @@ pub struct CreateRequest {
 pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateRequest>) -> Response {
     let st2 = st.clone();
     let mode = auth.mode;
+    let api_key = auth.key.clone();
     idempotent(&st, &auth, &headers, "POST /v1/requests", &raw, || async move {
         let payee = req.payee.ok_or_else(|| ApiError::missing("payee"))?;
         check_payee(mode.net(&st2.config), &payee)?;
@@ -260,7 +261,7 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
                 if mode != Mode::Test {
                     return Err(ApiError::invalid("parameter_invalid", "test clocks only work with rcpt_test_ keys").param("test_clock"));
                 }
-                Some(crate::clocks::load(&st2, cid)?.frozen_time)
+                Some(crate::clocks::load_owned(&st2, cid, &api_key)?.frozen_time)
             }
         };
         let id = new_id("preq_");
@@ -299,17 +300,29 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
 
 pub async fn list_requests(State(st): State<Shared>, auth: Auth, Query(q): Query<ListQuery>) -> Result<Json<Value>, ApiError> {
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
-    let rows: Vec<RequestRec> = {
-        let c = st.db.0.lock().unwrap();
-        let after = match &q.starting_after {
-            Some(id) => c.query_row("SELECT created FROM requests WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.unwrap_or(i64::MAX),
-            None => i64::MAX,
+    // Pages of 500 are read until enough requests match the status filter (the status is computed
+    // per request, so it can't be part of the query): a match older than the newest 500 is found too.
+    let mut cursor = q.starting_after.clone();
+    let mut data: Vec<Value> = Vec::new();
+    for _ in 0..40 {
+        let rows: Vec<RequestRec> = {
+            let c = st.db.0.lock().unwrap();
+            let after = match &cursor {
+                Some(id) => c.query_row("SELECT created FROM requests WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.unwrap_or(i64::MAX),
+                None => i64::MAX,
+            };
+            let mut stmt = c.prepare(&format!("SELECT {COLS} FROM requests WHERE mode = ?1 AND (?3 IS NULL OR created < ?2 OR (created = ?2 AND id < ?3)) ORDER BY created DESC, id DESC LIMIT ?4"))?;
+            let rows = stmt.query_map(params![auth.mode.as_str(), after, cursor, 500], from_row)?.collect::<Result<Vec<_>, _>>()?;
+            rows
         };
-        let mut stmt = c.prepare(&format!("SELECT {COLS} FROM requests WHERE mode = ?1 AND (?3 IS NULL OR created < ?2 OR (created = ?2 AND id < ?3)) ORDER BY created DESC, id DESC LIMIT ?4"))?;
-        let rows = stmt.query_map(params![auth.mode.as_str(), after, q.starting_after, 500], from_row)?.collect::<Result<Vec<_>, _>>()?;
-        rows
-    };
-    let mut data: Vec<Value> = rows.iter().filter(|r| q.status.as_deref().is_none_or(|s| r.effective_status() == s)).map(|r| to_json(&st, r)).collect();
+        let full_page = rows.len() == 500;
+        let last = rows.last().map(|r| r.id.clone());
+        data.extend(rows.iter().filter(|r| q.status.as_deref().is_none_or(|s| r.effective_status() == s)).map(|r| to_json(&st, r)));
+        if data.len() > limit as usize || !full_page {
+            break;
+        }
+        cursor = last;
+    }
     let has_more = data.len() > limit as usize;
     data.truncate(limit as usize);
     Ok(Json(json!({ "object": "list", "data": data, "has_more": has_more })))
@@ -356,6 +369,11 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         }
         let mut v = v;
         v.checks["challenge"] = "matched".into();
+        // The block height at creation is fetched in the background; until it is known, an old payment
+        // could be shown again, so a real receipt waits for it (fixtures and test clocks have none).
+        if !sandbox::is_fixture(text) && r.test_clock.is_none() && r.created_height.is_none() {
+            return Err(ApiError::conflict("request_not_ready", "this request's creation height isn't recorded yet (the chain server was slow); retry in a few seconds"));
+        }
         if !sandbox::is_fixture(text) && r.created_height.is_some_and(|h| i64::from(v.mined_height) <= h) {
             return Err(ApiError::verification(
                 "paid_before_request",

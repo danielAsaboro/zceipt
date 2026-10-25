@@ -144,6 +144,8 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         [&r.id],
         |x| Ok((x.get(0)?, x.get(1)?)),
     )?;
+    // Only test keys have sandbox payments; a real transaction whose id happens to start with the fixture prefix is not one.
+    let sandbox = if auth.mode == crate::Mode::Test { sandbox } else { 0 };
     if unconfirmed > 0 {
         return Err(ApiError::conflict("payment_unconfirmed", "a payment on this request left the chain in a reorg; attest once it is mined again"));
     }

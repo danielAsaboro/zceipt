@@ -31,6 +31,22 @@ pub struct Clock {
     pub created: i64,
 }
 
+/// A digest of the API key that made a clock: enough to tell tenants apart without keeping the key.
+pub(crate) fn owner_of(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(key.as_bytes()))
+}
+
+/// The clock `id`, if `auth` made it (clocks made before owners were recorded stay open to all test keys).
+pub fn load_owned(st: &AppState, id: &str, api_key: &str) -> Result<Clock, ApiError> {
+    let k = load(st, id)?;
+    let owner: Option<String> = st.db.0.lock().unwrap().query_row("SELECT owner FROM test_clocks WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
+    if owner.is_some_and(|o| o != owner_of(api_key)) {
+        return Err(ApiError::not_found("test_clock_not_found", format!("no test clock {id}")).param("test_clock"));
+    }
+    Ok(k)
+}
+
 pub fn load(st: &AppState, id: &str) -> Result<Clock, ApiError> {
     let c = st.db.0.lock().unwrap();
     c.query_row("SELECT id, frozen_time, height, created FROM test_clocks WHERE id = ?1", [id], |r| {
@@ -75,14 +91,14 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Cre
     if !(0..=32_503_680_000).contains(&t) {
         return Err(ApiError::invalid("parameter_invalid", "frozen_time must be a unix time between 1970 and 3000").param("frozen_time"));
     }
-    st.db.0.lock().unwrap().execute("INSERT INTO test_clocks (id, frozen_time, height, created) VALUES (?1,?2,?3,?4)", params![id, t, h, now()])?;
+    st.db.0.lock().unwrap().execute("INSERT INTO test_clocks (id, frozen_time, height, created, owner) VALUES (?1,?2,?3,?4,?5)", params![id, t, h, now(), owner_of(&auth.key)])?;
     Ok((StatusCode::CREATED, Json(clock_json(&st, &load(&st, &id)?))))
 }
 
 /// GET /v1/test_clocks/{id}
 pub async fn get(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -> Result<Json<Value>, ApiError> {
     test_only(&auth)?;
-    Ok(Json(clock_json(&st, &load(&st, &id)?)))
+    Ok(Json(clock_json(&st, &load_owned(&st, &id, &auth.key)?)))
 }
 
 #[derive(Deserialize)]
@@ -104,7 +120,7 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
     if !(0..=10 * 366 * 86_400).contains(&seconds) || (seconds == 0 && blocks == 0) {
         return Err(ApiError::invalid("parameter_invalid", "advance by up to 10 years and/or 1,000,000 blocks, and by something"));
     }
-    let k = load(&st, &id)?;
+    let k = load_owned(&st, &id, &auth.key)?;
     let (t, h) = (k.frozen_time + seconds, k.height + blocks);
     st.db.0.lock().unwrap().execute("UPDATE test_clocks SET frozen_time = ?1, height = ?2 WHERE id = ?3", params![t, h, id])?;
 
@@ -169,7 +185,7 @@ pub async fn reorg(State(st): State<Shared>, auth: Auth, Path(id): Path<String>,
     if !(1..=100).contains(&depth) {
         return Err(ApiError::invalid("parameter_invalid", "depth must be 1..=100").param("depth"));
     }
-    let k = load(&st, &id)?;
+    let k = load_owned(&st, &id, &auth.key)?;
     if depth >= k.height {
         return Err(ApiError::invalid("parameter_invalid", format!("depth must be less than the clock's height ({})", k.height)).param("depth"));
     }
@@ -249,8 +265,8 @@ pub async fn finality_sweeper(st: Shared) {
                 let mut lowest_conf = i64::MAX;
                 let mut dropped = false;
                 for (pid, txid, was) in txs {
-                    if txid.starts_with("5a4db0c5") {
-                        continue; // sandbox payment
+                    if mode == Mode::Test && txid.starts_with("5a4db0c5") {
+                        continue; // sandbox payment (test keys only)
                     }
                     let Ok(id) = crate::verify::parse_display_txid(&txid) else { continue };
                     // Known block: watch the block (the server learns the block, not the txid).

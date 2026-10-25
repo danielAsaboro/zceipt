@@ -2464,6 +2464,12 @@ fn designated_receipts_convince_only_their_verifier() {
     assert!(e.check_proofs().is_err());
     // The verifier can make an equally valid one with its own key and no spend key, so the receipt
     // proves nothing to anyone it forwards it to.
+    // A verifier key whose log is known to everyone (the identity, y = 0) would let anyone make the
+    // proof: refused when making one, and when checking one that names it.
+    assert!(designated::simulate(d.receipt.clone(), &[0; 32], OsRng).is_err());
+    let mut ident = d.clone();
+    ident.verifier = [0; 32];
+    assert!(ident.check_proofs().is_err());
     let forged = designated::simulate(d.receipt.clone(), &y, OsRng).unwrap();
     assert_eq!(forged.verifier, v);
     verify_designated_tx_bundles(&keys().1, &forged, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();

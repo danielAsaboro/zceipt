@@ -125,7 +125,7 @@ impl Certificate {
     pub fn check(&self) -> Result<(), Error> {
         let rk = redpallas::VerificationKey::<SpendAuth>::try_from(self.rk).map_err(|_| Error::BadDelegation)?;
         rk.verify(&self.digest(), &redpallas::Signature::<SpendAuth>::from(self.sig)).map_err(|_| Error::BadDelegation)?;
-        point(&self.session).map_err(|_| Error::BadDelegation)?;
+        crate::link::nonidentity_point(&self.session).map_err(|_| Error::BadDelegation)?;
         Ok(())
     }
 }

@@ -679,6 +679,11 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     assert_eq!(s, StatusCode::CREATED);
     let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://127.0.0.1:3000/hooks" })), None).await;
     assert_eq!(s, StatusCode::CREATED);
+    // A sandbox key can't aim the server at link-local or cloud metadata addresses either.
+    for bad in ["http://169.254.169.254/latest", "http://[fe80::1]/h", "http://[::ffff:169.254.169.254]/", "http://100.100.100.200/", "http://0.0.0.0:80/", "http://metadata.google.internal/"] {
+        let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": bad })), None).await;
+        assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
+    }
 }
 
 #[tokio::test]

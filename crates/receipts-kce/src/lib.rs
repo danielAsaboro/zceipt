@@ -293,6 +293,9 @@ impl Siblings {
 /// Proves accounts `a` and `b` of `seed` are siblings, for tags in the domain whose field element
 /// is `domain_field`.
 pub fn prove(keys: &Keys, seed: &[u8], coin_type: u32, accounts: [u32; 2], domain: &[u8], domain_field: pallas::Base, rng: impl rand::CryptoRng) -> Result<Siblings, Error> {
+    if domain.len() > u16::MAX as usize {
+        return Err(Error::Synthesis);
+    }
     let (sk_par, c_par) = coin_key(seed, coin_type);
     let idx = accounts.map(|a| a | 0x8000_0000);
     let tags = idx.map(|i| tag(nk(&child(&sk_par, &c_par, i).0), domain_field));

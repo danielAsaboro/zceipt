@@ -17,7 +17,7 @@
 //! check      := R1 = [s1]G - [c1]rk, R2 = [s2]G - [c2]V, c1 + c2 == c
 //! ```
 
-use crate::link::{point, scalar, spend_auth_base};
+use crate::link::{nonidentity_point, point, scalar, spend_auth_base};
 use crate::{random_scalar, sign_prepared, signing_digest, signing_personal, Error, PreparedReceipt, Receipt};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use group::{ff::FromUniformBytes, ff::PrimeField, GroupEncoding};
@@ -79,7 +79,7 @@ pub fn prove(prepared: PreparedReceipt, sks: &[SpendingKey], verifier: [u8; 32],
     let asks: Vec<SpendAuthorizingKey> = sks.iter().map(SpendAuthorizingKey::from).collect();
     sign_prepared(u, prepared.alphas(), &asks, &mut rng)?;
     let g = spend_auth_base();
-    let v = point(&verifier).map_err(|_| Error::BadDesignated)?;
+    let v = nonidentity_point(&verifier).map_err(|_| Error::BadDesignated)?;
     let digest = signing_digest(u);
     let mut proofs = Vec::with_capacity(u.spends.len());
     for ((s, sk), alpha) in u.spends.iter().zip(sks).zip(prepared.alphas()) {
@@ -105,6 +105,9 @@ pub fn prove(prepared: PreparedReceipt, sks: &[SpendingKey], verifier: [u8; 32],
 pub fn simulate(receipt: Receipt, y: &[u8; 32], mut rng: impl CryptoRng) -> Result<DesignatedReceipt, Error> {
     let g = spend_auth_base();
     let y = scalar(y).map_err(|_| Error::BadDesignated)?;
+    if bool::from(group::ff::Field::is_zero(&y)) {
+        return Err(Error::BadDesignated);
+    }
     let verifier = (g * y).to_bytes();
     let u = &receipt.unsigned;
     let digest = signing_digest(u);
@@ -132,7 +135,7 @@ impl DesignatedReceipt {
             return Err(Error::BadDesignated);
         }
         let g = spend_auth_base();
-        let v = point(&self.verifier).map_err(|_| Error::BadDesignated)?;
+        let v = nonidentity_point(&self.verifier).map_err(|_| Error::BadDesignated)?;
         let digest = signing_digest(u);
         for (s, p) in u.spends.iter().zip(&self.proofs) {
             let rk = point(&s.rk).map_err(|_| Error::BadDesignated)?;

@@ -55,6 +55,17 @@ pub(crate) fn point(b: &[u8; 32]) -> Result<pallas::Point, Error> {
     Option::from(pallas::Point::from_bytes(b)).ok_or(Error::BadLink)
 }
 
+/// A point that is not the identity. The identity's encoding is 32 zero bytes and decodes like any
+/// point; as a verifier's or session key it would have a known discrete log (0), so anyone could
+/// make the "I know the log of V" half of a proof.
+pub(crate) fn nonidentity_point(b: &[u8; 32]) -> Result<pallas::Point, Error> {
+    let p = point(b)?;
+    if bool::from(group::Group::is_identity(&p)) {
+        return Err(Error::BadLink);
+    }
+    Ok(p)
+}
+
 pub(crate) fn scalar(b: &[u8; 32]) -> Result<pallas::Scalar, Error> {
     Option::from(<pallas::Scalar as group::ff::PrimeField>::from_repr(*b)).ok_or(Error::BadLink)
 }
@@ -207,4 +218,17 @@ pub fn verify(proof: &LinkProof, receipts: &[&Receipt]) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_identity_is_not_a_key() {
+        // The all-zero encoding decodes as the identity; keys a verifier or delegator is given must not be it.
+        assert!(point(&[0; 32]).is_ok());
+        assert!(nonidentity_point(&[0; 32]).is_err());
+        assert!(nonidentity_point(&spend_auth_base().to_bytes()).is_ok());
+    }
 }

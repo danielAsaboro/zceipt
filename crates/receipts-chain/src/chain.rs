@@ -1404,6 +1404,7 @@ pub async fn verify_claim_against_chain(
     net: Net,
     server: Option<&str>,
     cache: Option<&std::path::Path>,
+    second: Option<&str>,
 ) -> anyhow::Result<ClaimReport> {
     use zcash_client_backend::proto::service::BlockId;
     if c.coin_type != net.coin_type() {
@@ -1424,10 +1425,36 @@ pub async fn verify_claim_against_chain(
     if root != c.anchor {
         bail!("the claim's anchor isn't the {:?} tree root at block {}", c.pool, c.height);
     }
+    // A second server must agree on the root, and its nullifiers count too: one lying server could
+    // otherwise name a tree of its own, or leave out the spend that makes a note stale.
+    if let Some(second) = second {
+        let mut other = connect(second).await?;
+        let ts2 = other
+            .get_tree_state(BlockId { height: u64::from(c.height), hash: vec![] })
+            .await
+            .map_err(|e| anyhow!("tree state at {} from {second}: {}", c.height, e.message()))?
+            .into_inner();
+        let root2 = match c.pool {
+            Pool::Ironwood => ts2.ironwood_tree()?,
+            Pool::Orchard => ts2.orchard_tree()?,
+        }
+        .root()
+        .to_bytes();
+        if root2 != root {
+            bail!("{second} reports another {:?} tree root at block {}: the servers disagree", c.pool, c.height);
+        }
+    }
     let tag = receipts_core::claim::verify(c, &c.domain, &root).map_err(|e| anyhow!("{e}"))?;
     let from = pool_activation(net, c.pool).max(1);
-    if from <= c.height && published_nullifiers(net, server, c.pool, from, c.height, cache).await?.contains(&nf) {
-        bail!("the note was spent before block {}: it wasn't held at the snapshot", c.height);
+    if from <= c.height {
+        let mut spent = published_nullifiers(net, server, c.pool, from, c.height, cache).await?;
+        if let Some(second) = second {
+            let second_cache = nullifier_cache_path(net, c.pool, Some(second));
+            spent.extend(published_nullifiers(net, Some(second), c.pool, from, c.height, second_cache.as_deref()).await?);
+        }
+        if spent.contains(&nf) {
+            bail!("the note was spent before block {}: it wasn't held at the snapshot", c.height);
+        }
     }
     Ok(ClaimReport {
         valid: true,

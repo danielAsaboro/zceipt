@@ -497,7 +497,7 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
     // as receipts) and keep what was downloaded, so the next check fetches only newer blocks.
     let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
     let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
-    let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref()).await.map_err(invalid)?;
+    let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), None).await.map_err(invalid)?;
     Ok(Json(serde_json::to_value(rep).unwrap()))
 }
 
@@ -619,6 +619,39 @@ pub(crate) fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
     }
 }
 
+/// Test-mode webhooks may go to localhost and private networks (developers receive them on their
+/// own machines), but never to link-local or cloud metadata addresses: a sandbox key handed to
+/// the public must not let the server read its host's credentials.
+pub(crate) fn check_test_webhook_url(url: &str) -> Result<(), ApiError> {
+    let bad = || Err(ApiError::invalid("webhook_url_not_allowed", "webhooks can't go to link-local or cloud metadata addresses".to_string()).param("url"));
+    let Ok(u) = reqwest::Url::parse(url) else { return Err(ApiError::invalid("parameter_invalid", "not a valid URL").param("url")) };
+    match u.host() {
+        Some(url::Host::Domain(d)) => {
+            let d = d.trim_end_matches('.').to_ascii_lowercase();
+            if d == "metadata.google.internal" || d.ends_with(".internal") && d.starts_with("metadata") {
+                return bad();
+            }
+            Ok(())
+        }
+        Some(url::Host::Ipv4(ip)) => {
+            let o = ip.octets();
+            if ip.is_link_local() || ip.is_unspecified() || o == [100, 100, 100, 200] {
+                return bad();
+            }
+            Ok(())
+        }
+        Some(url::Host::Ipv6(ip)) => {
+            let s = ip.segments();
+            let mapped = ip.to_ipv4_mapped().is_some_and(|v| v.is_link_local() || v.is_unspecified());
+            if ip.is_unspecified() || (s[0] & 0xffc0) == 0xfe80 || s[..3] == [0xfd00, 0x0ec2, 0] || mapped {
+                return bad();
+            }
+            Ok(())
+        }
+        None => Err(ApiError::invalid("parameter_invalid", "the URL has no host").param("url")),
+    }
+}
+
 async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateEndpoint>) -> Result<(StatusCode, Json<Value>), ApiError> {
     let url = req.url.ok_or_else(|| ApiError::missing("url"))?;
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -626,6 +659,8 @@ async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Bod
     }
     if auth.mode == Mode::Live {
         check_live_webhook_url(&url)?;
+    } else {
+        check_test_webhook_url(&url)?;
     }
     let events = req.events.unwrap_or_else(|| vec!["*".into()]);
     if let Some(bad) = events.iter().find(|e| *e != "*" && !EVENT_TYPES.contains(&e.as_str())) {

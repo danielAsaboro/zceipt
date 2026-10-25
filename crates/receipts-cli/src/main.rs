@@ -1989,7 +1989,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("  shows     the payer tags above are of two accounts of one wallet; not which wallet or accounts");
             }
         }
-        Cmd::Verify { receipt, server, json, regtest, domain, height, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, json, regtest, domain, height, cross_check, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::claim::CLAIM_TEXT_PREFIX).unwrap();
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
@@ -2033,10 +2033,17 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let net = net::for_receipt(c.coin_type, regtest.as_deref())?;
             let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
             eprintln!("Checking the proof and that the note was unspent at block {height}…");
-            let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref()).await?;
+            let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), cross_check.as_deref()).await?;
             if let (_, Some(ch), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
                 if receipts_server::verify::challenge_of(&rep.message).as_deref() != Some(ch.to_lowercase().as_str()) {
                     bail!("the claim doesn't sign challenge {ch}");
+                }
+            }
+            // A snapshot block a reorg can still replace would move the tree under every claim accepted against it.
+            if let Ok(tip) = chain::chain_tip(net, server.as_deref()).await {
+                let deep = tip.saturating_sub(height) + 1;
+                if deep < chain::FINALITY_CONFIRMATIONS {
+                    eprintln!("(warning: the snapshot block {height} has {deep} confirmation{}, fewer than the {} after which a reorg is out of reach; claims accepted now could fall with it)", if deep == 1 { "" } else { "s" }, chain::FINALITY_CONFIRMATIONS);
                 }
             }
             if json {

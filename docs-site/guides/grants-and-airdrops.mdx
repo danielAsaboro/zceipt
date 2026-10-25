@@ -39,7 +39,7 @@ receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
 receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
 ```
 
-The claim shows a note of at least the floor was held at the snapshot block. The claimant picks
+Pick a snapshot block that is already final (`verify` warns when it is not): a reorg would replace the tree under every claim accepted against it. The claim shows a note of at least the floor was held at the snapshot block. The claimant picks
 the floor, so `--min` (the least you accept) is required: a claim below it is refused. Two claims from one
 wallet carry one tag; tags in other airdrops don't link. See
 [distinct payers](/composability/distinct-payers) for how this works and what it doesn't stop.

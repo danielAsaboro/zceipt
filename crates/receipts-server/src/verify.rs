@@ -193,6 +193,14 @@ pub async fn verify_parsed(net: Net, server: Option<&str>, receipt: &Receipt) ->
 }
 
 pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Receipt, hint: Option<u32>) -> Result<Verification, ApiError> {
+    verify_parsed_inner(net, server, receipt, hint, None).await
+}
+
+/// Statements of an aggregated batch's spends, by receipt position, collected while each receipt
+/// is checked; one proof then covers them all.
+type Deferred = std::sync::Arc<std::sync::Mutex<Vec<(usize, Vec<orchard::circuit::Instance>)>>>;
+
+async fn verify_parsed_inner(net: Net, server: Option<&str>, receipt: &Receipt, hint: Option<u32>, deferred: Option<(usize, Deferred)>) -> Result<Verification, ApiError> {
     let u = &receipt.unsigned;
     let receipt_is_main = u.coin_type == COIN_TYPE_MAINNET;
     if receipt_is_main != (net == Net::Main) {
@@ -242,7 +250,16 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
         let _permit = verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
         tokio::task::spawn_blocking(move || {
             let lookup = |pool: Pool, id: &[u8; 32], index: u32| source_cmx.get(&(*id, u8::from(pool == Pool::Ironwood), index)).copied();
-            receipts_core::verify_tx_bundles_with_sources(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref(), &lookup)
+            match deferred {
+                // An aggregated batch's receipts carry no proofs of their own: their statements are kept for the batch's one proof.
+                Some((i, shared)) => {
+                    let mut instances = Vec::new();
+                    let v = receipts_core::verify_tx_bundles_deferred(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref(), &mut instances)?;
+                    shared.lock().unwrap().push((i, instances));
+                    Ok(v)
+                }
+                None => receipts_core::verify_tx_bundles_with_sources(vk(), &receipt_owned, coin, txid, orchard.as_ref(), ironwood.as_ref(), &lookup),
+            }
         })
         .await
         .map_err(|e| ApiError::internal(e.to_string()))?
@@ -399,6 +416,8 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
     // Fetch and verify the receipts concurrently (proof checks are bounded by verify_slots).
     // `h=` block hints, one per receipt, keep the chain server from learning the batch's txids.
     let hints = chain::height_hints(text).filter(|h| h.len() == batch.receipts.len());
+    let aggregate = batch.aggregate.clone();
+    let shared: Deferred = Default::default();
     let mut set = tokio::task::JoinSet::new();
     // At most a few chain fetches at once per batch, however many receipts it holds.
     let fetches = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
@@ -406,9 +425,10 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
         let server = server.map(str::to_string);
         let hint = hints.as_ref().map(|h| h[i]);
         let fetches = fetches.clone();
+        let deferred = aggregate.is_some().then(|| (i, shared.clone()));
         set.spawn(async move {
             let _slot = fetches.acquire_owned().await;
-            (i, verify_parsed_hinted(net, server.as_deref(), &r, hint).await)
+            (i, verify_parsed_inner(net, server.as_deref(), &r, hint, deferred).await)
         });
     }
     let mut slots: Vec<Option<Verification>> = vec![None; batch.receipts.len()];
@@ -417,6 +437,17 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
         slots[i] = Some(v?);
     }
     let results: Vec<Verification> = slots.into_iter().map(|v| v.expect("every task reports")).collect();
+    // An aggregated batch: its one proof must cover every spend of every receipt, in order.
+    if let Some(proof) = aggregate {
+        let mut parts = std::mem::take(&mut *shared.lock().unwrap());
+        parts.sort_by_key(|(i, _)| *i);
+        let instances: Vec<orchard::circuit::Instance> = parts.into_iter().flat_map(|(_, v)| v).collect();
+        let _permit = verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
+        tokio::task::spawn_blocking(move || receipts_core::verify_aggregate(vk(), &instances, &proof))
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .map_err(|e| ApiError::verification("batch_invalid", format!("{e}: a receipt in the batch was changed after it was made, or not made by the wallet that paid")))?;
+    }
     let mut totals = serde_json::Map::new();
     for v in &results {
         for o in v.outputs.iter().filter(|o| !o.memo_withheld) {

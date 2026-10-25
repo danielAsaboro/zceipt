@@ -1080,7 +1080,7 @@ async fn block_hash(c: &mut CompactTxStreamerClient<Channel>, h: u32) -> Option<
 pub fn nullifier_cache_path(net: Net, pool: Pool, server: Option<&str>) -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").map(|h| {
         std::path::PathBuf::from(h).join(".cache/receipts").join(format!(
-            "{}-{}-{}-nullifiers.bin",
+            "{}-{}-{}-nullifiers-v2.bin",
             net.name(),
             if pool == Pool::Orchard { "orchard" } else { "ironwood" },
             server.unwrap_or("default").replace([':', '/'], "_")
@@ -1129,6 +1129,10 @@ pub async fn published_nullifiers(
 ) -> anyhow::Result<std::collections::HashSet<[u8; 32]>> {
     use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
     let mut set = std::collections::HashSet::new();
+    // Nullifiers of the newest blocks (above the cache line), kept out of what is written to the cache:
+    // a later check at an earlier snapshot would otherwise find them and call a held note spent.
+    let mut recent = std::collections::HashSet::new();
+    let cache_line = to.saturating_sub(100).max(from);
     let mut start = from;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
     // Cache layout: from u32 | upto u32 | hash of block `upto` (32) | nullifiers. It is reused only
@@ -1172,7 +1176,11 @@ pub async fn published_nullifiers(
             };
             for a in actions {
                 if let Ok(nf) = <[u8; 32]>::try_from(a.nullifier.as_slice()) {
-                    set.insert(nf);
+                    if block.height > u64::from(cache_line) {
+                        recent.insert(nf);
+                    } else {
+                        set.insert(nf);
+                    }
                 }
             }
         }
@@ -1186,9 +1194,8 @@ pub async fn published_nullifiers(
     if last < to {
         bail!("the server stopped at block {last}, before {to}");
     }
-    // Cache up to 100 blocks below the tip (nullifiers above it stay in the set, which can only
-    // make a later check stricter, and those blocks are scanned again next time).
-    let upto = to.saturating_sub(100).max(from);
+    // Cache up to 100 blocks below the tip; the newer blocks are scanned again next time.
+    let upto = cache_line;
     if let (Some(c), Some(hash)) = (cache, block_hash(&mut client, upto).await) {
         let mut h = [0u8; 32];
         h[..hash.len().min(32)].copy_from_slice(&hash[..hash.len().min(32)]);
@@ -1203,6 +1210,7 @@ pub async fn published_nullifiers(
             let _ = std::fs::remove_file(&tmp);
         }
     }
+    set.extend(recent);
     Ok(set)
 }
 

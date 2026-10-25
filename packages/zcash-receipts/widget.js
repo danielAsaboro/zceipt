@@ -57,6 +57,7 @@ class ZcashReceipt extends HTMLElement {
         ${(v.sources || []).map((s) => `<div class="row"><span class="k">FUNDS</span>${s.zatoshis != null ? esc((s.zatoshis / 1e8).toFixed(8)) + " ZEC note " : ""}from ${esc(short(s.source_txid, 6))}:${s.source_action}${(s.transparent_inputs || []).filter((i) => i.address).map((i) => `, funded by ${esc(short(i.address, 8))}`).join("")} (proven)</div>`).join("")}
         <div class="row"><span class="k">TX</span>${esc(short(v.txid, 8))} · block ${v.mined_height.toLocaleString()}</div>
         ${v.message ? `<div class="row"><span class="k">NOTE</span>${esc(v.message)}</div>` : ""}
+        ${options.expectAddress ? "" : `<div class="fine">The payee was not checked: this proves a payment was authorized, not that it was made to you. Add expect-address (and min-zatoshis, challenge).</div>`}
         <div class="fine">The sender proved they authorized this payment. Nothing else about their wallet is revealed.</div>
         <div class="fine">Verified on this device.${v.fetch?.mode === "block" ? ` The server saw only block ${v.mined_height.toLocaleString()} (${v.fetch.anonymity_set} transactions), not which one.` : v.fetch?.mode === "offline" ? " No server was contacted." : ""}</div>`);
       this.dispatchEvent(new CustomEvent("receipt-verified", { detail: v, bubbles: true }));

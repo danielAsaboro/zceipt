@@ -106,6 +106,9 @@ func (c *Client) raw(ctx context.Context, method, path string, body any) ([]byte
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		if strings.HasPrefix(c.Key, "rcpt_live_") && !strings.HasPrefix(strings.ToLower(c.BaseURL), "https://") && !isLoopbackURL(c.BaseURL) {
+			return nil, fmt.Errorf("receipts: a live API key must be sent over https")
+		}
 		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bytes.NewReader(payload))
 		if err != nil {
 			return nil, err
@@ -332,4 +335,16 @@ func ConstructEvent(rawBody []byte, header, secret string, tolerance time.Durati
 	}
 	ev := M{}
 	return ev, json.Unmarshal(rawBody, &ev)
+}
+
+// isLoopbackURL reports whether url is plain http to this computer.
+func isLoopbackURL(url string) bool {
+	u := strings.ToLower(url)
+	for _, p := range []string{"http://127.0.0.1", "http://localhost", "http://[::1]"} {
+		if strings.HasPrefix(u, p) {
+			rest := u[len(p):]
+			return rest == "" || rest[0] == ':' || rest[0] == '/'
+		}
+	}
+	return false
 }

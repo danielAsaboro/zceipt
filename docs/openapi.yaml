@@ -128,6 +128,8 @@ paths:
                 at_least_zatoshis: { type: integer, minimum: 0 }
                 before: { type: string, format: date }
                 disclose: { type: array, items: { type: string, enum: [txid, amount_zatoshis, paid_at, request, label] } }
+                audience: { type: string, maxLength: 200, description: "Who the attestation is for (aud). A verifier that names its audience refuses one made for another, or for nobody." }
+                valid_for_days: { type: integer, minimum: 1, maximum: 3650, description: "Days until it expires (exp). Default: no expiry." }
       responses:
         "200": { description: Attestation }
         "400": { $ref: "#/components/responses/Error" }
@@ -352,6 +354,7 @@ paths:
                 claim: { type: string, description: "The zip311t1… text." }
                 domain: { type: string, description: "Your airdrop's or round's name; a claim for another is refused." }
                 height: { type: integer, description: "The snapshot block. Required for a claim, omitted for a payer tag." }
+                list: { type: array, items: { type: string, description: "A note commitment, 64 hex digits" }, description: "For a claim against your own published list instead of the chain (the claimant's note is on it; its nullifier stays private). Give min_floor_zatoshis; omit height." }
                 min_floor_zatoshis: { type: integer, minimum: 1, description: "The least a claim's note must have held. Required for a claim: the claimant picks the floor it shows, so a dust note proves \"at least 1 zatoshi\" unless you set this." }
       responses:
         "200":

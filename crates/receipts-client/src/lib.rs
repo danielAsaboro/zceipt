@@ -116,6 +116,14 @@ impl Client {
             (&reqwest::Method::POST, None) => Some(random_key()),
             _ => None,
         };
+        // A live key goes over https (or to this computer): never in the clear across a network.
+        if self.key.starts_with("rcpt_live_") {
+            let b = self.base.to_ascii_lowercase();
+            let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| b.strip_prefix(p).is_some_and(|r| r.is_empty() || r.starts_with(':') || r.starts_with('/')));
+            if !b.starts_with("https://") && !local {
+                return Err(Error::InvalidRequest { status: 0, code: "insecure_base_url".into(), message: "a live API key must be sent over https".into(), param: None });
+            }
+        }
         let mut attempt = 0;
         loop {
             let mut rb =

@@ -38,7 +38,7 @@ export function heightHint(input: string): number | null;
 export function detectSecret(text: string): Promise<string | null>;
 export function extractSignIn(input: string): string | null;
 /** Sign in with Zcash, verified locally. Throws if the proof is not for this domain and nonce. */
-export function verifySignIn(input: string, options: { domain: string; nonce: string }): Promise<{ address: string; network: string; issued_at: number }>;
+export function verifySignIn(input: string, options: { domain: string; nonce: string; network?: "mainnet" | "testnet" | "main" | "test"; maxAgeSeconds?: number }): Promise<{ address: string; network: string; issued_at: number }>;
 export interface PaymentLinkFinding { level: "error" | "warning" | "info"; code: string; payment: number | null; message: string }
 export interface PaymentLinkCheck {
   ok: boolean;

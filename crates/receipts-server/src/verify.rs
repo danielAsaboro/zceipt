@@ -455,10 +455,24 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
             totals.insert(o.recipient.clone(), (cur + o.zatoshis).into());
         }
     }
+    // A same-payer proof (`k=zip311k1…`) with the batch: if one comes, it must hold for this batch.
+    let same_payer = match extract(text, "zip311k1") {
+        None => false,
+        Some(k) => {
+            let proof = receipts_core::link::LinkProof::from_text(&k).map_err(|e| ApiError::invalid("receipt_malformed", e.to_string()).param("receipt"))?;
+            if proof.msg != format!("batch:{id}").as_bytes() {
+                return Err(ApiError::verification("batch_invalid", "the same-payer proof is for another batch"));
+            }
+            receipts_core::link::verify(&proof, &batch.receipts.iter().collect::<Vec<_>>())
+                .map_err(|_| ApiError::verification("batch_invalid", "the same-payer proof doesn't hold: these payments weren't all signed by one key"))?;
+            true
+        }
+    };
     let body = serde_json::json!({
         "object": "batch_verification",
         "valid": true,
         "livemode": net == Net::Main,
+        "same_payer": same_payer,
         "id": id,
         // Outputs disclosed without their memo are listed but not counted.
         "total_zatoshis": results.iter().flat_map(|v| v.outputs.iter()).filter(|o| !o.memo_withheld).map(|o| o.zatoshis).sum::<u64>(),

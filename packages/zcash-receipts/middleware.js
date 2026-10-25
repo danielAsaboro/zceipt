@@ -34,7 +34,7 @@ let windowStart = 0, createdInWindow = 0;
 // (a server-side session or account id, never a header the client sets) to tie it to one caller,
 // `route` to tie it to one resource (default: the label), and `maxAgeSeconds` (default a day) to
 // make access expire. Refunds already paid back count against the price.
-export async function checkGate({ receipts, payee, amountZatoshis, label, route, requestId, expiresIn = 3600, requireFinal = false, bindTo, maxAgeSeconds = 86_400, maxNewPerMinute = 30 }) {
+export async function checkGate({ receipts, payee, amountZatoshis, label, route, requestId, expiresIn = 3600, requireFinal = receipts?.livemode ?? false, bindTo, maxAgeSeconds = 86_400, maxNewPerMinute = 30 }) {
   const routeKey = String(route ?? label ?? "default");
   const bind = bindTo == null ? null : String(bindTo);
   if (requestId) {

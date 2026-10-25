@@ -62,7 +62,7 @@ _lock = threading.Lock()
 
 def check_gate(receipts: Receipts, *, payee: str, amount_zatoshis: int, request_id: Optional[str] = None,
                bind_to: Optional[str] = None, route: Optional[str] = None, label: Optional[str] = None,
-               expires_in: int = 3600, require_final: bool = False, max_age_seconds: Optional[int] = 86_400,
+               expires_in: int = 3600, require_final: Optional[bool] = None, max_age_seconds: Optional[int] = 86_400,
                max_new_per_minute: int = 30) -> Gate:
     """Let the caller through if `request_id` names a fulfilled request this gate issued for the
     same payee, `route` (default: the label) and `bind_to`, with at least the price paid net of
@@ -71,6 +71,8 @@ def check_gate(receipts: Receipts, *, payee: str, amount_zatoshis: int, request_
 
     A fulfilled request id is a bearer token, so pass `bind_to`: a server-side session or account
     id, never something the client sends (like X-Forwarded-For)."""
+    if require_final is None:
+        require_final = receipts.livemode  # a live key waits for finality by default
     route_key = str(route or label or "default")
     bind = None if bind_to is None else str(bind_to)
     if request_id:

@@ -223,7 +223,7 @@ pub fn payer_tag_msg(txid: &[u8; 32]) -> Vec<u8> {
 /// the payment's `txid`, `anchor` and spend `nullifiers`; returns the tag.
 pub fn verify_payer_tag(claim: &Claim, domain: &[u8], txid: &[u8; 32], anchor: &[u8; 32], nullifiers: &[[u8; 32]]) -> Result<[u8; 32], Error> {
     let nf = claim.nf.ok_or(Error::BadClaim)?;
-    if claim.height != 0 || claim.msg != payer_tag_msg(txid) || !nullifiers.contains(&nf) {
+    if claim.height != 0 || claim.floor != 1 || claim.msg != payer_tag_msg(txid) || !nullifiers.contains(&nf) {
         return Err(Error::BadClaim);
     }
     verify_as(TagKind::PayerTag, claim, domain, anchor)

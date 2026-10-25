@@ -192,5 +192,5 @@ equal, by discrete log); the OR-proof in one-verifier receipts (the verifier it 
 checked by the caller, and the CLI and npm package do). The sibling circuit's worst case is limited:
 a forger could only merge two tags whose keys they know, which makes their own wallets count once.
 Not covered: the BLAKE2b gadget's constraints line by line (unaudited), the chain server's honesty
-about the tree root and nullifiers (a second server is not asked for claims), and independent
+about the tree root and nullifiers unless a second server is asked (`verify --cross-check`, which applies to claims too), and independent
 wallets (nothing catches those).

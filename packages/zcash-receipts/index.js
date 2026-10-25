@@ -166,8 +166,12 @@ export async function verifyReceipt(input, options = {}) {
   v.local = true;
   v.fetch = fetchInfo;
   // Exchange deposit (ZIP 320 TEX two-step): also check the second transaction.
-  const second = /(?:^|\n)second-tx:([0-9a-f]{64})(?:\n|$)/.exec(v.message || "");
-  if (second && /(?:^|\n)tex-deposit:/.test(v.message)) {
+  // Read as the Rust verifiers do: by line, trimmed, the transaction id in either case.
+  const msgLines = String(v.message || "").split(/\r?\n|\r/);
+  const secondId = msgLines.map((l) => (l.startsWith("second-tx:") ? l.slice(10).trim().toLowerCase() : null)).find((x) => x != null);
+  const second = secondId && /^[0-9a-f]{64}$/.test(secondId) ? [secondId, secondId] : null;
+  if (secondId != null && !second && msgLines.some((l) => l.startsWith("tex-deposit:"))) throw new Error("the receipt signs a TEX deposit with a malformed second-tx: line");
+  if (second && msgLines.some((l) => l.startsWith("tex-deposit:"))) {
     let tx2 = options.secondRawTx != null ? { raw: typeof options.secondRawTx === "string" ? hexToBytes(options.secondRawTx.trim()) : options.secondRawTx, height: options.secondHeight ?? height } : null;
     if (!tx2) {
       const endpoint = options.endpoint || DEFAULT_ENDPOINTS[summary.network];
@@ -281,7 +285,8 @@ export async function verifyBatch(input, options = {}) {
     results.push(...(await Promise.all(receipts.map((r, i) => verifyReceipt(useHints ? `${r}&h=${hints[i]}` : r, rest)))));
   }
   const totals = {};
-  for (const v of results) for (const o of v.outputs) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
+  // Outputs disclosed without their memo don't count, as in the CLI and the API.
+  for (const v of results) for (const o of v.outputs) if (!o.memo_withheld) totals[o.recipient] = (totals[o.recipient] || 0) + o.zatoshis;
   const out = { id, results, totals };
   // One request answered by several payments: every receipt signs its challenge.
   if (challenge != null) {
@@ -391,12 +396,19 @@ export function extractSignIn(input) {
  * address for your `domain` and the one-time `nonce` you issued. Resolves to
  * `{ address, network, issued_at }` or throws. Keep nonces single-use and short-lived.
  */
-export async function verifySignIn(input, { domain, nonce }) {
+export async function verifySignIn(input, { domain, nonce, network, maxAgeSeconds } = {}) {
   if (!domain || !nonce) throw new Error("verifySignIn needs { domain, nonce }");
   const s = extractSignIn(input);
   if (!s) throw new Error("no zsig1 sign-in found");
   await load();
-  return JSON.parse(verify_sign_in(s, String(domain), String(nonce)));
+  const out = JSON.parse(verify_sign_in(s, String(domain), String(nonce)));
+  // The sign-in names its own network: say yours, so a testnet address can't sign in to a mainnet site.
+  if (network != null && out.network !== (network === "main" ? "mainnet" : network === "test" ? "testnet" : network)) {
+    throw new Error(`this sign-in is for ${out.network}, not ${network}`);
+  }
+  // issued_at is the signer's own clock; with maxAgeSeconds a sign-in from far off in time is refused.
+  if (maxAgeSeconds != null && Math.abs(Date.now() / 1000 - out.issued_at) > maxAgeSeconds) throw new Error("this sign-in was issued too long ago (or its clock is far off)");
+  return out;
 }
 
 /**

@@ -19,12 +19,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, List
 
 __all__ = [
     "Receipts",
@@ -206,11 +207,20 @@ class _SignIn(_Resource):
 
 
 class _Claims(_Resource):
-    def verify(self, claim: str, *, domain: str, height: Optional[int] = None) -> Dict[str, Any]:
-        """Check a zip311t1… claim (with its snapshot height) or payer tag (no height); returns its tag."""
+    def verify(self, claim: str, *, domain: str, height: Optional[int] = None, min_floor_zatoshis: Optional[int] = None,
+               list: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Check a zip311t1… claim or payer tag; returns its tag.
+
+        An airdrop claim needs `height` (its snapshot block) and `min_floor_zatoshis` (the least you
+        accept: the claimant picks the floor it shows). A claim against your own list of note
+        commitments needs `list` (64-hex strings) and `min_floor_zatoshis`. A payer tag needs neither."""
         body: Dict[str, Any] = {"claim": claim, "domain": domain}
         if height is not None:
             body["height"] = height
+        if min_floor_zatoshis is not None:
+            body["min_floor_zatoshis"] = min_floor_zatoshis
+        if list is not None:
+            body["list"] = list
         return self._c._request("POST", "/v1/claims/verify", body)
 
 
@@ -255,6 +265,9 @@ class Receipts:
         self.max_retries = max_retries
         self.timeout = timeout
         self.livemode = api_key.startswith("rcpt_live_")
+        # A live key goes over https (or to this computer): never in the clear across a network.
+        if self.livemode and not re.match(r"^(https://|http://(127\.0\.0\.1|localhost|\[::1\])(:|/|$))", self.base_url, re.I):
+            raise ValueError("a live API key must be sent over https; use an https:// base_url")
         self.requests = _Requests(self)
         self.refunds = _Refunds(self)
         self.public = _Public(self)

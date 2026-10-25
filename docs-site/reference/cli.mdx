@@ -36,9 +36,13 @@ for every option.
 
 | Option | Requires |
 |---|---|
-| `--key-set <file>` | A key-set proof over this set |
+| `--key-set <file>` | A key-set proof over this set (refused if the receipt carries none) |
+| `--policy-commitment <file>` | A FROST policy proof over this published commitment (refused if none) |
+| `--list <file>` | A list-mode claim against this published list of note commitments; needs `--domain` and `--min` |
+| `--network main\|test` | Refuse artifacts of the other network |
+| `--siblings <proof>` | With `--payer-tag`: count the accounts it proves one wallet's once |
 | `--domain <name>` | A claim or payer tag for this domain |
-| `--height <n>` | A claim's snapshot block, or the height of `--raw-tx` |
+| `--height <n>` | A claim's snapshot block, or the height of `--raw-tx`; a claim also needs `--min`, the least floor you accept |
 | `--payer-tag <tag>`, `--min-payers <k>` | An income proof whose payments came from at least k wallets |
 | `--min-payments <n>` | At least n separate payments |
 | `--verifier-key <file>` | A receipt made for this verifier alone |

@@ -61,6 +61,17 @@ fn tools() -> Value {
     ])
 }
 
+/// A non-negative whole number argument, given as a number or a numeric string. A value that is
+/// neither is an error, not silently dropped (a dropped minimum would check nothing).
+fn uint(args: &Value, k: &str) -> Result<Option<u64>, String> {
+    match &args[k] {
+        Value::Null => Ok(None),
+        Value::Number(n) => n.as_u64().or_else(|| n.as_f64().filter(|f| f.fract() == 0.0 && *f >= 0.0 && *f < 9.0e15).map(|f| f as u64)).map(Some).ok_or_else(|| format!("{k} must be a whole number of zatoshis")),
+        Value::String(t) => t.trim().parse::<u64>().map(Some).map_err(|_| format!("{k} must be a whole number of zatoshis")),
+        _ => Err(format!("{k} must be a whole number of zatoshis")),
+    }
+}
+
 async fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String> {
     let s = |k: &str| args[k].as_str().map(str::to_string);
     let r = match name {
@@ -69,7 +80,7 @@ async fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String
                 .verify(&VerifyParams {
                     receipt: s("receipt").ok_or("receipt is required")?,
                     expect_address: s("expect_address"),
-                    min_zatoshis: args["min_zatoshis"].as_u64(),
+                    min_zatoshis: uint(args, "min_zatoshis")?,
                     challenge: s("challenge"),
                 })
                 .await
@@ -78,7 +89,7 @@ async fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String
             client
                 .create_request(&CreateRequest {
                     payee: s("payee").ok_or("payee is required")?,
-                    amount_zatoshis: args["amount_zatoshis"].as_u64(),
+                    amount_zatoshis: uint(args, "amount_zatoshis")?,
                     label: s("label"),
                     ..Default::default()
                 })
@@ -89,7 +100,7 @@ async fn call(client: &Client, name: &str, args: &Value) -> Result<Value, String
         "check_payment_link" => {
             return Ok(receipts_core::preflight::check_payment_uri(&s("uri").ok_or("uri is required")?, s("network").as_deref()));
         }
-        "refund_payment" => client.create_refund(&s("id").ok_or("id is required")?, args["amount_zatoshis"].as_u64(), s("reason").as_deref()).await,
+        "refund_payment" => client.create_refund(&s("id").ok_or("id is required")?, uint(args, "amount_zatoshis")?, s("reason").as_deref()).await,
         other => return Err(format!("unknown tool {other}")),
     };
     r.map_err(|e| match e.code() {

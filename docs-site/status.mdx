@@ -5,7 +5,7 @@ description: "What runs where, what is new cryptography, and what has not been r
 
 ## Summary
 
-- **Network:** Zcash public testnet and private regtest chains. Nothing has been run on mainnet.
+- **Network:** Zcash public testnet and private regtest chains. Every proof type has run on the testnet (`scripts/e2e-testnet.sh`, 26 checks on real payments). Nothing has been run on mainnet.
 - **Review:** unaudited. The only review is by the author ([crypto review](/reference/assurance)),
   which found and fixed one forgery. No external cryptographer has looked at it.
 - **Circuits:** the base receipt uses the stock Orchard Action circuit. Two proofs use circuits
@@ -20,11 +20,20 @@ description: "What runs where, what is new cryptography, and what has not been r
 | Key set | `zip311m1` | One-of-many Schnorr, no circuit | Testnet link in `examples/testnet/keyset` |
 | Screened set, source of funds | `zip311s1` | Action circuit against a one-leaf tree | Testnet and regtest |
 | Income | `zip311i1` | Action circuit against a one-leaf tree | Testnet proof over four real payments |
-| FROST policy | `zip311p1` | Schnorr, no circuit | Unit test with the Zcash Foundation's FROST and conformance vectors; **not run on a chain** |
-| Delegation | `zip311a1`, `zip311g1` | Schnorr links, no circuit | Regtest end-to-end, decoder fuzzing; **not on testnet** |
-| One verifier only | `zip311d1` | OR-Schnorr in place of the spend signature | Regtest end-to-end; **not on testnet** |
-| Claims and payer tags | `zip311t1` | **Forked Orchard Action circuit** (`vendor/orchard/src/circuit/claim.rs`) | Regtest end-to-end and tests; **not on testnet; unaudited** |
-| Sibling accounts | `zip311w1` | **New Halo 2 circuit with a ported BLAKE2b gadget**, k=17 | Regtest end-to-end; **not on testnet; the gadget and the port are unaudited** |
+| FROST policy | `zip311p1` | Schnorr, no circuit | Unit test with the Zcash Foundation's FROST and conformance vectors; testnet: a 2-of-3 receipt for a real payment (trusted-dealer split of a testnet key) |
+| Delegation | `zip311a1`, `zip311g1` | Schnorr links, no circuit | Testnet and regtest end-to-end (over-limit, expired and wrong-payee refused), decoder fuzzing |
+| One verifier only | `zip311d1` | OR-Schnorr in place of the spend signature | Testnet and regtest end-to-end |
+| Claims and payer tags | `zip311t1` | **Forked Orchard Action circuit** (`vendor/orchard/src/circuit/claim.rs`) | Testnet and regtest end-to-end; every byte of real proofs attacked; dishonest provers; **unaudited** |
+| Sibling accounts | `zip311w1` | **New Halo 2 circuit with a ported BLAKE2b gadget**, k=17 | Testnet: tags of real payments by accounts 0 and 1 of one wallet (32 s to prove); **the gadget and the port are unaudited** |
+
+## Attacks on the testnet proofs
+
+Found and fixed (details in [assurance](/reference/assurance)): claims and payer tags shared a tag
+per key and domain name; a claimant chose the floor a claim shows; a truncated nullifier cache
+could pass a spent note; tags of one wallet's accounts counted twice with no way to merge them; a
+FROST policy proof needs its commitment pinned. Checked against the new code: 45 mutants of the
+claim and cache changes, 37 caught, 7 unviable, 1 missed (a test helper); fuzzing of the text
+decoders; a 4-minute API soak with no errors.
 
 ## What to be careful about
 

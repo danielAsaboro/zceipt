@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 base64 = "0.22"
+receipts-kce = { path = "../../receipts-kce" }
 receipts-core = { path = "..", features = ["orchard-ext", "extensions"] }
 
 # Not part of the main workspace (needs nightly and a sanitizer).

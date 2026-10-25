@@ -946,6 +946,22 @@ dependencies = [
  "base64",
  "libfuzzer-sys",
  "receipts-core",
+ "receipts-kce",
+]
+
+[[package]]
+name = "receipts-kce"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake2b_simd",
+ "ff",
+ "halo2_gadgets",
+ "halo2_proofs",
+ "hex",
+ "num-bigint 0.4.8",
+ "pasta_curves",
+ "rand 0.10.3",
 ]
 
 [[package]]

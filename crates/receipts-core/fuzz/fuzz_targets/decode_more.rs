@@ -6,6 +6,9 @@ use libfuzzer_sys::fuzz_target;
 use receipts_core::{claim::Claim, delegated, designated, income::IncomeProof, keyset::KeySetProof, link::LinkProof, policy, reserve::ReserveProof, Receipt, ReceiptBatch};
 
 fuzz_target!(|b: &[u8]| {
+    if let Some(x) = receipts_kce::Siblings::from_bytes(b) {
+        assert_eq!(x.to_bytes(), b);
+    }
     if let Ok(x) = Receipt::from_bytes(b) {
         assert_eq!(x.to_bytes(), b);
     }

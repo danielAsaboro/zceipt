@@ -158,3 +158,136 @@ impl ClaimKeys {
         plonk::verify_proof(&self.params, self.pk.get_vk(), strategy, &instances, &mut transcript)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::{boxed::Box, vec, vec::Vec};
+    use crate::{
+        bundle::Flags,
+        keys::{FullViewingKey, Scope, SpendValidatingKey},
+        note::{Note, NoteVersion, Rho},
+        tree::MerklePath,
+        value::{NoteValue, ValueCommitTrapdoor, ValueCommitment},
+    };
+    use ff::Field;
+    use halo2_proofs::{circuit::Value, dev::MockProver};
+    use rand::{rand_core::UnwrapErr, rngs::SysRng};
+
+    const FLOOR: u64 = 600;
+
+    /// A claim over a note of 1000 with floor 600, honest: the circuit and its public inputs.
+    fn honest(expose_nf: bool) -> (ClaimCircuit, ClaimInstance) {
+        let mut rng = UnwrapErr(SysRng);
+        let version = NoteVersion::V2;
+        let (_, fvk, dummy) = Note::dummy(&mut rng, None, version);
+        let spent = Note::new(dummy.recipient(), NoteValue::from_raw(1000), dummy.rho(), version, &mut rng);
+        let nf_old = spent.nullifier(&fvk);
+        let (_, _, other_recipient) = Note::dummy(&mut rng, Some(Rho::from_nf_old(nf_old)), version);
+        let output = Note::new(other_recipient.recipient(), NoteValue::from_raw(1000 - FLOOR), Rho::from_nf_old(nf_old), version, &mut rng);
+        let alpha = pallas::Scalar::random(&mut rng);
+        let ak: SpendValidatingKey = fvk.clone().into();
+        let rk = ak.randomize(&alpha);
+        let rivk = fvk.rivk(fvk.scope_for_address(&spent.recipient()).unwrap());
+        let rcv = ValueCommitTrapdoor::zero();
+        let cv_net = ValueCommitment::derive(spent.value() - output.value(), rcv.clone());
+        let path = MerklePath::dummy(&mut rng);
+        let anchor = path.root(spent.commitment().into());
+        let inner = Circuit {
+            circuit_version: OrchardCircuitVersion::PostNu6_3,
+            path: Value::known(path.auth_path()),
+            pos: Value::known(path.position()),
+            g_d_old: Value::known(spent.recipient().g_d()),
+            pk_d_old: Value::known(*spent.recipient().pk_d()),
+            v_old: Value::known(spent.value()),
+            rho_old: Value::known(spent.rho()),
+            psi_old: Value::known(spent.psi()),
+            rcm_old: Value::known(spent.rcm()),
+            cm_old: Value::known(spent.commitment()),
+            alpha: Value::known(alpha),
+            ak: Value::known(ak),
+            nk: Value::known(*fvk.nk()),
+            rivk: Value::known(rivk),
+            g_d_new: Value::known(output.recipient().g_d()),
+            pk_d_new: Value::known(*output.recipient().pk_d()),
+            v_new: Value::known(output.value()),
+            psi_new: Value::known(output.psi()),
+            rcm_new: Value::known(output.rcm()),
+            rcv: Value::known(rcv),
+        };
+        let domain = pallas::Base::from(7);
+        let instance = ClaimInstance {
+            action: Instance::from_parts(anchor, cv_net, nf_old, rk, output.commitment().into(), Flags::ENABLED).unwrap(),
+            domain,
+            tag: claim_tag(&fvk, domain),
+        };
+        (ClaimCircuit { inner, domain: Value::known(domain), expose_nf }, instance)
+    }
+
+    fn accepts(c: &ClaimCircuit, i: &ClaimInstance) -> bool {
+        let rows = i.to_halo2(c.expose_nf);
+        MockProver::run(crate::circuit::K, c, vec![rows[0].to_vec()]).unwrap().verify().is_ok()
+    }
+
+    /// Every private witness, changed on its own, makes the circuit refuse the honest public inputs:
+    /// none is free for a dishonest prover to choose.
+    #[test]
+    fn no_private_witness_is_free() {
+        for expose_nf in [true, false] {
+            let (c, i) = honest(expose_nf);
+            assert!(accepts(&c, &i), "the honest claim (expose_nf={expose_nf})");
+            // Values for another note, key and address, to swap in.
+            let mut rng = UnwrapErr(SysRng);
+            let (_, fvk2, n2) = Note::dummy(&mut rng, None, NoteVersion::V2);
+            let ak2: SpendValidatingKey = fvk2.clone().into();
+            let rivk2 = fvk2.rivk(Scope::External);
+            let path2 = MerklePath::dummy(&mut rng);
+            let mutations: Vec<(&str, Box<dyn Fn(&mut ClaimCircuit)>)> = vec![
+                ("v_old", Box::new(|c| c.inner.v_old = Value::known(NoteValue::from_raw(1001)))),
+                ("v_old_smaller", Box::new(|c| c.inner.v_old = Value::known(NoteValue::from_raw(999)))),
+                ("v_new", Box::new(|c| c.inner.v_new = Value::known(NoteValue::from_raw(401)))),
+                ("alpha", Box::new(|c| c.inner.alpha = Value::known(pallas::Scalar::from(3)))),
+                ("nk", Box::new(move |c| c.inner.nk = Value::known(*fvk2.nk()))),
+                ("rivk", Box::new(move |c| c.inner.rivk = Value::known(rivk2))),
+                ("ak", Box::new(move |c| c.inner.ak = Value::known(ak2.clone()))),
+                ("g_d_old", Box::new({ let g = n2.recipient().g_d(); move |c| c.inner.g_d_old = Value::known(g) })),
+                ("pk_d_old", Box::new({ let p = *n2.recipient().pk_d(); move |c| c.inner.pk_d_old = Value::known(p) })),
+                ("rho_old", Box::new({ let r = n2.rho(); move |c| c.inner.rho_old = Value::known(r) })),
+                ("psi_old", Box::new({ let p = n2.psi(); move |c| c.inner.psi_old = Value::known(p) })),
+                ("rcm_old", Box::new({ let r = n2.rcm(); move |c| c.inner.rcm_old = Value::known(r.clone()) })),
+                ("cm_old", Box::new({ let m = n2.commitment(); move |c| c.inner.cm_old = Value::known(m.clone()) })),
+                ("path", Box::new(move |c| c.inner.path = Value::known(path2.auth_path()))),
+                ("pos", Box::new(|c| c.inner.pos = c.inner.pos.map(|p| p ^ 1))),
+                ("g_d_new", Box::new({ let g = n2.recipient().g_d(); move |c| c.inner.g_d_new = Value::known(g) })),
+                ("pk_d_new", Box::new({ let p = *n2.recipient().pk_d(); move |c| c.inner.pk_d_new = Value::known(p) })),
+                ("psi_new", Box::new({ let p = n2.psi(); move |c| c.inner.psi_new = Value::known(p) })),
+                ("rcm_new", Box::new({ let r = n2.rcm(); move |c| c.inner.rcm_new = Value::known(r.clone()) })),
+                ("rcv", Box::new(|c| c.inner.rcv = Value::known(ValueCommitTrapdoor::random(UnwrapErr(SysRng))))),
+                ("domain", Box::new(|c| c.domain = Value::known(pallas::Base::from(8)))),
+            ];
+            for (name, m) in mutations {
+                let mut bad = c.clone();
+                m(&mut bad);
+                assert!(!accepts(&bad, &i), "the circuit accepted a changed {name} (expose_nf={expose_nf})");
+            }
+            // And each public input, changed with the witnesses honest.
+            let mut wrong = i.clone();
+            wrong.domain = pallas::Base::from(8);
+            assert!(!accepts(&c, &wrong), "domain input");
+            let mut wrong = i.clone();
+            wrong.tag += pallas::Base::one();
+            assert!(!accepts(&c, &wrong), "tag input");
+            let mut wrong = i.clone();
+            wrong.action = Instance::from_parts(
+                wrong.action.anchor,
+                ValueCommitment::derive(NoteValue::from_raw(FLOOR + 1) - NoteValue::from_raw(0), ValueCommitTrapdoor::zero()),
+                wrong.action.nf_old,
+                wrong.action.rk.clone(),
+                wrong.action.cmx,
+                Flags::ENABLED,
+            )
+            .unwrap();
+            assert!(!accepts(&c, &wrong), "floor (cv_net) input");
+        }
+    }
+}

@@ -428,6 +428,44 @@ mod tests {
         assert!(MockProver::run(K, &c, vec![instance(domain, raw)]).unwrap().verify().is_err());
     }
 
+    /// Random parents, chain codes, indices (hardened or not, equal or not) and domains: the circuit
+    /// accepts exactly the tags the reference derivation gives, and rejects each tag with one bit
+    /// of one of them changed.
+    #[test]
+    fn mock_random_witnesses_agree_with_the_reference() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move || {
+            // xorshift64*: a fixed seed, so a failure reproduces.
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        };
+        for case in 0..24 {
+            let mut sk_par = [0u8; 32];
+            let mut c_par = [0u8; 32];
+            for b in sk_par.iter_mut().chain(c_par.iter_mut()) {
+                *b = next() as u8;
+            }
+            let idx = [next() as u32, next() as u32];
+            let domain = pallas::Base::from(next()) * pallas::Base::from(next()) + pallas::Base::from(next());
+            let tags = idx.map(|i| tag(nk(&child(&sk_par, &c_par, i).0), domain));
+            let c = SiblingCircuit { sk_par: Value::known(sk_par), c_par: Value::known(c_par), indices: idx.map(Value::known), domain: Value::known(domain) };
+            assert_eq!(MockProver::run(K, &c, vec![instance(domain, tags)]).unwrap().verify(), Ok(()), "case {case}");
+            // One bit of one tag (or the domain) changed: refused.
+            let which = (next() % 3) as usize;
+            let bit = pallas::Base::from(1u64 << (next() % 60));
+            let mut t = tags;
+            let mut d = domain;
+            match which {
+                0 => t[0] += bit,
+                1 => t[1] += bit,
+                _ => d += bit,
+            }
+            assert!(MockProver::run(K, &c, vec![instance(d, t)]).unwrap().verify().is_err(), "case {case} accepted a changed public input ({which})");
+        }
+    }
+
     #[test]
     fn mock_many_parents_and_indices() {
         // Several parents and account numbers, including account 0 and a large one.

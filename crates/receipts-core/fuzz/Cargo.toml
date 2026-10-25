@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+base64 = "0.22"
 receipts-core = { path = "..", features = ["orchard-ext", "extensions"] }
 
 # Not part of the main workspace (needs nightly and a sanitizer).
@@ -49,6 +50,20 @@ bench = false
 [[bin]]
 name = "decode_proofs"
 path = "fuzz_targets/decode_proofs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mutate_proofs"
+path = "fuzz_targets/mutate_proofs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode_more"
+path = "fuzz_targets/decode_more.rs"
 test = false
 doc = false
 bench = false

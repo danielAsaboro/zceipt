@@ -943,6 +943,7 @@ dependencies = [
 name = "receipts-core-fuzz"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "libfuzzer-sys",
  "receipts-core",
 ]

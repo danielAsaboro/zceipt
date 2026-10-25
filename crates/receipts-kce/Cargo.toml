@@ -19,5 +19,6 @@ rand = { workspace = true, features = ["std", "sys_rng"] }
 
 
 [dev-dependencies]
+regex = "1"
 orchard.workspace = true
 zip32 = "0.3"

@@ -598,3 +598,6 @@ mod gadget {
         assert_eq!(r.ok(), Some(false));
     }
 }
+
+#[cfg(test)]
+pub mod unconstrained;

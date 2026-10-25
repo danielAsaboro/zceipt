@@ -50,6 +50,12 @@ impl ClaimCircuit {
         (inner.circuit_version == OrchardCircuitVersion::PostNu6_3).then_some(ClaimCircuit { inner, domain: Value::known(domain), expose_nf })
     }
 
+    /// A circuit with no witnesses, for tests that read its structure.
+    #[doc(hidden)]
+    pub fn __empty_for_tests(expose_nf: bool) -> Self {
+        Self::empty(expose_nf)
+    }
+
     fn empty(expose_nf: bool) -> Self {
         ClaimCircuit { inner: Circuit::empty(OrchardCircuitVersion::PostNu6_3), domain: Value::unknown(), expose_nf }
     }

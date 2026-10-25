@@ -102,6 +102,13 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
             }
         }
     } else {
+        // Test deliveries may reach localhost and private hosts, but not a name that now resolves
+        // to a link-local or metadata address (a DNS answer can change after the endpoint is created).
+        if let Err(e) = refuse_link_local_after_dns(&url).await {
+            let c = st.db.0.lock().unwrap();
+            c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
+            return Ok(());
+        }
         st.http.clone()
     };
     let res = client
@@ -129,6 +136,25 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
             "UPDATE deliveries SET status = ?1, attempts = ?2, last_status = ?3, last_error = ?4, next_attempt_at = ?5 WHERE id = ?6",
             params![status_text, attempts, status, err, now() + backoff(st.config.webhook_backoff_secs, attempts), id],
         )?;
+    }
+    Ok(())
+}
+
+async fn refuse_link_local_after_dns(url: &str) -> Result<(), String> {
+    crate::check_test_webhook_url(url).map_err(|e| e.message)?;
+    let u = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
+    let Some(host) = u.host_str().map(|h| h.trim_matches(|c| c == '[' || c == ']').to_string()) else { return Err("no host".into()) };
+    let port = u.port_or_known_default().unwrap_or(80);
+    if let Ok(addrs) = tokio::net::lookup_host((host.as_str(), port)).await {
+        for a in addrs {
+            let bad = match a.ip() {
+                std::net::IpAddr::V4(v) => v.is_link_local() || v.is_unspecified() || v.octets() == [100, 100, 100, 200],
+                std::net::IpAddr::V6(v) => (v.segments()[0] & 0xffc0) == 0xfe80 || v.is_unspecified() || v.to_ipv4_mapped().is_some_and(|m| m.is_link_local()),
+            };
+            if bad {
+                return Err(format!("refused: {host} resolves to a link-local or metadata address ({})", a.ip()));
+            }
+        }
     }
     Ok(())
 }

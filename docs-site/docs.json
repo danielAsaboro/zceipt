@@ -8,43 +8,99 @@
     "dark": "#8A6508"
   },
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Start",
-        "pages": ["index", "quickstart", "status"]
-      },
-      {
-        "group": "Spend authority",
-        "pages": ["concepts/spend-authority", "concepts/what-a-receipt-reveals"]
-      },
-      {
-        "group": "Composability",
-        "pages": [
-          "composability/overview",
-          "composability/same-payer",
-          "composability/distinct-payers",
-          "composability/key-sets",
-          "composability/sibling-accounts",
-          "composability/delegation",
-          "composability/income",
-          "composability/frost-policy",
-          "composability/source-of-funds"
+        "tab": "Start",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "index",
+              "quickstart",
+              "status"
+            ]
+          },
+          {
+            "group": "Spend authority",
+            "pages": [
+              "concepts/spend-authority",
+              "concepts/what-a-receipt-reveals"
+            ]
+          }
         ]
       },
       {
-        "group": "Guides",
-        "pages": ["guides/held-deposit", "guides/grants-and-airdrops", "guides/wallets"]
+        "tab": "Composability",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "composability/overview"
+            ]
+          },
+          {
+            "group": "Between payments",
+            "pages": [
+              "composability/same-payer",
+              "composability/distinct-payers",
+              "composability/sibling-accounts"
+            ]
+          },
+          {
+            "group": "Between keys",
+            "pages": [
+              "composability/key-sets",
+              "composability/delegation",
+              "composability/frost-policy"
+            ]
+          },
+          {
+            "group": "About amounts",
+            "pages": [
+              "composability/income",
+              "composability/source-of-funds"
+            ]
+          }
+        ]
       },
       {
-        "group": "Reference",
-        "pages": [
-          "reference/technical-note",
-          "reference/cli",
-          "reference/formats",
-          "reference/forked-circuits",
-          "reference/assurance",
-          "reference/related-work",
-          "reference/upstreaming"
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Use cases",
+            "pages": [
+              "guides/held-deposit",
+              "guides/grants-and-airdrops",
+              "guides/wallets"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Design",
+            "pages": [
+              "reference/technical-note",
+              "reference/forked-circuits",
+              "reference/assurance"
+            ]
+          },
+          {
+            "group": "Interfaces",
+            "pages": [
+              "reference/cli",
+              "reference/formats"
+            ]
+          },
+          {
+            "group": "Context",
+            "pages": [
+              "reference/related-work",
+              "reference/upstreaming"
+            ]
+          }
         ]
       }
     ]

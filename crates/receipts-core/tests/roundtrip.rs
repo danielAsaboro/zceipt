@@ -2555,4 +2555,29 @@ fn a_dishonest_claim_prover_is_caught_by_the_proof() {
     assert!(claim::verify(&forge(50_000, 10_000, Some(theirs)), b"drop", &anchor).is_err());
     // A made-up tag.
     assert!(claim::verify(&forge(50_000, 10_000, Some(d + pasta_curves::pallas::Base::from(1))), b"drop", &anchor).is_err());
+    // A note that isn't in the snapshot: another note's path for this one. The claim then names
+    // the root that path leads to, which isn't the verifier's; set to the verifier's root it
+    // doesn't prove.
+    let wrong = claim::snapshot_path(&set, &cmx(&other)).unwrap();
+    let off_tree = claim::__prove_dishonest_for_tests(&fvk, &ask, s.funding_note, wrong, 50_000, 10_000, None, claim::TagKind::Claim, b"drop", OsRng);
+    if let Ok(mut c) = off_tree {
+        assert!(claim::verify(&c, b"drop", &anchor).is_err());
+        c.anchor = anchor;
+        assert!(claim::verify(&c, b"drop", &anchor).is_err());
+    }
+    // Someone else's claim, re-signed under their own key with the message changed: the proof is
+    // bound to the claimant's randomized key, so the new signature does not carry it.
+    let honest = forge(50_000, 10_000, None);
+    let thief = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
+    let thief_alpha = pasta_curves::pallas::Scalar::from(5);
+    let mut stolen = honest.clone();
+    stolen.msg = b"pay me instead".to_vec();
+    stolen.rk = (&orchard::primitives::redpallas::VerificationKey::<orchard::primitives::redpallas::SpendAuth>::from(&thief.randomize(&thief_alpha))).into();
+    stolen.sig = (&thief.randomize(&thief_alpha).sign(OsRng, &stolen.digest())).into();
+    assert!(claim::verify(&stolen, b"drop", &anchor).is_err());
+    // The same, keeping the claimant's key: the thief's signature is not under it.
+    let mut stolen = honest.clone();
+    stolen.msg = b"pay me instead".to_vec();
+    stolen.sig = (&thief.randomize(&thief_alpha).sign(OsRng, &stolen.digest())).into();
+    assert!(claim::verify(&stolen, b"drop", &anchor).is_err());
 }

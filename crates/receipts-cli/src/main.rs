@@ -270,6 +270,10 @@ enum Cmd {
         /// For a proof of income: require payer tags from at least this many different wallets.
         #[arg(long, requires = "domain")]
         min_payers: Option<usize>,
+        /// For a proof of income: a sibling-account proof (`zip311w1…` or `@file`) showing two of
+        /// the payer tags are of one wallet, so they count once. Repeat it.
+        #[arg(long = "siblings", requires = "payer_tags")]
+        siblings: Vec<String>,
         /// lightwalletd server, host:port. Default: zec.rocks for the receipt's network.
         #[arg(short, long)]
         server: Option<String>,
@@ -1806,7 +1810,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
             bail!("the input holds more than one receipt; verify one at a time");
         }
-        Cmd::Verify { receipt, server, regtest, json, min_payments, payer_tags, min_payers, domain, .. }
+        Cmd::Verify { receipt, server, regtest, json, min_payments, payer_tags, min_payers, siblings, domain, .. }
             if read_arg_text(&receipt)?.contains(receipts_core::income::INCOME_TEXT_PREFIX) =>
         {
             let text = read_arg_text(&receipt)?;
@@ -1859,6 +1863,29 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
                 let d = domain.as_deref().unwrap_or_default();
                 payers.insert(chain::verify_payer_tag_against_chain(&c, d.as_bytes(), txid, net, server.as_deref()).await?);
+            }
+            // Accounts of one wallet carry different tags; a sibling-account proof the payer chose to
+            // show merges two of them into one wallet. (No one can be made to show one: a verifier
+            // counts the wallets the tags prove at most, never at least.)
+            if !siblings.is_empty() {
+                let d = domain.as_deref().unwrap_or_default();
+                let vk = receipts_kce::VerifyingKey::build(wallet::kce_params_cache().as_deref());
+                let mut class: std::collections::BTreeMap<[u8; 32], [u8; 32]> = payers.iter().map(|t| (*t, *t)).collect();
+                for f in &siblings {
+                    let text = read_arg_text(f)?;
+                    let w = receipts_kce::Siblings::from_text(text.trim()).ok_or_else(|| anyhow!("malformed sibling-account proof {f}"))?;
+                    if w.coin_type != p.coin_type || w.domain != d.as_bytes() {
+                        bail!("the sibling-account proof {f} is for another network or domain");
+                    }
+                    receipts_kce::verify(&vk, &w, receipts_core::claim::domain_field(receipts_core::claim::TagKind::PayerTag, d.as_bytes()))
+                        .map_err(|_| anyhow!("the sibling-account proof {f} doesn't hold"))?;
+                    if let (Some(a), Some(b)) = (class.get(&w.tags[0]).copied(), class.get(&w.tags[1]).copied()) {
+                        for v in class.values_mut().filter(|v| **v == b) {
+                            *v = a;
+                        }
+                    }
+                }
+                payers = class.values().copied().collect();
             }
             if let Some(n) = min_payers.filter(|n| payers.len() < *n) {
                 bail!("the payer tags show {} different wallet(s), fewer than the {n} required", payers.len());

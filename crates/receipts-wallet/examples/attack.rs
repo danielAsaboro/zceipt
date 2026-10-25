@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
                 &PathBuf::from(identity),
                 receipts_core::Pool::Ironwood,
                 domain,
-                1,
+                1_000_000,
                 b"attack: spent note",
                 Some(height.parse()?),
             )?;

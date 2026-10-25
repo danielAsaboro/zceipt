@@ -22,7 +22,7 @@ FUNDER_ID=$(cd "$(dirname "${FUNDER_ID:?set FUNDER_ID to its age identity file}"
 ATTACK=${ATTACK:-$(dirname "$(command -v "$R" || echo "$R")")/examples/attack}
 SERVER=${SERVER:-}
 API=${API:-8744}
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/receipts-e2e-testnet.XXXXXX")
+WORK=${RESUME:-$(mktemp -d "${TMPDIR:-/tmp}/receipts-e2e-testnet.XXXXXX")}
 PASS=(); FAIL=()
 ok() { PASS+=("$1"); echo "  ok   $1"; }
 bad() { FAIL+=("$1"); echo "  FAIL $1"; }
@@ -38,9 +38,12 @@ for t in "$D" "$R" jq curl node perl; do command -v "$t" >/dev/null || { echo "m
 S=(); [ -n "$SERVER" ] && S=(-s "$SERVER")
 cd "$WORK"
 
-echo "== testnet wallets (work dir $WORK)"
+echo "== testnet wallets (work dir $WORK${RESUME:+, resuming after the payments})"
 dev() { lim 600 "$D" wallet "$@"; }
 sync() { dev -w "$1" sync "${S[@]}" >/dev/null 2>&1 || echo "  (sync of $1 failed; retrying later)" >&2; }
+if [ -n "${RESUME:-}" ]; then
+  . "$WORK/state.env"
+else
 for w in payer merchant; do echo "" | dev -w "./$w" init --name "$w" -i "./$w.age" -n test "${S[@]}" >/dev/null 2>&1 || { echo "wallet init failed for $w"; exit 1; }; done
 dev -w ./payer new-account --name payer1 -i ./payer.age "${S[@]}" >/dev/null 2>&1
 uuid() { dev -w "./$1" list-accounts 2>/dev/null | awk -v n="$2" '/^Account /{u=$2} /Account index:/{if ($3==n) print u}'; }
@@ -88,6 +91,11 @@ HA=$(mined ./payer "$TA"); HC=$(mined ./payer "$TC"); HB=$(mined ./payer "$TB");
 ok "all four payments mined (blocks $HA, $HB, $HC, $HS)"
 sync ./merchant
 
+cat > "$WORK/state.env" <<STATE
+U0=$U0; U1=$U1; PAYER0=$PAYER0; PAYER1=$PAYER1; MERCHANT=$MERCHANT; TIP0=$TIP0
+TA=$TA; TB=$TB; TC=$TC; TS=$TS; HA=$HA; HB=$HB; HC=$HC; HS=$HS
+STATE
+fi
 echo "== payer tags: a round counts different wallets, not payments"
 RS=(); [ -n "$SERVER" ] && RS=(-s "$SERVER")
 tag() { "$R" --account "$3" tag -w "$1" -i "$2" --txid "$4" --domain round-e2e "${RS[@]}" --out "tag-$5.txt" > "tag-$5.log" 2>&1 || { bad "payer tag $5"; tail -3 "tag-$5.log"; }; }
@@ -97,7 +105,7 @@ TGA=$(jq -r .tag tag-A.json); TGB=$(jq -r .tag tag-B.json); TGC=$(jq -r .tag tag
 [ "${#TGA}" = 64 ] && [ "$TGA" = "$TGB" ] && [ "$TGA" != "$TGC" ] && [ "$TGA" != "$TGS" ] && [ "$TGC" != "$TGS" ] \
   && ok "payer tags: account 0's two payments share a tag; account 1 and the funder's wallet differ" || bad "payer tag equality"
 "$R" verify @tag-A.txt --domain round-other "${RS[@]}" > tag-wrong.txt 2>&1 && bad "a payer tag passed for another round" || ok "a payer tag is refused for another round"
-sed 's/zip311t1\(.\{900\}\)./zip311t1\1A/' tag-A.txt > tag-edited.txt
+perl -pe 's/^(zip311t1.{900})./${1}A/' tag-A.txt > tag-edited.txt
 "$R" verify @tag-edited.txt --domain round-e2e "${RS[@]}" > tag-edited.out 2>&1 && bad "an edited payer tag passed" || ok "an edited payer tag is refused"
 
 echo "== sibling accounts: the payer's two account tags are one wallet's (k=17, about a minute)"
@@ -141,21 +149,21 @@ sync "$FUNDER"
 lim 300 "$R" claim -w "$FUNDER" -i "$FUNDER_ID" --domain airdrop-e2e --floor 0.01 -m "payout to me" --out claim1.txt > claim1.log 2>&1 || { bad "claim"; tail -3 claim1.log; }
 SNAP=$(grep -o 'held at block [0-9]*' claim1.log | grep -o '[0-9]*$')
 { "$R" claim -w "$FUNDER" -i "$FUNDER_ID" --domain airdrop-e2e --floor 0.01 --height "$SNAP" -m "another payout" --out claim2.txt; "$R" claim -w "$FUNDER" -i "$FUNDER_ID" --domain airdrop-other --floor 0.01 --height "$SNAP" --out claim3.txt; } > claim23.log 2>&1 || { bad "second claim"; tail -3 claim23.log; }
-for f in 1 2; do "$R" verify @claim$f.txt --json --domain airdrop-e2e --height "$SNAP" "${RS[@]}" > claim$f.json 2> claim$f.err || { bad "verify claim $f"; tail -2 claim$f.err; }; done
-"$R" verify @claim3.txt --json --domain airdrop-other --height "$SNAP" "${RS[@]}" > claim3.json 2> claim3.err || { bad "verify claim 3"; tail -2 claim3.err; }
+for f in 1 2; do "$R" verify @claim$f.txt --json --domain airdrop-e2e --height "$SNAP" --min 0.01 "${RS[@]}" > claim$f.json 2> claim$f.err || { bad "verify claim $f"; tail -2 claim$f.err; }; done
+"$R" verify @claim3.txt --json --domain airdrop-other --height "$SNAP" --min 0.01 "${RS[@]}" > claim3.json 2> claim3.err || { bad "verify claim 3"; tail -2 claim3.err; }
 CT1=$(jq -r .tag claim1.json); CT3=$(jq -r .tag claim3.json)
 [ "${#CT1}" = 64 ] && [ "$CT1" = "$(jq -r .tag claim2.json)" ] && ok "two claims from one wallet carry one tag at block $SNAP: the second is caught" || bad "claim tags differ"
 [ "$CT1" != "$CT3" ] && ok "in another airdrop the wallet's tag doesn't link to the first" || bad "claim tags link across domains"
 [ "$CT1" != "$TGS" ] && ok "and the funder's claim tag is not its payer tag in a round of the same name (kinds hash apart)" || bad "claim and payer tag link"
-"$R" verify @claim1.txt --domain airdrop-other --height "$SNAP" "${RS[@]}" > claim-wrong.txt 2>&1 && bad "a claim passed for the wrong airdrop" || ok "a claim for one airdrop is refused for another"
-"$R" verify @claim1.txt --domain airdrop-e2e --height $((SNAP + 1)) "${RS[@]}" > claim-wrong.txt 2>&1 && bad "a claim passed for another snapshot" || ok "and for another snapshot block"
-"$R" verify @tag-A.txt --domain round-e2e --height "$SNAP" "${RS[@]}" > claim-kind.txt 2>&1 && bad "a payer tag passed as a claim" || ok "a payer tag is no claim"
-sed 's/zip311t1\(.\{900\}\)./zip311t1\1A/' claim1.txt > claim-edited.txt
-"$R" verify @claim-edited.txt --domain airdrop-e2e --height "$SNAP" "${RS[@]}" > claim-edited.out 2>&1 && bad "an edited claim passed" || ok "an edited claim is refused"
+"$R" verify @claim1.txt --domain airdrop-other --height "$SNAP" --min 0.01 "${RS[@]}" > claim-wrong.txt 2>&1 && bad "a claim passed for the wrong airdrop" || ok "a claim for one airdrop is refused for another"
+"$R" verify @claim1.txt --domain airdrop-e2e --height $((SNAP + 1)) --min 0.01 "${RS[@]}" > claim-wrong.txt 2>&1 && bad "a claim passed for another snapshot" || ok "and for another snapshot block"
+"$R" verify @tag-A.txt --json --domain round-e2e --height "$SNAP" --min 0.01 "${RS[@]}" 2>/dev/null | jq -e '.kind == "payer_tag"' >/dev/null && ok "a payer tag is checked as a payer tag, never as a claim (their tags differ by kind)" || bad "payer tag kind"
+perl -pe 's/^(zip311t1.{900})./${1}A/' claim1.txt > claim-edited.txt
+"$R" verify @claim-edited.txt --domain airdrop-e2e --height "$SNAP" --min 0.01 "${RS[@]}" > claim-edited.out 2>&1 && bad "an edited claim passed" || ok "an edited claim is refused"
 # The attacker's claim from a note the chain had spent by the snapshot proves fine; the chain check refuses it.
 TIP=$(sqlite3 "$FUNDER/data.sqlite" "select max(checkpoint_id) from ironwood_tree_checkpoints")
 if "$ATTACK" claim-spent "$FUNDER" "$FUNDER_ID" airdrop-attack "$TIP" claim-spent.txt > attack.log 2>&1; then
-  "$R" verify @claim-spent.txt --domain airdrop-attack --height "$TIP" "${RS[@]}" > claim-spent.out 2>&1 && bad "a claim from a spent note passed" || { grep -q "was spent before block" claim-spent.out && ok "a claim from a note already spent at the snapshot is refused by the chain check"; } || bad "spent-note claim: unexpected error"
+  "$R" verify @claim-spent.txt --domain airdrop-attack --height "$TIP" --min 0.01 "${RS[@]}" > claim-spent.out 2>&1 && bad "a claim from a spent note passed" || { grep -q "was spent before block" claim-spent.out && ok "a claim from a note already spent at the snapshot is refused by the chain check"; } || bad "spent-note claim: unexpected error"
 else
   echo "  (the funder spent no note before block $TIP; skipping the spent-note claim)"
 fi
@@ -170,7 +178,7 @@ echo "== the API verifies a claim and a payer tag"
 API_PID=$!
 for _ in $(seq 1 90); do curl -sf "http://127.0.0.1:$API/v1/health" >/dev/null && break; sleep 1; done
 KEY=""; for _ in $(seq 1 30); do KEY=$(cat api.log api.db.keys 2>/dev/null | grep -o 'rcpt_test_[0-9a-f]*' | head -1 || true); [ -n "$KEY" ] && break; sleep 1; done
-jq -n --rawfile c claim2.txt --argjson h "$SNAP" '{claim: ($c | rtrimstr("\n")), domain: "airdrop-e2e", height: $h}' | curl -s -H "authorization: Bearer $KEY" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$CT1" '.valid and .tag == $t' >/dev/null && ok "the API checks a claim on testnet and returns the same tag" || bad "API claim verify"
+jq -n --rawfile c claim2.txt --argjson h "$SNAP" '{claim: ($c | rtrimstr("\n")), domain: "airdrop-e2e", height: $h, min_floor_zatoshis: 1000000}' | curl -s -H "authorization: Bearer $KEY" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$CT1" '.valid and .tag == $t' >/dev/null && ok "the API checks a claim on testnet and returns the same tag" || bad "API claim verify"
 jq -n --rawfile c tag-C.txt '{claim: ($c | rtrimstr("\n")), domain: "round-e2e"}' | curl -s -H "authorization: Bearer $KEY" "http://127.0.0.1:$API/v1/claims/verify" -d @- | jq -e --arg t "$TGC" '.kind == "payer_tag" and .tag == $t' >/dev/null && ok "and a payer tag" || bad "API payer tag verify"
 
 echo

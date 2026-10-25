@@ -26,8 +26,13 @@
 //!         | proofLen:u32le | proof | spendAuthSig[64]
 //! text   := "zip311t1" || base64url_nopad(claim)
 //! digest := BLAKE2b-256("ZIP311Claim\0" || coinType, claim without spendAuthSig)
-//! domainField := ToBase(BLAKE2b-512("ZIP311ClaimDom", domain))
+//! domainField := ToBase(BLAKE2b-512(kind personalization, domain))
+//!   claim: "ZIP311ClaimDom", payer tag: "ZIP311PayerTag"
 //! ```
+//!
+//! A claim and a payer tag hash their domain under different personalizations, so one key's tag in
+//! "drop" as a claim is unrelated to its tag in "drop" as a payer tag. Without that, an organizer
+//! naming a donation round after an airdrop could match donors to claimants.
 
 use crate::{note_to_throwaway, pool_note_version, screened, signing_personal, zero_trapdoor, Error, Pool};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -78,9 +83,23 @@ pub struct Claim {
     pub sig: [u8; 64],
 }
 
-/// The domain as the field element the circuit hashes.
-pub fn domain_field(domain: &[u8]) -> pallas::Base {
-    let h = blake2b_simd::Params::new().hash_length(64).personal(b"ZIP311ClaimDom\0\0").hash(domain);
+/// What a tag is for. The verifier's entry point decides it, never the claim's own bytes (a
+/// claimant who could pick the kind could pick a second tag in the same domain and claim twice).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TagKind {
+    /// A claim in an airdrop, a grant round or a vote.
+    Claim,
+    /// A payer tag on one payment.
+    PayerTag,
+}
+
+/// The domain as the field element the circuit hashes, for tags of `kind`.
+pub fn domain_field(kind: TagKind, domain: &[u8]) -> pallas::Base {
+    let personal: &[u8; 16] = match kind {
+        TagKind::Claim => b"ZIP311ClaimDom\0\0",
+        TagKind::PayerTag => b"ZIP311PayerTag\0\0",
+    };
+    let h = blake2b_simd::Params::new().hash_length(64).personal(personal).hash(domain);
     pallas::Base::from_uniform_bytes(h.as_array())
 }
 
@@ -180,7 +199,7 @@ impl Claim {
         Self::from_bytes(&bytes)
     }
 
-    fn instance(&self) -> Result<ClaimInstance, Error> {
+    fn instance(&self, kind: TagKind) -> Result<ClaimInstance, Error> {
         let bad = || Error::BadClaim;
         let anchor = Option::<Anchor>::from(Anchor::from_bytes(self.anchor)).ok_or_else(bad)?;
         let rk = redpallas::VerificationKey::<SpendAuth>::try_from(self.rk).map_err(|_| bad())?;
@@ -189,7 +208,7 @@ impl Claim {
         let nf = Option::<Nullifier>::from(Nullifier::from_bytes(&self.nf.unwrap_or([0; 32]))).ok_or_else(bad)?;
         let action = Instance::from_parts(anchor, screened::cv_net(self.floor).ok_or_else(bad)?, nf, rk, cmx, Flags::ENABLED).ok_or_else(bad)?;
         let tag = Option::<pallas::Base>::from(pallas::Base::from_repr(self.tag)).ok_or_else(bad)?;
-        Ok(ClaimInstance { action, domain: domain_field(&self.domain), tag })
+        Ok(ClaimInstance { action, domain: domain_field(kind, &self.domain), tag })
     }
 }
 
@@ -207,7 +226,7 @@ pub fn verify_payer_tag(claim: &Claim, domain: &[u8], txid: &[u8; 32], anchor: &
     if claim.height != 0 || claim.msg != payer_tag_msg(txid) || !nullifiers.contains(&nf) {
         return Err(Error::BadClaim);
     }
-    verify(claim, domain, anchor)
+    verify_as(TagKind::PayerTag, claim, domain, anchor)
 }
 
 /// The snapshot a verifier publishes is a list of note commitments (`cmx`, in order); its root
@@ -229,6 +248,7 @@ pub fn prove(
     note: Note,
     path: MerklePath,
     floor: u64,
+    kind: TagKind,
     domain: &[u8],
     msg: &[u8],
     height: u32,
@@ -239,7 +259,7 @@ pub fn prove(
     if floor == 0 || floor > v || domain.len() > u16::MAX as usize || msg.len() > u16::MAX as usize {
         return Err(Error::BadClaim);
     }
-    prove_inner(coin_type, pool, fvk, ask, note, path, floor, v - floor, None, domain, msg, height, reveal_nf, rng)
+    prove_inner(coin_type, pool, fvk, ask, note, path, floor, v - floor, None, kind, domain, msg, height, reveal_nf, rng)
 }
 
 /// A dishonest prover, for tests: claims `floor` with the hidden output holding `out_value`
@@ -255,10 +275,11 @@ pub fn __prove_dishonest_for_tests(
     floor: u64,
     out_value: u64,
     tag: Option<pallas::Base>,
+    kind: TagKind,
     domain: &[u8],
     rng: impl CryptoRng,
 ) -> Result<Claim, Error> {
-    prove_inner(crate::COIN_TYPE_TESTNET, Pool::Ironwood, fvk, ask, note, path, floor, out_value, tag, domain, b"", 0, false, rng)
+    prove_inner(crate::COIN_TYPE_TESTNET, Pool::Ironwood, fvk, ask, note, path, floor, out_value, tag, kind, domain, b"", 0, false, rng)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -272,6 +293,7 @@ fn prove_inner(
     floor: u64,
     out_value: u64,
     tag: Option<pallas::Base>,
+    kind: TagKind,
     domain: &[u8],
     msg: &[u8],
     height: u32,
@@ -287,7 +309,7 @@ fn prove_inner(
     let rho = Option::<Rho>::from(Rho::from_bytes(&nf.to_bytes())).ok_or(Error::Proving)?;
     let out = note_to_throwaway(rho, NoteValue::from_raw(out_value), pool_note_version(pool), &mut rng);
     let cmx: ExtractedNoteCommitment = out.commitment().into();
-    let d = domain_field(domain);
+    let d = domain_field(kind, domain);
     let mut claim = Claim {
         coin_type,
         pool,
@@ -305,7 +327,7 @@ fn prove_inner(
     };
     let circuit = Circuit::from_action_context(spend, out, alpha, zero_trapdoor(), crate::RECEIPT_CIRCUIT).ok_or(Error::Proving)?;
     let circuit = ClaimCircuit::new(circuit, d, reveal_nf).ok_or(Error::Proving)?;
-    let proof: Proof = keys(reveal_nf).create(&[circuit], &[claim.instance()?], &mut rng).map_err(|_| Error::Proving)?;
+    let proof: Proof = keys(reveal_nf).create(&[circuit], &[claim.instance(kind)?], &mut rng).map_err(|_| Error::Proving)?;
     claim.proof = proof.as_ref().to_vec();
     claim.sig = (&ask.randomize(&alpha).sign(&mut rng, &claim.digest())).into();
     Ok(claim)
@@ -315,11 +337,23 @@ fn prove_inner(
 /// claim's floor. Returns the tag the verifier keeps (one claim per tag). Against a chain
 /// snapshot, also check the claim's `nf` is revealed and wasn't published up to the snapshot.
 pub fn verify(claim: &Claim, domain: &[u8], anchor: &[u8; 32]) -> Result<[u8; 32], Error> {
+    verify_as(TagKind::Claim, claim, domain, anchor)
+}
+
+fn verify_as(kind: TagKind, claim: &Claim, domain: &[u8], anchor: &[u8; 32]) -> Result<[u8; 32], Error> {
     if claim.domain != domain || &claim.anchor != anchor {
         return Err(Error::BadClaim);
     }
     let rk = redpallas::VerificationKey::<SpendAuth>::try_from(claim.rk).map_err(|_| Error::BadClaim)?;
     rk.verify(&claim.digest(), &redpallas::Signature::<SpendAuth>::from(claim.sig)).map_err(|_| Error::BadClaim)?;
-    keys(claim.nf.is_some()).verify(&Proof::new(claim.proof.clone()), &[claim.instance()?]).map_err(|_| Error::BadClaim)?;
+    keys(claim.nf.is_some()).verify(&Proof::new(claim.proof.clone()), &[claim.instance(kind)?]).map_err(|_| Error::BadClaim)?;
     Ok(claim.tag)
+}
+
+/// Checks only a claim's Halo 2 proof against its own fields, not the signature: for tests of
+/// what the circuit alone refuses when a claim's bytes are edited (the signature would otherwise
+/// reject every edit first).
+#[doc(hidden)]
+pub fn __check_proof_only_for_tests(kind: TagKind, claim: &Claim) -> Result<(), Error> {
+    keys(claim.nf.is_some()).verify(&Proof::new(claim.proof.clone()), &[claim.instance(kind)?]).map_err(|_| Error::BadClaim)
 }

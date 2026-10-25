@@ -1946,7 +1946,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             }
             eprintln!("Building the verifying key (the first run derives its parameters, a few minutes)…");
             let vk = receipts_kce::VerifyingKey::build(wallet::kce_params_cache().as_deref());
-            receipts_kce::verify(&vk, &s, receipts_core::claim::domain_field(domain.as_bytes())).map_err(|_| anyhow!("the sibling-account proof doesn't hold"))?;
+            receipts_kce::verify(&vk, &s, receipts_core::claim::domain_field(receipts_core::claim::TagKind::PayerTag, domain.as_bytes())).map_err(|_| anyhow!("the sibling-account proof doesn't hold"))?;
             let hex = |b: &[u8; 32]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
             if json {
                 println!("{}", serde_json::json!({ "valid": true, "kind": "siblings", "domain": domain, "tags": [hex(&s.tags[0]), hex(&s.tags[1])] }));

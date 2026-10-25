@@ -1136,6 +1136,7 @@ pub async fn create_payer_tag(wallet: &Path, identity: &Path, txid: [u8; 32], do
             stored.note,
             path,
             1,
+            receipts_core::claim::TagKind::PayerTag,
             domain.as_bytes(),
             &receipts_core::claim::payer_tag_msg(&txid),
             0,
@@ -1161,7 +1162,7 @@ pub fn create_siblings(wallet: &Path, identity: &Path, accounts: [u32; 2], domai
     eprintln!("Building the sibling-account circuit's keys (the first run derives its parameters, a few minutes)…");
     let keys = receipts_kce::Keys::build(kce_params_cache().as_deref());
     eprintln!("Proving…");
-    let d = receipts_core::claim::domain_field(domain.as_bytes());
+    let d = receipts_core::claim::domain_field(receipts_core::claim::TagKind::PayerTag, domain.as_bytes());
     receipts_kce::prove(&keys, seed.expose_secret(), net.coin_type(), accounts, domain.as_bytes(), d, OsRng).map_err(|e| anyhow!("proving: {e:?}"))
 }
 
@@ -1176,6 +1177,35 @@ pub fn create_claim(
     floor: u64,
     msg: &[u8],
     height: Option<u32>,
+) -> anyhow::Result<receipts_core::claim::Claim> {
+    create_claim_selecting(wallet, identity, pool, domain, floor, msg, height, false)
+}
+
+/// A dishonest claimant, for tests: claims from a note the chain had already spent by `height`
+/// (which `create_claim` never picks), to check a verifier refuses it.
+#[doc(hidden)]
+pub fn __create_claim_from_spent_note_for_tests(
+    wallet: &Path,
+    identity: &Path,
+    pool: Pool,
+    domain: &str,
+    floor: u64,
+    msg: &[u8],
+    height: Option<u32>,
+) -> anyhow::Result<receipts_core::claim::Claim> {
+    create_claim_selecting(wallet, identity, pool, domain, floor, msg, height, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_claim_selecting(
+    wallet: &Path,
+    identity: &Path,
+    pool: Pool,
+    domain: &str,
+    floor: u64,
+    msg: &[u8],
+    height: Option<u32>,
+    spent: bool,
 ) -> anyhow::Result<receipts_core::claim::Claim> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
@@ -1197,10 +1227,11 @@ pub fn create_claim(
             .map_err(|_| anyhow!("the wallet keeps no tree checkpoint at block {h}; claim from a wallet synced to it"))?,
         None => conn.query_row(&format!("SELECT max(checkpoint_id) FROM {cp_t}"), [], |r| r.get(0)).map_err(|_| anyhow!("the wallet has no tree checkpoint; sync it"))?,
     };
-    // Notes mined by the snapshot and not spent by it.
+    // Notes mined by the snapshot and not spent by it (or, for the dishonest test claimant, spent by it).
+    let membership = if spent { "IN" } else { "NOT IN" };
     let sql = format!(
         "SELECT rn.nf FROM {notes_t} rn JOIN transactions t ON t.id_tx = rn.transaction_id
-         WHERE t.mined_height <= ?1 AND rn.nf IS NOT NULL AND rn.value >= ?2 AND rn.id NOT IN (
+         WHERE t.mined_height <= ?1 AND rn.nf IS NOT NULL AND rn.value >= ?2 AND rn.id {membership} (
            SELECT s.{fk} FROM {spends_t} s JOIN transactions st ON st.id_tx = s.transaction_id WHERE st.mined_height <= ?1)"
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -1233,6 +1264,7 @@ pub fn create_claim(
         n.note,
         MerklePath::from(path),
         floor,
+        receipts_core::claim::TagKind::Claim,
         domain.as_bytes(),
         msg,
         height,

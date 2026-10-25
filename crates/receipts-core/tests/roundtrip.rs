@@ -2336,7 +2336,7 @@ fn claims_are_one_per_key_per_domain() {
     let make = |s: &Scenario, floor: u64, domain: &[u8], rng: &mut _| {
         let fvk = FullViewingKey::from(&s.sender_sk);
         let path = claim::snapshot_path(&set, &cmx(s)).unwrap();
-        claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, path, floor, domain, b"payout to me", 0, false, rng)
+        claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, path, floor, claim::TagKind::Claim, domain, b"payout to me", 0, false, rng)
     };
 
     let c1 = make(&a1, 50_000, b"airdrop-1", &mut rng).unwrap();
@@ -2375,7 +2375,7 @@ fn claims_are_one_per_key_per_domain() {
     // For a chain snapshot the nullifier is revealed, and it's the note's real one.
     let fvk = FullViewingKey::from(&a1.sender_sk);
     let path = claim::snapshot_path(&set, &cmx(&a1)).unwrap();
-    let c5 = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&a1.sender_sk), a1.funding_note, path, 50_000, b"airdrop-1", b"x", 0, true, &mut rng).unwrap();
+    let c5 = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&a1.sender_sk), a1.funding_note, path, 50_000, claim::TagKind::Claim, b"airdrop-1", b"x", 0, true, &mut rng).unwrap();
     assert_eq!(c5.nf, Some(a1.funding_note.nullifier(&fvk).to_bytes()));
     let back = claim::Claim::from_text(&c5.to_text()).unwrap();
     assert_eq!(claim::verify(&back, b"airdrop-1", &anchor).unwrap(), t1);
@@ -2398,7 +2398,7 @@ fn payer_tags_tell_wallets_apart() {
     let txids = [[1u8; 32], [2; 32], [3; 32]];
     let tag = |s: &Scenario, txid: &[u8; 32], rng: &mut _| {
         let fvk = FullViewingKey::from(&s.sender_sk);
-        let c = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, s.funding_path.clone(), 1, b"round-7", &claim::payer_tag_msg(txid), 0, true, rng).unwrap();
+        let c = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, s.funding_path.clone(), 1, claim::TagKind::PayerTag, b"round-7", &claim::payer_tag_msg(txid), 0, true, rng).unwrap();
         let nfs: Vec<[u8; 32]> = s.payment.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
         let t = claim::verify_payer_tag(&c, b"round-7", txid, &s.payment.anchor().to_bytes(), &nfs).unwrap();
         (c, t, nfs)
@@ -2415,6 +2415,27 @@ fn payer_tags_tell_wallets_apart() {
     assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &anchor, &nfs3).is_err());
     assert!(claim::verify_payer_tag(&c1, b"round-8", &txids[0], &anchor, &nfs1).is_err());
     assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &b.payment.anchor().to_bytes(), &nfs1).is_err());
+}
+
+#[test]
+fn a_claim_and_a_payer_tag_in_one_domain_do_not_link() {
+    use receipts_core::claim::{self, TagKind};
+    let s = scenario_from(BundleVersion::ironwood_v3(), 100_000, 1_000, 7);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let txid = [5u8; 32];
+    let msg = claim::payer_tag_msg(&txid);
+    let nfs: Vec<[u8; 32]> = s.payment.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
+    let anchor = s.payment.anchor().to_bytes();
+    let make = |kind| claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &ask, s.funding_note, s.funding_path.clone(), 1, kind, b"round-7", &msg, 0, true, OsRng).unwrap();
+    let as_tag = make(TagKind::PayerTag);
+    let as_claim = make(TagKind::Claim);
+    // One key, one domain name, two purposes: the tags are unrelated values.
+    let t = claim::verify_payer_tag(&as_tag, b"round-7", &txid, &anchor, &nfs).unwrap();
+    assert_ne!(t, as_claim.tag);
+    // And neither passes as the other: a payer tag is no claim, a claim is no payer tag.
+    assert!(claim::verify(&as_tag, b"round-7", &anchor).is_err());
+    assert!(claim::verify_payer_tag(&as_claim, b"round-7", &txid, &anchor, &nfs).is_err());
 }
 
 #[test]
@@ -2523,13 +2544,13 @@ fn a_dishonest_claim_prover_is_caught_by_the_proof() {
     let set = vec![cmx(&s), cmx(&other)];
     let anchor = receipts_core::screened::set_root(&set).unwrap();
     let path = || claim::snapshot_path(&set, &cmx(&s)).unwrap();
-    let forge = |floor, out, tag| claim::__prove_dishonest_for_tests(&fvk, &ask, s.funding_note, path(), floor, out, tag, b"drop", OsRng).unwrap();
+    let forge = |floor, out, tag| claim::__prove_dishonest_for_tests(&fvk, &ask, s.funding_note, path(), floor, out, tag, claim::TagKind::Claim, b"drop", OsRng).unwrap();
     // Honest through the same path: accepted (all 60_000 claimed, nothing left over).
     claim::verify(&forge(60_000, 0, None), b"drop", &anchor).unwrap();
     // More than the note holds (the hidden output can't go negative, so the values don't balance).
     assert!(claim::verify(&forge(90_000, 0, None), b"drop", &anchor).is_err());
     // Another wallet's tag, to pass as a fresh claimant.
-    let d = claim::domain_field(b"drop");
+    let d = claim::domain_field(claim::TagKind::Claim, b"drop");
     let theirs = orchard::circuit::claim::claim_tag(&FullViewingKey::from(&other.sender_sk), d);
     assert!(claim::verify(&forge(50_000, 10_000, Some(theirs)), b"drop", &anchor).is_err());
     // A made-up tag.

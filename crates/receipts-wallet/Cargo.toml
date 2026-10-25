@@ -29,3 +29,13 @@ zcash_primitives.workspace = true
 zcash_protocol = { workspace = true, features = ["local-consensus"] }
 zip32 = "0.3"
 zcash_note_encryption.workspace = true
+
+[dev-dependencies]
+# examples/frost_policy.rs: a 2-of-3 FROST treasury signs a receipt of a testnet payment.
+reddsa05 = { package = "reddsa", version = "0.5.2", features = ["frost"] }
+frost-rerandomized = "3.0.0"
+rand_core06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
+pasta_curves.workspace = true
+group.workspace = true
+ff.workspace = true
+hex = "0.4"

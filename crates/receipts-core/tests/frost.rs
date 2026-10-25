@@ -156,6 +156,14 @@ fn a_frost_treasury_signs_a_receipt_with_any_two_of_three() {
     let mut bent = back.clone();
     bent.commitment = other;
     assert!(receipts_core::policy::verify(&bent, &receipt).is_err());
+    // The proof binds the receipt's key to C_0 and nothing else: whoever holds the whole key can
+    // prove the same receipt under a commitment of any threshold with the same C_0, so a verifier
+    // must take the commitment from the treasury's own publication (`verify --policy-commitment`).
+    let mut invented = commitment.clone();
+    invented[1] = commitment[0];
+    let faked = receipts_core::policy::prove(&prepared, invented.clone(), 3, b"", OsRng).unwrap();
+    assert_eq!(receipts_core::policy::verify(&faked, &receipt).unwrap(), (2, 3));
+    assert_ne!(faked.commitment, commitment);
     let unrelated = prepared.clone().with_message(b"another").unwrap().apply_signatures(vec![sign_with(&[1, 2])]);
     assert!(unrelated.is_err() || receipts_core::policy::verify(&back, &unrelated.unwrap()).is_err());
 }

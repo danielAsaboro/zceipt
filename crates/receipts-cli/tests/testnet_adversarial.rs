@@ -266,3 +266,32 @@ fn every_byte_of_the_income_proof_matters() {
     }
     let _ = Receipt::from_text;
 }
+
+#[test]
+fn the_real_frost_policy_proof_names_its_key_and_its_receipt() {
+    use receipts_core::policy::{self, PolicyProof};
+    let a = payment('A');
+    let vk = receipts_core::verifying_key();
+    let both = text("frost/receipt.txt");
+    let (r, p) = both.split_once('\n').unwrap();
+    let receipt = Receipt::from_text(r).unwrap();
+    let proof = PolicyProof::from_text(p).unwrap();
+    // The receipt is an ordinary one for payment A, signed by two of three holders.
+    let v = receipts_core::verify_tx_bundles(&vk, &receipt, COIN_TYPE_TESTNET, a.txid, None, a.tx.ironwood_bundle()).unwrap();
+    assert_eq!(v.outputs[0].value, 200_000);
+    assert_eq!(policy::verify(&proof, &receipt).unwrap(), (2, 3));
+    let published: Vec<[u8; 32]> = text("frost/commitment.txt").lines().map(|l| hex::decode(l).unwrap().try_into().unwrap()).collect();
+    assert_eq!(proof.commitment, published);
+    // Every byte of the proof, and of the receipt it names, one flip each: none holds.
+    let bytes = proof.to_bytes();
+    for i in 0..bytes.len() {
+        let Ok(e) = PolicyProof::from_bytes(&flipped(&bytes, i, 0x01)) else { continue };
+        assert!(policy::verify(&e, &receipt).is_err(), "byte {i} was accepted");
+    }
+    let rbytes = receipt.to_bytes();
+    for i in 0..rbytes.len() {
+        let Ok(e) = Receipt::from_bytes(&flipped(&rbytes, i, 0x01)) else { continue };
+        let ok = receipts_core::verify_tx_bundles(&vk, &e, COIN_TYPE_TESTNET, a.txid, None, a.tx.ironwood_bundle()).is_ok() && policy::verify(&proof, &e).is_ok();
+        assert!(!ok, "receipt byte {i} was accepted");
+    }
+}

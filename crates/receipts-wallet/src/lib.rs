@@ -1451,3 +1451,13 @@ mod tests {
         assert!(super::check_refund_address("not-an-address").is_err());
     }
 }
+
+/// The wallet account's Orchard spending key bytes, for the FROST example (`examples/frost_policy.rs`)
+/// that splits a testnet wallet's spend authority among holders. Never for a wallet that holds value.
+#[doc(hidden)]
+pub fn __orchard_spending_key_for_tests(wallet: &Path, identity: &Path) -> anyhow::Result<[u8; 32]> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    anyhow::ensure!(!matches!(net, Net::Main), "this is for testnet wallets only");
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    Ok(*usk.orchard().to_bytes())
+}

@@ -260,6 +260,11 @@ enum Cmd {
         /// The published key set a key-set proof on the link (`m=zip311m1…`) must be over.
         #[arg(long)]
         key_set: Option<PathBuf>,
+        /// The published sharing commitment (one `C_j` per line, `C_0` the key's `ak`) a policy
+        /// proof (`zip311p1…`) beside the receipt must carry. Without it the proof shows only that
+        /// the receipt's key is `C_0` of the commitment the proof itself brings.
+        #[arg(long)]
+        policy_commitment: Option<PathBuf>,
         /// For a proof of income: require at least this many separate payments.
         #[arg(long)]
         min_payments: Option<usize>,
@@ -2162,7 +2167,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 report.print();
             }
         }
-        Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, key_set, .. } => {
+        Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, key_set, policy_commitment, .. } => {
             let text = read_arg_text(&receipt)?;
             // Route by the input's own receipt prefix, and refuse more than one: a batch pasted
             // after a receipt must not take the batch path past any check.
@@ -2194,6 +2199,24 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                         None => {
                             Some(format!("signed under one of the {} keys the proof lists (check them against the published set with --key-set)", p.keys.len()))
                         }
+                    }
+                }
+            };
+            // A policy proof beside the receipt (`zip311p1…`): its key is the published threshold key.
+            let policy_line = match text.find(receipts_core::policy::POLICY_TEXT_PREFIX) {
+                None => None,
+                Some(i) => {
+                    let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+                    let p = receipts_core::policy::PolicyProof::from_text(&body)?;
+                    let (t, n) = receipts_core::policy::verify(&p, &receipt).map_err(|_| anyhow!("the policy proof doesn't hold for this receipt"))?;
+                    match &policy_commitment {
+                        Some(file) => {
+                            if read_key_set(file)? != p.commitment {
+                                bail!("the policy proof is over another commitment than {}", file.display());
+                            }
+                            Some(format!("authorized under the {t}-of-{n} key whose commitment is {}", file.display()))
+                        }
+                        None => Some(format!("authorized under the {t}-of-{n} key the proof's own commitment names (check it against the published one with --policy-commitment)")),
                     }
                 }
             };
@@ -2232,6 +2255,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 report.print();
                 if let Some(line) = &key_set_line {
                     println!("  key set   {line}");
+                }
+                if let Some(line) = &policy_line {
+                    println!("  policy    {line}");
                 }
                 // What the verdict rests on, and what it didn't check.
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;

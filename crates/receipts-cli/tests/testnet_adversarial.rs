@@ -295,3 +295,22 @@ fn the_real_frost_policy_proof_names_its_key_and_its_receipt() {
         assert!(!ok, "receipt byte {i} was accepted");
     }
 }
+
+#[test]
+fn a_real_list_claim_holds_for_its_list_and_nothing_else() {
+    let c = Claim::from_text(&text("listclaim.txt")).unwrap();
+    let set: Vec<[u8; 32]> = text("list.txt").lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).map(|l| hex::decode(l.trim()).unwrap().try_into().unwrap()).collect();
+    let root = receipts_core::screened::set_root(&set).unwrap();
+    assert!(c.nf.is_none() && c.height == 0);
+    let tag = claim::verify(&c, b"list-airdrop", &root).unwrap();
+    // Another domain, another list, the nullifier added, a payer-tag reading: refused.
+    assert!(claim::verify(&c, b"list-other", &root).is_err());
+    assert!(claim::verify(&c, b"list-airdrop", &receipts_core::screened::set_root(&set[1..]).unwrap()).is_err());
+    let mut with_nf = c.clone();
+    with_nf.nf = Some([1; 32]);
+    assert!(claim::verify(&with_nf, b"list-airdrop", &root).is_err());
+    // The wallet's tag in this domain is the one a second claim would carry; unrelated to its payer tags.
+    assert_ne!(tag, tag_of('A', &payment('A')).unwrap());
+    // Every byte, three ways, and the statement alone.
+    claim_sweep(&c, TagKind::Claim, |e| claim::verify(e, b"list-airdrop", &root).is_ok());
+}

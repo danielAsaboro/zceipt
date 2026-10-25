@@ -260,6 +260,10 @@ enum Cmd {
         /// The published key set a key-set proof on the link (`m=zip311m1…`) must be over.
         #[arg(long)]
         key_set: Option<PathBuf>,
+        /// For a list-mode claim: the published list of note commitments it is against (one per
+        /// line); the claim's tag is returned, its note's nullifier stays private.
+        #[arg(long)]
+        list: Option<PathBuf>,
         /// Refuse artifacts of the other network: `main` or `test`. Say it whenever the answer
         /// moves money or grants access, so a testnet proof can't pass on mainnet.
         #[arg(long, value_parser = ["main", "test"])]
@@ -500,8 +504,12 @@ enum Cmd {
         #[arg(long)]
         floor: String,
         /// The snapshot block. Default: the wallet's latest synced block.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "list")]
         height: Option<u32>,
+        /// Claim against a published list of note commitments instead of the chain (one per line,
+        /// as `receipts shop screened-list` prints): the nullifier stays private.
+        #[arg(long)]
+        list: Option<PathBuf>,
         /// Bound into the claim (where to pay out, say).
         #[arg(short, long, default_value = "")]
         msg: String,
@@ -2020,11 +2028,41 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("  shows     the payer tags above are of two accounts of one wallet; not which wallet or accounts");
             }
         }
-        Cmd::Verify { receipt, server, json, regtest, domain, height, cross_check, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, json, regtest, domain, height, cross_check, list, .. } if read_arg_text(&receipt)?.contains(receipts_core::claim::CLAIM_TEXT_PREFIX) => {
             let text = read_arg_text(&receipt)?;
             let i = text.find(receipts_core::claim::CLAIM_TEXT_PREFIX).unwrap();
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
             let c = receipts_core::claim::Claim::from_text(&body).map_err(|_| anyhow!("malformed claim"))?;
+            if let Some(file) = &list {
+                // A claim against the caller's own list: the root is the list's, the nullifier stays private.
+                if height.is_some() {
+                    bail!("--list and --height are two kinds of claim; give one");
+                }
+                let domain = domain.ok_or_else(|| anyhow!("a claim is checked for your domain: give --domain"))?;
+                let Some(least) = VERIFY_EXPECT.get().and_then(|(m, _, _)| *m) else {
+                    bail!("a claim shows the least its note held, chosen by the claimant: give --min <ZEC>, the least your rules allow");
+                };
+                if c.height != 0 || c.nf.is_some() || c.domain != domain.as_bytes() {
+                    bail!("this isn't a list-mode claim for {domain:?} (a list claim has no snapshot block and keeps its nullifier private)");
+                }
+                if c.floor < least {
+                    bail!("the claim shows at least {} held, less than the {} your rules require", chain::zec(c.floor), chain::zec(least));
+                }
+                let root = receipts_core::screened::set_root(&read_screened_set(file)?).map_err(|e| anyhow!("{e}"))?;
+                net::for_receipt(c.coin_type, regtest.as_deref())?;
+                let tag = receipts_core::claim::verify(&c, domain.as_bytes(), &root).map_err(|_| anyhow!("the claim doesn't hold against this list"))?;
+                let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
+                if json {
+                    println!("{}", serde_json::json!({ "valid": true, "kind": "list_claim", "domain": domain, "message": String::from_utf8_lossy(&c.msg), "tag": tag, "floor_zatoshis": c.floor, "floor_zec": chain::zec(c.floor) }));
+                } else {
+                    println!("VALID list claim");
+                    println!("  domain    {}", chain::shown(&domain, "            "));
+                    println!("  holds     a note on the list of at least {} ZEC", chain::zec(c.floor));
+                    println!("  tag       {tag} (one per key in this domain: accept one claim per tag)");
+                    println!("  private   which listed note, and its nullifier: this claim doesn't mark the note's later spend");
+                }
+                return Ok(());
+            }
             if c.height == 0 {
                 // The caller's own arguments say what is being checked; the claim's bytes don't. A
                 // snapshot or a floor means "an airdrop claim": a claim with no snapshot isn't one.
@@ -2528,19 +2566,26 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("Payer tag in {domain:?} for tx {txid}, {} bytes.", c.to_bytes().len());
             println!("{text}");
         }
-        Cmd::Claim { wallet, identity, domain, floor, height, msg, pool, out } => {
+        Cmd::Claim { wallet, identity, domain, floor, height, list, msg, pool, out } => {
             let pool = match pool.as_str() {
                 "ironwood" => Pool::Ironwood,
                 "orchard" => Pool::Orchard,
                 p => bail!("unknown pool {p}"),
             };
-            let c = wallet::create_claim(&wallet, &identity, pool, &domain, parse_zec(&floor)?, msg.as_bytes(), height)?;
+            let c = match &list {
+                Some(file) => wallet::create_list_claim(&wallet, &identity, pool, &domain, parse_zec(&floor)?, msg.as_bytes(), &read_screened_set(file)?)?,
+                None => wallet::create_claim(&wallet, &identity, pool, &domain, parse_zec(&floor)?, msg.as_bytes(), height)?,
+            };
             let text = c.to_text();
             if let Some(out) = out {
                 std::fs::write(&out, &text)?;
                 eprintln!("wrote {}", out.display());
             }
-            eprintln!("Claim in {domain:?}: at least {} ZEC held at block {}, {} bytes.", chain::zec(c.floor), c.height, c.to_bytes().len());
+            if c.height == 0 {
+                eprintln!("Claim in {domain:?}: a listed note of at least {} ZEC, {} bytes.", chain::zec(c.floor), c.to_bytes().len());
+            } else {
+                eprintln!("Claim in {domain:?}: at least {} ZEC held at block {}, {} bytes.", chain::zec(c.floor), c.height, c.to_bytes().len());
+            }
             println!("{text}");
         }
         Cmd::Request { wallet, identity, domain, amount, memo, code, expires_in, payee } => {

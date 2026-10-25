@@ -494,6 +494,8 @@ struct ClaimReq {
     /// The snapshot block a claim must be against. Omit for a payer tag.
     height: Option<u32>,
     min_floor_zatoshis: Option<u64>,
+    /// For a claim against your own list of note commitments (hex, 64 digits each) instead of the chain.
+    list: Option<Vec<String>>,
 }
 
 /// Checks a claim (`zip311t1…` with a snapshot block) or a payer tag (one with none) for the
@@ -511,6 +513,26 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
         return Err(ApiError::verification("claim_invalid", "the claim is for another domain").param("claim"));
     }
     let invalid = |e: anyhow::Error| ApiError::verification("claim_invalid", e.to_string()).param("claim");
+    if let Some(list) = &req.list {
+        // A claim against the caller's own list: the root is the list's, the nullifier stays private.
+        if req.height.is_some() {
+            return Err(ApiError::invalid("parameter_invalid", "list and height are two kinds of claim; give one").param("list"));
+        }
+        let least = req.min_floor_zatoshis.ok_or_else(|| ApiError::missing("min_floor_zatoshis"))?;
+        if c.height != 0 || c.nf.is_some() {
+            return Err(ApiError::verification("claim_invalid", "this isn't a list-mode claim (it has a snapshot block or reveals its nullifier)").param("claim"));
+        }
+        if c.floor < least || least == 0 {
+            return Err(ApiError::verification("claim_below_floor", format!("the claim shows at least {} zatoshis held, less than the {least} required", c.floor)).param("claim"));
+        }
+        let set: Vec<[u8; 32]> = list
+            .iter()
+            .map(|h| hex::decode(h).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| ApiError::invalid("parameter_invalid", "list entries are 64 hex digits").param("list")))
+            .collect::<Result<_, _>>()?;
+        let root = receipts_core::screened::set_root(&set).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param("list"))?;
+        let tag = receipts_core::claim::verify(&c, domain.as_bytes(), &root).map_err(|_| ApiError::verification("claim_invalid", "the claim doesn't hold against this list").param("claim"))?;
+        return Ok(Json(json!({ "valid": true, "kind": "list_claim", "domain": domain, "tag": hex::encode(tag), "floor_zatoshis": c.floor })));
+    }
     if c.height == 0 {
         // The caller's arguments say what is being checked, not the claim's bytes: a snapshot or a
         // floor means an airdrop claim, and a claim with no snapshot isn't one.

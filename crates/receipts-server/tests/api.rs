@@ -614,6 +614,26 @@ async fn attestations_subtract_refunds() {
     assert_eq!((s, a["claims"]["paid_at_least_zatoshis"].as_i64()), (StatusCode::OK, Some(1500000)));
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 2000000 })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
+    // An attestation made for an audience is accepted by that audience only; one made for nobody is refused by a verifier that names itself.
+    let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "audience": "lender.example", "valid_for_days": 30 })), None).await;
+    assert_eq!(s, StatusCode::OK, "{a}");
+    let p = a["presentation"].as_str().unwrap().to_string();
+    let verify = |aud: Option<&str>| {
+        let mut b = json!({ "attestation": p });
+        if let Some(x) = aud {
+            b["audience"] = x.into();
+        }
+        b
+    };
+    let (s, v, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(verify(Some("lender.example"))), None).await;
+    assert_eq!((s, v["valid"].as_bool()), (StatusCode::OK, Some(true)), "{v}");
+    for other in [Some("someone.else"), None] {
+        let (s, v, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(verify(other)), None).await;
+        assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("attestation_invalid")), "{other:?}: {v}");
+    }
+    let (_, plain, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
+    let (s, _, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": plain["presentation"], "audience": "lender.example" })), None).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]
@@ -951,4 +971,28 @@ async fn api_keys_are_digests_in_the_database_and_old_plaintext_keys_are_convert
     assert_eq!(s, StatusCode::NOT_FOUND);
     let (s, _, _) = call(&router, "GET", &format!("/v1/test_clocks/{cid}"), Some("rcpt_test_oldplaintextkey"), None, None).await;
     assert_eq!(s, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn list_mode_claims_check_against_the_callers_list_and_floor() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/proofs");
+    let claim = std::fs::read_to_string(format!("{dir}/listclaim.txt")).unwrap().trim().to_string();
+    let list: Vec<String> = std::fs::read_to_string(format!("{dir}/list.txt")).unwrap().lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).map(|l| l.trim().to_string()).collect();
+    let (app, test, _) = app().await;
+    let ask = |body: Value| {
+        let app = app.clone();
+        let test = test.clone();
+        async move { call(&app, "POST", "/v1/claims/verify", Some(&test), Some(body), None).await }
+    };
+    let (s, v, _) = ask(json!({ "claim": claim, "domain": "list-airdrop", "list": list, "min_floor_zatoshis": 1000000 })).await;
+    assert_eq!((s, v["valid"].as_bool(), v["kind"].as_str()), (StatusCode::OK, Some(true), Some("list_claim")), "{v}");
+    // Below the floor, in another domain, against another list, with no floor stated: refused.
+    let (s, v, _) = ask(json!({ "claim": claim, "domain": "list-airdrop", "list": list, "min_floor_zatoshis": 50000000 })).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("claim_below_floor")), "{v}");
+    let (s, _, _) = ask(json!({ "claim": claim, "domain": "list-other", "list": list, "min_floor_zatoshis": 1000000 })).await;
+    assert_ne!(s, StatusCode::OK);
+    let (s, _, _) = ask(json!({ "claim": claim, "domain": "list-airdrop", "list": &list[1..], "min_floor_zatoshis": 1000000 })).await;
+    assert_ne!(s, StatusCode::OK);
+    let (s, _, _) = ask(json!({ "claim": claim, "domain": "list-airdrop", "list": list })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }

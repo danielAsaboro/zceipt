@@ -119,6 +119,10 @@ pub struct CreateAttestation {
     /// Which hidden claims to reveal in `presentation` right away (`txid`, `amount_zatoshis`,
     /// `paid_at`, `request`, `label`). Default: none.
     disclose: Option<Vec<String>>,
+    /// Who the attestation is for (becomes `aud`): a verifier that names its own audience refuses one made for another.
+    audience: Option<String>,
+    /// Days the attestation stays valid (becomes `exp`). Default: no expiry.
+    valid_for_days: Option<u32>,
 }
 
 /// POST /v1/requests/{id}/attestations
@@ -201,7 +205,10 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
     digests.sort(); // order must not leak which claim is which
     let (kid, sk) = key(&st)?;
     let (_, today) = utc_date(now());
-    let payload = json!({
+    if req.audience.as_ref().is_some_and(|a| a.is_empty() || a.len() > 200) || req.valid_for_days.is_some_and(|d| !(1..=3650).contains(&d)) {
+        return Err(ApiError::invalid("parameter_invalid", "audience is 1 to 200 characters; valid_for_days is 1 to 3650"));
+    }
+    let mut payload = json!({
         "iss": st.config.public_url,
         "iat": today,
         "vct": VCT,
@@ -217,6 +224,12 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         "_sd": digests,
         "_sd_alg": "sha-256",
     });
+    if let Some(a) = &req.audience {
+        payload["aud"] = json!(a);
+    }
+    if let Some(d) = req.valid_for_days {
+        payload["exp"] = json!(now() + i64::from(d) * 86_400);
+    }
     let header = json!({ "alg": "EdDSA", "typ": "vc+sd-jwt", "kid": kid });
     let signing_input = format!("{}.{}", B64.encode(header.to_string()), B64.encode(payload.to_string()));
     let jwt = format!("{signing_input}.{}", B64.encode(sk.sign(signing_input.as_bytes()).to_bytes()));
@@ -271,6 +284,9 @@ pub fn verify_presentation(text: &str, keys: &[(String, VerifyingKey)]) -> Resul
 #[derive(Deserialize)]
 pub struct VerifyAttestation {
     attestation: Option<String>,
+    /// Who is checking. An attestation made for an audience is refused by anyone else, and one made
+    /// for nobody is refused if you name yours.
+    audience: Option<String>,
 }
 
 /// POST /v1/attestations/verify — checks an attestation this server issued.
@@ -285,6 +301,12 @@ pub async fn verify(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Ver
             "this attestation was issued in test mode (or paid with a sandbox fixture); a live key accepts only live ones",
         )
         .param("attestation"));
+    }
+    if claims["exp"].as_i64().is_some_and(|e| now() > e) {
+        return Err(ApiError::verification("attestation_invalid", "this attestation has expired".to_string()).param("attestation"));
+    }
+    if claims["aud"].as_str() != req.audience.as_deref() && (req.audience.is_some() || claims["aud"].is_string()) {
+        return Err(ApiError::verification("attestation_invalid", "this attestation was made for another audience (or none)".to_string()).param("attestation"));
     }
     Ok(Json(json!({ "object": "attestation_verification", "valid": true, "claims": claims })))
 }

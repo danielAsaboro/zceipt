@@ -421,7 +421,7 @@ const b64urlEncode = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).repl
  * hidden claims under `revealed`. Throws if anything doesn't check out, and for test-mode or
  * sandbox attestations unless `allowTest` is set.
  */
-export async function verifyAttestation(presentation, { issuer, jwks, allowTest = false } = {}) {
+export async function verifyAttestation(presentation, { issuer, jwks, allowTest = false, audience } = {}) {
   if (!issuer && !jwks) throw new Error("verifyAttestation needs { issuer } or { jwks }: the server you trust");
   const [jwt, ...disclosures] = String(presentation).trim().split("~");
   const [h, p, s] = jwt.split(".");
@@ -448,7 +448,10 @@ export async function verifyAttestation(presentation, { issuer, jwks, allowTest 
   }
   // Test-mode and sandbox attestations are signed with the same key as live ones; the signed
   // claims say which they are, so refuse them unless the caller asks for test facts.
-  if (!allowTest && (claims.livemode === false || claims.sandbox === true)) {
+  if (typeof claims.exp === "number" && Date.now() / 1000 > claims.exp) throw new Error("this attestation has expired");
+  if ((audience != null || typeof claims.aud === "string") && claims.aud !== audience) throw new Error("this attestation was made for another audience (or none): pass { audience } as your own name");
+  // Only a signed `livemode: true` counts as live, as the server reads it.
+  if (!allowTest && (claims.livemode !== true || claims.sandbox === true)) {
     throw new Error("test-mode attestation (issued with a test key or paid with a sandbox fixture); pass { allowTest: true } to accept it");
   }
   delete claims._sd;

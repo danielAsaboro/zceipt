@@ -1196,6 +1196,59 @@ pub fn __create_claim_from_spent_note_for_tests(
     create_claim_selecting(wallet, identity, pool, domain, floor, msg, height, true)
 }
 
+/// Claims in `domain` against a published list of note commitments (the verifier's own deposits,
+/// say): the wallet's largest note of at least `floor` whose commitment is on the list. The claim
+/// keeps the note's nullifier private, so it doesn't mark the note's later spend, and carries
+/// snapshot height 0; the verifier's root is the list's (`receipts verify --list`).
+pub fn create_list_claim(
+    wallet: &Path,
+    identity: &Path,
+    pool: Pool,
+    domain: &str,
+    floor: u64,
+    msg: &[u8],
+    list: &[[u8; 32]],
+) -> anyhow::Result<receipts_core::claim::Claim> {
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let sk: SpendingKey = usk.orchard().clone();
+    let fvk = FullViewingKey::from(&sk);
+    let conn = rusqlite::Connection::open_with_flags(wallet.join("data.sqlite"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let table = match pool {
+        Pool::Ironwood => "ironwood_received_notes",
+        Pool::Orchard => "orchard_received_notes",
+    };
+    let mut stmt = conn.prepare(&format!("SELECT nf FROM {table} WHERE nf IS NOT NULL AND value >= ?1"))?;
+    let nfs: Vec<Vec<u8>> = stmt.query_map([floor as i64], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let mut best: Option<(StoredNote, [u8; 32])> = None;
+    for nf in nfs {
+        let nf: [u8; 32] = nf.try_into().map_err(|_| anyhow!("bad nullifier in wallet"))?;
+        let Some(n) = find_spent_note(&conn, pool, &fvk, &nf)? else { continue };
+        let cmx = orchard::note::ExtractedNoteCommitment::from(n.note.commitment()).to_bytes();
+        if list.contains(&cmx) && best.as_ref().is_none_or(|(b, _)| n.note.value().inner() > b.note.value().inner()) {
+            best = Some((n, cmx));
+        }
+    }
+    let (n, cmx) = best.ok_or_else(|| anyhow!("none of this wallet's notes of at least {} ZEC is on the list", receipts_chain::chain::zec(floor)))?;
+    let path = receipts_core::claim::snapshot_path(list, &cmx)?;
+    eprintln!("Proving a listed note ({} outputs on the list)…", list.len());
+    Ok(receipts_core::claim::prove(
+        net.coin_type(),
+        pool,
+        &fvk,
+        &SpendAuthorizingKey::from(&sk),
+        n.note,
+        path,
+        floor,
+        receipts_core::claim::TagKind::Claim,
+        domain.as_bytes(),
+        msg,
+        0,
+        false,
+        OsRng,
+    )?)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_claim_selecting(
     wallet: &Path,

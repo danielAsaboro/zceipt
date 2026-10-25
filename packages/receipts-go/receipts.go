@@ -306,6 +306,9 @@ func Sign(rawBody, secret string, t int64) string {
 // ConstructEvent verifies a webhook's Receipts-Signature header (within tolerance) and returns
 // the event. Use the raw request body, not a re-encoded one.
 func ConstructEvent(rawBody []byte, header, secret string, tolerance time.Duration) (M, error) {
+	if secret == "" {
+		return nil, fmt.Errorf("receipts: an empty webhook secret verifies nothing")
+	}
 	var t int64
 	var v1 string
 	for _, part := range strings.Split(header, ",") {

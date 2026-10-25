@@ -93,9 +93,20 @@ pub fn regtest_from_file(path: &Path) -> anyhow::Result<Net> {
     Ok(Net::Regtest(h.to_local()))
 }
 
+/// The network the verifier expects (`main` or `test`), when it said so.
+pub static EXPECTED: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
 /// The network a receipt was made for. Regtest receipts carry the testnet coin type, so the
 /// caller says explicitly when it is verifying against a local chain.
 pub fn for_receipt(coin_type: u32, regtest: Option<&Path>) -> anyhow::Result<Net> {
+    // A verifier that said which network it works on (`--network`) refuses artifacts of the other:
+    // a mainnet airdrop must not accept a testnet claim.
+    if let (Some(want), None) = (EXPECTED.get(), regtest) {
+        let have = if coin_type == receipts_core::COIN_TYPE_MAINNET { "main" } else { "test" };
+        if have != *want {
+            bail!("this is a {have}net artifact, but --network {want} was given");
+        }
+    }
     if let Some(p) = regtest {
         return regtest_from_file(p);
     }

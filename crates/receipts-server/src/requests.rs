@@ -683,13 +683,18 @@ pub async fn campaign_page() -> Html<&'static str> {
 /// Marks overdue open requests expired and emits `request.expired` once each.
 pub async fn expiry_sweeper(st: Shared) {
     loop {
-        let due: Vec<(String, String)> = {
+        let due: Option<Vec<(String, String)>> = {
             let c = st.db.0.lock().unwrap();
-            let mut stmt = match c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0 AND test_clock IS NULL") {
-                Ok(s) => s,
-                Err(_) => continue,
+            let stmt = match c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0 AND test_clock IS NULL") {
+                Ok(s) => Some(s),
+                Err(_) => None,
             };
-            stmt.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))).map(|x| x.filter_map(Result::ok).collect()).unwrap_or_default()
+            stmt.map(|mut stmt| stmt.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))).map(|x| x.filter_map(Result::ok).collect()).unwrap_or_default())
+        };
+        // A failing query (a missing column, say) must not turn this loop into a spin.
+        let Some(due) = due else {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            continue;
         };
         for (id, mode) in due {
             {

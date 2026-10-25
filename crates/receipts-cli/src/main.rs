@@ -260,6 +260,10 @@ enum Cmd {
         /// The published key set a key-set proof on the link (`m=zip311m1…`) must be over.
         #[arg(long)]
         key_set: Option<PathBuf>,
+        /// Refuse artifacts of the other network: `main` or `test`. Say it whenever the answer
+        /// moves money or grants access, so a testnet proof can't pass on mainnet.
+        #[arg(long, value_parser = ["main", "test"])]
+        network: Option<String>,
         /// The published sharing commitment (one `C_j` per line, `C_0` the key's `ak`) a policy
         /// proof (`zip311p1…`) beside the receipt must carry. Without it the proof shows only that
         /// the receipt's key is `C_0` of the commitment the proof itself brings.
@@ -1218,7 +1222,14 @@ fn pool_name(p: Pool) -> &'static str {
 
 /// `verify`'s flags, checked before anything is fetched; also sets what the checks compare.
 fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
-    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, expect_address, server, cross_check, .. } = cmd {
+    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, expect_address, server, cross_check, network, raw_tx, key_set, policy_commitment, .. } = cmd {
+        // Offline checking reads one transaction and none of the extra proofs: a pin on them can't be honoured.
+        if raw_tx.is_some() && (key_set.is_some() || policy_commitment.is_some()) {
+            bail!("--key-set and --policy-commitment are checked against the chain fetch, not with --raw-tx");
+        }
+        if let Some(n) = network {
+            let _ = receipts_chain::net::EXPECTED.set(if n == "main" { "main" } else { "test" });
+        }
         // Before anything is fetched: a mistyped address, or a second server that is the first.
         if let Some(a) = expect_address {
             chain::orchard_receiver_of(a).with_context(|| format!("--expect-address {a}"))?;
@@ -2015,6 +2026,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
             let c = receipts_core::claim::Claim::from_text(&body).map_err(|_| anyhow!("malformed claim"))?;
             if c.height == 0 {
+                // The caller's own arguments say what is being checked; the claim's bytes don't. A
+                // snapshot or a floor means "an airdrop claim": a claim with no snapshot isn't one.
+                if height.is_some() || VERIFY_EXPECT.get().is_some_and(|(m, _, _)| m.is_some()) {
+                    bail!("this is a payer tag (no snapshot block), but --height/--min ask for an airdrop claim; check payer tags without them");
+                }
                 // A payer tag: on a note a payment spent, named in its message.
                 let domain = domain.ok_or_else(|| anyhow!("a payer tag is checked for your domain: give --domain"))?;
                 let txid = std::str::from_utf8(&c.msg).ok().and_then(|m| m.strip_prefix("payer-tag:")).ok_or_else(|| anyhow!("this claim has no snapshot block and names no payment"))?;
@@ -2053,7 +2069,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let net = net::for_receipt(c.coin_type, regtest.as_deref())?;
             let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
             eprintln!("Checking the proof and that the note was unspent at block {height}…");
-            let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), cross_check.as_deref()).await?;
+            let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), cross_check.as_deref(), least).await?;
             if let (_, Some(ch), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
                 if receipts_server::verify::challenge_of(&rep.message).as_deref() != Some(ch.to_lowercase().as_str()) {
                     bail!("the claim doesn't sign challenge {ch}");
@@ -2202,6 +2218,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let receipt = read_receipt_arg(&receipt)?;
             // A key-set proof with the receipt (`m=zip311m1…`): signed under one of a published set.
             let key_set_line = match text.find(receipts_core::keyset::KEYSET_TEXT_PREFIX) {
+                None if key_set.is_some() => bail!("--key-set was given but the receipt carries no key-set proof (m=zip311m1…); it was not signed under a key of the set as far as this receipt shows"),
                 None => None,
                 Some(i) => {
                     let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
@@ -2225,6 +2242,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             };
             // A policy proof beside the receipt (`zip311p1…`): its key is the published threshold key.
             let policy_line = match text.find(receipts_core::policy::POLICY_TEXT_PREFIX) {
+                None if policy_commitment.is_some() => bail!("--policy-commitment was given but no policy proof (zip311p1…) comes with the receipt"),
                 None => None,
                 Some(i) => {
                     let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();

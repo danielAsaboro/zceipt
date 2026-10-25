@@ -41,6 +41,16 @@ __all__ = [
 __version__ = "0.1.0"
 
 
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The API key travels in a header; a redirect must not carry it to another host."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
 class ReceiptsError(Exception):
     def __init__(self, status: int, body: Optional[Dict[str, Any]] = None):
         err = (body or {}).get("error") or {}
@@ -280,7 +290,7 @@ class Receipts:
     def _text(self, path: str) -> str:
         req = urllib.request.Request(self.base_url + path, headers={"Authorization": f"Bearer {self.api_key}"})
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as res:
+            with _OPENER.open(req, timeout=self.timeout) as res:
                 return res.read().decode()
         except urllib.error.HTTPError as e:
             text = e.read().decode()
@@ -299,7 +309,7 @@ class Receipts:
         while True:
             req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=headers)
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as res:
+                with _OPENER.open(req, timeout=self.timeout) as res:
                     text = res.read().decode()
                     return json.loads(text) if text else {}
             except urllib.error.HTTPError as e:
@@ -332,6 +342,8 @@ def sign_payload(raw_body: str, secret: str, t: Optional[int] = None) -> str:
 
 def construct_event(raw_body: bytes | str, signature_header: Optional[str], secret: str, tolerance_secs: int = 300) -> Dict[str, Any]:
     """Verifies a webhook delivery and returns the event. Pass the raw request body."""
+    if not secret:
+        raise ValueError("an empty webhook secret verifies nothing")
     body = raw_body.decode() if isinstance(raw_body, (bytes, bytearray)) else raw_body
     parts = dict(p.split("=", 1) for p in (signature_header or "").split(",") if "=" in p)
     try:

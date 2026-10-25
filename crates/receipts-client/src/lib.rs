@@ -369,8 +369,12 @@ pub mod webhooks {
             }
         }
         let (t, v1) = (t.ok_or(SignatureError::Malformed)?, v1.ok_or(SignatureError::Malformed)?);
+        // An empty secret authenticates nothing.
+        if secret.is_empty() {
+            return Err(SignatureError::Mismatch);
+        }
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-        if (now - t).abs() > tolerance_secs {
+        if now.abs_diff(t) > tolerance_secs.max(0) as u64 {
             return Err(SignatureError::Stale);
         }
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();

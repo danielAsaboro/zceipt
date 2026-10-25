@@ -157,7 +157,8 @@ CT1=$(jq -r .tag claim1.json); CT3=$(jq -r .tag claim3.json)
 [ "$CT1" != "$TGS" ] && ok "and the funder's claim tag is not its payer tag in a round of the same name (kinds hash apart)" || bad "claim and payer tag link"
 "$R" verify @claim1.txt --domain airdrop-other --height "$SNAP" --min 0.01 "${RS[@]}" > claim-wrong.txt 2>&1 && bad "a claim passed for the wrong airdrop" || ok "a claim for one airdrop is refused for another"
 "$R" verify @claim1.txt --domain airdrop-e2e --height $((SNAP + 1)) --min 0.01 "${RS[@]}" > claim-wrong.txt 2>&1 && bad "a claim passed for another snapshot" || ok "and for another snapshot block"
-"$R" verify @tag-A.txt --json --domain round-e2e --height "$SNAP" --min 0.01 "${RS[@]}" 2>/dev/null | jq -e '.kind == "payer_tag"' >/dev/null && ok "a payer tag is checked as a payer tag, never as a claim (their tags differ by kind)" || bad "payer tag kind"
+"$R" verify @tag-A.txt --domain round-e2e --height "$SNAP" --min 0.01 "${RS[@]}" > claim-kind.txt 2>&1 && bad "a payer tag passed as an airdrop claim" || { grep -q "payer tag" claim-kind.txt && ok "a payer tag is refused where an airdrop claim is asked for (the caller's arguments pick the kind, not the claim)"; } || bad "payer tag as claim: unexpected error"
+"$R" verify @claim1.txt --domain airdrop-e2e --height "$SNAP" --min 0.01 --network main "${RS[@]}" > claim-net.txt 2>&1 && bad "a testnet claim passed a mainnet verifier" || { grep -q "testnet artifact" claim-net.txt && ok "a testnet claim is refused by a verifier that says --network main"; } || bad "network pin: unexpected error"
 perl -pe 's/^(zip311t1.{900})./${1}A/' claim1.txt > claim-edited.txt
 "$R" verify @claim-edited.txt --domain airdrop-e2e --height "$SNAP" --min 0.01 "${RS[@]}" > claim-edited.out 2>&1 && bad "an edited claim passed" || ok "an edited claim is refused"
 # The attacker's claim from a note the chain had spent by the snapshot proves fine; the chain check refuses it.

@@ -124,6 +124,13 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
         let mut m = st.rate.lock().unwrap();
         if m.len() > 10_000 {
             m.retain(|_, (w, _)| *w == window);
+            // Still over after dropping every old window: a flood of made-up public request ids.
+            // Refuse new buckets instead of scanning the map on every request.
+            if m.len() > 10_000 && !m.contains_key(&k) {
+                let mut res = ApiError::new_rate_limited().into_response();
+                res.headers_mut().insert("retry-after", (window + 60 - t).to_string().parse().unwrap());
+                return res;
+            }
         }
         let e = m.entry(k).or_insert((window, 0));
         if e.0 != window {
@@ -471,6 +478,11 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
     }
     let invalid = |e: anyhow::Error| ApiError::verification("claim_invalid", e.to_string()).param("claim");
     if c.height == 0 {
+        // The caller's arguments say what is being checked, not the claim's bytes: a snapshot or a
+        // floor means an airdrop claim, and a claim with no snapshot isn't one.
+        if req.height.is_some() || req.min_floor_zatoshis.is_some() {
+            return Err(ApiError::verification("claim_invalid", "this is a payer tag (no snapshot block), but height or min_floor_zatoshis ask for an airdrop claim").param("claim"));
+        }
         let txid = std::str::from_utf8(&c.msg)
             .ok()
             .and_then(|m| m.strip_prefix("payer-tag:"))
@@ -496,7 +508,11 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
     // as receipts) and keep what was downloaded, so the next check fetches only newer blocks.
     let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
     let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
-    let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), None).await.map_err(invalid)?;
+    // Bounded: a chain server that stalls must not hold a verify slot for good.
+    let rep = tokio::time::timeout(std::time::Duration::from_secs(180), chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), None, least))
+        .await
+        .map_err(|_| ApiError::verification("claim_invalid", "the chain server did not answer in time".to_string()).param("claim"))?
+        .map_err(invalid)?;
     Ok(Json(serde_json::to_value(rep).unwrap()))
 }
 

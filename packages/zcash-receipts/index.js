@@ -180,6 +180,7 @@ export async function verifyReceipt(input, options = {}) {
     if (v.public_demo) throw new Error("this receipt is from the public demo wallet, whose key anyone has: it can't answer a challenge");
     if (challengeIn(v.message) !== String(options.challenge)) throw new Error("the receipt does not sign the expected challenge");
   }
+  if (options.minZatoshis != null && !Number.isFinite(Number(options.minZatoshis))) throw new Error("minZatoshis must be a number");
   if (options.minZatoshis != null && !options.expectAddress) throw new Error("minZatoshis needs expectAddress: the minimum is checked against what that address received");
   if (options.expectAddress) {
     const paid = paidTo([v], options.expectAddress);
@@ -317,6 +318,7 @@ export async function verifyIncome(input, options = {}) {
     const t = await fetchTransactionPrivately(endpoint, it.txid, it.height, { txidOf: (raw, h) => txid_of(raw, h, info.network === "mainnet" ? 133 : 1) });
     return { raw: Array.from(t.raw, (b) => b.toString(16).padStart(2, "0")).join(""), height: t.height };
   }));
+  for (const [k, x] of [["minZatoshis", options.minZatoshis], ["minPayments", options.minPayments]]) if (x != null && !Number.isFinite(Number(x))) throw new Error(`${k} must be a number`);
   const v = JSON.parse(verify_income(text, JSON.stringify(txs)));
   if (options.minZatoshis != null && v.at_least_zatoshis < options.minZatoshis) throw new Error(`the proof shows ${v.at_least_zatoshis} zatoshis, less than ${options.minZatoshis}`);
   if (options.minPayments != null && v.payments < options.minPayments) throw new Error(`the proof counts ${v.payments} payments, fewer than ${options.minPayments}`);

@@ -50,7 +50,9 @@ fn is_wif(t: &str) -> bool {
 const BIP39_ENGLISH: &str = include_str!("bip39-english.txt");
 
 fn is_bip39_word(w: &str) -> bool {
-    BIP39_ENGLISH.lines().any(|x| x == w)
+    // A set, built once: scanning the 2048 lines for every word of a megabyte body took seconds.
+    static WORDS: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    WORDS.get_or_init(|| BIP39_ENGLISH.lines().collect()).contains(w)
 }
 
 /// A run of 12+ BIP 39 words in a row, like a wallet's seed phrase.

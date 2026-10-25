@@ -14,7 +14,14 @@ pub async fn connect(server: &str) -> anyhow::Result<CompactTxStreamerClient<Cha
     let host = server.split(':').next().unwrap_or(server).to_string();
     let local = matches!(host.as_str(), "localhost" | "127.0.0.1");
     let uri = format!("{}://{}", if local { "http" } else { "https" }, server);
-    let mut ch = Channel::from_shared(uri)?;
+    // A server that stalls must not hold a caller forever: bounded connect, and keep-alive pings
+    // that drop a connection which stops answering.
+    let mut ch = Channel::from_shared(uri)?
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .tcp_keepalive(Some(std::time::Duration::from_secs(30)))
+        .http2_keep_alive_interval(std::time::Duration::from_secs(20))
+        .keep_alive_timeout(std::time::Duration::from_secs(20))
+        .keep_alive_while_idle(true);
     if !local {
         ch = ch.tls_config(ClientTlsConfig::new().domain_name(host).assume_http2(true).with_webpki_roots())?;
     }
@@ -582,8 +589,8 @@ async fn fetch_sources_checked(receipt: &Receipt, net: Net, server: Option<&str>
 }
 
 fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        bail!("odd-length hex");
+    if !s.len().is_multiple_of(2) || !s.is_ascii() {
+        bail!("odd-length or non-hex input");
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow!("bad hex: {e}"))).collect()
 }
@@ -1149,7 +1156,15 @@ pub async fn published_nullifiers(
         .map_err(|e| anyhow!("block range: {}", e.message()))?
         .into_inner();
     let mut last = start.saturating_sub(1);
+    let mut first_block = true;
+    // The range asked for holds at most this many blocks; a server sending more (or blocks outside
+    // it) is faulty or hostile, and must not fill memory or loop forever.
+    let mut budget = u64::from(to.saturating_sub(start)) + 2;
     while let Some(block) = stream.message().await? {
+        budget = budget.checked_sub(1).ok_or_else(|| anyhow!("the server sent more blocks than the range holds"))?;
+        if block.height < u64::from(start) || block.height > u64::from(to) {
+            bail!("the server sent block {} outside {start}..={to}", block.height);
+        }
         for tx in &block.vtx {
             let actions = match pool {
                 Pool::Ironwood => &tx.ironwood_actions,
@@ -1161,6 +1176,11 @@ pub async fn published_nullifiers(
                 }
             }
         }
+        // Every block in turn: a skipped one would leave its nullifiers out and a spent note unspent.
+        if block.height != u64::from(last) + 1 && !(first_block && block.height == u64::from(start)) {
+            bail!("the server skipped from block {last} to {}", block.height);
+        }
+        first_block = false;
         last = block.height as u32;
     }
     if last < to {
@@ -1405,10 +1425,15 @@ pub async fn verify_claim_against_chain(
     server: Option<&str>,
     cache: Option<&std::path::Path>,
     second: Option<&str>,
+    min_floor: u64,
 ) -> anyhow::Result<ClaimReport> {
     use zcash_client_backend::proto::service::BlockId;
     if c.coin_type != net.coin_type() {
         bail!("the claim is for another network");
+    }
+    // The claimant chose the floor it shows: the caller says the least it accepts, and a claim below it is refused.
+    if c.floor < min_floor || min_floor == 0 {
+        bail!("the claim shows at least {} held, less than the {} required", zec(c.floor), zec(min_floor));
     }
     let nf = c.nf.ok_or_else(|| anyhow!("this claim hides its nullifier, so it can only be checked against a published list, not the chain"))?;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;

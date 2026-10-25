@@ -400,10 +400,16 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
     // `h=` block hints, one per receipt, keep the chain server from learning the batch's txids.
     let hints = chain::height_hints(text).filter(|h| h.len() == batch.receipts.len());
     let mut set = tokio::task::JoinSet::new();
+    // At most a few chain fetches at once per batch, however many receipts it holds.
+    let fetches = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
     for (i, r) in batch.receipts.iter().cloned().enumerate() {
         let server = server.map(str::to_string);
         let hint = hints.as_ref().map(|h| h[i]);
-        set.spawn(async move { (i, verify_parsed_hinted(net, server.as_deref(), &r, hint).await) });
+        let fetches = fetches.clone();
+        set.spawn(async move {
+            let _slot = fetches.acquire_owned().await;
+            (i, verify_parsed_hinted(net, server.as_deref(), &r, hint).await)
+        });
     }
     let mut slots: Vec<Option<Verification>> = vec![None; batch.receipts.len()];
     while let Some(done) = set.join_next().await {

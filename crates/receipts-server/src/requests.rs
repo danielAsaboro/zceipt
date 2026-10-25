@@ -424,6 +424,17 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
             drop(c);
             return Err(ApiError::conflict("request_already_fulfilled", format!("{} was already {status_now}", r.id)));
         }
+        // The source-of-funds coverage was computed before this transaction; a deposit credited
+        // meanwhile from the same source transaction would make both clear. Recount under the
+        // transaction (writers are serialized) and refuse if the funding no longer covers this one.
+        if let Some(p) = r.source_policy.as_deref() {
+            let prior = crate::deposits::prior_claims(&tx, &r.id);
+            if let Err(e) = crate::deposits::evaluate(p, &v, paid, &prior) {
+                drop(tx);
+                drop(c);
+                return Err(e);
+            }
+        }
         for (action, _) in &actions {
             let used: Option<String> = tx
                 .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, action], |x| {
@@ -683,7 +694,7 @@ pub async fn expiry_sweeper(st: Shared) {
         for (id, mode) in due {
             {
                 let c = st.db.0.lock().unwrap();
-                let _ = c.execute("UPDATE requests SET status = 'expired', expired_notified = 1 WHERE id = ?1", [&id]);
+                let _ = c.execute("UPDATE requests SET status = 'expired', expired_notified = 1 WHERE id = ?1 AND status = 'open'", [&id]);
             }
             let m = if mode == "live" { Mode::Live } else { Mode::Test };
             if let Ok(r) = load(&st, Some(m), &id) {

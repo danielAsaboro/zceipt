@@ -124,6 +124,10 @@ pub struct CreateAttestation {
 /// POST /v1/requests/{id}/attestations
 pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>, Body(req, _): Body<CreateAttestation>) -> Result<Json<Value>, ApiError> {
     let r = load(&st, Some(auth.mode), &id)?;
+    // Held and rejected deposits were paid but not accepted: nothing is attested for them.
+    if !matches!(r.status.as_str(), "fulfilled" | "final") {
+        return Err(ApiError::conflict("request_not_fulfilled", "only a fulfilled request can be attested"));
+    }
     let (Some(paid_at), Some(paid)) = (r.fulfilled_at, r.paid) else {
         return Err(ApiError::conflict("request_not_fulfilled", "only a fulfilled request can be attested"));
     };

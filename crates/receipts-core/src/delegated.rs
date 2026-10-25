@@ -131,11 +131,18 @@ impl Certificate {
 }
 
 /// What the spend key gives the delegate: the session secret, `alpha_c`, and the certificate.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Session {
     pub secret: [u8; 32],
     pub alpha: [u8; 32],
     pub cert: Certificate,
+}
+
+/// Secrets stay out of `{:?}`, logs and panic messages.
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session").field("secret", &"<hidden>").field("alpha", &"<hidden>").field("cert", &self.cert).finish()
+    }
 }
 
 impl Session {

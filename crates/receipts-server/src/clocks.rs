@@ -128,7 +128,7 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
         rows
     };
     for rid in expired {
-        st.db.0.lock().unwrap().execute("UPDATE requests SET status = 'expired', expired_notified = 1 WHERE id = ?1", [&rid])?;
+        st.db.0.lock().unwrap().execute("UPDATE requests SET status = 'expired', expired_notified = 1 WHERE id = ?1 AND status = 'open'", [&rid])?;
         let ev = emit(&st, Mode::Test, "request.expired", to_json(&st, &load_request(&st, Some(Mode::Test), &rid)?))?;
         fired.push(json!({ "type": "request.expired", "request": rid, "event": ev["id"] }));
     }

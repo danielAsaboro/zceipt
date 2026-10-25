@@ -194,6 +194,9 @@ impl ReceiptMaker {
     /// the server can't tell where it was found).
     pub fn witness_block(&mut self, height: u32, packed: &[u8]) -> Result<bool, JsError> {
         let r = self.rebuild.as_mut().ok_or_else(|| err("call witness_start first"))?;
+        if packed.len() % PACKED != 0 {
+            return Err(err("a block's actions are packed 181 bytes each"));
+        }
         if self.paths.contains_key(&(r.pool, r.nf)) {
             return Ok(true);
         }

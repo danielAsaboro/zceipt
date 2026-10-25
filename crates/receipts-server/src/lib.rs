@@ -106,12 +106,7 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
     // Rate-limit buckets: a valid API key (however it was sent), or, for the hosted pages'
     // unauthenticated receipt submissions, the request id. Anything else is not counted here
     // and is refused by authentication, so made-up headers can't open fresh buckets.
-    let raw_key = req
-        .headers()
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v.strip_prefix("Bearer ").unwrap_or(v).trim().to_string())
-        .or_else(|| req.headers().get("x-api-key").and_then(|v| v.to_str().ok()).map(|v| v.trim().to_string()));
+    let raw_key = api_key_of(req.headers());
     let valid_key = raw_key.filter(|k| matches!(st.db.mode_for_key(k), Ok(Some(_))));
     let path = req.uri().path().to_string();
     let key = valid_key.or_else(|| {
@@ -217,17 +212,21 @@ pub struct Auth {
     pub mode: Mode,
 }
 
+/// The API key a request carries: `Authorization: Bearer <key>`, else `X-Api-Key`. One reading
+/// for authentication and for rate limiting, so no header can be authenticated yet uncounted.
+pub(crate) fn api_key_of(h: &HeaderMap) -> Option<String> {
+    h.get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .or_else(|| h.get("x-api-key").and_then(|v| v.to_str().ok()))
+        .map(|s| s.trim().to_string())
+}
+
 impl FromRequestParts<Shared> for Auth {
     type Rejection = ApiError;
     async fn from_request_parts(parts: &mut Parts, state: &Shared) -> Result<Self, ApiError> {
         let h = &parts.headers;
-        let key = h
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .or_else(|| h.get("x-api-key").and_then(|v| v.to_str().ok()))
-            .map(|s| s.trim().to_string())
-            .ok_or_else(|| ApiError::auth("missing_api_key", "send `Authorization: Bearer rcpt_test_…`"))?;
+        let key = api_key_of(h).ok_or_else(|| ApiError::auth("missing_api_key", "send `Authorization: Bearer rcpt_test_…`"))?;
         let mode = match state.db.mode_for_key(&key)?.as_deref() {
             Some("test") => Mode::Test,
             Some("live") => Mode::Live,
@@ -940,4 +939,25 @@ pub async fn build(db_path: &str, config: Config) -> anyhow::Result<(Router, Vec
     tokio::spawn(clocks::finality_sweeper(state.clone()));
     tokio::spawn(verify::warm_up());
     Ok((router(state), keys))
+}
+
+#[cfg(test)]
+mod key_reading {
+    use super::*;
+
+    #[test]
+    fn one_reading_of_the_key_for_authentication_and_rate_limiting() {
+        let h = |pairs: &[(&str, &str)]| {
+            let mut m = HeaderMap::new();
+            for (k, v) in pairs {
+                m.insert(axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(), v.parse().unwrap());
+            }
+            m
+        };
+        assert_eq!(api_key_of(&h(&[("authorization", "Bearer rcpt_test_a")])).as_deref(), Some("rcpt_test_a"));
+        assert_eq!(api_key_of(&h(&[("x-api-key", " rcpt_test_b ")])).as_deref(), Some("rcpt_test_b"));
+        // A non-Bearer Authorization header must not hide the key that authentication will use.
+        assert_eq!(api_key_of(&h(&[("authorization", "Foo"), ("x-api-key", "rcpt_test_c")])).as_deref(), Some("rcpt_test_c"));
+        assert_eq!(api_key_of(&h(&[("authorization", "Basic abc")])), None);
+    }
 }

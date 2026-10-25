@@ -955,17 +955,37 @@ fn read_stdin_secret() -> anyhow::Result<String> {
     Ok(s)
 }
 
-/// Writes a file only its owner can read.
+/// Writes a file only its owner can read: created 0600, and an existing file is tightened to 0600
+/// before anything is written to it.
 fn write_private(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     let mut o = std::fs::OpenOptions::new();
-    o.write(true).create(true).truncate(true);
+    o.write(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         o.mode(0o600);
     }
-    std::io::Write::write_all(&mut o.open(path).with_context(|| format!("writing {}", path.display()))?, text.as_bytes())?;
+    let mut f = o.open(path).with_context(|| format!("writing {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    f.set_len(0)?;
+    std::io::Write::write_all(&mut f, text.as_bytes())?;
     Ok(())
+}
+
+/// Creates a new file only its owner can read, and fails if it already exists (a secret key file).
+fn create_private_new(path: &std::path::Path) -> anyhow::Result<std::fs::File> {
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    o.open(path).with_context(|| format!("creating {}", path.display()))
 }
 
 /// A link on this computer's own address opens only here; say how to send it instead.
@@ -1335,14 +1355,14 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::VerifierKey { out } => {
             let (y, v) = receipts_core::designated::verifier_key(rand::rand_core::UnwrapErr(rand::rngs::SysRng));
             let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
-            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).with_context(|| format!("creating {}", out.display()))?;
+            let mut f = create_private_new(&out)?;
             std::io::Write::write_all(&mut f, format!("{}\n", hex(&y)).as_bytes())?;
             eprintln!("Kept the secret half in {}. Give payers this (receipts sign --for <it>):", out.display());
             println!("{}", hex(&v));
         }
         Cmd::Delegate { wallet, identity, max, until, payees, out } => {
             let s = wallet::delegate(&wallet, &identity, parse_zec(&max)?, until, &payees)?;
-            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&out).with_context(|| format!("creating {}", out.display()))?;
+            let mut f = create_private_new(&out)?;
             std::io::Write::write_all(&mut f, s.to_text().as_bytes())?;
             eprintln!(
                 "Wrote the session to {}: receipts of at most {max} ZEC, for payments by block {until}{}. Give it to the delegate with your viewing key; it can't spend.",
@@ -2328,12 +2348,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
             if !keys.is_empty() {
-                std::fs::write(&key_file, lines)?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600))?;
-                }
+                write_private(std::path::Path::new(&key_file), &lines)?;
             }
             eprintln!("  docs      http://{listen}/docs   openapi http://{listen}/openapi.yaml");
             axum::serve(listener, app)
@@ -2804,7 +2819,8 @@ async fn pay(
             .or_else(|| u.query_pairs().find(|(k, _)| k == "secret").map(|(_, v)| v.into_owned()))
             .ok_or_else(|| anyhow!("the pay link has no secret"))?;
         let (base, id, secret) = (base.as_str(), id.as_str(), secret.as_str());
-        let info: serde_json::Value = reqwest::get(format!("{base}/v1/public/requests/{id}?secret={secret}")).await?.json().await?;
+        // The secret travels in a header, not the URL, so a connection error never prints it.
+        let info: serde_json::Value = reqwest::Client::new().get(format!("{base}/v1/public/requests/{id}")).header("receipts-client-secret", secret).send().await.map_err(|e| anyhow!("could not reach the shop's server: {}", e.without_url()))?.json().await?;
         if info.get("error").is_some() {
             bail!("the shop's server refused: {}", info["error"]["message"]);
         }

@@ -15,6 +15,7 @@ name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
 
 [dependencies]
+hex = "0.4"
 receipts-core = { path = "../receipts-core", features = ["orchard-ext", "extensions"] }
 receipts-chain = { path = "../receipts-chain" }
 receipts-wallet = { path = "../receipts-wallet" }

@@ -45,10 +45,7 @@ pub fn prepare_receipt(db_path: String, network: String, txid: String, message: 
         "test" | "testnet" => receipts_chain::net::Net::Test,
         n => return Err(refused(format!("unknown network {n}: use main or test"))),
     };
-    let mut id: [u8; 32] = (0..txid.len().min(64))
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&txid[i..i + 2], 16))
-        .collect::<Result<Vec<u8>, _>>()
+    let mut id: [u8; 32] = hex::decode(txid)
         .ok()
         .and_then(|b| b.try_into().ok())
         .ok_or_else(|| refused("a txid is 64 hex digits"))?;

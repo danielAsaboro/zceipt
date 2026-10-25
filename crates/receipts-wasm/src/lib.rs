@@ -763,6 +763,10 @@ pub fn inspect_incoming(receipt: &str) -> Result<String, JsError> {
 #[wasm_bindgen]
 pub fn verify_payment_request(request: &str, now: f64) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
+    // NaN or a negative time would become 0 and no request would ever look expired.
+    if !now.is_finite() || now < 0.0 {
+        return Err(JsError::new("now must be a Unix time in seconds"));
+    }
     let r = receipts_core::payreq::PaymentRequest::from_text(request).ok_or_else(|| JsError::new("not a valid zreq1… signed payment request"))?;
     let (_, nt, name) = net_of(r.coin_type)?;
     let raw = VK

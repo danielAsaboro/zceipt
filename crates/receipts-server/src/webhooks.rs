@@ -97,7 +97,16 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
             Ok(c) => c,
             Err(e) => {
                 let c = st.db.0.lock().unwrap();
-                c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
+                // A failed DNS lookup is transient: retry on the usual schedule. A refused address or URL is final.
+                let attempts = attempts + 1;
+                if e.starts_with("DNS") && attempts < st.config.webhook_max_attempts {
+                    c.execute(
+                        "UPDATE deliveries SET status = 'pending', attempts = ?1, last_error = ?2, next_attempt_at = ?3 WHERE id = ?4",
+                        params![attempts, e, now() + backoff(st.config.webhook_backoff_secs, attempts), id],
+                    )?;
+                } else {
+                    c.execute("UPDATE deliveries SET status = 'failed', attempts = attempts + 1, last_error = ?1 WHERE id = ?2", params![e, id])?;
+                }
                 return Ok(());
             }
         }

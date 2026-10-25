@@ -139,6 +139,12 @@ pub fn new_id(prefix: &str) -> String {
 impl Db {
     pub fn open(path: &str) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
+        // The file holds API keys and webhook secrets: owner-only, as are the WAL and shared-memory files SQLite adds.
+        #[cfg(unix)]
+        if path != ":memory:" && !path.is_empty() {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
         // Columns added after the first release; ignore "duplicate column" on existing files.

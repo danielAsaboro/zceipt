@@ -148,6 +148,20 @@ fn pay_dry_run_shows_what_it_would_pay() {
     assert!(!ok && out.contains("can't be proven"), "{out}");
 }
 
+#[cfg(unix)]
+#[test]
+fn secret_key_files_are_private_from_the_first_byte() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tempdir();
+    let key = d.join("shop.key");
+    let (ok, out) = receipts(&["verifier-key", "--out", key.to_str().unwrap()]);
+    assert!(ok, "{out}");
+    assert_eq!(std::fs::metadata(&key).unwrap().permissions().mode() & 0o777, 0o600);
+    // Never overwritten.
+    let (ok, _) = receipts(&["verifier-key", "--out", key.to_str().unwrap()]);
+    assert!(!ok);
+}
+
 fn tempdir() -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!(
         "receipts-cli-test-{}-{}",

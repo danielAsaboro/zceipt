@@ -50,13 +50,13 @@ The same material as a Mintlify site: [docs-site/](docs-site) (`cd docs-site && 
 - **Two proofs use circuits written or forked here**, and nobody else has reviewed them:
   claim and payer tags (a fork of the Action circuit, `vendor/orchard/src/circuit/claim.rs`) and
   sibling-account proofs (a new Halo 2 circuit with a BLAKE2b gadget ported from
-  `eryxcoop/blake2b_halo2`, whose authors say it is unaudited; the port is too). Both have run on
-  regtest and in tests, **not on testnet**.
-- **Delegation, one-verifier receipts and FROST policy proofs** use no new circuit. Delegation
-  and one-verifier receipts ran on regtest; the FROST policy proof is a unit test with the Zcash
-  Foundation's FROST, not run on a chain.
-- **Runs on testnet:** the base receipt, batches with same-payer proofs, key sets, income proofs,
-  screened sets and source proofs.
+  `eryxcoop/blake2b_halo2`, whose authors say it is unaudited; the port is too). Both now run on
+  the Zcash public testnet (`scripts/e2e-testnet.sh`) and have been attacked there and offline
+  ([ASSURANCE.md](docs/ASSURANCE.md)); the attacks found and fixed five weaknesses around them.
+- **Delegation, one-verifier receipts and FROST policy proofs** use no new circuit, and all three
+  run on the testnet too (the FROST treasury is a testnet wallet's key split by a trusted dealer).
+- **Runs on testnet:** every proof above, plus the base receipt, batches with same-payer proofs,
+  key sets, income proofs, screened sets and source proofs. Real proofs: [examples/testnet/proofs](examples/testnet/proofs).
 - Binaries here build on `orchard` 0.16 plus a patch ([vendor/README.md](vendor/README.md)); the base
   receipt builds on stock `orchard`.
 - Sapling and transparent spends are out of scope: ZIP 311 already covers Sapling.

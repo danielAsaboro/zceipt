@@ -162,3 +162,35 @@ conformance vectors (`node --test packages/zcash-receipts/test/conformance.test.
 | Length limits, batch positions, address-proof anchor and unlinkability had no direct tests | mutation testing | `tests/encoding_ub.rs`, `rt::address_proof_roundtrip_and_rejections` |
 | §4.20.3 of the protocol spec can't open Ironwood outputs as written | writing the spec verifier | `SPEC-AMBIGUITIES.md` A9 |
 | Our `SPEC.md` omitted the address-proof layout and limits | writing the spec verifier | `SPEC.md` |
+
+## 8. Attacks on the testnet proofs (2026-10-25)
+
+Every proof type was made on the Zcash public testnet (`scripts/e2e-testnet.sh`; proofs committed in
+`examples/testnet/proofs`) and then attacked. Offline, `crates/receipts-cli/tests/testnet_adversarial.rs`
+flips every byte of the real claim (three ways each), payer tag, one-verifier, delegated, income and
+FROST proofs, and runs the proof alone on every edit to a claim's statement (so a claimant who could
+re-sign still can't change floor, anchor, tag or nullifier). It moves tags to other payments,
+rounds and kinds, swaps, doubles and substitutes sibling tags, and tries expired, over-limit and
+wrong-payee delegations. `roundtrip.rs::a_dishonest_claim_prover_is_caught_by_the_proof` adds a note
+outside the snapshot and a stolen claim re-signed under another key. Live, a claim from a note
+the chain had already spent proves fine and the chain check refuses it.
+
+| Finding | Attack | Fixed in |
+|---|---|---|
+| One key's tag in "drop" as an airdrop claim equalled its tag in "drop" as a payer-tag round, so an organizer naming a round after an airdrop could match donors to claimants | same key, same domain name, two kinds | `claim::TagKind` (domain hashed under a personalization per kind, chosen by the verifier's entry point); `roundtrip.rs::a_claim_and_a_payer_tag_in_one_domain_do_not_link` |
+| A claim's floor is the claimant's choice: a one-zatoshi note verified as a valid claim | dust claim | `verify --min` and `min_floor_zatoshis` are required for claims |
+| The nullifier cache was written in place with no integrity check, so a check racing a write could read a truncated list and call a spent note unspent | concurrent checks | atomic rename and a digest; `chain.rs::a_damaged_nullifier_cache_is_not_read` (every cut length and flipped byte) |
+| The API re-read the pool's whole nullifier history on every claim check | request amplification | verify slot and the cache |
+| Accounts 0 and 1 of one wallet counted as two payers, and the docs said the sibling proof "closes that gap" with no way to apply it | income with `--min-payers` on live payments | `verify --siblings` merges tags a payer proves siblings; docs say the count is of wallets at most |
+| A FROST policy proof binds the receipt's key to `C_0` only: a holder of the whole key can show any threshold for it | proving the same receipt under an invented commitment | `verify --policy-commitment` pins the published one; documented |
+
+Looked at and not breaking: a payer tag from a dummy (padding) spend (needs a nonzero note in the
+tree, since the tag's floor is 1); a hidden-nullifier claim presented against the chain (refused
+before any proof is checked); a claim re-signed under the thief's key (the proof binds `rk`);
+delegation links and the session signature (`rk_i - rk_c` known only to the delegate and `ak`
+equal, by discrete log); the OR-proof in one-verifier receipts (the verifier it names must be
+checked by the caller, and the CLI and npm package do). The sibling circuit's worst case is limited:
+a forger could only merge two tags whose keys they know, which makes their own wallets count once.
+Not covered: the BLAKE2b gadget's constraints line by line (unaudited), the chain server's honesty
+about the tree root and nullifiers (a second server is not asked for claims), and independent
+wallets (nothing catches those).

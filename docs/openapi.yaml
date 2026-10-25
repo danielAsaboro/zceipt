@@ -352,6 +352,7 @@ paths:
                 claim: { type: string, description: "The zip311t1… text." }
                 domain: { type: string, description: "Your airdrop's or round's name; a claim for another is refused." }
                 height: { type: integer, description: "The snapshot block. Required for a claim, omitted for a payer tag." }
+                min_floor_zatoshis: { type: integer, minimum: 1, description: "The least a claim's note must have held. Required for a claim: the claimant picks the floor it shows, so a dust note proves \"at least 1 zatoshi\" unless you set this." }
       responses:
         "200":
           description: Valid

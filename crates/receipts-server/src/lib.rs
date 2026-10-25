@@ -453,6 +453,7 @@ struct ClaimReq {
     domain: Option<String>,
     /// The snapshot block a claim must be against. Omit for a payer tag.
     height: Option<u32>,
+    min_floor_zatoshis: Option<u64>,
 }
 
 /// Checks a claim (`zip311t1…` with a snapshot block) or a payer tag (one with none) for the
@@ -487,7 +488,16 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
     if c.height != height {
         return Err(ApiError::verification("claim_invalid", format!("the claim is against block {}, not the snapshot {height}", c.height)).param("claim"));
     }
-    let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), None).await.map_err(invalid)?;
+    // The claimant chooses the floor it shows, so the caller states the least its rules allow.
+    let least = req.min_floor_zatoshis.ok_or_else(|| ApiError::missing("min_floor_zatoshis"))?;
+    if c.floor < least {
+        return Err(ApiError::verification("claim_below_floor", format!("the claim shows at least {} zatoshis held, less than the {least} required", c.floor)).param("claim"));
+    }
+    // Each check reads the pool's nullifiers up to the snapshot: take a verify slot (the same cap
+    // as receipts) and keep what was downloaded, so the next check fetches only newer blocks.
+    let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
+    let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
+    let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref()).await.map_err(invalid)?;
     Ok(Json(serde_json::to_value(rep).unwrap()))
 }
 

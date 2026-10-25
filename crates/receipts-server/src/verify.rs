@@ -11,7 +11,7 @@ fn vk() -> &'static orchard::circuit::VerifyingKey {
     VK.get_or_init(receipts_core::verifying_key)
 }
 
-fn verify_slots() -> &'static tokio::sync::Semaphore {
+pub(crate) fn verify_slots() -> &'static tokio::sync::Semaphore {
     static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     S.get_or_init(|| tokio::sync::Semaphore::new(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)))
 }

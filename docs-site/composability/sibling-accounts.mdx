@@ -5,20 +5,26 @@ description: "Prove two payer tags come from accounts of one wallet, without say
 
 <Warning>
 This proof uses a **new Halo 2 circuit** with a **ported BLAKE2b gadget**. The gadget's authors
-say theirs is unaudited, and the port is too. It has run on a private regtest chain, not on
-testnet. See [forked circuits](/reference/forked-circuits).
+say theirs is unaudited, and the port is too. It has run on the Zcash public testnet (a proof over
+the payer tags of real payments by account 0 and account 1 of one wallet) and on regtest. See
+[forked circuits](/reference/forked-circuits).
 </Warning>
 
 [Payer tags](/composability/distinct-payers) tell wallets apart by account. A donor with two
-accounts of one wallet would get two tags and count twice. A sibling-account proof closes that
-gap.
+accounts of one wallet gets two tags and counts twice. A sibling-account proof lets the donor
+show the two are one wallet, and the verifier then counts them once. It is the donor's choice to
+show it: a verifier can merge tags a payer discloses, never find the ones a payer hides.
 
 ## Use
 
 ```bash
 receipts siblings -w <wallet> -i <identity> --accounts 0,1 --domain round-2026 --out s.txt
 receipts verify @s.txt --domain round-2026
+receipts verify @income.txt --payer-tag @t0.txt --payer-tag @t1.txt --siblings @s.txt --domain round-2026
 ```
+
+The last line counts the two payer tags as one wallet. On the testnet run, three tags (accounts 0
+and 1 of one wallet, and a second wallet) count as three without the proof and two with it.
 
 The output lists the two tags the proof is about. With payer tags from real payments (each tag
 tied to its payment by the payer-tag proof), a verifier learns the two payments came from accounts
@@ -40,6 +46,12 @@ The circuit takes private `(sk_par, c_par)` and indices `i_1`, `i_2`, computes b
 `domain`. The parent key, the indices and the `nk`s stay private.
 
 So a tag can't be claimed for another wallet's account without a BLAKE2b or Poseidon collision.
+
+Suppose the BLAKE2b gadget were unsound anyway. The proof can only be used to merge tags, so what
+a forger could show is that two tags *they* know the keys for are siblings, which makes their own
+two wallets count once. Merging someone else's tag needs that tag's `nk`, which the forger would
+have to find by inverting Poseidon. An unsound gadget would not let anyone be counted more times,
+or hide a payment.
 A test (`against_orchard::accounts_are_children_of_the_coin_key`) checks that the in-circuit
 derivation equals the `orchard` crate's.
 
@@ -56,4 +68,4 @@ by digest.
   wallets.
 - Unaudited gadget and port.
 
-Code: `crates/receipts-kce`. The regtest end-to-end run ties a sibling proof to a real payer tag.
+Code: `crates/receipts-kce`. The testnet and regtest end-to-end runs tie a sibling proof to real payer tags. The proof's `coin_type` is not authenticated by the circuit, which is harmless because a tag is only used next to payer tags checked against a chain.

@@ -4,8 +4,8 @@ description: "Pay a round with one link, count wallets not payments, and claim o
 ---
 
 <Warning>
-Claims and payer tags use the forked circuit and have run on regtest only. See
-[status](/status).
+Claims and payer tags use the forked circuit. They have run on the Zcash public testnet and on
+regtest, and are unaudited. See [status](/status).
 </Warning>
 
 ## Prove a payout round
@@ -27,17 +27,19 @@ private.
 2. Each donor tags the payment: `receipts tag -w <wallet> -i <identity> --txid <txid> --domain round-2026`.
 3. The organiser verifies each tag with `--domain` and counts distinct tag values. One donor
    splitting a gift into ten payments gives one tag.
-4. If a donor might use several accounts of one wallet, ask for a
-   [sibling-account proof](/composability/sibling-accounts) over the two tags.
+4. A donor with several accounts of one wallet gets one tag per account. They can merge them
+   with a [sibling-account proof](/composability/sibling-accounts) (`verify --siblings`), but you
+   can't make them: the count is of wallets at most.
 
 ## Airdrop: one claim per wallet
 
 ```bash
 receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
   -m "payout to my address" --out claim.txt
-receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block>
+receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
 ```
 
-The claim shows a note of at least the floor was held at the snapshot block. Two claims from one
+The claim shows a note of at least the floor was held at the snapshot block. The claimant picks
+the floor, so `--min` (the least you accept) is required: a claim below it is refused. Two claims from one
 wallet carry one tag; tags in other airdrops don't link. See
 [distinct payers](/composability/distinct-payers) for how this works and what it doesn't stop.

@@ -2022,15 +2022,16 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             if c.height != height {
                 bail!("the claim is against block {}, not the snapshot {height}", c.height);
             }
+            // The claimant chooses the floor it shows (a dust note proves "at least 1 zatoshi"), so
+            // the verifier states the least its rules allow, and a claim below it is refused.
+            let Some(least) = VERIFY_EXPECT.get().and_then(|(m, _, _)| *m) else {
+                bail!("a claim shows the least its note held, chosen by the claimant: give --min <ZEC>, the least your rules allow");
+            };
+            if c.floor < least {
+                bail!("the claim shows at least {} held, less than the {} your rules require", chain::zec(c.floor), chain::zec(least));
+            }
             let net = net::for_receipt(c.coin_type, regtest.as_deref())?;
-            let cache = std::env::var_os("HOME").map(|h| {
-                PathBuf::from(h).join(".cache/receipts").join(format!(
-                    "{}-{}-{}-nullifiers.bin",
-                    net.name(),
-                    if c.pool == Pool::Orchard { "orchard" } else { "ironwood" },
-                    server.as_deref().unwrap_or("default").replace([':', '/'], "_")
-                ))
-            });
+            let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
             eprintln!("Checking the proof and that the note was unspent at block {height}…");
             let rep = chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref()).await?;
             if let (_, Some(ch), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
@@ -2060,14 +2061,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
             let net = net::for_receipt(r.coin_type, regtest.as_deref())?;
-            let cache = std::env::var_os("HOME").map(|h| {
-                PathBuf::from(h).join(".cache/receipts").join(format!(
-                    "{}-{}-{}-nullifiers.bin",
-                    net.name(),
-                    if r.pool == Pool::Orchard { "orchard" } else { "ironwood" },
-                    server.as_deref().unwrap_or("default").replace([':', '/'], "_")
-                ))
-            });
+            let cache = chain::nullifier_cache_path(net, r.pool, server.as_deref());
             eprintln!(
                 "Checking the proofs and scanning the {} pool's nullifiers (cached after the first run)…",
                 if r.pool == Pool::Orchard { "Orchard" } else { "Ironwood" }

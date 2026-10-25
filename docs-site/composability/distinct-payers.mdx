@@ -4,8 +4,10 @@ description: "Count different wallets, not different payments, using claim tags 
 ---
 
 <Warning>
-This proof uses a **forked Orchard Action circuit**. It has not been reviewed. It has run on a
-private regtest chain and in tests, not on testnet. See [forked circuits](/reference/forked-circuits).
+This proof uses a **forked Orchard Action circuit**. It has not been reviewed. It has run on the
+Zcash public testnet and on a private regtest chain, and has been attacked with dishonest provers,
+byte-by-byte edits and cross-use (see [status](/status)), but no external cryptographer has looked
+at it. See [forked circuits](/reference/forked-circuits).
 </Warning>
 
 Two questions need the same primitive:
@@ -24,6 +26,9 @@ the round's name. In the circuit the same `nk` cell feeds both the address check
   address and both scopes of an account share `nk`.
 - Finding a second tag for a key would need a `CommitIvk` collision.
 - Tags in different domains are unrelated values, as Poseidon keyed by `nk` is a PRF.
+- A claim and a payer tag hash the domain under different personalizations, so a key's tag in
+  "drop" as a claim and as a payer tag don't match. (They once did: a round named after someone
+  else's airdrop could have matched donors to claimants.)
 
 ## Claim tags
 
@@ -32,8 +37,12 @@ Shows a note of at least `floor` was held in the tree at a snapshot block, and c
 ```bash
 receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
   -m "payout to my address" --out claim.txt
-receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block>
+receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
 ```
+
+The claimant picks the floor the claim shows, so you must say the least you accept with `--min`
+(the API takes `min_floor_zatoshis`). Without it a note of one zatoshi would prove "at least 1"
+and verify.
 
 Against a chain snapshot the claim reveals the note's nullifier, and the verifier checks it was
 not published up to the snapshot block. The tree keeps spent notes, so without that check a balance
@@ -64,10 +73,15 @@ came from at least *k* different wallets.
 receipts verify @income.txt --payer-tag @tag1.txt --payer-tag @tag2.txt --min-payers 2
 ```
 
+If a payer shows a [sibling-account proof](/composability/sibling-accounts) for two of the tags,
+add `--siblings @sib.txt` and the two count as one wallet.
+
 ## Limits
 
-- A person with two *independent* wallets gets two tags. Use [sibling accounts](/composability/sibling-accounts)
-  to catch accounts of one wallet; nothing catches independent wallets.
+- Tags count wallets **at most**, never at least. A person with two accounts of one wallet gets two
+  tags, and a [sibling-account proof](/composability/sibling-accounts) merges them only if the
+  payer chooses to show it: you can't make anyone show one. Nothing at all catches independent
+  wallets.
 - Claims against a published list (not a chain snapshot) use a second key mode where the
   nullifier stays private, since there is no chain to check it against.
 

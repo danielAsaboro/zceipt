@@ -397,7 +397,8 @@ under one of the set's keys, not which. Size: 64 bytes per key per spend.
 claim  := "ZRCL" | version:u8 = 1 | coinType:u32le | pool:u8 | domainLen:u16le | domain
         | msgLen:u16le | msg | height:u32le | anchor[32] | floor:u64le | rk[32] | cmx[32]
         | tag[32] | hasNf:u8 | (nf[32] if hasNf) | proofLen:u32le | proof | spendAuthSig[64]
-domainField := ToBase(BLAKE2b-512("ZIP311ClaimDom", domain))
+domainField := ToBase(BLAKE2b-512(personalization, domain))
+              personalization = "ZIP311ClaimDom" for a claim, "ZIP311PayerTag" for a payer tag
 tag    := Poseidon(nk, domainField)
 digest := BLAKE2b-256("ZIP311Claim\0" || coinType, claim without spendAuthSig)
 ```
@@ -407,6 +408,16 @@ One claim per wallet in an airdrop, a grant round or a vote, for wallets that he
 `cv_net = ValueCommit_0(floor)` (so the note holds at least `floor`), plus two public inputs:
 `domainField` and `tag`. Every claim a key makes in one domain has the same tag, so the verifier
 keeps one per tag; tags in two domains don't link. `spendAuthSig` by `rk` covers the claim.
+
+A claim and a payer tag (below) hash the domain under different personalizations, so one key's
+tag in "drop" as a claim and in "drop" as a payer tag are unrelated values; a round named after
+someone else's airdrop can't match donors to claimants. The verifier's entry point (claim or
+payer tag) picks the personalization, never the claim's own bytes: a claimant who could choose
+would obtain a second tag in the same domain and claim twice.
+
+`floor` is chosen by the claimant. A verifier states the least its rules allow and refuses a claim
+below it (`receipts verify --min`, `min_floor_zatoshis` in the API); otherwise a note of one
+zatoshi proves "at least 1".
 
 For a chain snapshot (`height` > 0), `anchor` must be the pool's tree root at `height`, set by
 the verifier (`receipts verify --domain D --height H`), and `nf` must be revealed and not

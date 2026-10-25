@@ -46,10 +46,15 @@ payment claimed with another key reads **NOT PROVEN BY THE PAYER**.
 
 - **Testnet and regtest only.** No mainnet.
 - **Unaudited.** Reviewed only by the author, which found and fixed one forgery.
-- **Runs on testnet:** the base receipt, batches with same-payer proofs, key sets, income, source
-  and screened-set proofs.
-- **Regtest and tests only:** claims and payer tags, sibling accounts, delegation, one-verifier
-  receipts. FROST policy is a unit test.
+- **Runs on the Zcash public testnet:** every proof type: the base receipt, batches with same-payer
+  proofs, key sets, income, source and screened-set proofs, claims, payer tags, sibling accounts,
+  delegation, one-verifier receipts and FROST policy. `scripts/e2e-testnet.sh` makes real
+  payments and runs the checks and the attacks; the proofs are committed in
+  `examples/testnet/proofs` and attacked offline (`testnet_adversarial.rs`).
+- **Attacks found and fixed five weaknesses** (claims and payer tags shared one tag per key and
+  domain; a claimant picked the floor; a truncated nullifier cache could pass a spent note;
+  sibling accounts could not be merged by a verifier; a FROST policy proof didn't say the
+  commitment must be pinned). Details: docs/ASSURANCE.md.
 - **Two circuits are ours and unreviewed:** the forked claim circuit and the sibling-account
   circuit with a ported BLAKE2b gadget. The base receipt does not depend on either.
 

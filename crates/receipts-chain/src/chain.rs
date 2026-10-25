@@ -1068,6 +1068,47 @@ async fn block_hash(c: &mut CompactTxStreamerClient<Channel>, h: u32) -> Option<
     c.get_block(BlockId { height: u64::from(h), hash: vec![] }).await.ok().map(|b| b.into_inner().hash)
 }
 
+/// Where the nullifiers already downloaded for `pool` on `net` from `server` are kept, so the next
+/// check only fetches the blocks since (`~/.cache/receipts`; none if there is no home directory).
+pub fn nullifier_cache_path(net: Net, pool: Pool, server: Option<&str>) -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|h| {
+        std::path::PathBuf::from(h).join(".cache/receipts").join(format!(
+            "{}-{}-{}-nullifiers.bin",
+            net.name(),
+            if pool == Pool::Orchard { "orchard" } else { "ironwood" },
+            server.unwrap_or("default").replace([':', '/'], "_")
+        ))
+    })
+}
+
+/// The nullifier cache file: `from u32 | upto u32 | hash of block upto (32) | nullifiers | BLAKE2b-256
+/// of everything before`. The digest makes a truncated or damaged file unreadable instead of a set
+/// that silently lacks nullifiers.
+fn encode_nullifier_cache<'a>(from: u32, upto: u32, hash: &[u8; 32], set: impl IntoIterator<Item = &'a [u8; 32]>) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&from.to_le_bytes());
+    out.extend_from_slice(&upto.to_le_bytes());
+    out.extend_from_slice(hash);
+    for nf in set {
+        out.extend_from_slice(nf);
+    }
+    let digest = blake2b_simd::Params::new().hash_length(32).hash(&out);
+    out.extend_from_slice(digest.as_bytes());
+    out
+}
+
+type NullifierCache = (u32, u32, Vec<u8>, Vec<[u8; 32]>);
+
+fn decode_nullifier_cache(b: &[u8]) -> Option<NullifierCache> {
+    let body = b.len().checked_sub(32)?;
+    if body < 40 || (body - 40) % 32 != 0 || blake2b_simd::Params::new().hash_length(32).hash(&b[..body]).as_bytes() != &b[body..] {
+        return None;
+    }
+    let from = u32::from_le_bytes(b[0..4].try_into().ok()?);
+    let upto = u32::from_le_bytes(b[4..8].try_into().ok()?);
+    Some((from, upto, b[8..40].to_vec(), b[40..body].chunks(32).map(|c| <[u8; 32]>::try_from(c).unwrap()).collect()))
+}
+
 /// Every nullifier `pool` published in blocks `from..=to`, read from compact blocks. Downloading
 /// the whole range tells the server nothing about which nullifiers the caller is looking for.
 /// Cached under `cache` (if given), so later checks only download new blocks.
@@ -1086,15 +1127,11 @@ pub async fn published_nullifiers(
     // Cache layout: from u32 | upto u32 | hash of block `upto` (32) | nullifiers. It is reused only
     // if the chain still has that block hash (same chain, no reorg below it).
     if let Some(c) = cache {
-        if let Ok(bytes) = std::fs::read(c) {
-            if bytes.len() >= 40 && (bytes.len() - 40) % 32 == 0 {
-                let cached_from = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-                let upto = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
-                let same_chain = block_hash(&mut client, upto).await.is_some_and(|h| h == bytes[8..40]);
-                if cached_from <= from && upto < to && same_chain {
-                    set.extend(bytes[40..].chunks(32).map(|c| <[u8; 32]>::try_from(c).unwrap()));
-                    start = upto + 1;
-                }
+        if let Some((cached_from, upto, hash, cached)) = std::fs::read(c).ok().and_then(|b| decode_nullifier_cache(&b)) {
+            let same_chain = block_hash(&mut client, upto).await.is_some_and(|h| h == hash);
+            if cached_from <= from && upto < to && same_chain {
+                set.extend(cached);
+                start = upto + 1;
             }
         }
     }
@@ -1133,19 +1170,18 @@ pub async fn published_nullifiers(
     // make a later check stricter, and those blocks are scanned again next time).
     let upto = to.saturating_sub(100).max(from);
     if let (Some(c), Some(hash)) = (cache, block_hash(&mut client, upto).await) {
-        let mut out = Vec::with_capacity(40 + set.len() * 32);
-        out.extend_from_slice(&from.to_le_bytes());
-        out.extend_from_slice(&upto.to_le_bytes());
         let mut h = [0u8; 32];
         h[..hash.len().min(32)].copy_from_slice(&hash[..hash.len().min(32)]);
-        out.extend_from_slice(&h);
-        for nf in &set {
-            out.extend_from_slice(nf);
-        }
+        let out = encode_nullifier_cache(from, upto, &h, &set);
         if let Some(dir) = c.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(c, out);
+        // Written whole under another name and renamed into place, so a check running at the same
+        // time reads the old file or the new one, never half of one (a half would miss nullifiers).
+        let tmp = c.with_extension(format!("tmp{}", std::process::id()));
+        if std::fs::write(&tmp, out).is_ok() && std::fs::rename(&tmp, c).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
     Ok(set)
 }
@@ -1242,6 +1278,25 @@ pub async fn verify_reserve_against_chain(
 #[cfg(test)]
 mod window_tests {
     use super::*;
+
+    #[test]
+    fn a_damaged_nullifier_cache_is_not_read() {
+        let set: Vec<[u8; 32]> = (0..40u8).map(|i| [i; 32]).collect();
+        let bytes = encode_nullifier_cache(7, 900, &[5; 32], &set);
+        let (from, upto, hash, back) = decode_nullifier_cache(&bytes).unwrap();
+        assert_eq!((from, upto, hash, back), (7, 900, vec![5; 32], set));
+        // Cut at any length (a write another check read half of), or with any byte changed: not read.
+        for n in 0..bytes.len() {
+            assert!(decode_nullifier_cache(&bytes[..n]).is_none(), "cut at {n}");
+        }
+        for i in 0..bytes.len() {
+            let mut b = bytes.clone();
+            b[i] ^= 1;
+            assert!(decode_nullifier_cache(&b).is_none(), "byte {i}");
+        }
+        // The old layout (no digest) is not read either.
+        assert!(decode_nullifier_cache(&bytes[..bytes.len() - 32]).is_none());
+    }
 
     #[test]
     fn every_window_hides_among_many() {

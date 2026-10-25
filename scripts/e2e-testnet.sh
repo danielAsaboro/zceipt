@@ -124,9 +124,9 @@ echo "== income from distinct payers: the merchant's proof plus the payers' tags
 "$R" verify @income.txt --payer-tag @tag-B.txt --domain round-e2e "${RS[@]}" > income-uncounted.txt 2>&1 && bad "a tag for an uncounted payment passed" || ok "a tag for a payment the proof doesn't count is refused"
 
 echo "== one-verifier and delegated receipts on the testnet payment A"
-rm -rf watch signer; cp -R payer watch; mkdir signer; cp payer/keys.toml signer/
+rm -rf watch signer; rm -f office.session over-limit.session expired.session wrong-payee.session; cp -R payer watch; mkdir signer; cp payer/keys.toml signer/
 awk '/^mnemonic = """/{skip=1;next} skip&&/^"""/{skip=0;next} !skip' payer/keys.toml > watch/keys.toml
-"$R" verifier-key --out shop.key > shop.pub 2>/dev/null; "$R" verifier-key --out other.key > /dev/null 2>&1
+rm -f shop.key other.key; "$R" verifier-key --out shop.key > shop.pub 2>/dev/null; "$R" verifier-key --out other.key > /dev/null 2>&1
 "$R" create -w ./watch --unsigned dv-prep.txt --txid "$TA" -m "Order A (for the shop)" "${RS[@]}" > /dev/null 2>&1 || bad "prepare for the shop"
 "$R" sign dv-prep.txt --yes -w ./signer -i ./payer.age --for "$(cat shop.pub)" --out dv.txt > /dev/null 2>&1 || bad "sign for the shop"
 "$R" verify @dv.txt --verifier-key shop.key --expect-address "$MERCHANT" "${RS[@]}" > dv.log 2>&1 && grep -q "made for your key only" dv.log && ok "a receipt for the shop alone verifies with the shop's key" || { bad "designated receipt"; tail -3 dv.log; }

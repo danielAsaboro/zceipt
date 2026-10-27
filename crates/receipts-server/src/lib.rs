@@ -349,6 +349,9 @@ fn idem_store(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw:
     }
 }
 
+/// Error codes that mean the answer may change on a retry; never replayed from the idempotency store.
+const RETRYABLE: &[&str] = &["transaction_not_mined", "transaction_not_found", "request_not_ready", "idempotency_in_progress", "payment_unconfirmed", "source_not_found"];
+
 /// Runs `f` once per Idempotency-Key, storing and replaying its result (successes and
 /// verification failures alike, so a retry never changes the answer).
 pub(crate) async fn idempotent<F, Fut>(st: &Shared, auth: &Auth, headers: &HeaderMap, route: &str, raw: &str, f: F) -> Response
@@ -372,8 +375,9 @@ where
     };
     let (status, body) = match f().await {
         Ok(ok) => ok,
-        // Transient failures are not stored, so a retry can succeed.
-        Err(e) if e.status.is_server_error() => return e.into_response(),
+        // Transient failures are not stored, so a retry can succeed: server errors, and the 4xx codes
+        // that only mean "not yet" (docs/ERRORS.md).
+        Err(e) if e.status.is_server_error() || RETRYABLE.contains(&e.code) => return e.into_response(),
         Err(e) => (e.status, e.body()),
     };
     idem_store(st, auth, headers, route, raw, status, &body);
@@ -737,7 +741,15 @@ pub(crate) fn check_test_webhook_url(url: &str) -> Result<(), ApiError> {
     }
 }
 
-async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Body<CreateEndpoint>) -> Result<(StatusCode, Json<Value>), ApiError> {
+async fn create_endpoint(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateEndpoint>) -> Response {
+    // Idempotent: a retried creation must not make a second endpoint and lose the first one's secret.
+    let st2 = st.clone();
+    let mode = auth.mode;
+    idempotent(&st, &auth, &headers, "POST /v1/webhook_endpoints", &raw, || async move { create_endpoint_inner(&st2, mode, req) }).await
+}
+
+fn create_endpoint_inner(st: &Shared, mode: Mode, req: CreateEndpoint) -> Result<(StatusCode, Value), ApiError> {
+    let auth = Auth { key: String::new(), mode };
     let url = req.url.ok_or_else(|| ApiError::missing("url"))?;
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(ApiError::invalid("parameter_invalid", "url must be http(s)").param("url"));
@@ -760,10 +772,7 @@ async fn create_endpoint(State(st): State<Shared>, auth: Auth, Body(req, _): Bod
         "INSERT INTO webhook_endpoints (id, mode, url, secret, events, created) VALUES (?1,?2,?3,?4,?5,?6)",
         params![id, auth.mode.as_str(), url, secret, serde_json::to_string(&events).unwrap(), now()],
     )?;
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "id": id, "object": "webhook_endpoint", "url": url, "events": events, "secret": secret, "livemode": auth.mode == Mode::Live })),
-    ))
+    Ok((StatusCode::CREATED, json!({ "id": id, "object": "webhook_endpoint", "url": url, "events": events, "secret": secret, "livemode": auth.mode == Mode::Live })))
 }
 
 async fn list_endpoints(State(st): State<Shared>, auth: Auth) -> Result<Json<Value>, ApiError> {

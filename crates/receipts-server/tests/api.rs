@@ -996,3 +996,17 @@ async fn list_mode_claims_check_against_the_callers_list_and_floor() {
     let (s, _, _) = ask(json!({ "claim": claim, "domain": "list-airdrop", "list": list })).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn a_retried_endpoint_creation_returns_the_same_endpoint_and_secret() {
+    let (app, test, _) = app().await;
+    let (url, _) = receiver(200).await;
+    let body = json!({ "url": url });
+    let (s1, a, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(body.clone()), Some("idem-ep-1")).await;
+    let (s2, b, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(body.clone()), Some("idem-ep-1")).await;
+    assert_eq!((s1, s2), (StatusCode::CREATED, StatusCode::CREATED));
+    assert_eq!((&a["id"], &a["secret"]), (&b["id"], &b["secret"]));
+    // Unknown fields are refused instead of ignored.
+    let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": url, "evnts": ["*"] })), None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{v}");
+}

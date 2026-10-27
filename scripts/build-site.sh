@@ -25,6 +25,7 @@ if has_api:
 open(out, "w").write(s)
 EOF
 
+cp site-src/*.js "$OUT/"
 cp web/*.html web/*.js "$OUT/verify/"
 cp -R web/zceipt "$OUT/verify/"
 cp docs/llms.txt docs/openapi.yaml "$OUT/"

@@ -1,9 +1,8 @@
-// The landing page's 3D story, driven by scroll: a payment drops into the shielded pool (01),
-// a viewing key floods the whole pool with light (02), then one Zceipt receipt crystallizes out of
-// that single payment while everything else goes dark (03).
+// The landing page's 3D story, driven by scroll. Privacy is frosted glass: a whole wallet (balance,
+// rent, clinic, the coffee) sits behind fluted, frosted glass. 0/I: sealed, unreadable. II: a viewing
+// key clears all of the frost at once and everything is exposed. III: a Zceipt receipt cuts one clear
+// window over the single payment being proved, and a seal lands on it. The rest stays sealed.
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
@@ -11,304 +10,307 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const canvas = document.getElementById("stage");
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const small = () => innerWidth < 760;
 
 let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" }); }
 catch { canvas.remove(); throw new Error("no WebGL"); }
-renderer.setPixelRatio(Math.min(devicePixelRatio, small() ? 1.5 : 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color("#070a0f");
-scene.fog = new THREE.FogExp2("#070a0f", 0.045);
-const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+camera.position.set(0, 0, 9);
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-const GREEN = new THREE.Color("#01b763");
-
-// ---------- the receipt slab ----------
-const slab = new THREE.Group();
-const glass = new THREE.MeshPhysicalMaterial({
-  color: "#cfe9dc", metalness: 0, roughness: 0.12, transmission: 1, thickness: 0.6, ior: 1.45,
-  clearcoat: 1, clearcoatRoughness: 0.08, iridescence: 0.35, iridescenceIOR: 1.3,
-  transparent: true, opacity: 0, envMapIntensity: 1.4,
-});
-const body = new THREE.Mesh(new RoundedBoxGeometry(2.3, 3.2, 0.09, 6, 0.14), glass);
-slab.add(body);
-const edge = new THREE.Mesh(new RoundedBoxGeometry(2.34, 3.24, 0.05, 6, 0.15),
-  new THREE.MeshBasicMaterial({ color: GREEN, transparent: true, opacity: 0, side: THREE.BackSide }));
-slab.add(edge);
-
-const tex = document.createElement("canvas");
-tex.width = 1024; tex.height = 1424;
-const texture = new THREE.CanvasTexture(tex);
-texture.colorSpace = THREE.SRGBColorSpace;
-texture.anisotropy = 8;
-const face = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 3.2),
-  new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
-face.position.z = 0.05;
-slab.add(face);
-scene.add(slab);
-
-function drawReceipt() {
-  const g = tex.getContext("2d");
-  const W = tex.width, H = tex.height, pad = 84;
-  g.clearRect(0, 0, W, H);
-  const rr = (x, y, w, h, r) => { g.beginPath(); g.roundRect(x, y, w, h, r); };
-  g.fillStyle = "rgba(8,14,12,.38)"; rr(0, 0, W, H, 60); g.fill();
-  // header
-  g.fillStyle = "#01b763"; rr(pad, pad, 76, 76, 20); g.fill();
-  g.fillStyle = "#fff"; g.font = "600 64px 'General Sans', sans-serif"; g.textBaseline = "middle";
-  g.fillText("Zceipt", pad + 100, pad + 40);
-  g.font = "500 30px 'JetBrains Mono', monospace"; g.fillStyle = "#01b763";
-  const pill = "VERIFIED"; const pw = g.measureText(pill).width + 52;
-  g.strokeStyle = "#01b763"; g.lineWidth = 4; rr(W - pad - pw, pad + 12, pw, 56, 28); g.stroke();
-  g.fillText(pill, W - pad - pw + 26, pad + 41);
-  g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 2; g.setLineDash([10, 10]);
-  g.beginPath(); g.moveTo(pad, 236); g.lineTo(W - pad, 236); g.stroke(); g.setLineDash([]);
-  // rows
-  const rows = [["PAID TO", "utest14te2vs…g4rg0zndfa"], ["AMOUNT", "0.01 ZEC"], ["MEMO", "Invoice 42: two coffees"], ["FROM", null], ["BALANCE", null], ["HISTORY", null]];
-  let y = 320;
-  for (const [k, v] of rows) {
-    g.font = "500 28px 'JetBrains Mono', monospace"; g.fillStyle = "rgba(255,255,255,.45)";
-    g.fillText(k, pad, y);
-    if (v) {
-      g.fillStyle = "#fff";
-      g.font = k === "AMOUNT" ? "600 76px 'General Sans', sans-serif" : "500 40px 'General Sans', sans-serif";
-      g.fillText(v, pad, y + (k === "AMOUNT" ? 74 : 60));
-      y += k === "AMOUNT" ? 172 : 150;
-    } else {
-      g.fillStyle = "rgba(255,255,255,.13)"; rr(pad, y + 34, (W - 2 * pad) * (k === "FROM" ? .62 : k === "BALANCE" ? .38 : .5), 40, 10); g.fill();
-      g.font = "500 26px 'JetBrains Mono', monospace"; g.fillStyle = "rgba(255,255,255,.35)";
-      g.fillText("hidden", W - pad - g.measureText("hidden").width, y);
-      y += 128;
-    }
-  }
-  // seal
-  y = H - 170;
-  g.strokeStyle = "rgba(255,255,255,.14)"; g.beginPath(); g.moveTo(pad, y - 50); g.lineTo(W - pad, y - 50); g.stroke();
-  g.fillStyle = "#01b763"; g.beginPath(); g.arc(pad + 32, y + 30, 32, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = "#fff"; g.lineWidth = 7; g.beginPath(); g.moveTo(pad + 17, y + 31); g.lineTo(pad + 28, y + 42); g.lineTo(pad + 48, y + 20); g.stroke();
-  g.fillStyle = "rgba(255,255,255,.75)"; g.font = "500 30px 'General Sans', sans-serif";
-  g.fillText("Halo 2 proof: the payer's key spent this", pad + 88, y + 14);
-  g.fillStyle = "rgba(255,255,255,.4)"; g.font = "500 26px 'JetBrains Mono', monospace";
-  g.fillText("testnet block 4,500,997 · ZIP 311", pad + 88, y + 56);
-  texture.needsUpdate = true;
-}
-drawReceipt();
-document.fonts?.ready.then(drawReceipt);
-Promise.all([document.fonts?.load("600 64px 'General Sans'"), document.fonts?.load("500 28px 'JetBrains Mono'")]).then(drawReceipt, () => {});
-
-// ---------- the shielded pool ----------
-const N = small() ? 4500 : 10000;
-const aPool = new Float32Array(N * 3), aTarget = new Float32Array(N * 3), aSeed = new Float32Array(N);
-for (let i = 0; i < N; i++) {
-  const r = 0.5 + Math.pow(Math.random(), 0.7) * 6.2;
-  aPool[i * 3] = r;
-  aPool[i * 3 + 1] = Math.random() * Math.PI * 2;
-  aPool[i * 3 + 2] = (Math.random() - 0.5) * (0.12 + r * 0.05);
-  aSeed[i] = Math.random();
-  // receipt-bound particles sit on the slab: a third on the rim, the rest on the face
-  const u = Math.random(), v = Math.random();
-  let tx = (u - 0.5) * 2.3, ty = (v - 0.5) * 3.2;
-  if (Math.random() < 0.35) { if (Math.random() < 0.5) tx = Math.sign(tx) * 1.15; else ty = Math.sign(ty) * 1.6; }
-  aTarget[i * 3] = tx; aTarget[i * 3 + 1] = ty; aTarget[i * 3 + 2] = (Math.random() - 0.5) * 0.08;
-}
-const geo = new THREE.BufferGeometry();
-geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N * 3), 3));
-geo.setAttribute("aPool", new THREE.BufferAttribute(aPool, 3));
-geo.setAttribute("aTarget", new THREE.BufferAttribute(aTarget, 3));
-geo.setAttribute("aSeed", new THREE.BufferAttribute(aSeed, 1));
-const uniforms = {
-  uTime: { value: 0 }, uReveal: { value: 0 }, uConverge: { value: 0 }, uSlab: { value: 0 },
-  uPix: { value: renderer.getPixelRatio() }, uCenter: { value: new THREE.Vector3() },
-  uSlabMat: { value: new THREE.Matrix4() }, uScan: { value: 0 },
-};
-const points = new THREE.Points(geo, new THREE.ShaderMaterial({
-  uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  vertexShader: /* glsl */`
-    attribute vec3 aPool; attribute vec3 aTarget; attribute float aSeed;
-    uniform float uTime, uReveal, uConverge, uSlab, uPix, uScan; uniform vec3 uCenter; uniform mat4 uSlabMat;
-    varying vec3 vColor; varying float vAlpha;
-    void main() {
-      float r = aPool.x;
-      float th = aPool.y + uTime * (0.32 / (0.5 + r * 0.45));
-      vec3 pool = uCenter + vec3(cos(th) * r, aPool.z + sin(uTime * 0.7 + aSeed * 40.0) * 0.05, sin(th) * r);
-      float pick = step(aSeed, 0.45);
-      float k = smoothstep(0.0, 1.0, clamp(uConverge * 1.6 - aSeed * 1.2, 0.0, 1.0)) * pick;
-      vec3 target = (uSlabMat * vec4(aTarget, 1.0)).xyz;
-      vec3 swirl = vec3(sin(aSeed * 90.0 + uTime), cos(aSeed * 70.0 + uTime), 0.0) * 0.25 * k * (1.0 - k) * 4.0;
-      vec3 p = mix(pool, target, k) + swirl;
-      // the viewing key's light front sweeps outward through the pool
-      float lit = uReveal * smoothstep(uScan - 0.6, uScan, r) * 0.6 + uReveal * (1.0 - step(uScan, r)) ;
-      lit = clamp(lit, 0.0, 1.0);
-      vec3 mist = vec3(0.42, 0.56, 0.72);
-      vec3 amber = vec3(1.0, 0.62, 0.20);
-      vec3 green = vec3(0.0, 0.85, 0.45);
-      vColor = mix(mix(mist, amber, lit), green, k);
-      float dark = uConverge * (1.0 - pick);
-      vAlpha = (0.7 + 0.3 * lit) * (1.0 - 0.85 * dark) * (1.0 - 0.75 * uSlab * pick);
-      vec4 mv = modelViewMatrix * vec4(p, 1.0);
-      gl_Position = projectionMatrix * mv;
-      gl_PointSize = (2.2 + aSeed * 2.8) * (1.0 + 0.9 * lit + 0.4 * k) * uPix * (9.0 / -mv.z);
-    }`,
+// ---------- backdrop: deep green aurora that warms when the wallet is exposed ----------
+const sky = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  depthWrite: false, depthTest: false,
+  uniforms: { uTime: { value: 0 }, uWarn: { value: 0 }, uProof: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
   fragmentShader: /* glsl */`
-    varying vec3 vColor; varying float vAlpha;
+    varying vec2 vUv; uniform float uTime, uWarn, uProof; uniform vec2 uRes;
+    float blob(vec2 p, vec2 c, float r) { return exp(-dot(p - c, p - c) / (r * r)); }
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
-      float d = length(gl_PointCoord - 0.5);
-      float a = smoothstep(0.5, 0.0, d);
-      gl_FragColor = vec4(vColor * a, a * vAlpha);
+      vec2 p = vUv; p.x *= uRes.x / uRes.y;
+      float t = uTime * 0.05, ar = uRes.x / uRes.y;
+      vec3 col = vec3(0.002, 0.005, 0.004);
+      vec3 castleton = vec3(0.0, 0.10, 0.045), go = vec3(0.0, 0.32, 0.14), teal = vec3(0.0, 0.08, 0.09), ink = vec3(0.012, 0.014, 0.05);
+      vec3 ember = vec3(0.30, 0.08, 0.01), rose = vec3(0.20, 0.02, 0.025);
+      col += mix(castleton, ember, uWarn) * blob(p, vec2(ar * (0.78 + 0.08 * sin(t * 3.0)), 0.78 + 0.05 * cos(t * 2.0)), 0.55) * 0.9;
+      col += mix(teal, rose, uWarn) * blob(p, vec2(ar * (0.18 + 0.06 * cos(t * 2.5)), 0.28 + 0.06 * sin(t * 3.1)), 0.5) * 0.7;
+      col += ink * blob(p, vec2(ar * 0.45, 1.05), 0.6) * 0.8;
+      col += go * blob(p, vec2(ar * (0.62 + 0.05 * sin(t * 4.0)), 0.42), 0.32) * (0.18 + 0.45 * uProof) * (1.0 - uWarn);
+      col *= 1.0 - 0.35 * smoothstep(0.4, 1.3, length(vUv - vec2(0.5, 0.55)) * 1.4);
+      col += (hash(vUv * uRes + fract(uTime)) - 0.5) * 0.006;
+      gl_FragColor = vec4(col, 1.0);
     }`,
 }));
-points.frustumCulled = false;
-scene.add(points);
+sky.frustumCulled = false;
+sky.renderOrder = -10;
+scene.add(sky);
 
-// the pool's glowing core
-const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: "#5f86b0", transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
-core.scale.set(5, 2.4, 1);
-scene.add(core);
+// ---------- the wallet behind the glass ----------
+const W = 1024, H = 1424;
+const ledger = document.createElement("canvas"); ledger.width = W; ledger.height = H;
+const map = new THREE.CanvasTexture(ledger);
+map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 8; map.minFilter = THREE.LinearMipmapLinearFilter;
+const ROWS = [
+  ["SL", "Salary", "Lagos Labs · October", "+12.50", "Oct 01", "#6aa2ff"],
+  ["AH", "Rent", "Ade Homes · flat 3B", "−4.20", "Oct 03", "#c48cff"],
+  ["KC", "Kemi's Coffee", "Invoice 42: two coffees", "−0.01", "Oct 14", "#01b763"],
+  ["FC", "Fertility clinic", "Consultation, second visit", "−1.35", "Oct 16", "#ff8a80"],
+  ["MU", "Mum", "For the hospital bills", "−2.00", "Oct 19", "#ffc35c"],
+  ["BX", "Exchange withdrawal", "Binance → shielded", "+20.00", "Oct 21", "#7fd6ff"],
+  ["DN", "Donation", "Independent press fund", "−0.50", "Oct 24", "#9be7a9"],
+];
+let WIN = [0, 0, 0, 0];
+function drawLedger() {
+  const g = ledger.getContext("2d"), pad = 76;
+  const sans = "'General Sans', ui-sans-serif, sans-serif", mono = "'JetBrains Mono', ui-monospace, monospace";
+  const bg = g.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, "#14211d"); bg.addColorStop(1, "#0b1311");
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.textBaseline = "alphabetic";
+  g.fillStyle = "rgba(255,255,255,.55)"; g.font = `500 30px ${sans}`; g.fillText("Shielded wallet · Orchard", pad, 120);
+  g.fillStyle = "#fff"; g.font = `500 112px ${sans}`; g.fillText("48.2130", pad, 260);
+  const bw = g.measureText("48.2130").width;
+  g.fillStyle = "rgba(255,255,255,.5)"; g.font = `500 48px ${sans}`; g.fillText("ZEC", pad + bw + 20, 260);
+  g.fillStyle = "rgba(255,255,255,.4)"; g.font = `400 26px ${mono}`; g.fillText("u1q7v4…xg9e2kd0lmz3ehn6", pad, 320);
+  g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(pad, 372, W - 2 * pad, 2);
+  let y = 400;
+  ROWS.forEach(([ini, name, memo, amt, day, c], i) => {
+    const h = 132;
+    if (i === 2) WIN = [(pad - 26) / W, 1 - (y + h - 4) / H, (W - pad + 26) / W, 1 - (y + 4) / H];
+    g.fillStyle = c + "33"; g.beginPath(); g.arc(pad + 38, y + h / 2, 38, 0, Math.PI * 2); g.fill();
+    g.fillStyle = c; g.font = `600 26px ${sans}`; g.textAlign = "center"; g.fillText(ini, pad + 38, y + h / 2 + 9); g.textAlign = "left";
+    g.fillStyle = "#fff"; g.font = `500 38px ${sans}`; g.fillText(name, pad + 104, y + 58);
+    g.fillStyle = "rgba(255,255,255,.55)"; g.font = `400 28px ${sans}`; g.fillText(memo, pad + 104, y + 100);
+    g.textAlign = "right";
+    g.fillStyle = amt.startsWith("+") ? "#5fe3a1" : "#fff"; g.font = `500 38px ${sans}`; g.fillText(amt + " ZEC", W - pad, y + 58);
+    g.fillStyle = "rgba(255,255,255,.4)"; g.font = `400 26px ${mono}`; g.fillText(day, W - pad, y + 100);
+    g.textAlign = "left";
+    if (i < ROWS.length - 1) { g.fillStyle = "rgba(255,255,255,.07)"; g.fillRect(pad + 104, y + h, W - 2 * pad - 104, 2); }
+    y += h;
+  });
+  g.fillStyle = "rgba(255,255,255,.35)"; g.font = `400 26px ${mono}`; g.fillText("viewing key  uviewtest1…7hf3k  ·  birthday 2,941,200", pad, H - 70);
+  map.needsUpdate = true;
+  if (card) card.material.uniforms.uWin.value.set(...WIN);
+}
 
-// the viewing key's sweep ring
-const ring = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 128),
-  new THREE.MeshBasicMaterial({ color: "#f2a93b", transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
-ring.rotation.x = -Math.PI / 2;
-scene.add(ring);
+const CW = 2.6, CH = CW * H / W;
+const card = new THREE.Mesh(new THREE.PlaneGeometry(CW, CH), new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false,
+  uniforms: {
+    uMap: { value: map }, uTime: { value: 0 }, uExpose: { value: 0 }, uWarn: { value: 0 }, uOpen: { value: 0 },
+    uWin: { value: new THREE.Vector4() }, uSize: { value: new THREE.Vector2(CW, CH) },
+  },
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    varying vec2 vUv;
+    uniform sampler2D uMap; uniform float uTime, uExpose, uWarn, uOpen; uniform vec4 uWin; uniform vec2 uSize;
+    float box(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
+    void main() {
+      vec2 uv = vUv;
+      float d = box((uv - 0.5) * uSize, uSize * 0.5, 0.16);
+      float alpha = 1.0 - smoothstep(-0.004, 0.004, d);
+      if (alpha < 0.001) discard;
 
-// the one payment
-const orb = new THREE.Mesh(new THREE.SphereGeometry(0.075, 24, 24), new THREE.MeshBasicMaterial({ color: GREEN, toneMapped: false }));
-const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: GREEN, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-halo.scale.setScalar(0.9);
-orb.add(halo);
-scene.add(orb);
-const TRAIL = 40;
-const trailGeo = new THREE.BufferGeometry();
-trailGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(TRAIL * 3), 3));
-const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: GREEN, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending }));
-trail.frustumCulled = false;
-scene.add(trail);
-let trailInit = false;
+      // the window opens from the middle of its row outwards
+      vec2 wc = (uWin.xy + uWin.zw) * 0.5;
+      vec2 wmin = mix(wc, uWin.xy, vec2(uOpen, smoothstep(0.0, 0.4, uOpen)));
+      vec2 wmax = mix(wc, uWin.zw, vec2(uOpen, smoothstep(0.0, 0.4, uOpen)));
+      vec2 wp = (uv - (wmin + wmax) * 0.5) * uSize;
+      float wd = box(wp, max((wmax - wmin) * 0.5 * uSize, vec2(0.0001)), 0.05);
+      float inWin = (1.0 - smoothstep(-0.01, 0.01, wd)) * step(0.001, uOpen);
+      float clear = max(uExpose, inWin);
+      float frost = 1.0 - clear;
 
-function glowTexture() {
-  const c = document.createElement("canvas"); c.width = c.height = 128;
-  const g = c.getContext("2d");
-  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grd.addColorStop(0, "rgba(255,255,255,1)"); grd.addColorStop(0.25, "rgba(255,255,255,.35)"); grd.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      // fluted glass: vertical ribs that bend the image sideways, then a soft blur
+      float rib = sin(uv.x * 170.0);
+      vec2 suv = uv + vec2(rib * 0.012 + sin(uv.y * 9.0 + uTime * 0.3) * 0.004, 0.0) * frost;
+      vec3 col = vec3(0.0);
+      float rad = 0.03 * frost;
+      for (int i = 0; i < 16; i++) {
+        float a = float(i) * 2.39996, r = sqrt((float(i) + 0.5) / 16.0);
+        col += texture2D(uMap, suv + vec2(cos(a), sin(a) * 0.6) * r * rad, 3.5 * frost).rgb;
+      }
+      col /= 16.0;
+      vec3 sharp = texture2D(uMap, uv).rgb;
+      col = mix(col, sharp, clear);
+
+      // frost: milky, ribbed, with a slow sheen crossing it
+      col = mix(col, col * 0.8 + vec3(0.03, 0.07, 0.055), frost * 0.6);
+      col += (rib * 0.5 + 0.5) * 0.03 * frost;
+      float sweep = fract(uTime * 0.06) * 2.6 - 0.8;
+      col += smoothstep(0.12, 0.0, abs(uv.x * 0.8 + uv.y * 0.6 - sweep)) * 0.07 * frost;
+
+      // exposed: the light turns harsh and a scan line runs down the page
+      col = mix(col, col * vec3(1.15, 0.95, 0.8) + vec3(0.05, 0.02, 0.0), uWarn * 0.7);
+      float scan = fract(uTime * 0.25);
+      col += vec3(1.0, 0.55, 0.2) * smoothstep(0.012, 0.0, abs(uv.y - 1.0 + scan)) * uWarn * 0.6;
+
+      // the window's lit edge
+      col += vec3(0.1, 1.0, 0.55) * (1.0 - smoothstep(0.0, 0.012, abs(wd))) * uOpen * 1.4;
+      // rim light on the glass edge, brighter at the top
+      col += mix(vec3(0.35, 0.55, 0.48), vec3(0.9, 1.0, 0.96), uv.y) * (1.0 - smoothstep(0.0, 0.014, abs(d))) * 0.5;
+      gl_FragColor = vec4(col, alpha);
+    }`,
+}));
+scene.add(card);
+// a back plate gives the glass some depth, and a glow sits under it
+const plate = new THREE.Mesh(new THREE.PlaneGeometry(CW * 1.02, CH * 1.015), new THREE.MeshBasicMaterial({
+  map: roundTex("rgba(1,183,99,.22)"), transparent: true, depthWrite: false }));
+plate.position.z = -0.06;
+card.add(plate);
+const glow = new THREE.Mesh(new THREE.PlaneGeometry(CW * 2.4, CH * 1.6), new THREE.MeshBasicMaterial({
+  map: radialTex([[0, "rgba(1,183,99,.35)"], [0.5, "rgba(1,120,70,.12)"], [1, "rgba(0,0,0,0)"]]), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+glow.position.z = -0.5;
+card.add(glow);
+
+function roundTex(color) {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 712;
+  const g = c.getContext("2d"); g.strokeStyle = color; g.lineWidth = 4;
+  g.beginPath(); g.roundRect(4, 4, 504, 704, 34); g.stroke();
   return new THREE.CanvasTexture(c);
 }
+function radialTex(stops) {
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const g = c.getContext("2d"), grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  for (const [o, col] of stops) grd.addColorStop(o, col);
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+
+// ---------- the seal that lands on the window ----------
+const sealCanvas = document.createElement("canvas"); sealCanvas.width = sealCanvas.height = 512;
+const sealTex = new THREE.CanvasTexture(sealCanvas); sealTex.colorSpace = THREE.SRGBColorSpace;
+function drawSeal() {
+  const g = sealCanvas.getContext("2d"), c = 256;
+  g.clearRect(0, 0, 512, 512);
+  const fill = g.createLinearGradient(0, 0, 512, 512);
+  fill.addColorStop(0, "#3ff0a0"); fill.addColorStop(1, "#01874a");
+  g.fillStyle = fill; g.beginPath(); g.arc(c, c, 200, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 4; g.beginPath(); g.arc(c, c, 168, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = "#fff"; g.lineWidth = 26; g.lineCap = "round"; g.lineJoin = "round";
+  g.beginPath(); g.moveTo(c - 70, c + 4); g.lineTo(c - 18, c + 56); g.lineTo(c + 78, c - 52); g.stroke();
+  g.fillStyle = "#fff"; g.font = "600 30px 'General Sans', sans-serif"; g.textAlign = "center";
+  const text = "PROVED · ZIP 311 · HALO 2 · ";
+  for (let i = 0; i < text.length * 2; i++) {
+    const a = (i / (text.length * 2)) * Math.PI * 2 - Math.PI / 2;
+    g.save(); g.translate(c + Math.cos(a) * 228, c + Math.sin(a) * 228); g.rotate(a + Math.PI / 2);
+    g.fillText(text[i % text.length], 0, 0); g.restore();
+  }
+  sealTex.needsUpdate = true;
+}
+const seal = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), new THREE.MeshBasicMaterial({ map: sealTex, transparent: true, depthWrite: false, toneMapped: false }));
+seal.position.z = 0.08;
+card.add(seal);
+
+drawLedger(); drawSeal();
+Promise.all([document.fonts?.load("500 38px 'General Sans'"), document.fonts?.load("400 26px 'JetBrains Mono'")])
+  .then(() => { drawLedger(); drawSeal(); }, () => {});
+
+// ---------- drifting light, for depth ----------
+const DUST = 260;
+const dpos = new Float32Array(DUST * 3), dseed = new Float32Array(DUST);
+for (let i = 0; i < DUST; i++) { dpos.set([(Math.random() - 0.5) * 16, (Math.random() - 0.5) * 10, -2 - Math.random() * 6], i * 3); dseed[i] = Math.random(); }
+const dgeo = new THREE.BufferGeometry();
+dgeo.setAttribute("position", new THREE.BufferAttribute(dpos, 3));
+dgeo.setAttribute("aSeed", new THREE.BufferAttribute(dseed, 1));
+const dust = new THREE.Points(dgeo, new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  uniforms: { uTime: { value: 0 }, uPix: { value: renderer.getPixelRatio() }, uWarn: { value: 0 } },
+  vertexShader: `attribute float aSeed; uniform float uTime, uPix; varying float vS;
+    void main() { vS = aSeed; vec3 p = position; p.y += mod(uTime * (0.05 + aSeed * 0.08) + aSeed * 10.0, 10.0) - 5.0; p.x += sin(uTime * 0.2 + aSeed * 30.0) * 0.3;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = (4.0 + aSeed * 18.0) * uPix * (6.0 / -mv.z); }`,
+  fragmentShader: `varying float vS; uniform float uWarn;
+    void main() { float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5)); vec3 c = mix(vec3(0.3, 0.95, 0.65), vec3(1.0, 0.6, 0.25), uWarn);
+      gl_FragColor = vec4(c * a, a * (0.06 + vS * 0.1)); }`,
+}));
+dust.frustumCulled = false;
+scene.add(dust);
 
 // ---------- post ----------
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.75, 0.55, 0.12);
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.6, 0.62);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
-// ---------- layout ----------
-const L = { center: new THREE.Vector3(), slabPos: new THREE.Vector3(), camFar: 0 };
+const L = { narrow: false };
 function resize() {
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   composer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  const narrow = w / h < 1.05;
-  L.center.set(narrow ? 0 : 3.2, -1.1, -0.5);
-  L.slabPos.set(narrow ? 0 : 2.9, 0.45, 1.1);
-  L.camFar = narrow ? 5 : 0;
-  L.lookShift = narrow ? 0 : 1.9;
-  L.lookDrop = narrow ? 2.1 : 0;
-  uniforms.uCenter.value.copy(L.center);
+  L.narrow = w / h < 1.05;
+  camera.position.z = L.narrow ? 12.5 : 9;
+  sky.material.uniforms.uRes.value.set(w, h);
 }
 addEventListener("resize", resize);
 resize();
 
 // ---------- scroll ----------
 const chapters = [...document.querySelectorAll(".chapter")];
+const rail = [...document.querySelectorAll(".rail li")];
 let target = 0, p = 0;
 function measure() {
   const vh = innerHeight;
   target = chapters.reduce((s, el) => {
     const r = el.getBoundingClientRect();
-    return s + Math.min(1, Math.max(0, (vh * 0.75 - r.top) / r.height));
+    return s + Math.min(1, Math.max(0, (vh * 0.7 - r.top) / r.height));
   }, 0);
+  const last = chapters[chapters.length - 1];
+  document.body.classList.toggle("past-story", !!last && last.getBoundingClientRect().bottom < vh * 0.6);
+  const on = Math.min(3, Math.round(target));
+  rail.forEach((li, i) => li.classList.toggle("on", i === on));
 }
 addEventListener("scroll", measure, { passive: true });
 measure(); p = target;
+rail.forEach((li, i) => li.addEventListener("click", () => {
+  const el = chapters[i - 1];
+  scrollTo({ top: i === 0 ? 0 : el.offsetTop + el.offsetHeight * 0.35, behavior: still ? "auto" : "smooth" });
+}));
 
-const mouse = new THREE.Vector2();
+const mouse = new THREE.Vector2(), sm = new THREE.Vector2();
 addEventListener("pointermove", (e) => mouse.set(e.clientX / innerWidth - 0.5, e.clientY / innerHeight - 0.5), { passive: true });
-
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
-const v3 = (x, y, z) => new THREE.Vector3(x, y, z);
-const camPos = new THREE.Vector3(), look = new THREE.Vector3(), smoothMouse = new THREE.Vector2();
-const orbPos = new THREE.Vector3();
-let last = performance.now(), time = 0;
+let lastT = performance.now(), time = 0;
 
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!still) time += dt;
-  p += (target - p) * (still ? 1 : 1 - Math.exp(-dt * 4));
-  smoothMouse.lerp(mouse, 1 - Math.exp(-dt * 3));
+  p += (target - p) * (still ? 1 : 1 - Math.exp(-dt * 3.5));
+  sm.lerp(mouse, 1 - Math.exp(-dt * 3));
 
-  const reveal = ss(1.25, 1.7, p) * (1 - ss(2.25, 2.6, p));
-  const scan = ss(1.25, 1.9, p) * 7.5;
-  const converge = ss(2.3, 2.95, p);
-  const slabIn = ss(2.65, 3.0, p);
-  uniforms.uTime.value = time;
-  uniforms.uReveal.value = reveal;
-  uniforms.uScan.value = scan;
-  uniforms.uConverge.value = converge;
-  uniforms.uSlab.value = slabIn;
+  const expose = ss(1.3, 1.75, p) * (1 - ss(2.15, 2.45, p));
+  const open = ss(2.45, 2.85, p);
+  const stamp = ss(2.75, 3.0, p);
+  const u = card.material.uniforms;
+  u.uTime.value = time; u.uExpose.value = expose; u.uWarn.value = expose; u.uOpen.value = open;
+  sky.material.uniforms.uTime.value = time; sky.material.uniforms.uWarn.value = expose; sky.material.uniforms.uProof.value = open;
+  dust.material.uniforms.uTime.value = time; dust.material.uniforms.uWarn.value = expose;
 
-  // slab
-  slab.position.copy(L.slabPos).add(v3(0, Math.sin(time * 0.8) * 0.06, 0));
-  slab.rotation.set(-0.06 + smoothMouse.y * 0.12, -0.42 + Math.sin(time * 0.3) * 0.05 + smoothMouse.x * 0.25, 0.02);
-  slab.scale.setScalar(lerp(0.82, 1, slabIn));
-  slab.updateMatrixWorld();
-  uniforms.uSlabMat.value.copy(slab.matrixWorld);
-  glass.opacity = slabIn * 0.9;
-  edge.material.opacity = slabIn * 0.55;
-  face.material.opacity = ss(2.8, 3.0, p);
-  slab.visible = slabIn > 0.001;
+  // hero: low and centred under the headline; story: to the right of the text (above it on phones)
+  const k = ss(0.0, 0.9, p);
+  const sx = L.narrow ? 0 : 2.05, sy = L.narrow ? 1.6 : 0;
+  card.position.set(lerp(0, sx, k), lerp(L.narrow ? -1.5 : -1.25, sy, k) + Math.sin(time * 0.7) * 0.04, 0);
+  const sc = lerp(L.narrow ? 0.9 : 0.7, L.narrow ? 1.05 : 0.92, k) * (1 + expose * 0.04);
+  card.scale.setScalar(sc);
+  const tilt = lerp(-0.22, 0.0, k);
+  card.rotation.set(tilt + sm.y * 0.12, lerp(-0.18, -0.24, k) + sm.x * 0.3 + expose * 0.2 - open * 0.08, lerp(0.04, 0.0, k));
 
-  core.position.copy(L.center);
-  core.material.opacity = 0.5 * (1 - converge) + reveal * 0.4;
-  core.material.color.set(reveal > 0.05 ? "#c98a3a" : "#5f86b0");
-  ring.position.copy(L.center).setY(L.center.y + 0.01);
-  ring.scale.setScalar(Math.max(0.01, scan));
-  ring.material.opacity = reveal * 0.55;
+  const w = WIN;
+  seal.position.set((w[2] - 0.5) * CW + 0.02, (w[3] - 0.5) * CH + 0.36, 0.08 + (1 - stamp) * 0.6);
+  seal.scale.setScalar(lerp(1.6, 0.56, stamp));
+  seal.rotation.z = lerp(-0.6, -0.12, stamp);
+  seal.material.opacity = stamp;
+  seal.visible = stamp > 0.001;
 
-  // the payment: arrives over the pool, sinks into it, then rises into the receipt
-  const hover = v3(L.center.x - 0.2 + Math.cos(time * 0.9) * 0.9, 1.0 + Math.sin(time * 1.3) * 0.25, 1.6 + Math.sin(time * 0.9) * 0.6);
-  const sunk = v3(L.center.x + Math.cos(time * 0.2 + 1) * 2.4, L.center.y, L.center.z + Math.sin(time * 0.2 + 1) * 2.4);
-  const sink = ss(0.15, 0.85, p), rise = ss(2.3, 2.85, p);
-  orbPos.copy(hover).lerp(sunk, sink).lerp(slab.position, rise);
-  orb.position.copy(orbPos);
-  const orbVis = (1 - ss(0.7, 1.0, p)) + ss(2.25, 2.45, p) * (1 - ss(2.8, 3.0, p));
-  orb.visible = orbVis > 0.01;
-  orb.scale.setScalar(Math.max(0.01, orbVis));
-  const tp = trailGeo.attributes.position.array;
-  if (!trailInit) { for (let i = 0; i < TRAIL; i++) tp.set([orbPos.x, orbPos.y, orbPos.z], i * 3); trailInit = true; }
-  tp.copyWithin(3, 0, (TRAIL - 1) * 3); tp.set([orbPos.x, orbPos.y, orbPos.z], 0);
-  trailGeo.attributes.position.needsUpdate = true;
-  trail.material.opacity = 0.45 * Math.min(1, orbVis);
-
-  // camera: wide on the pool, overhead for the viewing key, close on the receipt
-  const c0 = v3(0.4, 1.5, 9.2 + L.camFar), c2 = v3(0.6, 6.8, 12 + L.camFar), c3 = v3(0.4, 1.3, 7.6 + L.camFar);
-  camPos.copy(c0).lerp(c2, ss(0.6, 1.8, p)).lerp(c3, ss(2.2, 3.0, p));
-  camPos.x += smoothMouse.x * 0.6; camPos.y -= smoothMouse.y * 0.35;
-  look.copy(L.center).add(v3(L.lookShift ? -2.9 : 0, 0.7, 0)).lerp(v3(L.center.x - 0.6, L.center.y, L.center.z), ss(0.6, 1.8, p)).lerp(v3(L.slabPos.x - L.lookShift, L.slabPos.y - L.lookDrop, L.slabPos.z), ss(2.2, 3.0, p));
-  camera.position.copy(camPos);
-  camera.lookAt(look);
-
-  bloom.strength = 0.65 + reveal * 0.5;
+  bloom.strength = 0.45 + expose * 0.35 + stamp * 0.15;
   composer.render();
   if (!document.hidden) requestAnimationFrame(frame);
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { last = performance.now(); requestAnimationFrame(frame); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { lastT = performance.now(); requestAnimationFrame(frame); } });
 requestAnimationFrame(frame);

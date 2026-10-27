@@ -278,7 +278,7 @@ async fn verify_parsed_inner(net: Net, server: Option<&str>, receipt: &Receipt, 
     };
     let message = String::from_utf8_lossy(&v.msg).into_owned();
     let tip = chain::chain_tip(net, server).await.ok();
-    let (verdict, mut checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
+    let (mut verdict, mut checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
     checks["source_of_funds"] = if v.sources.is_empty() { "not_disclosed" } else { "proven" }.into();
     let source_json: Vec<serde_json::Value> = v
         .sources
@@ -296,20 +296,29 @@ async fn verify_parsed_inner(net: Net, server: Option<&str>, receipt: &Receipt, 
             })
         })
         .collect();
+    let mut second_hop = None;
     let deposit = match zceipt_chain::deposit::deposit_claim(&message) {
         None => None,
         Some((_, tx2_id)) => {
             let mut id = [0u8; 32];
             hex::decode_to_slice(&tx2_id, &mut id).map_err(|_| ApiError::verification("receipt_invalid", "bad second-tx id"))?;
             id.reverse();
-            let (tx2, _) = chain::fetch_mined_tx(net, server, id)
+            let (tx2, h2) = chain::fetch_mined_tx(net, server, id)
                 .await
                 .map_err(|e| ApiError::verification("transaction_not_found", format!("the deposit's second transaction: {e}")))?;
             let d = zceipt_chain::deposit::check(receipt, &message, zceipt_chain::deposit::network_type(net), &tx, &tx2)
                 .map_err(|e| ApiError::verification("receipt_invalid", format!("exchange deposit: {e}")))?;
+            second_hop = Some(h2);
             Some(d.to_json())
         }
     };
+    // A TEX deposit is only as final as its later hop.
+    if let Some(h2) = second_hop.filter(|h2| *h2 > height) {
+        let (v2, mut c2) = levels(h2, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
+        c2["source_of_funds"] = checks["source_of_funds"].clone();
+        verdict = v2;
+        checks = c2;
+    }
     Ok(Verification {
         verdict,
         checks,

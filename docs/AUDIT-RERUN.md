@@ -54,3 +54,8 @@ key and a source-fetch outage is a retryable 502 (R-11); `Session` secrets and `
 wiped on drop (best effort); `build_with_params` renamed `build_with_unchecked_params` with a warning (R-13).
 Still open: TEX second-hop confirmations and `created_height` retry (R-11), refund freshness, release workflow
 action pinning/permissions, base image digest pinning.
+
+Third batch (after the rename): clippy clean (`drop_non_drop`, `is_multiple_of`, `ok()`); `created_height`
+is retried up to four times with backoff; a TEX deposit's finality uses the later hop (server and CLI);
+release workflow permissions are read-only except the build job. Open: refund freshness (needs the
+refund's creation height in the schema), GitHub action SHA pinning, base-image digest pinning.

@@ -285,9 +285,14 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
             tokio::spawn(async move {
                 let net = mode.net(&st3.config);
                 let server = mode.server(&st3.config);
-                if let Ok(Ok(tip)) = tokio::time::timeout(std::time::Duration::from_secs(20), zceipt_chain::chain::chain_tip(net, server.as_deref())).await {
-                    let c = st3.db.0.lock().unwrap();
-                    let _ = c.execute("UPDATE requests SET created_height = ?1 WHERE id = ?2 AND created_height IS NULL", params![tip as i64, id3]);
+                // A blip at creation must not leave the request unanswerable for good: try a few times.
+                for attempt in 0..4u64 {
+                    if let Ok(Ok(tip)) = tokio::time::timeout(std::time::Duration::from_secs(20), zceipt_chain::chain::chain_tip(net, server.as_deref())).await {
+                        let c = st3.db.0.lock().unwrap();
+                        let _ = c.execute("UPDATE requests SET created_height = ?1 WHERE id = ?2 AND created_height IS NULL", params![tip as i64, id3]);
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(5 * (attempt + 1))).await;
                 }
             });
         }

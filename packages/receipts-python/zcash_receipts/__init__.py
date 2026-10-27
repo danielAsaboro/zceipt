@@ -119,7 +119,7 @@ class _Requests(_Resource):
         return self._c._request("POST", "/v1/requests", body, idempotency_key)
 
     def retrieve(self, id: str) -> Dict[str, Any]:
-        return self._c._request("GET", f"/v1/requests/{urllib.parse.quote(id)}")
+        return self._c._request("GET", f"/v1/requests/{urllib.parse.quote(id, safe="")}")
 
     def list(self, *, status: Optional[str] = None, limit: Optional[int] = None,
              starting_after: Optional[str] = None) -> Dict[str, Any]:
@@ -137,16 +137,16 @@ class _Requests(_Resource):
             after = page["data"][-1]["id"]
 
     def submit_receipt(self, id: str, *, receipt: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
-        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id, safe="")}/receipts", {"receipt": receipt}, idempotency_key)
 
     def review(self, id: str, *, decision: str, note: Optional[str] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         """Deposit desks: accept or reject a deposit held for review (decision "accept" or "reject")."""
         body = {k: v for k, v in dict(decision=decision, note=note).items() if v is not None}
-        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id)}/review", body, idempotency_key)
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(id, safe="")}/review", body, idempotency_key)
 
     def qr(self, id: str) -> str:
         """The request's ZIP-321 payment URI as an SVG QR code."""
-        return self._c._text(f"/v1/requests/{urllib.parse.quote(id)}/qr.svg")
+        return self._c._text(f"/v1/requests/{urllib.parse.quote(id, safe="")}/qr.svg")
 
 
 class _Refunds(_Resource):
@@ -154,13 +154,13 @@ class _Refunds(_Resource):
                payment_txid: Optional[str] = None, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         """Refund a payment to the address the payer signed into their receipt (--refund-to)."""
         body = {k: v for k, v in dict(amount_zatoshis=amount_zatoshis, reason=reason, payment_txid=payment_txid).items() if v is not None}
-        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(request_id)}/refunds", body, idempotency_key)
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(request_id, safe="")}/refunds", body, idempotency_key)
 
     def retrieve(self, id: str) -> Dict[str, Any]:
-        return self._c._request("GET", f"/v1/refunds/{urllib.parse.quote(id)}")
+        return self._c._request("GET", f"/v1/refunds/{urllib.parse.quote(id, safe="")}")
 
     def submit_receipt(self, id: str, *, receipt: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
-        return self._c._request("POST", f"/v1/refunds/{urllib.parse.quote(id)}/receipts", {"receipt": receipt}, idempotency_key)
+        return self._c._request("POST", f"/v1/refunds/{urllib.parse.quote(id, safe="")}/receipts", {"receipt": receipt}, idempotency_key)
 
 
 class _Attestations(_Resource):
@@ -169,7 +169,7 @@ class _Attestations(_Resource):
         """A signed, minimal statement about a fulfilled request (SD-JWT). Hidden by default: txid,
         exact amount, exact time, request id, label; reveal them with `disclose` or later."""
         body = {k: v for k, v in dict(at_least_zatoshis=at_least_zatoshis, before=before, disclose=disclose).items() if v is not None}
-        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(request_id)}/attestations", body)
+        return self._c._request("POST", f"/v1/requests/{urllib.parse.quote(request_id, safe="")}/attestations", body)
 
     def verify(self, attestation: str) -> Dict[str, Any]:
         return self._c._request("POST", "/v1/attestations/verify", {"attestation": attestation})
@@ -184,16 +184,16 @@ class _TestClocks(_Resource):
         return self._c._request("POST", "/v1/test_clocks", {k: v for k, v in dict(frozen_time=frozen_time, height=height).items() if v is not None})
 
     def retrieve(self, id: str) -> Dict[str, Any]:
-        return self._c._request("GET", f"/v1/test_clocks/{urllib.parse.quote(id)}")
+        return self._c._request("GET", f"/v1/test_clocks/{urllib.parse.quote(id, safe="")}")
 
     def advance(self, id: str, *, seconds: Optional[int] = None, blocks: Optional[int] = None) -> Dict[str, Any]:
         """Move the clock; returns it with `fired` (request.expired / request.final events)."""
-        return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id)}/advance", {k: v for k, v in dict(seconds=seconds, blocks=blocks).items() if v is not None})
+        return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id, safe="")}/advance", {k: v for k, v in dict(seconds=seconds, blocks=blocks).items() if v is not None})
 
 
     def reorg(self, id: str, *, depth: int = 1) -> Dict[str, Any]:
         """Roll the clock's chain back; unconfirmed payments fire request.payment_reorged."""
-        return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id)}/reorg", {"depth": depth})
+        return self._c._request("POST", f"/v1/test_clocks/{urllib.parse.quote(id, safe="")}/reorg", {"depth": depth})
 
 
 class _SignIn(_Resource):
@@ -227,14 +227,14 @@ class _Claims(_Resource):
 class _Public(_Resource):
     """What hosted pay and campaign pages use: no API key, a per-request client secret."""
     def get_request(self, id: str, secret: str) -> Dict[str, Any]:
-        return self._c._request("GET", f"/v1/public/requests/{urllib.parse.quote(id)}?secret={urllib.parse.quote(secret)}")
+        return self._c._request("GET", f"/v1/public/requests/{urllib.parse.quote(id, safe="")}?secret={urllib.parse.quote(secret, safe="")}")
 
     def submit_receipt(self, id: str, *, receipt: str, client_secret: Optional[str] = None) -> Dict[str, Any]:
         body = {"receipt": receipt, **({"client_secret": client_secret} if client_secret else {})}
-        return self._c._request("POST", f"/v1/public/requests/{urllib.parse.quote(id)}/receipts", body)
+        return self._c._request("POST", f"/v1/public/requests/{urllib.parse.quote(id, safe="")}/receipts", body)
 
     def campaign(self, id: str) -> Dict[str, Any]:
-        return self._c._request("GET", f"/v1/public/campaigns/{urllib.parse.quote(id)}")
+        return self._c._request("GET", f"/v1/public/campaigns/{urllib.parse.quote(id, safe="")}")
 
 
 class _WebhookEndpoints(_Resource):
@@ -245,7 +245,7 @@ class _WebhookEndpoints(_Resource):
         return self._c._request("GET", "/v1/webhook_endpoints")
 
     def delete(self, id: str) -> Dict[str, Any]:
-        return self._c._request("DELETE", f"/v1/webhook_endpoints/{urllib.parse.quote(id)}")
+        return self._c._request("DELETE", f"/v1/webhook_endpoints/{urllib.parse.quote(id, safe="")}")
 
 
 class _Events(_Resource):
@@ -253,7 +253,7 @@ class _Events(_Resource):
         return self._c._request("GET", "/v1/events" + (f"?limit={limit}" if limit else ""))
 
     def resend(self, id: str) -> Dict[str, Any]:
-        return self._c._request("POST", f"/v1/events/{urllib.parse.quote(id)}/resend", {})
+        return self._c._request("POST", f"/v1/events/{urllib.parse.quote(id, safe="")}/resend", {})
 
 
 class Receipts:
@@ -266,7 +266,7 @@ class Receipts:
         self.timeout = timeout
         self.livemode = api_key.startswith("rcpt_live_")
         # A live key goes over https (or to this computer): never in the clear across a network.
-        if self.livemode and not re.match(r"^(https://|http://(127\.0\.0\.1|localhost|\[::1\])(:|/|$))", self.base_url, re.I):
+        if self.livemode and not re.match(r"^(https://|http://(127\.0\.0\.1|localhost|\[::1\])(:\d+)?([/?#]|$))", self.base_url, re.I):
             raise ValueError("a live API key must be sent over https; use an https:// base_url")
         self.requests = _Requests(self)
         self.refunds = _Refunds(self)

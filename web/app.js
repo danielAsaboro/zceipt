@@ -156,7 +156,9 @@ function requestFromUrl() {
   const code = q.get("request");
   // A request code is 6 to 64 lowercase hex digits (as the API and CLI require); anything else is not one.
   if (!code || !/^[0-9a-f]{6,64}$/.test(code)) return null;
-  return { code, to: q.get("to") || "", min: Number(q.get("min") || 0), label: q.get("label") || "" };
+  const min = Number(q.get("min") || 0);
+  if (!Number.isFinite(min) || min < 0) return null; // a minimum that is not a number must not silently disable the check
+  return { code, to: q.get("to") || "", min, label: q.get("label") || "" };
 }
 // The challenge a receipt signs: the first line starting "challenge:", if its value is 6 to 64
 // lowercase hex digits (the API reads it the same way; lines end at \n or \r\n).

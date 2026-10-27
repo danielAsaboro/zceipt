@@ -239,6 +239,7 @@ export async function verifyIncoming(input, options = {}) {
   } else if (typeof raw === "string") {
     raw = hexToBytes(raw.trim());
   }
+  if (options.minZatoshis != null && !Number.isFinite(Number(options.minZatoshis))) throw new Error("minZatoshis must be a number");
   const v = JSON.parse(verify_incoming(text, raw, Number(height), !!options.regtest));
   if (options.expectAddress) {
     if (!sameNet(address_network(options.expectAddress), v.network)) throw new Error(`the expected address is a ${address_network(options.expectAddress)} address, but the payment is on ${v.network}`);
@@ -267,6 +268,7 @@ export async function verifyBatch(input, options = {}) {
   if (!text) throw new Error("no zip311b1 batch found");
   const { id, receipts, aggregated } = JSON.parse(open_batch(text));
   const { rawTx, height, expectAddress, minZatoshis, challenge, ...rest } = options;
+  if (minZatoshis != null && !Number.isFinite(Number(minZatoshis))) throw new Error("minZatoshis must be a number");
   const results = [];
   // Fetches overlap; each proof is checked as its transaction arrives.
   // The link's block hints (`&h=a,b,c`, one per receipt): fetch each payment by block, not txid.

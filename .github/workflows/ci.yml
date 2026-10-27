@@ -17,6 +17,16 @@ jobs:
       - run: ./scripts/check-stock-orchard.sh
       - run: cargo build --release --locked -p receipts-cli
       - run: RECEIPTS=target/release/receipts ./scripts/check-all.sh
+  circuits:
+    # The claim and sibling circuits are pinned by verifying-key fingerprints; the vendored patch must
+    # reproduce vendor/orchard exactly.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: ./scripts/check-vendor-patch.sh
+      - run: ./scripts/test-vendored-orchard.sh
+      - run: cargo test --release --locked -p receipts-kce --lib -- --ignored pinned
   spec-verifier:
     runs-on: ubuntu-latest
     steps:

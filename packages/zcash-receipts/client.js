@@ -66,7 +66,7 @@ export class Receipts {
     this.baseUrl = (options.baseUrl ?? envUrl ?? "http://127.0.0.1:8723").replace(/\/$/, "");
     this.livemode = apiKey.startsWith("rcpt_live_");
     // A live key goes over https (or to this computer): never in the clear across a network.
-    if (this.livemode && !/^https:\/\//i.test(this.baseUrl) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(this.baseUrl)) {
+    if (this.livemode && !/^https:\/\//i.test(this.baseUrl) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?([\/?#]|$)/i.test(this.baseUrl)) {
       throw new Error("a live API key must be sent over https; set baseUrl to an https:// URL");
     }
     this.maxRetries = options.maxRetries ?? 2;

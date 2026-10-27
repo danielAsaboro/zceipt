@@ -1045,7 +1045,7 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
             }
             receipts_core::link::verify(&proof, &batch.receipts.iter().collect::<Vec<_>>())
                 .map_err(|_| anyhow!("the same-payer proof doesn't hold: these payments weren't all signed by one key"))?;
-            Some(format!("every payment was signed by the same spend key (proven, {} spends)", proof.links.len() + 1))
+            Some(format!("every payment was signed by keys one party controls (proven, {} spends; two unrelated keys held together would pass too)", proof.links.len() + 1))
         }
     };
     let mut reports = Vec::new();

@@ -35,3 +35,14 @@ mutants through Rust and Python decoders, 0 disagreements) or the trailing-byte 
 Leads not proven: single-server trust for height/finality/delegation expiry (`second = None` in the
 server claims endpoint), sign-in and keyset CPU cost (`spends x keys` scalar mults before the receipt
 is checked), `sign_prepared` signs `ock`s a hardware signer cannot display.
+
+
+## Status of the lows (local commit)
+
+Fixed: R-12 (live-key https guard now exact in Rust, JS, Python, Go with a Go test; Python `quote(safe="")`;
+JS `verifyBatch`/`verifyIncoming` numeric check; web `min=` not a number is no request), R-13 (link-proof
+wording, tripwire WIF now requires a valid Base58Check checksum), R-14 (circuit pins, vendor-patch check and
+vendored claim tests run in CI job `circuits`; a stale attestation test fixed). Open: idempotency replay of
+retryable errors and missing keys on some POSTs (R-10), the chain-trust lows (R-11), secrets zeroization,
+nullifier-cache file hardening, `.dockerignore`/release workflow hygiene, `build_with_params`/`add_to_batch`
+visibility.

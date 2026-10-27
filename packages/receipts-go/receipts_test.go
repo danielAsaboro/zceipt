@@ -131,3 +131,14 @@ func TestRetriesRespectTheContext(t *testing.T) {
 		t.Fatalf("non-JSON error body lost: %#v", err)
 	}
 }
+
+func TestLoopbackURLIsExactlyLoopback(t *testing.T) {
+	for u, want := range map[string]bool{
+		"http://127.0.0.1:8723": true, "http://localhost/x": true, "http://[::1]": true,
+		"http://localhost:80@evil.example": false, "http://localhost.evil.com": false, "http://127.0.0.1:x": false,
+	} {
+		if isLoopbackURL(u) != want {
+			t.Errorf("%s: want %v", u, want)
+		}
+	}
+}

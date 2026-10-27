@@ -29,6 +29,7 @@ rand_core.workspace = true
 blake2b_simd.workspace = true
 thiserror.workspace = true
 base64.workspace = true
+sha2 = "0.10"
 incrementalmerkletree = "0.9"
 zip321 = { workspace = true, optional = true }
 zcash_primitives.workspace = true

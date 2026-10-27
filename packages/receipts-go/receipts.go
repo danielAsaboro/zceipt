@@ -343,7 +343,22 @@ func isLoopbackURL(url string) bool {
 	for _, p := range []string{"http://127.0.0.1", "http://localhost", "http://[::1]"} {
 		if strings.HasPrefix(u, p) {
 			rest := u[len(p):]
-			return rest == "" || rest[0] == ':' || rest[0] == '/'
+			if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+				rest = rest[:i]
+			}
+			// Nothing, or a numeric port: a "@" or any other text makes it another host.
+			if rest == "" {
+				return true
+			}
+			if rest[0] != ':' || len(rest) == 1 {
+				return false
+			}
+			for _, c := range rest[1:] {
+				if c < '0' || c > '9' {
+					return false
+				}
+			}
+			return true
 		}
 	}
 	return false

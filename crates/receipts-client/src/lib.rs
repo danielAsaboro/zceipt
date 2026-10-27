@@ -119,7 +119,12 @@ impl Client {
         // A live key goes over https (or to this computer): never in the clear across a network.
         if self.key.starts_with("rcpt_live_") {
             let b = self.base.to_ascii_lowercase();
-            let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| b.strip_prefix(p).is_some_and(|r| r.is_empty() || r.starts_with(':') || r.starts_with('/')));
+            let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| b.strip_prefix(p).is_some_and(|r| {
+                // After the host: nothing, a path, or a numeric port then a path; a `@` makes it another host.
+                let end = r.find(['/', '?', '#']).unwrap_or(r.len());
+                let auth = &r[..end];
+                auth.is_empty() || auth.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
+            }));
             if !b.starts_with("https://") && !local {
                 return Err(Error::InvalidRequest { status: 0, code: "insecure_base_url".into(), message: "a live API key must be sent over https".into(), param: None });
             }

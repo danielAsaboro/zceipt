@@ -43,7 +43,37 @@ fn is_base58(s: &str) -> bool {
 /// Base58 WIF keys: mainnet 5…(51) or K…/L…(52); testnet 9…(51) or c…(52).
 fn is_wif(t: &str) -> bool {
     let n = t.len();
-    is_base58(t) && ((n == 51 && (t.starts_with('5') || t.starts_with('9'))) || (n == 52 && (t.starts_with('K') || t.starts_with('L') || t.starts_with('c'))))
+    is_base58(t) && ((n == 51 && (t.starts_with('5') || t.starts_with('9'))) || (n == 52 && (t.starts_with('K') || t.starts_with('L') || t.starts_with('c')))) && base58check_ok(t)
+}
+
+/// Whether `t` decodes as Base58Check: its last four bytes are the first four of the double SHA-256
+/// of the rest. Random text of the right shape fails this (a shape check alone refused about 0.075%
+/// of random receipts), a real key passes.
+fn base58check_ok(t: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    const ALPHABET: &[u8] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let mut bytes: Vec<u8> = Vec::new(); // big-endian
+    for c in t.bytes() {
+        let Some(mut carry) = ALPHABET.iter().position(|a| *a == c) else { return false };
+        for b in bytes.iter_mut().rev() {
+            carry += usize::from(*b) * 58;
+            *b = (carry & 0xff) as u8;
+            carry >>= 8;
+        }
+        while carry > 0 {
+            bytes.insert(0, (carry & 0xff) as u8);
+            carry >>= 8;
+        }
+    }
+    let zeros = t.bytes().take_while(|c| *c == b'1').count();
+    let mut full = vec![0u8; zeros];
+    full.extend(bytes);
+    if full.len() < 5 {
+        return false;
+    }
+    let (payload, check) = full.split_at(full.len() - 4);
+    let h = Sha256::digest(Sha256::digest(payload));
+    h[..4] == *check
 }
 
 /// The BIP 39 English wordlist (2048 words), the list Zcash wallets use for seed phrases.
@@ -85,6 +115,12 @@ fn looks_like_mnemonic(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::secret_kind;
+
+    #[test]
+    fn a_key_shaped_token_without_a_valid_checksum_is_not_a_key() {
+        // Right length and alphabet for a WIF, wrong Base58Check checksum.
+        assert_eq!(secret_kind("KwDiBf89QgGbjEhKnhXJuH7LrciVrZi3qYjgd9M7rFU73sVHnoWm"), None);
+    }
 
     #[test]
     fn spots_secrets() {

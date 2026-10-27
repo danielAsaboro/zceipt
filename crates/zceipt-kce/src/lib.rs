@@ -369,7 +369,6 @@ impl Keys {
         let mut rest: &[u8] = proof;
         let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(&mut rest);
         plonk::verify_proof(&self.params, self.pk.get_vk(), SingleVerifier::new(&self.params), &[&[public]], &mut transcript)?;
-        drop(transcript);
         // A proof has one encoding: bytes after what the verifier reads are refused.
         if rest.is_empty() { Ok(()) } else { Err(Error::Opening) }
     }
@@ -397,7 +396,6 @@ impl VerifyingKey {
         let mut rest: &[u8] = proof;
         let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(&mut rest);
         plonk::verify_proof(&self.params, &self.vk, SingleVerifier::new(&self.params), &[&[public]], &mut transcript)?;
-        drop(transcript);
         if rest.is_empty() { Ok(()) } else { Err(Error::Opening) }
     }
 }

@@ -712,10 +712,7 @@ pub async fn expiry_sweeper(st: Shared) {
     loop {
         let due: Option<Vec<(String, String)>> = {
             let c = st.db.0.lock().unwrap();
-            let stmt = match c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0 AND test_clock IS NULL") {
-                Ok(s) => Some(s),
-                Err(_) => None,
-            };
+            let stmt = c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0 AND test_clock IS NULL").ok();
             stmt.map(|mut stmt| stmt.query_map([now()], |r| Ok((r.get(0)?, r.get(1)?))).map(|x| x.filter_map(Result::ok).collect()).unwrap_or_default())
         };
         // A failing query (a missing column, say) must not turn this loop into a spin.

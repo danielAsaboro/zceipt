@@ -210,7 +210,7 @@ for i in $(seq 1 10); do "$R" create -w ./saver -i ./saver.age --txid "$HOP" --t
 "$R" verify @hops.txt --regtest ./heights.toml -s "127.0.0.1:$GRPC" > hops-report.txt 2>&1 || true
 grep -q "tx ${PAY2:0:12}… action .* from tx ${HOP:0:12}…" hops-report.txt && grep -q "tx ${HOP:0:12}… action .* from tx ${SH2:0:12}…" hops-report.txt && grep -q "was funded in the clear: 0.50000000 ZEC from $SAVER_T" hops-report.txt \
   && ok "the batch proves the chain: payment <- self-transfer <- shielding of 0.5 ZEC from $SAVER_T" || { bad "multi-hop provenance"; tail -8 hops-report.txt; tail -3 create-hops.log; }
-grep -q "one payer: every payment was signed by the same spend key" hops-report.txt && ok "and one controller made every hop (the batch's same-payer proof)" || { bad "multi-hop same payer"; tail -4 hops-report.txt; }
+grep -q "one payer: every payment was signed by keys one party controls" hops-report.txt && ok "and one controller made every hop (the batch's same-payer proof)" || { bad "multi-hop same payer"; tail -4 hops-report.txt; }
 
 echo "== Proof of funds: the saver proves what it holds; once it spends, the same proof is refused"
 sync saver

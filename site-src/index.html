@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zceipt · prove one Zcash payment</title>
+<meta name="description" content="Prove one shielded Zcash payment without handing over a viewing key. ZIP 311 for Orchard and Ironwood.">
+<meta property="og:title" content="Zceipt · prove one Zcash payment">
+<meta property="og:description" content="Prove one shielded Zcash payment without handing over a viewing key.">
+<meta name="theme-color" content="#121110">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='3' width='20' height='26' rx='2' fill='%23f3efe4'/><path d='M10 10h12M10 15h12M10 20h7' stroke='%23161513' stroke-width='2'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --desk: #121110; --desk-2: #1a1917; --desk-3: #23211e; --line: #2b2925;
+    --paper: #f3efe4; --paper-2: #e8e2d3; --ink: #161513; --ink-2: #5c574d;
+    --text: #ebe7dd; --text-2: #a39d90; --text-3: #6f6a60;
+    --gold: #e8b923; --good: #2f8a5b; --bad: #c2463b;
+    --sans: "Inter Tight", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --serif: "Instrument Serif", ui-serif, Georgia, serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--desk); color: var(--text); font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+  .mono { font-family: var(--mono); }
+  .eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--text-3); }
+
+  nav { position: sticky; top: 0; z-index: 10; background: rgba(18,17,16,.82); backdrop-filter: blur(12px); border-bottom: 1px solid transparent; transition: border-color .2s; }
+  nav.scrolled { border-bottom-color: var(--line); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; letter-spacing: -.02em; }
+  .logo svg { width: 22px; height: 22px; }
+  .links { display: flex; gap: 28px; align-items: center; font-size: 15px; color: var(--text-2); }
+  .links a:hover { color: var(--text); }
+  .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 15px var(--sans); padding: 12px 20px; border-radius: 999px; background: var(--paper); color: var(--ink); transition: transform .15s, background .15s; }
+  .btn:hover { background: #fff; transform: translateY(-1px); }
+  .btn.ghost { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  .btn.ghost:hover { box-shadow: inset 0 0 0 1px var(--text-3); background: transparent; }
+  .btn.small { padding: 8px 16px; font-size: 14px; }
+  @media (max-width: 760px) { .links .hide-sm { display: none; } .links { gap: 18px; } }
+
+  .hero { padding: 96px 0 120px; position: relative; overflow: hidden; }
+  .hero::before { content: ""; position: absolute; inset: -40% -10% auto auto; width: 900px; height: 900px; background: radial-gradient(closest-side, rgba(232,185,35,.10), transparent); pointer-events: none; }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 64px; align-items: center; }
+  h1 { font: 600 clamp(44px, 6.4vw, 84px)/.98 var(--sans); letter-spacing: -.045em; margin: 24px 0 28px; }
+  h1 em, h2 em { font: italic 400 1.08em/1 var(--serif); letter-spacing: -.01em; color: var(--paper); }
+  .lede { font-size: 20px; line-height: 1.55; color: var(--text-2); max-width: 30em; margin: 0 0 40px; }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; }
+  @media (max-width: 920px) { .hero { padding: 56px 0 80px; } .hero .wrap { grid-template-columns: minmax(0, 1fr); gap: 56px; } }
+
+  /* The receipt slip */
+  .slip-stage { display: flex; justify-content: center; perspective: 1400px; }
+  .slip { width: 100%; max-width: 400px; background: var(--paper); color: var(--ink); padding: 30px 30px 34px; position: relative; transform: rotate(2.2deg); box-shadow: 0 40px 80px -20px rgba(0,0,0,.7), 0 0 0 1px rgba(0,0,0,.2); font-family: var(--mono); font-size: 13px; animation: settle 1s cubic-bezier(.2,.8,.2,1) both; }
+  .slip::before, .slip::after { content: ""; position: absolute; left: 0; right: 0; height: 12px; background: radial-gradient(circle at 6px 0, transparent 6px, var(--paper) 6.5px) 0 0 / 12px 12px repeat-x; }
+  .slip::before { top: -12px; transform: scaleY(-1); }
+  .slip::after { bottom: -12px; }
+  @keyframes settle { from { opacity: 0; transform: translateY(24px) rotate(6deg); } to { opacity: 1; transform: rotate(2.2deg); } }
+  .slip .head { display: flex; justify-content: space-between; align-items: center; letter-spacing: .14em; font-size: 11px; color: var(--ink-2); padding-bottom: 16px; border-bottom: 1px dashed #b9b1a0; }
+  .stamp { font: 700 13px/1 var(--mono); letter-spacing: .12em; color: var(--good); border: 2px solid var(--good); padding: 7px 10px; border-radius: 4px; transform: rotate(-5deg); animation: stamp .5s .7s cubic-bezier(.3,1.6,.5,1) both; }
+  @keyframes stamp { from { opacity: 0; transform: rotate(-5deg) scale(2.2); } to { opacity: 1; transform: rotate(-5deg) scale(1); } }
+  .row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 11px 0; border-bottom: 1px dashed #d4ccbb; }
+  .row:last-of-type { border-bottom: 0; }
+  .row .k { color: var(--ink-2); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; padding-top: 2px; }
+  .row .v { overflow-wrap: anywhere; }
+  .row .v b { font-size: 22px; font-family: var(--sans); letter-spacing: -.02em; }
+  .redact { display: inline-block; height: 13px; background: var(--ink); border-radius: 2px; vertical-align: -2px; }
+  .hidden-tag { font-size: 10px; letter-spacing: .12em; color: var(--ink-2); margin-left: 8px; }
+  .slip .proof { margin-top: 18px; padding-top: 16px; border-top: 1px solid #c9c2b2; display: flex; gap: 10px; align-items: flex-start; font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+  .slip .proof svg { flex: none; margin-top: 1px; }
+
+  section { padding: 120px 0; border-top: 1px solid var(--line); }
+  h2 { font: 600 clamp(34px, 4.4vw, 56px)/1.04 var(--sans); letter-spacing: -.035em; margin: 18px 0 20px; max-width: 16em; }
+  .sub { font-size: 19px; color: var(--text-2); max-width: 36em; margin: 0; }
+  @media (max-width: 760px) { section { padding: 80px 0; } }
+
+  /* Problem */
+  .versus { display: grid; grid-template-columns: 1fr 1fr; margin-top: 64px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+  .versus > div { padding: 40px; }
+  .versus > div + div { border-left: 1px solid var(--line); background: var(--desk-2); }
+  .versus h3 { font: 500 13px var(--mono); letter-spacing: .14em; text-transform: uppercase; margin: 0 0 28px; color: var(--text-3); }
+  .versus > div + div h3 { color: var(--gold); }
+  .versus ul { list-style: none; margin: 0; padding: 0; }
+  .versus li { display: flex; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); font-size: 17px; }
+  .versus li:first-child { border-top: 0; padding-top: 0; }
+  .versus .x { color: var(--bad); font-family: var(--mono); }
+  .versus .ok { color: var(--good); font-family: var(--mono); }
+  @media (max-width: 760px) { .versus { grid-template-columns: 1fr; } .versus > div + div { border-left: 0; border-top: 1px solid var(--line); } .versus > div { padding: 28px; } }
+
+  /* Steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 48px; margin-top: 72px; counter-reset: s; }
+  .steps div { counter-increment: s; }
+  .steps div::before { content: "0" counter(s); display: block; font: 400 64px/1 var(--serif); color: var(--gold); margin-bottom: 24px; }
+  .steps h3 { font-size: 22px; letter-spacing: -.02em; margin: 0 0 10px; }
+  .steps p { color: var(--text-2); margin: 0; }
+  @media (max-width: 860px) { .steps { grid-template-columns: 1fr; gap: 40px; } }
+
+  /* Live demo */
+  .demo { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 64px; align-items: center; }
+  .demo .stage { background: var(--paper); border-radius: 20px; padding: 32px; min-height: 260px; color: var(--ink); }
+  .demo .order { font: 500 13px var(--mono); color: var(--ink-2); display: flex; justify-content: space-between; margin-bottom: 18px; letter-spacing: .04em; }
+  .demo .facts { list-style: none; margin: 32px 0 0; padding: 0; color: var(--text-2); }
+  .demo .facts li { padding: 12px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; }
+  .demo .facts li span:last-child { color: var(--text); font-family: var(--mono); font-size: 14px; text-align: right; }
+  @media (max-width: 920px) { .demo { grid-template-columns: 1fr; gap: 40px; } }
+
+  /* Proofs */
+  .proofs { margin-top: 64px; border-top: 1px solid var(--line); }
+  .proofs a { display: grid; grid-template-columns: 220px minmax(0, 1fr) 120px 24px; gap: 24px; align-items: baseline; padding: 24px 4px; border-bottom: 1px solid var(--line); transition: background .15s, padding .15s; }
+  .proofs a:hover { background: var(--desk-2); padding-left: 16px; padding-right: 12px; }
+  .proofs .name { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+  .proofs .what { color: var(--text-2); }
+  .proofs .prefix { font: 13px var(--mono); color: var(--text-3); }
+  .proofs .arrow { color: var(--text-3); transition: color .15s, transform .15s; }
+  .proofs a:hover .arrow { color: var(--gold); transform: translateX(4px); }
+  @media (max-width: 860px) { .proofs a { grid-template-columns: minmax(0, 1fr) 24px; gap: 4px 16px; } .proofs .what { grid-column: 1; } .proofs .prefix { display: none; } .proofs .arrow { grid-row: 1; grid-column: 2; } }
+
+  /* Developers */
+  .dev { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 64px; align-items: start; }
+  .dev ul { list-style: none; padding: 0; margin: 36px 0 0; }
+  .dev li { padding: 12px 0; border-top: 1px solid var(--line); color: var(--text-2); }
+  .dev li b { color: var(--text); font-weight: 600; }
+  .code { background: var(--desk-2); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .tabs { display: flex; gap: 4px; padding: 10px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button { font: 500 13px var(--mono); color: var(--text-3); background: none; border: 0; padding: 8px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  .tabs button[aria-selected="true"] { color: var(--text); background: var(--desk-3); }
+  .code pre { margin: 0; padding: 28px; font: 13.5px/1.75 var(--mono); color: var(--text); overflow-x: auto; min-height: 250px; }
+  .code pre[hidden] { display: none; }
+  .c { color: var(--text-3); } .s { color: #d9c48a; } .kw { color: #9fb6d6; }
+  @media (max-width: 920px) { .dev { grid-template-columns: 1fr; gap: 40px; } }
+
+  /* Closing */
+  .close { text-align: center; padding: 140px 0; }
+  .close h2 { margin: 18px auto 36px; }
+  .close .cta { justify-content: center; }
+  footer { border-top: 1px solid var(--line); padding: 36px 0 48px; color: var(--text-3); font-size: 14px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  footer nav { position: static; background: none; backdrop-filter: none; display: flex; gap: 24px; }
+  footer a:hover { color: var(--text); }
+
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } .reveal { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<nav id="nav">
+  <div class="wrap">
+    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="6" y="3" width="20" height="26" rx="2" fill="#f3efe4"/><path d="M10 10h12M10 15h12M10 20h7" stroke="#161513" stroke-width="2"/></svg>Zceipt</a>
+    <div class="links">
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#proofs">Proofs</a>
+      <a href="/docs/">Docs</a>
+      <!--DASHBOARD_NAV-->
+      <a class="btn small" href="/verify/">Verify a receipt</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <div class="eyebrow">ZIP 311 for Orchard &amp; Ironwood</div>
+      <h1>Prove one Zcash payment. <em>Reveal nothing else.</em></h1>
+      <p class="lede">A receipt proves who you paid, how much, and that your key spent the money. Your address, balance and every other payment stay shielded.</p>
+      <div class="cta">
+        <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
+        <a class="btn ghost" href="/docs/quickstart">Read the quickstart</a>
+      </div>
+    </div>
+    <div class="slip-stage">
+      <div class="slip" aria-label="An example receipt">
+        <div class="head"><span>ZCASH RECEIPT</span><span class="stamp">PAID TO YOU</span></div>
+        <div class="row"><span class="k">Paid to</span><span class="v">utest1a7f2…n33ufc</span></div>
+        <div class="row"><span class="k">Amount</span><span class="v"><b>0.01 ZEC</b></span></div>
+        <div class="row"><span class="k">Memo</span><span class="v">Order #42 at Kemi's Coffee</span></div>
+        <div class="row"><span class="k">From</span><span class="v"><span class="redact" style="width:62%"></span><span class="hidden-tag">HIDDEN</span></span></div>
+        <div class="row"><span class="k">Balance</span><span class="v"><span class="redact" style="width:38%"></span><span class="hidden-tag">HIDDEN</span></span></div>
+        <div class="row"><span class="k">History</span><span class="v"><span class="redact" style="width:52%"></span><span class="hidden-tag">HIDDEN</span></span></div>
+        <div class="proof"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#2f8a5b"/><path d="M4.5 8.2l2.3 2.3 4.7-4.9" stroke="#fff" stroke-width="1.8" fill="none"/></svg><span>Zero-knowledge proof that the payer's spend key authorized this transaction. Testnet block 4,500,997.</span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap reveal">
+    <div class="eyebrow">The problem</div>
+    <h2>Proving one payment shouldn't cost you <em>all of them.</em></h2>
+    <p class="sub">Shops, exchanges and auditors ask for a viewing key today. ZIP 311 left Orchard's payment disclosure as a TODO, so there was nothing smaller to hand over.</p>
+    <div class="versus">
+      <div>
+        <h3>A viewing key</h3>
+        <ul>
+          <li><span class="x">✕</span>Every incoming payment, past and future</li>
+          <li><span class="x">✕</span>Your balance and who paid you</li>
+          <li><span class="x">✕</span>Can't be taken back once shared</li>
+          <li><span class="x">✕</span>Doesn't prove who sent a payment</li>
+        </ul>
+      </div>
+      <div>
+        <h3>A Zceipt receipt</h3>
+        <ul>
+          <li><span class="ok">✓</span>One payment: recipient, amount, memo</li>
+          <li><span class="ok">✓</span>Address and balance stay hidden</li>
+          <li><span class="ok">✓</span>Proves your key made the payment</li>
+          <li><span class="ok">✓</span>Anyone can check it, offline, forever</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap reveal">
+    <div class="eyebrow">How it works</div>
+    <h2>Pay as usual. <em>Share a link.</em></h2>
+    <div class="steps">
+      <div><h3>Pay from a shielded wallet</h3><p>Nothing changes about the payment. Orchard or Ironwood, any amount, any memo.</p></div>
+      <div><h3>Make a receipt</h3><p>Your wallet makes a fresh Halo 2 proof for that one transaction and signs it. A viewing key can prepare it; the seed only signs.</p></div>
+      <div><h3>Anyone verifies it</h3><p>The link opens in a browser, which fetches the transaction from the chain and checks the proof on the device. No account, no server to trust.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="wrap demo reveal">
+    <div>
+      <div class="eyebrow">Live</div>
+      <h2>A real testnet payment, <em>verified in this tab.</em></h2>
+      <p class="sub">This card fetches the transaction from a public lightwalletd and checks the proof with WebAssembly, right now.</p>
+      <ul class="facts">
+        <li><span>Proof</span><span>Orchard Action, Halo 2</span></li>
+        <li><span>Verifier</span><span>3.8 MB wasm</span></li>
+        <li><span>Server sees</span><span>one block, not the tx</span></li>
+      </ul>
+    </div>
+    <div class="stage">
+      <div class="order"><span>KEMI'S COFFEE · ORDER #42</span><span>0.01 ZEC</span></div>
+      {{WIDGET}}
+    </div>
+  </div>
+</section>
+
+<section id="proofs">
+  <div class="wrap reveal">
+    <div class="eyebrow">Beyond one receipt</div>
+    <h2>Facts about <em>sets</em> of payments, without the history.</h2>
+    <div class="proofs">
+      <a href="/docs/concepts/spend-authority"><span class="name">One payment</span><span class="what">Who was paid, how much, and that your key spent the money</span><span class="prefix">zip311r1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/same-payer"><span class="name">Same payer</span><span class="what">One key made all of these payments</span><span class="prefix">zip311b1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/distinct-payers"><span class="name">Distinct payers</span><span class="what">These payments came from different wallets, for airdrops and votes</span><span class="prefix">zip311t1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/sibling-accounts"><span class="name">Sibling accounts</span><span class="what">These accounts belong to one wallet</span><span class="prefix">zip311w1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/income"><span class="name">Income</span><span class="what">At least X was received, without listing the payments</span><span class="prefix">zip311i1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/source-of-funds"><span class="name">Source of funds</span><span class="what">The money came from an approved set of notes</span><span class="prefix">zip311s1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/key-sets"><span class="name">Key sets</span><span class="what">Paid by one of a company's published keys, without saying which</span><span class="prefix">zip311m1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/delegation"><span class="name">Delegation</span><span class="what">An agent paid within the limits its owner signed</span><span class="prefix">zip311a1</span><span class="arrow">→</span></a>
+      <a href="/docs/composability/frost-policy"><span class="name">FROST policy</span><span class="what">A threshold of signers approved the payment</span><span class="prefix">zip311p1</span><span class="arrow">→</span></a>
+    </div>
+  </div>
+</section>
+
+<section id="developers">
+  <div class="wrap dev reveal">
+    <div>
+      <div class="eyebrow">For developers</div>
+      <h2>Take shielded payments <em>without a viewing key.</em></h2>
+      <ul>
+        <li><b>Payment API.</b> Proof requests, signed webhooks, refunds, attestations.</li>
+        <li><b>SDKs.</b> TypeScript, Python, Rust and Go.</li>
+        <li><b>HTTP 402 gate.</b> Express, Next.js, FastAPI, Django.</li>
+        <li><b>Wallets.</b> Swift and Kotlin bindings, a zcash-devtool patch.</li>
+      </ul>
+    </div>
+    <div class="code">
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-t="browser">Browser</button>
+        <button role="tab" aria-selected="false" data-t="node">Node</button>
+        <button role="tab" aria-selected="false" data-t="python">Python</button>
+        <button role="tab" aria-selected="false" data-t="go">Go</button>
+        <button role="tab" aria-selected="false" data-t="cli">CLI</button>
+      </div>
+<pre data-p="browser"><span class="kw">import</span> { verifyReceipt } <span class="kw">from</span> <span class="s">"zceipt"</span>;
+
+<span class="c">// Runs on the device. Only public chain data is fetched.</span>
+<span class="kw">const</span> v = <span class="kw">await</span> verifyReceipt(link, {
+  expectAddress: <span class="s">"u1…your shop's address"</span>,
+  minZatoshis: <span class="s">1_000_000</span>,
+});
+v.paidToExpected; <span class="c">// zatoshis paid to you</span></pre>
+<pre data-p="node" hidden><span class="kw">import</span> { Zceipt } <span class="kw">from</span> <span class="s">"zceipt/client"</span>;
+
+<span class="kw">const</span> zceipt = <span class="kw">new</span> Zceipt(process.env.ZCEIPT_KEY);
+<span class="kw">const</span> req = <span class="kw">await</span> zceipt.requests.create({
+  payee: shopAddress, amount_zatoshis: <span class="s">1_000_000</span>,
+});
+<span class="c">// Send the customer req.hosted_url; a signed webhook says when it's paid.</span></pre>
+<pre data-p="python" hidden><span class="kw">from</span> zceipt <span class="kw">import</span> Zceipt
+
+zceipt = Zceipt(os.environ[<span class="s">"ZCEIPT_KEY"</span>])
+v = zceipt.verify(receipt, expect_address=shop_address)
+<span class="kw">if</span> v[<span class="s">"valid"</span>]:
+    mark_paid(order)</pre>
+<pre data-p="go" hidden>c := zceipt.New(os.Getenv(<span class="s">"ZCEIPT_KEY"</span>))
+v, err := c.Verify(ctx, zceipt.M{
+    <span class="s">"receipt"</span>:        receipt,
+    <span class="s">"expect_address"</span>: shopAddress,
+})</pre>
+<pre data-p="cli" hidden><span class="c"># make a receipt for one transaction</span>
+zceipt create -w wallet -i key.age --txid &lt;txid&gt;
+
+<span class="c"># check one</span>
+zceipt verify <span class="s">'zip311r1…'</span>
+
+<span class="c"># the whole flow in five seconds, no wallet needed</span>
+zceipt demo</pre>
+    </div>
+  </div>
+</section>
+
+<section class="close">
+  <div class="wrap reveal">
+    <div class="eyebrow">Open a receipt</div>
+    <h2>Check one yourself. <em>It takes a second.</em></h2>
+    <div class="cta">
+      <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
+      <a class="btn ghost" href="/docs/">Read the docs</a>
+      <!--DASHBOARD_CTA-->
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Zceipt · unaudited, testnet only</span>
+    <nav>
+      <a href="/verify/">Verifier</a>
+      <a href="/docs/">Docs</a>
+      <a href="/docs/status">Status</a>
+      <a href="/llms.txt">llms.txt</a>
+      <a href="/openapi.yaml">OpenAPI</a>
+    </nav>
+  </div>
+</footer>
+
+<script type="module" src="/verify/zceipt/widget.js"></script>
+<script>
+  const nav = document.getElementById("nav");
+  addEventListener("scroll", () => nav.classList.toggle("scrolled", scrollY > 8), { passive: true });
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
+    document.querySelectorAll(".code pre").forEach((p) => (p.hidden = p.dataset.p !== b.dataset.t));
+  }));
+</script>
+</body>
+</html>

@@ -15,24 +15,13 @@ mkdir -p "$OUT/verify" "$OUT/docs"
 python3 - "$OUT/index.html" "${API:+1}" <<'EOF'
 import re, sys
 out, has_api = sys.argv[1], sys.argv[2] == "1"
-s = open("docs/landing.html").read()
-for a, b in [
-    ("{net}", "testnet"),
-    ("localhost:{port}", "https://zceipt.xyz"),
-    ('href="/docs#QUICKSTART.md"', 'href="/docs/quickstart"'),
-    ('href="/docs#THREAT-MODEL.md"', 'href="/docs/reference/assurance"'),
-    ('href="/docs#COMPARISON.md"', 'href="/docs/reference/related-work"'),
-    ('href="/docs#ZIP311-TODOS.md"', 'href="/docs/concepts/spend-authority"'),
-    ('href="/docs#SPEC.md"', 'href="/docs/reference/formats"'),
-    ('<a class="card" href="/docs">API reference<span>Every endpoint, with examples</span></a>',
-     '<a class="card" href="/docs/">Docs<span>Concepts, guides and reference</span></a>'),
-    ("This server's test mode runs on <b>testnet</b>. Live keys use mainnet. ", ""),
-]:
-    assert a in s, a
-    s = s.replace(a, b)
-if not has_api:
-    s = re.sub(r'\s*<a class="card" href="/dashboard">.*?</a>', "", s)
-    s = s.replace(' <a href="/v1/health">Health</a> ·', "")
+s = open("site-src/index.html").read()
+link = open("examples/testnet/receipt-link.txt").read().strip()
+widget = re.search(r'<zcash-receipt id="r"[^>]*>.*?</zcash-receipt>', open("web/embed.html").read(), re.S).group(0)
+s = s.replace("{{SAMPLE_LINK}}", link.split("#", 1)[-1]).replace("{{WIDGET}}", widget)
+if has_api:
+    s = s.replace("<!--DASHBOARD_NAV-->", '<a class="hide-sm" href="/dashboard">Dashboard</a>')
+    s = s.replace("<!--DASHBOARD_CTA-->", '<a class="btn ghost" href="/dashboard">Open the dashboard</a>')
 open(out, "w").write(s)
 EOF
 

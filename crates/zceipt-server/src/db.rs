@@ -171,6 +171,8 @@ impl Db {
         ] {
             let _ = conn.execute(&format!("ALTER TABLE requests ADD COLUMN {col}"), []);
         }
+        // The chain tip when a refund was made: a settling payment must be mined after it.
+        let _ = conn.execute("ALTER TABLE refunds ADD COLUMN created_height INTEGER", []);
         // Who made a test clock (a digest of the API key), so one tenant cannot move another's.
         let _ = conn.execute("ALTER TABLE test_clocks ADD COLUMN owner TEXT", []);
         for col in ["public_note TEXT", "refund_address TEXT"] {

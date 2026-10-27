@@ -350,7 +350,7 @@ fn idem_store(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw:
 }
 
 /// Error codes that mean the answer may change on a retry; never replayed from the idempotency store.
-const RETRYABLE: &[&str] = &["transaction_not_mined", "transaction_not_found", "request_not_ready", "idempotency_in_progress", "payment_unconfirmed", "source_not_found"];
+const RETRYABLE: &[&str] = &["transaction_not_mined", "transaction_not_found", "request_not_ready", "refund_not_ready", "idempotency_in_progress", "payment_unconfirmed", "source_not_found"];
 
 /// Runs `f` once per Idempotency-Key, storing and replaying its result (successes and
 /// verification failures alike, so a retry never changes the answer).

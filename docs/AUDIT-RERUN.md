@@ -59,3 +59,8 @@ Third batch (after the rename): clippy clean (`drop_non_drop`, `is_multiple_of`,
 is retried up to four times with backoff; a TEX deposit's finality uses the later hop (server and CLI);
 release workflow permissions are read-only except the build job. Open: refund freshness (needs the
 refund's creation height in the schema), GitHub action SHA pinning, base-image digest pinning.
+
+Fourth batch: refund freshness (a refund records the chain tip when made, retried; a settling payment must be
+mined after it; migration adds `refunds.created_height`; `refund_not_ready` is retryable), GitHub actions pinned
+to commit SHAs and the Dockerfile base images pinned by digest. The regtest e2e was not run: the Docker daemon
+is not running, and `zcash-devtool` (built with regtest support) and `lightwalletd` are not installed.

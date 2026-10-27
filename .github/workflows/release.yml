@@ -20,7 +20,7 @@ jobs:
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --locked -p zceipt-cli --target ${{ matrix.target }}
       - name: Package
@@ -30,6 +30,6 @@ jobs:
           mkdir "$name" && cp target/${{ matrix.target }}/release/zceipt* README.md LICENSE* "$name"/ && rm -f "$name"/zceipt.d "$name"/zceipt.pdb
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: zceipt-*.tar.gz*

@@ -16,7 +16,7 @@ trap 'echo "e2e stopped at line $LINENO: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 D=${ZCASH_DEVTOOL:-zcash-devtool}
-R=${ZCEIPT:-receipts}
+R=${ZCEIPT:-zceipt}
 FUNDER=$(cd "${FUNDER:?set FUNDER to a funded testnet wallet directory}" && pwd)
 FUNDER_ID=$(cd "$(dirname "${FUNDER_ID:?set FUNDER_ID to its age identity file}")" && pwd)/$(basename "$FUNDER_ID")
 ATTACK=${ATTACK:-$(dirname "$(command -v "$R" || echo "$R")")/examples/attack}

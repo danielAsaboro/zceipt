@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 ROOT=$PWD
 D=${ZCASH_DEVTOOL:-zcash-devtool}
 LWD=${LIGHTWALLETD:-lightwalletd}
-R=${ZCEIPT:-receipts}
+R=${ZCEIPT:-zceipt}
 NU63=300
 RPC=${RPC:-18252}; GRPC=${GRPC:-9078}; API=${API:-8733}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/zceipt-e2e.XXXXXX")

@@ -43,9 +43,10 @@ struct RefundRec {
     created: i64,
     refunded_at: Option<i64>,
     txid: Option<String>,
+    created_height: Option<i64>,
 }
 
-const COLS: &str = "id, mode, request_id, payment_txid, address, amount_zatoshis, reason, challenge, status, created, refunded_at, txid";
+const COLS: &str = "id, mode, request_id, payment_txid, address, amount_zatoshis, reason, challenge, status, created, refunded_at, txid, created_height";
 
 fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RefundRec> {
     Ok(RefundRec {
@@ -61,6 +62,7 @@ fn from_row(r: &rusqlite::Row) -> rusqlite::Result<RefundRec> {
         created: r.get(9)?,
         refunded_at: r.get(10)?,
         txid: r.get(11)?,
+        created_height: r.get(12)?,
     })
 }
 
@@ -163,6 +165,23 @@ pub async fn create(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
             )?;
             tx.commit()?;
         }
+        // The tip now, fetched in the background (retried): the settling payment must be mined after it,
+        // so an older payment to the same address cannot settle this refund.
+        {
+            let (st3, rid) = (st2.clone(), refund_id.clone());
+            tokio::spawn(async move {
+                let net = mode.net(&st3.config);
+                let server = mode.server(&st3.config);
+                for attempt in 0..4u64 {
+                    if let Ok(Ok(tip)) = tokio::time::timeout(std::time::Duration::from_secs(20), zceipt_chain::chain::chain_tip(net, server.as_deref())).await {
+                        let c = st3.db.0.lock().unwrap();
+                        let _ = c.execute("UPDATE refunds SET created_height = ?1 WHERE id = ?2 AND created_height IS NULL", params![tip as i64, rid]);
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(5 * (attempt + 1))).await;
+                }
+            });
+        }
         let obj = to_json(&load_refund(&st2, mode, &refund_id)?);
         emit(&st2, mode, "refund.created", obj.clone())?;
         Ok((StatusCode::CREATED, obj))
@@ -202,6 +221,18 @@ pub async fn submit(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
         };
         if v.challenge.as_deref() != Some(rf.challenge.as_str()) {
             return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this refund's challenge"));
+        }
+        if !sandbox::is_fixture(&text) {
+            match rf.created_height {
+                None => return Err(ApiError::conflict("refund_not_ready", "this refund's creation height isn't recorded yet (the chain server was slow); retry in a few seconds")),
+                Some(h) if i64::from(v.mined_height) <= h => {
+                    return Err(ApiError::verification(
+                        "paid_before_refund",
+                        format!("the payment was mined at block {}, before this refund was made (block {h})", v.mined_height),
+                    ))
+                }
+                Some(_) => {}
+            }
         }
         let want = zceipt_chain::chain::orchard_receiver_of(&rf.address).map_err(|e| ApiError::internal(e.to_string()))?;
         // Outputs disclosed with the memo withheld (format v5) prove the recipient and amount but

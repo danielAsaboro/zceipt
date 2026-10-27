@@ -135,6 +135,13 @@ impl ClaimKeys {
         ClaimKeys { params, pk, expose_nf }
     }
 
+    /// BLAKE2b-256 (hex) of the verifying key's pinned description: changes whenever the circuit's
+    /// constraint system does. Pinned in the tests, so a change cannot go unnoticed.
+    pub fn vk_fingerprint(&self) -> alloc::string::String {
+        let d = alloc::format!("{:?}", self.pk.get_vk().pinned());
+        blake2b_simd::Params::new().hash_length(32).hash(d.as_bytes()).to_hex().as_str().into()
+    }
+
     /// Proves the claims.
     pub fn create(&self, circuits: &[ClaimCircuit], instances: &[ClaimInstance], mut rng: impl Rng) -> Result<Proof, plonk::Error> {
         if circuits.iter().any(|c| c.expose_nf != self.expose_nf) {
@@ -154,8 +161,16 @@ impl ClaimKeys {
         let instances: Vec<Vec<&[vesta::Scalar]>> = instances.iter().map(|i| i.iter().map(|c| &c[..]).collect()).collect();
         let instances: Vec<&[&[vesta::Scalar]]> = instances.iter().map(|i| &i[..]).collect();
         let strategy = SingleVerifier::new(&self.params);
-        let mut transcript = Blake2bRead::init(&proof.0[..]);
-        plonk::verify_proof(&self.params, self.pk.get_vk(), strategy, &instances, &mut transcript)
+        // A proof has one encoding: bytes after what the verifier reads are refused.
+        let mut rest: &[u8] = &proof.0[..];
+        let mut transcript = Blake2bRead::init(&mut rest);
+        plonk::verify_proof(&self.params, self.pk.get_vk(), strategy, &instances, &mut transcript)?;
+        drop(transcript);
+        if rest.is_empty() {
+            Ok(())
+        } else {
+            Err(plonk::Error::Opening)
+        }
     }
 }
 
@@ -175,6 +190,14 @@ mod tests {
     use rand::{rand_core::UnwrapErr, rngs::SysRng};
 
     const FLOOR: u64 = 600;
+
+    /// The claim circuit's constraint system is pinned: any change to it (or to the Action circuit
+    /// it extends) changes these fingerprints and must be reviewed, then re-pinned here.
+    #[test]
+    fn verifying_keys_are_pinned() {
+        assert_eq!(ClaimKeys::build(true).vk_fingerprint(), "7f865616220168520ff07d7f7c740a9347a3b8fba46419ccad296fe55560a585", "claim circuit, nullifier public");
+        assert_eq!(ClaimKeys::build(false).vk_fingerprint(), "1278f6ecf78b467281bc5f3a40d645de941e18cf0404b5219bb3fa204859d5f1", "claim circuit, nullifier private");
+    }
 
     /// A claim over a note of 1000 with floor 600, honest: the circuit and its public inputs.
     fn honest(expose_nf: bool) -> (ClaimCircuit, ClaimInstance) {

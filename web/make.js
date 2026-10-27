@@ -9,7 +9,7 @@ let made = null;
 // Opened from a payment request (the verifier page's "Make it in your browser"): answer it.
 const hash = new URLSearchParams(location.hash.slice(1));
 const request = hash.get("request") ? hash : null;
-if (request) $("#msg").value = `challenge:${request.get("request")}`;
+if (request && /^[0-9a-f]{6,64}$/.test(request.get("request"))) $("#msg").value = `challenge:${request.get("request")}`;
 if (hash.get("txid")) $("#txid").value = hash.get("txid");
 
 function need(sel, what) {

@@ -132,6 +132,7 @@ pub fn prove(
 /// nullifier action `p.index` of that transaction published. `set` is the published list, from
 /// which the root is computed here (never taken from the proof).
 pub fn verify(vk: &VerifyingKey, receipt: &Receipt, nf: &[u8; 32], p: &ScreenedProof, set: &[[u8; 32]]) -> Result<(), Error> {
+    crate::check_vk(vk)?;
     let bad = || Error::BadScreenedProof(p.index);
     let u = &receipt.unsigned;
     if p.coin_type != u.coin_type || p.pool != u.pool || p.txid != u.txid {

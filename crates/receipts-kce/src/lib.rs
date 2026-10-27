@@ -366,8 +366,12 @@ impl Keys {
     }
 
     pub fn verify(&self, proof: &[u8], public: &[pallas::Base]) -> Result<(), Error> {
-        let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(proof);
-        plonk::verify_proof(&self.params, self.pk.get_vk(), SingleVerifier::new(&self.params), &[&[public]], &mut transcript)
+        let mut rest: &[u8] = proof;
+        let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(&mut rest);
+        plonk::verify_proof(&self.params, self.pk.get_vk(), SingleVerifier::new(&self.params), &[&[public]], &mut transcript)?;
+        drop(transcript);
+        // A proof has one encoding: bytes after what the verifier reads are refused.
+        if rest.is_empty() { Ok(()) } else { Err(Error::Opening) }
     }
 }
 
@@ -384,9 +388,17 @@ impl VerifyingKey {
         VerifyingKey { params, vk }
     }
 
+    /// BLAKE2b-256 (hex) of the verifying key's pinned description; changes with the constraint system.
+    pub fn fingerprint(&self) -> String {
+        blake2b_simd::Params::new().hash_length(32).hash(format!("{:?}", self.vk.pinned()).as_bytes()).to_hex().to_string()
+    }
+
     pub fn verify(&self, proof: &[u8], public: &[pallas::Base]) -> Result<(), Error> {
-        let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(proof);
-        plonk::verify_proof(&self.params, &self.vk, SingleVerifier::new(&self.params), &[&[public]], &mut transcript)
+        let mut rest: &[u8] = proof;
+        let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(&mut rest);
+        plonk::verify_proof(&self.params, &self.vk, SingleVerifier::new(&self.params), &[&[public]], &mut transcript)?;
+        drop(transcript);
+        if rest.is_empty() { Ok(()) } else { Err(Error::Opening) }
     }
 }
 
@@ -510,6 +522,17 @@ mod params_digest {
         let mut b = vec![];
         p.write(&mut b).unwrap();
         eprintln!("params {:?} digest {}", t.elapsed(), blake2b_simd::Params::new().hash_length(32).hash(&b).to_hex());
+    }
+}
+
+/// The sibling circuit's constraint system is pinned: a change (here or in the BLAKE2b gadget)
+/// changes this fingerprint and must be reviewed, then re-pinned.
+#[cfg(test)]
+mod pinned {
+    #[test]
+    #[ignore = "slow: derives the k = 17 parameters; run it after any circuit change"]
+    fn verifying_key_is_pinned() {
+        assert_eq!(super::VerifyingKey::build(None).fingerprint(), "7972874820ef74e9b70bf788ef05991ff69a56f7e8062dfc679d6c37c070082d");
     }
 }
 

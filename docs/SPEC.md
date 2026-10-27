@@ -403,7 +403,7 @@ tag    := Poseidon(nk, domainField)
 digest := BLAKE2b-256("ZIP311Claim\0" || coinType, claim without spendAuthSig)
 ```
 
-One claim per wallet in an airdrop, a grant round or a vote, for wallets that held at least
+One claim per account key (the tag depends on `nk`, which differs per ZIP 32 account) in an airdrop, a grant round or a vote, for wallets that held at least
 `floor` at a snapshot. The proof is the Orchard Action statement for one note at `anchor`, with
 `cv_net = ValueCommit_0(floor)` (so the note holds at least `floor`), plus two public inputs:
 `domainField` and `tag`. Every claim a key makes in one domain has the same tag, so the verifier

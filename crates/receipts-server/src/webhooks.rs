@@ -67,7 +67,7 @@ async fn tick(st: &Shared) -> anyhow::Result<usize> {
             "SELECT d.id, e.body, w.url, w.secret, d.attempts, w.mode FROM deliveries d
              JOIN events e ON e.id = d.event_id JOIN webhook_endpoints w ON w.id = d.endpoint_id
              WHERE d.status = 'pending' AND d.next_attempt_at <= ?1 AND w.disabled = 0
-             ORDER BY d.next_attempt_at, d.id LIMIT ?2",
+             ORDER BY (w.mode = 'live') DESC, d.next_attempt_at, d.id LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![now(), BATCH as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
         rows.collect::<Result<_, _>>()?

@@ -123,6 +123,8 @@ impl Certificate {
 
     /// Checks the spend key's signature on the certificate.
     pub fn check(&self) -> Result<(), Error> {
+        // The identity is a "key" whose discrete log everyone knows: any signature would verify under it.
+        crate::link::nonidentity_point(&self.rk).map_err(|_| Error::BadDelegation)?;
         let rk = redpallas::VerificationKey::<SpendAuth>::try_from(self.rk).map_err(|_| Error::BadDelegation)?;
         rk.verify(&self.digest(), &redpallas::Signature::<SpendAuth>::from(self.sig)).map_err(|_| Error::BadDelegation)?;
         crate::link::nonidentity_point(&self.session).map_err(|_| Error::BadDelegation)?;
@@ -333,7 +335,7 @@ impl DelegatedReceipt {
 /// Checks the certificate's policy against what the verified receipt shows and the block the
 /// payment was mined in: within the most, by the last block, and only to listed payees.
 pub fn check_policy(cert: &Certificate, v: &VerifiedReceipt, mined_height: u32) -> Result<(), Error> {
-    let total: u64 = v.outputs.iter().map(|o| o.value).sum();
+    let total = v.outputs.iter().try_fold(0u64, |a, o| a.checked_add(o.value)).ok_or(Error::BadDelegation)?;
     if total > cert.max_zats || mined_height > cert.until_height {
         return Err(Error::BadDelegation);
     }

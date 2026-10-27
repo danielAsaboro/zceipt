@@ -21,6 +21,8 @@ const id = location.pathname.split("/").pop();
 // In the #fragment, which browsers never send (older links: the query string).
 const secret = new URLSearchParams(location.hash.slice(1)).get("secret") || new URLSearchParams(location.search).get("secret") || "";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
+// Shell-quoted: a quote in the link must not end the argument and run its own commands.
+const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 let last;
 let timer;
@@ -56,7 +58,7 @@ async function load() {
     <div class="step"><b>3</b>Paste the receipt link it prints:
       <textarea id="receipt" aria-label="Your receipt or receipt link" placeholder="https://…#zip311r1…"></textarea>
       <button id="submit">Confirm payment</button><div id="msg"></div></div>
-    <details><summary>Steps 1 to 3 in one command (zcash-devtool wallet)</summary><code>${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}</code> <button class="copy" data-copy="${esc(`receipts pay '${location.href}' -w <wallet> -i <key.age>`)}">Copy command</button></details>`;
+    <details><summary>Steps 1 to 3 in one command (zcash-devtool wallet)</summary><code>${esc(`receipts pay ${shq(location.href)} -w <wallet> -i <key.age>`)}</code> <button class="copy" data-copy="${esc(`receipts pay ${shq(location.href)} -w <wallet> -i <key.age>`)}">Copy command</button></details>`;
   document.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); b.textContent = "Copied"; });
   document.getElementById("receipt").value = pasted;
   document.getElementById("submit").onclick = submit;

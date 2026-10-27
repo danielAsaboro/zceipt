@@ -108,6 +108,8 @@ def verify_policy(text: str, receipt):
     links = [(take(32), take(32)) for _ in range(ns)]
     if p != len(b) or t == 0 or holders < t or ns == 0:
         raise DecodeError("malformed policy proof")
+    for c_j in commitment:  # every C_j a valid non-identity point, as the Rust verifier requires
+        pl.decode_point(c_j)
     if receipt.coin_type != coin or _digest(receipt) != digest or ns != len(receipt.spends):
         raise ValueError("the proof is for another receipt")
     rks = [sp.rk for sp in receipt.spends]
@@ -152,6 +154,8 @@ def verify_keyset(text: str, receipt) -> int:
     take(int.from_bytes(take(2), "little"))
     digest = take(32)
     n = int.from_bytes(take(2), "little")
+    if n > 1024:
+        raise DecodeError("malformed key-set proof")
     keys = [take(32) for _ in range(n)]
     ns = take(1)[0]
     head = b[:p]
@@ -161,7 +165,7 @@ def verify_keyset(text: str, receipt) -> int:
     if receipt.coin_type != coin or _digest(receipt) != digest or ns != len(receipt.spends):
         raise ValueError("the proof is for another receipt")
     g = pl.group_hash(b"z.cash:Orchard", b"G")
-    ks = [pl.decode_point(k) for k in keys]
+    ks = [pl.decode_point(k, allow_zero=True) for k in keys]
     h = hashlib.blake2b(digest_size=64, person=b"ZIP311KeySet" + coin.to_bytes(4, "little"))
     h.update(head)
     sums = []

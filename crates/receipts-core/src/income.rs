@@ -126,7 +126,7 @@ impl IncomeProof {
 
     /// The total the proof shows (the sum of the floors).
     pub fn total(&self) -> u64 {
-        self.items.iter().map(|i| i.floor).sum()
+        self.items.iter().fold(0u64, |a, i| a.saturating_add(i.floor))
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -256,6 +256,7 @@ pub fn prove(
 /// read from the chain (`None` refuses the proof); the caller also checks that each `txid` was
 /// mined. Returns the total the proof shows.
 pub fn verify(vk: &VerifyingKey, p: &IncomeProof, source_cmx: crate::SourceLookup<'_>) -> Result<u64, Error> {
+    crate::check_vk(vk)?;
     let rk = redpallas::VerificationKey::<SpendAuth>::try_from(p.rk).map_err(|_| Error::BadIncome)?;
     if bool::from(group::Group::is_identity(&<pasta_curves::pallas::Point as group::GroupEncoding>::from_bytes(&p.rk).unwrap_or(group::Group::identity()))) {
         return Err(Error::BadIncome);

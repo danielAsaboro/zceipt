@@ -41,6 +41,7 @@ export const verify_keyset: (a: number, b: number, c: number, d: number) => [num
 export const verify_payer_tag: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
 export const verify_payment_request: (a: number, b: number, c: number) => [number, number, number, number];
 export const verify_policy: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+export const verify_policy_pinned: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
 export const verify_same_payer: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const verify_screened: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
 export const verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];

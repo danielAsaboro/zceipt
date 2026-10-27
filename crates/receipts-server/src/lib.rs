@@ -126,6 +126,11 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
             m.retain(|_, (w, _)| *w == window);
             // Still over after dropping every old window: a flood of made-up public request ids.
             // Refuse new buckets instead of scanning the map on every request.
+            // Made-up public request ids must never crowd out API keys: a key always gets a bucket
+            // (by dropping public ones), and only a new public id is refused.
+            if m.len() > 10_000 && !k.starts_with("public:") {
+                m.retain(|key, _| !key.starts_with("public:"));
+            }
             if m.len() > 10_000 && !m.contains_key(&k) {
                 let mut res = ApiError::new_rate_limited().into_response();
                 res.headers_mut().insert("retry-after", (window + 60 - t).to_string().parse().unwrap());
@@ -425,6 +430,7 @@ pub fn emit(st: &AppState, mode: Mode, kind: &str, object: Value) -> Result<Valu
 // ---------- handlers ----------
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct VerifyReq {
     receipt: Option<String>,
     expect_address: Option<String>,
@@ -488,6 +494,7 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ClaimReq {
     claim: Option<String>,
     domain: Option<String>,
@@ -529,8 +536,15 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
             .iter()
             .map(|h| hex::decode(h).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| ApiError::invalid("parameter_invalid", "list entries are 64 hex digits").param("list")))
             .collect::<Result<_, _>>()?;
-        let root = receipts_core::screened::set_root(&set).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param("list"))?;
-        let tag = receipts_core::claim::verify(&c, domain.as_bytes(), &root).map_err(|_| ApiError::verification("claim_invalid", "the claim doesn't hold against this list").param("claim"))?;
+        // Building the list's tree and the Halo 2 check are CPU-bound: a verify slot, off the async workers.
+        let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
+        let (c2, d2) = (c.clone(), domain.clone());
+        let tag = tokio::task::spawn_blocking(move || {
+            let root = receipts_core::screened::set_root(&set).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param("list"))?;
+            receipts_core::claim::verify(&c2, d2.as_bytes(), &root).map_err(|_| ApiError::verification("claim_invalid", "the claim doesn't hold against this list").param("claim"))
+        })
+        .await
+        .map_err(|e| ApiError::internal(e.to_string()))??;
         return Ok(Json(json!({ "valid": true, "kind": "list_claim", "domain": domain, "tag": hex::encode(tag), "floor_zatoshis": c.floor })));
     }
     if c.height == 0 {
@@ -548,6 +562,7 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
                 <[u8; 32]>::try_from(b).ok()
             })
             .ok_or_else(|| ApiError::verification("claim_invalid", "a claim with no snapshot block must be a payer tag").param("claim"))?;
+        let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
         let tag = chain::verify_payer_tag_against_chain(&c, domain.as_bytes(), txid, net, server.as_deref()).await.map_err(invalid)?;
         return Ok(Json(json!({ "valid": true, "kind": "payer_tag", "domain": domain, "txid": receipts_core::display_txid(&txid), "tag": hex::encode(tag) })));
     }
@@ -573,6 +588,7 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CheckLink {
     uri: Option<String>,
     /// Default: the network of the key's mode.
@@ -589,6 +605,7 @@ async fn check_link_handler(State(st): State<Shared>, auth: Auth, Body(req, _): 
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateEndpoint {
     url: Option<String>,
     events: Option<Vec<String>>,

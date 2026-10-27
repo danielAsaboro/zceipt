@@ -162,7 +162,8 @@ pub fn prove(prepared: &PreparedReceipt, commitment: Vec<[u8; 32]>, holders: u16
     Ok(p)
 }
 
-/// Checks a policy proof for `receipt` (verify the receipt itself as usual). Returns `(t, n)`.
+/// Checks a policy proof for `receipt` (verify the receipt itself as usual). Returns `(t, n)` **as the
+/// prover stated them**: only `C_0` is tied to the receipt. Use [`verify_pinned`] to mean "t-of-n".
 pub fn verify(p: &PolicyProof, receipt: &Receipt) -> Result<(usize, u16), Error> {
     let u = &receipt.unsigned;
     if u.coin_type != p.coin_type || signing_digest(u) != p.receipt || p.links.len() != u.spends.len() {
@@ -184,6 +185,15 @@ pub fn verify(p: &PolicyProof, receipt: &Receipt) -> Result<(usize, u16), Error>
         }
     }
     Ok((p.threshold(), p.holders))
+}
+
+/// Like [`verify`], and the proof's commitment and holder count must be exactly the published ones.
+/// Only this makes `(t, n)` mean anything: [`verify`] alone returns numbers the prover chose.
+pub fn verify_pinned(p: &PolicyProof, receipt: &Receipt, commitment: &[[u8; 32]], holders: u16) -> Result<(usize, u16), Error> {
+    if p.commitment != commitment || p.holders != holders {
+        return Err(Error::BadPolicy);
+    }
+    verify(p, receipt)
 }
 
 /// Each holder's verifying share under the commitment, for holders `1..=n` (FROST's default

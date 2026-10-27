@@ -107,6 +107,7 @@ pub fn refunds_of(st: &AppState, request_id: &str) -> Vec<Value> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRefund {
     /// Which payment to refund (its txid). Default: the request's latest payment with a refund address.
     payment_txid: Option<String>,
@@ -175,6 +176,7 @@ pub async fn get(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubmitRefundReceipt {
     receipt: Option<String>,
 }

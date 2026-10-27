@@ -410,8 +410,8 @@ def verify_income(text: str, expected_coin_type: int, source_cmx):
             raise Invalid("a zero floor")
         items.append({"pool": pool, "txid": txid, "index": index, "height": height, "floor": floor, "nf": nf, "cmx": cmx})
     proof_len = int.from_bytes(take(4), "little")
-    if proof_len == 0:
-        raise Invalid("no proof")
+    if proof_len == 0 or proof_len > 1 << 20:
+        raise Invalid("no proof, or one over the 1 MiB cap")
     take(proof_len)
     body_end = p
     sig = take(64)

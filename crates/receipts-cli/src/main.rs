@@ -899,6 +899,9 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
 fn count_receipts(text: &str) -> usize {
     [
         receipts_core::TEXT_PREFIX,
+        receipts_core::delegated::DELEGATED_TEXT_PREFIX,
+        receipts_core::designated::DESIGNATED_TEXT_PREFIX,
+        receipts_kce::SIBLINGS_TEXT_PREFIX,
         receipts_core::BATCH_TEXT_PREFIX,
         receipts_core::incoming::INCOMING_TEXT_PREFIX,
         receipts_core::reserve::RESERVE_TEXT_PREFIX,
@@ -1230,7 +1233,7 @@ fn pool_name(p: Pool) -> &'static str {
 
 /// `verify`'s flags, checked before anything is fetched; also sets what the checks compare.
 fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
-    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, expect_address, server, cross_check, network, raw_tx, key_set, policy_commitment, .. } = cmd {
+    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, expect_address, server, cross_check, network, raw_tx, key_set, policy_commitment, list, min_payments, payer_tags, min_payers, siblings, .. } = cmd {
         // Offline checking reads one transaction and none of the extra proofs: a pin on them can't be honoured.
         if raw_tx.is_some() && (key_set.is_some() || policy_commitment.is_some()) {
             bail!("--key-set and --policy-commitment are checked against the chain fetch, not with --raw-tx");
@@ -1245,6 +1248,78 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
         if let (Some(s), Some(c)) = (server, cross_check) {
             if chain::same_server(s, c) {
                 bail!("--cross-check {c} reaches the same server as -s {s}; give a different one");
+            }
+        }
+        // `verify` routes by the artifact's own prefix, in this order; a flag the chosen kind doesn't
+        // implement is an error, never silently skipped (it would read as a check that passed).
+        {
+            let text = read_arg_text(receipt)?;
+            let has = |p: &str| text.contains(p);
+            // Flags of the proof-of-income check; no other kind implements them.
+            let income_only = |v: &mut Vec<(&'static str, bool)>| {
+                v.extend([("--min-payments", min_payments.is_some()), ("--payer-tag", !payer_tags.is_empty()), ("--min-payers", min_payers.is_some()), ("--sibling", !siblings.is_empty())]);
+            };
+            let (kind, extras): (&str, Vec<(&'static str, bool)>) = if has(receipts_core::income::INCOME_TEXT_PREFIX) {
+                (
+                    "a proof of income",
+                    vec![
+                        ("--expect-address", expect_address.is_some()),
+                        ("--memo-contains", memo_contains.is_some()),
+                        ("--screened-set", screened_set.is_some()),
+                        ("--key-set", key_set.is_some()),
+                        ("--policy-commitment", policy_commitment.is_some()),
+                        ("--cross-check", cross_check.is_some()),
+                    ],
+                )
+            } else if has(receipts_core::delegated::DELEGATED_TEXT_PREFIX) || has(receipts_core::designated::DESIGNATED_TEXT_PREFIX) {
+                (
+                    "a delegated or one-verifier receipt",
+                    vec![("--screened-set", screened_set.is_some()), ("--key-set", key_set.is_some()), ("--policy-commitment", policy_commitment.is_some()), ("--cross-check", cross_check.is_some())],
+                )
+            } else if has(receipts_kce::SIBLINGS_TEXT_PREFIX) {
+                (
+                    "a sibling-account proof",
+                    vec![
+                        ("--min", min.is_some()),
+                        ("--challenge", challenge.is_some()),
+                        ("--expect-address", expect_address.is_some()),
+                        ("--memo-contains", memo_contains.is_some()),
+                        ("--screened-set", screened_set.is_some()),
+                        ("--key-set", key_set.is_some()),
+                        ("--policy-commitment", policy_commitment.is_some()),
+                        ("--cross-check", cross_check.is_some()),
+                    ],
+                )
+            } else if has(receipts_core::claim::CLAIM_TEXT_PREFIX) {
+                (
+                    "a claim or payer tag",
+                    vec![
+                        ("--expect-address", expect_address.is_some()),
+                        ("--memo-contains", memo_contains.is_some()),
+                        ("--screened-set", screened_set.is_some()),
+                        ("--key-set", key_set.is_some()),
+                        ("--policy-commitment", policy_commitment.is_some()),
+                    ],
+                )
+            } else if has(receipts_core::BATCH_TEXT_PREFIX) || has(receipts_core::incoming::INCOMING_TEXT_PREFIX) {
+                (
+                    "a batch or an incoming receipt",
+                    vec![("--key-set", key_set.is_some()), ("--policy-commitment", policy_commitment.is_some()), ("--cross-check", cross_check.is_some()), ("--list", list.is_some())],
+                )
+            } else if has(receipts_core::TEXT_PREFIX) {
+                ("a receipt", vec![("--list", list.is_some())])
+            } else {
+                ("", vec![])
+            };
+            let mut extras = extras;
+            if !has(receipts_core::income::INCOME_TEXT_PREFIX) {
+                income_only(&mut extras);
+            }
+            if has(receipts_core::claim::CLAIM_TEXT_PREFIX) && !has(receipts_core::income::INCOME_TEXT_PREFIX) && list.is_some() {
+                extras.push(("--cross-check", cross_check.is_some()));
+            }
+            if let Some((flag, _)) = extras.iter().find(|(_, set)| *set) {
+                bail!("{flag} doesn't apply to {kind}; it would be ignored, so the check you asked for would not happen");
             }
         }
         // These checks are about one payment: refuse them for kinds they can't apply to, rather
@@ -2051,6 +2126,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 let root = receipts_core::screened::set_root(&read_screened_set(file)?).map_err(|e| anyhow!("{e}"))?;
                 net::for_receipt(c.coin_type, regtest.as_deref())?;
                 let tag = receipts_core::claim::verify(&c, domain.as_bytes(), &root).map_err(|_| anyhow!("the claim doesn't hold against this list"))?;
+                if let (_, Some(ch), _) = VERIFY_EXPECT.get().cloned().unwrap_or_default() {
+                    if receipts_server::verify::challenge_of(&String::from_utf8_lossy(&c.msg)).as_deref() != Some(ch.to_lowercase().as_str()) {
+                        bail!("the claim doesn't sign challenge {ch}");
+                    }
+                }
                 let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
                 if json {
                     println!("{}", serde_json::json!({ "valid": true, "kind": "list_claim", "domain": domain, "message": String::from_utf8_lossy(&c.msg), "tag": tag, "floor_zatoshis": c.floor, "floor_zec": chain::zec(c.floor) }));
@@ -2070,6 +2150,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     bail!("this is a payer tag (no snapshot block), but --height/--min ask for an airdrop claim; check payer tags without them");
                 }
                 // A payer tag: on a note a payment spent, named in its message.
+                if VERIFY_EXPECT.get().is_some_and(|(_, ch, _)| ch.is_some()) {
+                    bail!("--challenge doesn't apply to a payer tag (it signs the payment's id, not a challenge)");
+                }
                 let domain = domain.ok_or_else(|| anyhow!("a payer tag is checked for your domain: give --domain"))?;
                 let txid = std::str::from_utf8(&c.msg).ok().and_then(|m| m.strip_prefix("payer-tag:")).ok_or_else(|| anyhow!("this claim has no snapshot block and names no payment"))?;
                 let txid = parse_txid(txid)?;
@@ -2291,9 +2374,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                             if read_key_set(file)? != p.commitment {
                                 bail!("the policy proof is over another commitment than {}", file.display());
                             }
-                            Some(format!("authorized under the {t}-of-{n} key whose commitment is {}", file.display()))
+                            Some(format!("authorized under the key whose published commitment is {} (threshold {t}; the proof also claims {n} holders, which the commitment does not fix)", file.display()))
                         }
-                        None => Some(format!("authorized under the {t}-of-{n} key the proof's own commitment names (check it against the published one with --policy-commitment)")),
+                        None => Some(format!("the proof CLAIMS a {t}-of-{n} key; nothing checked that against a published commitment (pass --policy-commitment)")),
                     }
                 }
             };

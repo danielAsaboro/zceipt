@@ -347,10 +347,10 @@ mod tests {
 
     #[test]
     fn every_public_input_of_the_claim_circuit_is_tied_to_the_proof() {
-        // Rows: anchor, cv_net x/y, nf_old, rk x/y, cmx, enable_spend, enable_output, then domain and tag.
+        // Rows: anchor, cv_net x/y, nf_old, rk x/y, cmx, enable_spend, enable_output, disable_cross_address, then domain and tag.
         for expose_nf in [true, false] {
             let rows = constrained_instance_rows(&orchard::circuit::claim::ClaimCircuit::__empty_for_tests(expose_nf));
-            let missing: Vec<usize> = (0..11).filter(|r| !rows.contains(r)).collect();
+            let missing: Vec<usize> = (0..12).filter(|r| !rows.contains(r)).collect();
             eprintln!("expose_nf={expose_nf}: public rows not tied to the circuit: {missing:?} (constrained: {rows:?})");
             // Only the nullifier row (3) may be free, and only when the nullifier is private.
             assert_eq!(missing, if expose_nf { vec![] } else { vec![3] });

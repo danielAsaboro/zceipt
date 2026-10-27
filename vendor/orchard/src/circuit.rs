@@ -1415,8 +1415,16 @@ impl Proof {
         let instances: Vec<_> = instances.iter().map(|i| &i[..]).collect();
 
         let strategy = SingleVerifier::new(&vk.params);
-        let mut transcript = Blake2bRead::init(&self.0[..]);
-        plonk::verify_proof(&vk.params, &vk.vk, strategy, &instances, &mut transcript)
+        // Receipts patch: a proof has one encoding, so bytes after what the verifier reads are refused.
+        let mut rest: &[u8] = &self.0[..];
+        let mut transcript = Blake2bRead::init(&mut rest);
+        plonk::verify_proof(&vk.params, &vk.vk, strategy, &instances, &mut transcript)?;
+        drop(transcript);
+        if rest.is_empty() {
+            Ok(())
+        } else {
+            Err(plonk::Error::Opening)
+        }
     }
 
     /// Adds this proof to the given batch for verification with the given instances.

@@ -37,8 +37,9 @@ lto = "thin"
 opt-level = 3
 
 
-# orchard 0.16.0 from crates.io plus a ~60-line patch (vendor/orchard-0.16.0-receipts.patch):
+# orchard 0.16.0 from crates.io plus a patch (vendor/orchard-0.16.0-receipts.patch, checked by
+# scripts/check-vendor-patch.sh) that adds the claim circuit (circuit/claim.rs), and:
 # precomputed verifier parameters, and a few note/address accessors made public for incoming
-# receipts and memo-withheld outputs. No circuit change. See vendor/README.md.
+# receipts and memo-withheld outputs. The Action circuit is unchanged. See vendor/README.md.
 [patch.crates-io]
 orchard = { path = "vendor/orchard" }

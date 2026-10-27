@@ -32,6 +32,7 @@ fn coin_type(mode: Mode) -> u32 {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateChallenge {
     domain: Option<String>,
 }
@@ -81,6 +82,7 @@ pub async fn create_challenge(State(st): State<Shared>, auth: Auth, Body(req, _)
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerifySignIn {
     sign_in: Option<String>,
 }

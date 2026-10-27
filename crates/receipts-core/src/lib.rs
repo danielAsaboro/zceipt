@@ -519,6 +519,8 @@ pub enum Error {
     BadTotal,
     #[error("the opening for output {0} does not match its note commitment")]
     BadOpening(u32),
+    #[error("the verifying key is for another circuit than the one receipts use (the insecure or outdated Orchard circuits are refused)")]
+    WrongCircuit,
     #[error("{0} need receipts-core's `orchard-ext` feature (the orchard patch in vendor/)")]
     NeedsOrchardExt(&'static str),
 }
@@ -687,6 +689,7 @@ pub(crate) fn verify_address_proof(
     rk: &redpallas::VerificationKey<SpendAuth>,
     a: &AddressProof,
 ) -> Result<(), Error> {
+    check_vk(vk)?;
     let bad = || Error::BadAddressProof(index);
     let address = Option::<Address>::from(Address::from_raw_address_bytes(&a.address)).ok_or_else(bad)?;
     let rho = Option::<Rho>::from(Rho::from_bytes(&a.rho)).ok_or_else(bad)?;
@@ -950,6 +953,7 @@ pub fn aggregate_proof(pk: &ProvingKey, statements: Statements, mut rng: impl Cr
 /// Checks an aggregated batch's proof against the statements its receipts' checks collected
 /// ([`verify_tx_bundles_deferred`]), in batch order.
 pub fn verify_aggregate(vk: &VerifyingKey, instances: &[Instance], proof: &[u8]) -> Result<(), Error> {
+    check_vk(vk)?;
     if instances.is_empty() {
         return Err(Error::NoSpends);
     }
@@ -1279,6 +1283,7 @@ fn verify_cross<A: Authorization, V>(
     mut deferred: Option<&mut Vec<Instance>>,
     designated: bool,
 ) -> Result<VerifiedReceipt, Error> {
+    check_vk(vk)?;
     let u = &receipt.unsigned;
     let output_pool = u.output_pool.unwrap_or(u.pool);
     if u.txid != txid {
@@ -1395,6 +1400,16 @@ pub fn display_txid(txid: &[u8; 32]) -> String {
     r.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Refuses a verifying key built for any circuit but [`RECEIPT_CIRCUIT`] (a caller-built key for
+/// the insecure pre-NU6.2 circuit would accept forged proofs).
+pub(crate) fn check_vk(vk: &VerifyingKey) -> Result<(), Error> {
+    if vk.circuit_version() == RECEIPT_CIRCUIT {
+        Ok(())
+    } else {
+        Err(Error::WrongCircuit)
+    }
+}
+
 /// Proving key for receipts. Building it takes a few seconds; cache it.
 pub fn proving_key() -> ProvingKey {
     ProvingKey::build(RECEIPT_CIRCUIT)
@@ -1409,8 +1424,20 @@ const ORCHARD_PARAMS_K11: &[u8] = include_bytes!("orchard-params-k11.bin");
 /// Verifying key for receipts. Uses the precomputed parameters (about 2.7x faster); cache it.
 #[cfg(feature = "orchard-ext")]
 pub fn verifying_key() -> VerifyingKey {
-    VerifyingKey::build_with_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT).unwrap_or_else(|_| VerifyingKey::build(RECEIPT_CIRCUIT))
+    // The shipped bytes are used only if they are exactly the ones checked against a fresh
+    // derivation (`params_match_derivation`); anything else is derived.
+    let shipped = Params::new().hash_length(32).hash(ORCHARD_PARAMS_K11).to_hex().to_string() == ORCHARD_PARAMS_K11_DIGEST;
+    if shipped {
+        if let Ok(vk) = VerifyingKey::build_with_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT) {
+            return vk;
+        }
+    }
+    VerifyingKey::build(RECEIPT_CIRCUIT)
 }
+
+/// BLAKE2b-256 of `orchard-params-k11.bin`.
+#[cfg(feature = "orchard-ext")]
+const ORCHARD_PARAMS_K11_DIGEST: &str = "773ee1d3dcc65a13e97e4d88119d1d20fb12a8db4443361f370c75bdc2c91382";
 
 /// Verifying key for receipts (stock orchard: every parameter is derived). Cache it.
 #[cfg(not(feature = "orchard-ext"))]

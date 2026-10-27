@@ -314,3 +314,14 @@ fn a_real_list_claim_holds_for_its_list_and_nothing_else() {
     // Every byte, three ways, and the statement alone.
     claim_sweep(&c, TagKind::Claim, |e| claim::verify(e, b"list-airdrop", &root).is_ok());
 }
+
+/// A proof has one encoding: bytes after what the verifier reads are refused.
+#[test]
+fn a_proof_with_trailing_bytes_is_refused() {
+    for (name, kind) in [("claim.txt", TagKind::Claim), ("tagA.txt", TagKind::PayerTag)] {
+        let mut c = Claim::from_text(&text(name)).unwrap();
+        assert!(claim::__check_proof_only_for_tests(kind, &c).is_ok());
+        c.proof.push(0);
+        assert!(claim::__check_proof_only_for_tests(kind, &c).is_err(), "{name}");
+    }
+}

@@ -111,6 +111,7 @@ fn disclosure(name: &str, value: &Value) -> (String, String) {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateAttestation {
     /// The amount floor to state. Default: the requested amount, or what was paid rounded down to 0.001 ZEC.
     at_least_zatoshis: Option<u64>,
@@ -282,6 +283,7 @@ pub fn verify_presentation(text: &str, keys: &[(String, VerifyingKey)]) -> Resul
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct VerifyAttestation {
     attestation: Option<String>,
     /// Who is checking. An attestation made for an audience is refused by anyone else, and one made

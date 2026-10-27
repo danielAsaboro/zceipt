@@ -154,7 +154,8 @@ function requestFromUrl() {
   const frag = new URLSearchParams(location.hash.slice(1).split("&").filter((p) => /^(request|to|min|label)=/.test(p)).join("&"));
   const q = frag.get("request") ? frag : new URLSearchParams(location.search);
   const code = q.get("request");
-  if (!code) return null;
+  // A request code is 6 to 64 lowercase hex digits (as the API and CLI require); anything else is not one.
+  if (!code || !/^[0-9a-f]{6,64}$/.test(code)) return null;
   return { code, to: q.get("to") || "", min: Number(q.get("min") || 0), label: q.get("label") || "" };
 }
 // The challenge a receipt signs: the first line starting "challenge:", if its value is 6 to 64
@@ -328,7 +329,7 @@ function render(v, net) {
       <ul class="facts">
         <li>Signed with the key that spent the money in this payment (a zero-knowledge proof and a signature over this receipt).</li>
         ${v.keySetSize ? `<li><strong>One of ${v.keySetSize} published keys:</strong> signed under one of the keys this link's proof lists, not saying which. Compare them with the set the payer's organization publishes.</li>` : ""}
-        ${v.policy ? `<li><strong>A ${v.policy.threshold}-of-${v.policy.holders} key:</strong> authorized under the shared key ${escapeHtml(v.policy.key.slice(0, 16))}…, not saying which holders signed.</li>` : ""}
+        ${v.policy ? `<li><strong>Signed under the key ${escapeHtml(v.policy.key.slice(0, 16))}…</strong>, which the proof calls a ${v.policy.claimed_threshold}-of-${v.policy.claimed_holders} key. That split is the prover's claim, not checked: compare the key and the split with the treasury's published commitment.</li>` : ""}
         ${v.outputs.length ? `<li>The amount, recipient and memo above were opened from ${fetchMode && fetchMode.mode === "offline" ? "the transaction you pasted" : "the transaction on chain"}.</li>` : ""}
         ${(v.sources || []).length ? `<li>The sender proved where the spent money came from (FUNDS above): only that link, read from the chain.</li>` : ""}
         ${(v.sender_addresses || []).length || (v.sources || []).length ? `${(v.sender_addresses || []).length ? `<li>Whoever signed this receipt also controls the FROM address above.</li>` : ""}<li><strong>Not revealed:</strong> the sender's balance or any other transaction.</li>` : `<li><strong>Not revealed:</strong> the sender's address, balance, or any other transaction.</li>`}
@@ -439,7 +440,7 @@ async function renderRequestChecks(v) {
   // A request made in this browser is the shop's own; one only in the link came with the receipt,
   // so the sender could have written it. Its checks still run, under a different heading.
   if (mine) row(true, `You created request ${code} in this browser${mine.label ? ` (“${mine.label}”)` : ""}`);
-  else rows.push(`<li data-ok="info">ℹ Request ${code} wasn't made in this browser, so these checks compare the receipt with the request written in the link. Trust them only if you made that request.</li>`);
+  else rows.push(`<li data-ok="info">ℹ Request ${escapeHtml(code)} wasn't made in this browser, so these checks compare the receipt with the request written in the link. Trust them only if you made that request.</li>`);
   row(signed === code, signed === code ? "The sender signed this request's challenge, so the receipt was made for this request" : "The receipt does not sign this request's challenge");
   if (req && req.to) {
     try {
@@ -804,7 +805,7 @@ async function batchRequestChecks(results) {
   const req = mine || fromUrl;
   const rows = [];
   const row = (ok, text) => rows.push(`<li data-ok="${ok}">${ok ? "✓" : "✗"} ${escapeHtml(text)}</li>`);
-  if (!mine) rows.push(`<li data-ok="info">ℹ Request ${fromUrl.code} wasn't made in this browser, so these checks compare the batch with the request written in the link. Trust them only if you made that request.</li>`);
+  if (!mine) rows.push(`<li data-ok="info">ℹ Request ${escapeHtml(fromUrl.code)} wasn't made in this browser, so these checks compare the batch with the request written in the link. Trust them only if you made that request.</li>`);
   const signs = results.every((v) => challengeIn(v.message) === fromUrl.code);
   row(signs, signs ? `All ${results.length} payments sign this request's challenge` : "Not every payment signs this request's challenge");
   if (req.to) {

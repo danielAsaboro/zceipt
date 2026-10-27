@@ -74,6 +74,7 @@ fn test_only(auth: &Auth) -> Result<(), ApiError> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateClock {
     frozen_time: Option<i64>,
     height: Option<i64>,
@@ -102,6 +103,7 @@ pub async fn get(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Advance {
     /// Seconds to move time forward.
     seconds: Option<i64>,
@@ -171,6 +173,7 @@ pub async fn advance(State(st): State<Shared>, auth: Auth, Path(id): Path<String
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Reorg {
     /// How many blocks to roll back (1..=100). Payments mined in them become unconfirmed.
     depth: Option<i64>,

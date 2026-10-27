@@ -171,3 +171,32 @@ fn tempdir() -> std::path::PathBuf {
     std::fs::create_dir_all(&d).unwrap();
     d
 }
+
+/// A flag the chosen kind of artifact doesn't implement is an error, never silently skipped.
+#[test]
+fn verify_refuses_flags_the_artifact_kind_ignores() {
+    let base = ["verify", "@examples/testnet/proofs/listclaim.txt", "--list", "examples/testnet/proofs/list.txt", "--domain", "list-airdrop", "--min", "0.00000001"];
+    let (ok, out) = receipts(&base);
+    assert!(ok && out.contains("VALID list claim"), "{out}");
+    let merchant = std::fs::read_to_string(format!("{ROOT}/examples/testnet/merchant.ua")).unwrap();
+    for extra in [vec!["--expect-address", merchant.trim()], vec!["--memo-contains", "x"]] {
+        let (ok, out) = receipts(&[&base[..], &extra[..]].concat());
+        assert!(!ok && out.contains("doesn't apply"), "{extra:?}: {out}");
+    }
+    // A challenge the claim doesn't sign fails instead of being skipped.
+    let (ok, out) = receipts(&[&base[..], &["--challenge", "deadbeef"][..]].concat());
+    assert!(!ok && out.contains("doesn't sign challenge"), "{out}");
+}
+
+/// A proof of income is no answer to a receipt check.
+#[test]
+fn verify_refuses_expect_address_on_a_proof_of_income() {
+    let merchant = std::fs::read_to_string(format!("{ROOT}/examples/testnet/merchant.ua")).unwrap();
+    let (ok, out) = receipts(&["verify", "@examples/testnet/proofs/income.txt", "--expect-address", merchant.trim()]);
+    assert!(!ok && out.contains("doesn't apply"), "{out}");
+    // Flags of other kinds are refused too, before anything is fetched.
+    let (ok, out) = receipts(&["verify", "@examples/testnet/batch-same-payer.txt", "--cross-check", "https://example.invalid:443"]);
+    assert!(!ok && out.contains("doesn't apply"), "{out}");
+    let (ok, out) = receipts(&["verify", "@examples/testnet/receipt.txt", "--min-payments", "2"]);
+    assert!(!ok && out.contains("doesn't apply"), "{out}");
+}

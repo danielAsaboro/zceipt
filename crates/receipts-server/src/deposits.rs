@@ -175,6 +175,7 @@ pub fn evaluate(policy: &str, v: &crate::verify::Verification, paid: u64, prior:
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Review {
     decision: Option<String>,
     note: Option<String>,

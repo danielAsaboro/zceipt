@@ -8,7 +8,7 @@
 // lightwalletd grpc-web server (the transaction, or its block's list and transactions with an
 // h= hint), which you can override or skip entirely by passing the raw transaction.
 
-import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated, verify_keyset, key_set_keys, verify_policy, inspect_income, verify_income, verify_designated, verify_delegated, verify_payer_tag, inspect_payer_tag, inner_receipt } from "./pkg/receipts_wasm.js";
+import init, { initSync, inspect, verify, orchard_receiver_hex, address_network, open_batch, secret_kind, verify_sign_in, check_payment_uri, check_tex_deposit, source_txids, transparent_output, verify_incoming, inspect_incoming, txid_of, verify_same_payer, verify_screened, verify_aggregated, verify_keyset, key_set_keys, verify_policy, verify_policy_pinned, inspect_income, verify_income, verify_designated, verify_delegated, verify_payer_tag, inspect_payer_tag, inner_receipt } from "./pkg/receipts_wasm.js";
 import { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint, hexToBytes } from "./grpc.js";
 
 export { DEFAULT_ENDPOINTS, fetchTransaction, fetchTransactionPrivately, heightHint };
@@ -141,7 +141,10 @@ export async function verifyReceipt(input, options = {}) {
   } else if (options.keySet) throw new Error("the receipt carries no key-set proof");
   // A policy proof (`p=zip311p1…`): signed under a published t-of-n key.
   const pol = (safeDecode(String(input)).match(/zip311p1[A-Za-z0-9_-]+/) || [])[0];
-  if (pol) v.policy = JSON.parse(verify_policy(pol, receipt));
+  // `policy: { commitment: [hex…], holders }` pins the published sharing commitment; without it the
+  // threshold is only what the prover claims (`pinned: false`).
+  if (pol) v.policy = JSON.parse(options.policy ? verify_policy_pinned(pol, receipt, JSON.stringify(options.policy.commitment), options.policy.holders) : verify_policy(pol, receipt));
+  else if (options.policy) throw new Error("the receipt carries no policy proof");
   // `screened: { proofs, set }`: the money came from one of an exchange's screened outputs
   // (`set`, its published list), which one hidden. Each spend the receipt proves needs a proof.
   if (options.screened) {

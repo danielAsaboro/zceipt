@@ -339,6 +339,7 @@ pub struct VerifiedReserve {
 /// `r.height` as the verifier read it from the chain. The caller then checks that none of the
 /// returned nullifiers has been published.
 pub fn verify_reserve(vk: &VerifyingKey, r: &ReserveProof, expected_coin_type: u32, chain_anchor: &[u8; 32]) -> Result<VerifiedReserve, Error> {
+    crate::check_vk(vk)?;
     if r.coin_type != expected_coin_type {
         return Err(Error::CoinTypeMismatch(r.coin_type, expected_coin_type));
     }

@@ -445,14 +445,22 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         // The source-of-funds coverage was computed before this transaction; a deposit credited
         // meanwhile from the same source transaction would make both clear. Recount under the
         // transaction (writers are serialized) and refuse if the funding no longer covers this one.
-        if let Some(p) = r.source_policy.as_deref() {
-            let prior = crate::deposits::prior_claims(&tx, &r.id);
-            if let Err(e) = crate::deposits::evaluate(p, &v, paid, &prior) {
-                drop(tx);
-                drop(c);
-                return Err(e);
+        // `evaluate` reports a coverage failure as `Ok` with status "review", not as an error, so the
+        // recount's own result decides whether the deposit is held (the earlier one is stale).
+        let provenance = match r.source_policy.as_deref() {
+            Some(p) => {
+                let prior = crate::deposits::prior_claims(&tx, &r.id);
+                match crate::deposits::evaluate(p, &v, paid, &prior) {
+                    Ok(now) => Some(now),
+                    Err(e) => {
+                        drop(tx);
+                        drop(c);
+                        return Err(e);
+                    }
+                }
             }
-        }
+            None => provenance.clone(),
+        };
         for (action, _) in &actions {
             let used: Option<String> = tx
                 .query_row("SELECT request_id FROM payments_used WHERE mode = ?1 AND txid = ?2 AND action = ?3", params![mode.as_str(), v.txid, action], |x| {
@@ -532,6 +540,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubmitReceipt {
     receipt: Option<String>,
     #[serde(alias = "secret")]

@@ -1477,7 +1477,10 @@ pub async fn verify_claim_against_chain(
             bail!("{second} reports another {:?} tree root at block {}: the servers disagree", c.pool, c.height);
         }
     }
-    let tag = receipts_core::claim::verify(c, &c.domain, &root).map_err(|e| anyhow!("{e}"))?;
+    let tag = {
+        let (c, root) = (c.clone(), root);
+        tokio::task::spawn_blocking(move || receipts_core::claim::verify(&c, &c.domain, &root)).await.map_err(|e| anyhow!("{e}"))?.map_err(|e| anyhow!("{e}"))?
+    };
     let from = pool_activation(net, c.pool).max(1);
     if from <= c.height {
         let mut spent = published_nullifiers(net, server, c.pool, from, c.height, cache).await?;
@@ -1523,6 +1526,10 @@ pub async fn verify_payer_tag_against_chain(
     }
     .ok_or_else(|| anyhow!("the payment has no {:?} bundle", c.pool))?;
     let nfs: Vec<[u8; 32]> = bundle.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
-    receipts_core::claim::verify_payer_tag(c, domain, &txid, &bundle.anchor().to_bytes(), &nfs)
+    // Halo 2 verification (and, once, the key build) is CPU-bound: off the async workers.
+    let (c, domain, anchor) = (c.clone(), domain.to_vec(), bundle.anchor().to_bytes());
+    tokio::task::spawn_blocking(move || receipts_core::claim::verify_payer_tag(&c, &domain, &txid, &anchor, &nfs))
+        .await
+        .map_err(|e| anyhow!("{e}"))?
         .map_err(|_| anyhow!("the payer tag doesn't hold for this payment and domain"))
 }

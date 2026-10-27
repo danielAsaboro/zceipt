@@ -264,6 +264,7 @@ pub fn inner_receipt(text: &str) -> Result<String, JsError> {
 pub fn verify_aggregated(batch: &str, txs: &str, regtest: bool) -> Result<String, JsError> {
     console_error_panic_hook::set_once();
     let b = receipts_core::ReceiptBatch::from_text(batch).map_err(|e| JsError::new(&e.to_string()))?;
+    receipts_core::check_batch(&b).map_err(|e| JsError::new(&e))?;
     let proof = b.aggregate.clone().ok_or_else(|| JsError::new("not an aggregated batch"))?;
     let txs: Vec<SourceTxIn> = serde_json::from_str(txs).map_err(|e| JsError::new(&format!("bad transactions: {e}")))?;
     if txs.len() != b.receipts.len() {
@@ -550,7 +551,18 @@ pub fn key_set_keys(proof: &str) -> Result<String, JsError> {
 pub fn verify_policy(proof: &str, receipt: &str) -> Result<String, JsError> {
     let p = receipts_core::policy::PolicyProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
     let (t, n) = receipts_core::policy::verify(&p, &parse(receipt)?).map_err(|e| JsError::new(&e.to_string()))?;
-    Ok(serde_json::json!({ "threshold": t, "holders": n, "key": hex::encode(p.commitment[0]) }).to_string())
+    Ok(serde_json::json!({ "claimed_threshold": t, "claimed_holders": n, "key": hex::encode(p.commitment[0]), "pinned": false }).to_string())
+}
+
+/// Like [`verify_policy`], against the published commitment (JSON array of hex points, `C_0` first)
+/// and holder count: only then are the threshold and holders a verified fact.
+#[wasm_bindgen]
+pub fn verify_policy_pinned(proof: &str, receipt: &str, commitment: &str, holders: u16) -> Result<String, JsError> {
+    let p = receipts_core::policy::PolicyProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
+    let hexes: Vec<String> = serde_json::from_str(commitment).map_err(|_| JsError::new("the commitment is a JSON array of hex points"))?;
+    let c: Vec<[u8; 32]> = hexes.iter().map(|h| hex::decode(h.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| JsError::new("bad commitment point"))).collect::<Result<_, _>>()?;
+    let (t, n) = receipts_core::policy::verify_pinned(&p, &parse(receipt)?, &c, holders).map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(serde_json::json!({ "threshold": t, "holders": n, "key": hex::encode(p.commitment[0]), "pinned": true }).to_string())
 }
 
 /// The payments a proof of income counts, JSON `[{ txid, height, pool, index }]`, for fetching.

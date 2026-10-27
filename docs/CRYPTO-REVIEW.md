@@ -44,5 +44,6 @@ cases with a fixed seed (`crates/receipts-core/tests/properties.rs`), so failure
   reported, not proven.
 - An attestation is the issuing server's signature; verifiers must name the issuer they trust
   (`verifyAttestation(…, { issuer })`).
-- RedPallas and Halo 2 come from the `orchard` and `reddsa` crates (with one local patch that only
-  loads precomputed parameters); this review covers how Receipts uses them, not the crates.
+- RedPallas and Halo 2 come from the `orchard` and `reddsa` crates (with a local patch that loads
+  precomputed parameters and adds the claim circuit, which this review does not cover; see
+  `AUDIT-HOSTILE.md`); this review covers how Receipts uses them, not the crates.

@@ -12,13 +12,15 @@ What the patch adds, and why Receipts needs it:
 |---|---|---|
 | `VerifyingKey::build_with_params`, `params_bytes` | `src/circuit.rs` | load precomputed k=11 commitment parameters instead of deriving them (verifier warm-up 7.7 s → 2.9 s); `params_match_derivation` checks they equal the derived ones |
 | `Address::pk_d` public | `src/address.rs` | incoming receipts and outputs without their memo rebuild the note from the address |
-| `DiversifiedTransmissionKey::from_bytes` public | `src/keys.rs` | same |
+| `EphemeralSecretKey::from_bytes` public | `src/keys.rs` | incoming receipts: the recipient's disclosed `esk` |
 | `Note::esk_bytes` | `src/note.rs` | incoming receipts: the recipient reveals one output's ephemeral secret |
 | `Note::commitment_opening`, `extracted_commitment_from_opening` | `src/note.rs` | format v5: disclose recipient and amount by the note-commitment opening without `rseed`, so the memo stays encrypted |
 | `Circuit::synthesize_inner` (the Action synthesis, with the nullifier's public input optional and `nk`'s cell returned) | `src/circuit.rs` | the claim circuit reuses the Action constraints as they are |
 | `circuit::claim` (new) | `src/circuit/claim.rs` | claims (`zip311t1`): the Action statement plus public `domain` and `tag = Poseidon(nk, domain)`, its own keys |
 
-Check it yourself:
+Check it yourself (`scripts/check-vendor-patch.sh` does this against the published crate). The claim
+circuit's constraint system is pinned by `claim::tests::verifying_keys_are_pinned`, the sibling circuit's
+by `receipts-kce`'s ignored `pinned::verifying_key_is_pinned`:
 
 ```sh
 curl -sL https://static.crates.io/crates/orchard/orchard-0.16.0.crate | tar xz -C /tmp

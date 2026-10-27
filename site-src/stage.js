@@ -279,7 +279,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 let lastT = performance.now(), time = 0;
 
 function frame(now) {
-  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  const dt = Math.min(0.25, (now - lastT) / 1000); lastT = now;
   if (!still) time += dt;
   p += (target - p) * (still ? 1 : 1 - Math.exp(-dt * 3.5));
   sm.lerp(mouse, 1 - Math.exp(-dt * 3));

@@ -294,9 +294,9 @@ function frame(now) {
 
   // hero: low and centred under the headline; story: to the right of the text (above it on phones)
   const k = ss(0.0, 0.9, p);
-  const sx = L.narrow ? 0 : 2.05, sy = L.narrow ? 1.6 : 0;
+  const sx = L.narrow ? 0 : 2.05, sy = L.narrow ? 1.25 : 0;
   card.position.set(lerp(0, sx, k), lerp(L.narrow ? -1.5 : -1.25, sy, k) + Math.sin(time * 0.7) * 0.04, 0);
-  const sc = lerp(L.narrow ? 0.9 : 0.7, L.narrow ? 1.05 : 0.92, k) * (1 + expose * 0.04);
+  const sc = lerp(L.narrow ? 0.9 : 0.7, L.narrow ? 0.95 : 0.92, k) * (1 + expose * 0.04);
   card.scale.setScalar(sc);
   const tilt = lerp(-0.22, 0.0, k);
   card.rotation.set(tilt + sm.y * 0.12, lerp(-0.18, -0.24, k) + sm.x * 0.3 + expose * 0.2 - open * 0.08, lerp(0.04, 0.0, k));

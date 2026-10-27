@@ -223,16 +223,7 @@ pub async fn submit(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
             return Err(ApiError::verification("challenge_mismatch", "the receipt does not sign this refund's challenge"));
         }
         if !sandbox::is_fixture(&text) {
-            match rf.created_height {
-                None => return Err(ApiError::conflict("refund_not_ready", "this refund's creation height isn't recorded yet (the chain server was slow); retry in a few seconds")),
-                Some(h) if i64::from(v.mined_height) <= h => {
-                    return Err(ApiError::verification(
-                        "paid_before_refund",
-                        format!("the payment was mined at block {}, before this refund was made (block {h})", v.mined_height),
-                    ))
-                }
-                Some(_) => {}
-            }
+            check_fresh(rf.created_height, v.mined_height)?;
         }
         let want = zceipt_chain::chain::orchard_receiver_of(&rf.address).map_err(|e| ApiError::internal(e.to_string()))?;
         // Outputs disclosed with the memo withheld (format v5) prove the recipient and amount but
@@ -291,4 +282,30 @@ pub async fn submit(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
 /// Validates a signed refund address against the key's network; invalid ones are ignored.
 pub fn checked_refund_address(st: &AppState, mode: Mode, message: &str) -> Option<String> {
     refund_address_of(message).filter(|a| check_payee(mode.net(&st.config), a).is_ok())
+}
+
+/// A settling payment must be mined after the block the refund was made at: an older payment to the
+/// same address cannot settle it.
+fn check_fresh(created_height: Option<i64>, mined_height: u32) -> Result<(), ApiError> {
+    match created_height {
+        None => Err(ApiError::conflict("refund_not_ready", "this refund's creation height isn't recorded yet (the chain server was slow); retry in a few seconds")),
+        Some(h) if i64::from(mined_height) <= h => Err(ApiError::verification(
+            "paid_before_refund",
+            format!("the payment was mined at block {mined_height}, before this refund was made (block {h})"),
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_fresh;
+
+    #[test]
+    fn a_refund_is_settled_only_by_a_later_payment() {
+        assert_eq!(check_fresh(Some(100), 101).ok(), Some(()));
+        assert_eq!(check_fresh(Some(100), 100).unwrap_err().code, "paid_before_refund");
+        assert_eq!(check_fresh(Some(100), 7).unwrap_err().code, "paid_before_refund");
+        assert_eq!(check_fresh(None, 500).unwrap_err().code, "refund_not_ready");
+    }
 }

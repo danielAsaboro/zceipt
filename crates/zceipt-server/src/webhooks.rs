@@ -49,27 +49,34 @@ const BATCH: usize = 200;
 const IN_FLIGHT: usize = 32;
 
 /// Delivers due webhooks forever: a pass every 250 ms, or straight away while there's a backlog.
+/// Live and test deliveries run in separate loops, so a test endpoint that hangs for its full timeout
+/// can never delay a live delivery.
 pub async fn worker(st: Shared) {
+    tokio::spawn(worker_for(st.clone(), "test"));
+    worker_for(st, "live").await
+}
+
+async fn worker_for(st: Shared, mode: &'static str) {
     loop {
-        match tick(&st).await {
+        match tick(&st, mode).await {
             Ok(n) if n == BATCH => continue,
             Ok(_) => {}
-            Err(e) => tracing::warn!("webhook worker: {e}"),
+            Err(e) => tracing::warn!("webhook worker ({mode}): {e}"),
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 }
 
-async fn tick(st: &Shared) -> anyhow::Result<usize> {
+async fn tick(st: &Shared, mode: &str) -> anyhow::Result<usize> {
     let due: Vec<(i64, String, String, String, i64, String)> = {
         let c = st.db.0.lock().unwrap();
         let mut stmt = c.prepare(
             "SELECT d.id, e.body, w.url, w.secret, d.attempts, w.mode FROM deliveries d
              JOIN events e ON e.id = d.event_id JOIN webhook_endpoints w ON w.id = d.endpoint_id
-             WHERE d.status = 'pending' AND d.next_attempt_at <= ?1 AND w.disabled = 0
-             ORDER BY (w.mode = 'live') DESC, d.next_attempt_at, d.id LIMIT ?2",
+             WHERE d.status = 'pending' AND d.next_attempt_at <= ?1 AND w.disabled = 0 AND w.mode = ?3
+             ORDER BY d.next_attempt_at, d.id LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![now(), BATCH as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
+        let rows = stmt.query_map(params![now(), BATCH as i64, mode], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?;
         rows.collect::<Result<_, _>>()?
     };
     let n = due.len();

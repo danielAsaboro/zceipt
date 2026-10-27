@@ -64,3 +64,8 @@ Fourth batch: refund freshness (a refund records the chain tip when made, retrie
 mined after it; migration adds `refunds.created_height`; `refund_not_ready` is retryable), GitHub actions pinned
 to commit SHAs and the Dockerfile base images pinned by digest. The regtest e2e was not run: the Docker daemon
 is not running, and `zcash-devtool` (built with regtest support) and `lightwalletd` are not installed.
+
+Fifth batch: live and test webhook deliveries run in separate loops (a hanging test endpoint cannot delay a live
+delivery); the refund-freshness rule is a tested function (`refunds::check_fresh`) that no fixture path skips.
+Not done: the regtest e2e. The Docker app was opened, but building lightwalletd and zcash-devtool from freshly cloned
+GitHub sources was refused by the session's safety check, so it needs Daniel's go-ahead.

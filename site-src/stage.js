@@ -70,7 +70,7 @@ function drawReceipt() {
   g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 2; g.setLineDash([10, 10]);
   g.beginPath(); g.moveTo(pad, 236); g.lineTo(W - pad, 236); g.stroke(); g.setLineDash([]);
   // rows
-  const rows = [["PAID TO", "utest1a7f2…xgnv956"], ["AMOUNT", "0.01 ZEC"], ["MEMO", "Order #42 at Kemi's Coffee"], ["FROM", null], ["BALANCE", null], ["HISTORY", null]];
+  const rows = [["PAID TO", "utest14te2vs…g4rg0zndfa"], ["AMOUNT", "0.01 ZEC"], ["MEMO", "Invoice 42: two coffees"], ["FROM", null], ["BALANCE", null], ["HISTORY", null]];
   let y = 320;
   for (const [k, v] of rows) {
     g.font = "500 28px 'JetBrains Mono', monospace"; g.fillStyle = "rgba(255,255,255,.45)";
@@ -95,7 +95,7 @@ function drawReceipt() {
   g.fillStyle = "rgba(255,255,255,.75)"; g.font = "500 30px 'General Sans', sans-serif";
   g.fillText("Halo 2 proof: the payer's key spent this", pad + 88, y + 14);
   g.fillStyle = "rgba(255,255,255,.4)"; g.font = "500 26px 'JetBrains Mono', monospace";
-  g.fillText("testnet · ZIP 311", pad + 88, y + 56);
+  g.fillText("testnet block 4,500,997 · ZIP 311", pad + 88, y + 56);
   texture.needsUpdate = true;
 }
 drawReceipt();
@@ -220,6 +220,7 @@ function resize() {
   L.slabPos.set(narrow ? 0 : 2.9, 0.45, 1.1);
   L.camFar = narrow ? 5 : 0;
   L.lookShift = narrow ? 0 : 1.9;
+  L.lookDrop = narrow ? 2.1 : 0;
   uniforms.uCenter.value.copy(L.center);
 }
 addEventListener("resize", resize);
@@ -301,7 +302,7 @@ function frame(now) {
   const c0 = v3(0.4, 1.5, 9.2 + L.camFar), c2 = v3(0.6, 6.8, 12 + L.camFar), c3 = v3(0.4, 1.3, 7.6 + L.camFar);
   camPos.copy(c0).lerp(c2, ss(0.6, 1.8, p)).lerp(c3, ss(2.2, 3.0, p));
   camPos.x += smoothMouse.x * 0.6; camPos.y -= smoothMouse.y * 0.35;
-  look.copy(L.center).add(v3(L.lookShift ? -2.9 : 0, 0.7, 0)).lerp(v3(L.center.x - 0.6, L.center.y, L.center.z), ss(0.6, 1.8, p)).lerp(v3(L.slabPos.x - L.lookShift, L.slabPos.y, L.slabPos.z), ss(2.2, 3.0, p));
+  look.copy(L.center).add(v3(L.lookShift ? -2.9 : 0, 0.7, 0)).lerp(v3(L.center.x - 0.6, L.center.y, L.center.z), ss(0.6, 1.8, p)).lerp(v3(L.slabPos.x - L.lookShift, L.slabPos.y - L.lookDrop, L.slabPos.z), ss(2.2, 3.0, p));
   camera.position.copy(camPos);
   camera.lookAt(look);
 

@@ -1,44 +1,56 @@
-// The landing page's 3D story, driven by scroll. Privacy is frosted glass: a whole wallet (balance,
-// rent, clinic, the coffee) sits behind fluted, frosted glass. 0/I: sealed, unreadable. II: a viewing
-// key clears all of the frost at once and everything is exposed. III: a Zceipt receipt cuts one clear
-// window over the single payment being proved, and a seal lands on it. The rest stays sealed.
+// The landing page's 3D story, driven by scroll. Privacy is glass: a whole wallet (salary, rent, a
+// clinic, money to Mum, the coffee) sits behind a slab of reeded, frosted glass that refracts it into
+// nothing. 0/I: sealed, among other sealed wallets. II: a viewing key shatters the glass and every
+// line is exposed. III: the shards fly back, one clear window is left over the single payment being
+// proved, and an emerald seal lands on it. Everything else stays sealed.
 import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { Delaunay } from "d3-delaunay";
 
 const canvas = document.getElementById("stage");
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const phone = innerWidth < 760;
 
 let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" }); }
 catch { canvas.remove(); throw new Error("no WebGL"); }
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, phone ? 1.5 : 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
 camera.position.set(0, 0, 9);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+scene.environmentIntensity = 0.9;
 
-// ---------- backdrop: deep green aurora that warms when the wallet is exposed ----------
+const key = new THREE.DirectionalLight("#e8fff4", 2.2); key.position.set(3, 4, 6); scene.add(key);
+const sweep = new THREE.PointLight("#9dffd2", 2.5, 8, 2); scene.add(sweep);
+
+// ---------- backdrop: a deep green aurora that burns amber when the wallet is exposed ----------
 const sky = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
   depthWrite: false, depthTest: false,
   uniforms: { uTime: { value: 0 }, uWarn: { value: 0 }, uProof: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) } },
-  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.9999, 1.0); }`,
   fragmentShader: /* glsl */`
     varying vec2 vUv; uniform float uTime, uWarn, uProof; uniform vec2 uRes;
     float blob(vec2 p, vec2 c, float r) { return exp(-dot(p - c, p - c) / (r * r)); }
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
-      vec2 p = vUv; p.x *= uRes.x / uRes.y;
-      float t = uTime * 0.05, ar = uRes.x / uRes.y;
+      float ar = uRes.x / uRes.y, t = uTime * 0.05;
+      vec2 p = vUv; p.x *= ar;
       vec3 col = vec3(0.002, 0.005, 0.004);
       vec3 castleton = vec3(0.0, 0.10, 0.045), go = vec3(0.0, 0.32, 0.14), teal = vec3(0.0, 0.08, 0.09), ink = vec3(0.012, 0.014, 0.05);
       vec3 ember = vec3(0.30, 0.08, 0.01), rose = vec3(0.20, 0.02, 0.025);
       col += mix(castleton, ember, uWarn) * blob(p, vec2(ar * (0.78 + 0.08 * sin(t * 3.0)), 0.78 + 0.05 * cos(t * 2.0)), 0.55) * 0.9;
       col += mix(teal, rose, uWarn) * blob(p, vec2(ar * (0.18 + 0.06 * cos(t * 2.5)), 0.28 + 0.06 * sin(t * 3.1)), 0.5) * 0.7;
       col += ink * blob(p, vec2(ar * 0.45, 1.05), 0.6) * 0.8;
-      col += go * blob(p, vec2(ar * (0.62 + 0.05 * sin(t * 4.0)), 0.42), 0.32) * (0.18 + 0.45 * uProof) * (1.0 - uWarn);
+      col += go * blob(p, vec2(ar * (0.64 + 0.05 * sin(t * 4.0)), 0.45), 0.32) * (0.15 + 0.5 * uProof) * (1.0 - uWarn);
       col *= 1.0 - 0.35 * smoothstep(0.4, 1.3, length(vUv - vec2(0.5, 0.55)) * 1.4);
       col += (hash(vUv * uRes + fract(uTime)) - 0.5) * 0.006;
       gl_FragColor = vec4(col, 1.0);
@@ -51,8 +63,8 @@ scene.add(sky);
 // ---------- the wallet behind the glass ----------
 const W = 1024, H = 1424;
 const ledger = document.createElement("canvas"); ledger.width = W; ledger.height = H;
-const map = new THREE.CanvasTexture(ledger);
-map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 8; map.minFilter = THREE.LinearMipmapLinearFilter;
+const ledgerTex = new THREE.CanvasTexture(ledger);
+ledgerTex.colorSpace = THREE.SRGBColorSpace; ledgerTex.anisotropy = 8;
 const ROWS = [
   ["SL", "Salary", "Lagos Labs · October", "+12.50", "Oct 01", "#6aa2ff"],
   ["AH", "Rent", "Ade Homes · flat 3B", "−4.20", "Oct 03", "#c48cff"],
@@ -62,14 +74,14 @@ const ROWS = [
   ["BX", "Exchange withdrawal", "Binance → shielded", "+20.00", "Oct 21", "#7fd6ff"],
   ["DN", "Donation", "Independent press fund", "−0.50", "Oct 24", "#9be7a9"],
 ];
-let WIN = [0, 0, 0, 0];
+let WIN = [0.05, 0.5, 0.95, 0.6]; // the proved row, in uv (x0, y0, x1, y1)
 function drawLedger() {
   const g = ledger.getContext("2d"), pad = 76;
   const sans = "'General Sans', ui-sans-serif, sans-serif", mono = "'JetBrains Mono', ui-monospace, monospace";
   const bg = g.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#14211d"); bg.addColorStop(1, "#0b1311");
+  bg.addColorStop(0, "#16251f"); bg.addColorStop(1, "#0a1210");
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
-  g.textBaseline = "alphabetic";
+  g.textBaseline = "alphabetic"; g.textAlign = "left";
   g.fillStyle = "rgba(255,255,255,.55)"; g.font = `500 30px ${sans}`; g.fillText("Shielded wallet · Orchard", pad, 120);
   g.fillStyle = "#fff"; g.font = `500 112px ${sans}`; g.fillText("48.2130", pad, 260);
   const bw = g.measureText("48.2130").width;
@@ -79,7 +91,7 @@ function drawLedger() {
   let y = 400;
   ROWS.forEach(([ini, name, memo, amt, day, c], i) => {
     const h = 132;
-    if (i === 2) WIN = [(pad - 26) / W, 1 - (y + h - 4) / H, (W - pad + 26) / W, 1 - (y + 4) / H];
+    if (i === 2) WIN = [(pad - 30) / W, 1 - (y + h - 2) / H, (W - pad + 30) / W, 1 - (y + 2) / H];
     g.fillStyle = c + "33"; g.beginPath(); g.arc(pad + 38, y + h / 2, 38, 0, Math.PI * 2); g.fill();
     g.fillStyle = c; g.font = `600 26px ${sans}`; g.textAlign = "center"; g.fillText(ini, pad + 38, y + h / 2 + 9); g.textAlign = "left";
     g.fillStyle = "#fff"; g.font = `500 38px ${sans}`; g.fillText(name, pad + 104, y + 58);
@@ -92,147 +104,179 @@ function drawLedger() {
     y += h;
   });
   g.fillStyle = "rgba(255,255,255,.35)"; g.font = `400 26px ${mono}`; g.fillText("viewing key  uviewtest1…7hf3k  ·  birthday 2,941,200", pad, H - 70);
-  map.needsUpdate = true;
-  if (card) card.material.uniforms.uWin.value.set(...WIN);
+  ledgerTex.needsUpdate = true;
+  lastOpen = -1;
 }
 
-const CW = 2.6, CH = CW * H / W;
-const card = new THREE.Mesh(new THREE.PlaneGeometry(CW, CH), new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false,
-  uniforms: {
-    uMap: { value: map }, uTime: { value: 0 }, uExpose: { value: 0 }, uWarn: { value: 0 }, uOpen: { value: 0 },
-    uWin: { value: new THREE.Vector4() }, uSize: { value: new THREE.Vector2(CW, CH) },
-  },
-  vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-  fragmentShader: /* glsl */`
-    varying vec2 vUv;
-    uniform sampler2D uMap; uniform float uTime, uExpose, uWarn, uOpen; uniform vec4 uWin; uniform vec2 uSize;
-    float box(vec2 p, vec2 b, float r) { vec2 q = abs(p) - b + r; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r; }
-    void main() {
-      vec2 uv = vUv;
-      float d = box((uv - 0.5) * uSize, uSize * 0.5, 0.16);
-      float alpha = 1.0 - smoothstep(-0.004, 0.004, d);
-      if (alpha < 0.001) discard;
+const CW = 2.6, CH = CW * H / W, RADIUS = 0.16, DEPTH = 0.07;
+const roundRect = (() => { // the pane outline, counter-clockwise, as a convex polygon
+  const pts = [], hw = CW / 2, hh = CH / 2, r = RADIUS;
+  for (const [cx, cy, a0] of [[hw - r, -hh + r, -Math.PI / 2], [hw - r, hh - r, 0], [-hw + r, hh - r, Math.PI / 2], [-hw + r, -hh + r, Math.PI]])
+    for (let i = 0; i <= 8; i++) { const a = a0 + (i / 8) * Math.PI / 2; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return pts;
+})();
+const alphaCanvas = document.createElement("canvas"); alphaCanvas.width = 256; alphaCanvas.height = 356;
+{ const g = alphaCanvas.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, 256, 356); g.fillStyle = "#fff"; g.beginPath(); g.roundRect(0, 0, 256, 356, 16); g.fill(); }
+const roundAlpha = new THREE.CanvasTexture(alphaCanvas);
 
-      // the window opens from the middle of its row outwards
-      vec2 wc = (uWin.xy + uWin.zw) * 0.5;
-      vec2 wmin = mix(wc, uWin.xy, vec2(uOpen, smoothstep(0.0, 0.4, uOpen)));
-      vec2 wmax = mix(wc, uWin.zw, vec2(uOpen, smoothstep(0.0, 0.4, uOpen)));
-      vec2 wp = (uv - (wmin + wmax) * 0.5) * uSize;
-      float wd = box(wp, max((wmax - wmin) * 0.5 * uSize, vec2(0.0001)), 0.05);
-      float inWin = (1.0 - smoothstep(-0.01, 0.01, wd)) * step(0.001, uOpen);
-      float clear = max(uExpose, inWin);
-      float frost = 1.0 - clear;
+const pane = new THREE.Group();
+scene.add(pane);
+const ledgerMat = new THREE.MeshBasicMaterial({ map: ledgerTex, alphaMap: roundAlpha, alphaTest: 0.5, toneMapped: false });
+const ledgerMesh = new THREE.Mesh(new THREE.PlaneGeometry(CW, CH), ledgerMat);
+ledgerMesh.position.z = -0.28;
+pane.add(ledgerMesh);
 
-      // fluted glass: vertical ribs that bend the image sideways, then a soft blur
-      float rib = sin(uv.x * 170.0);
-      vec2 suv = uv + vec2(rib * 0.012 + sin(uv.y * 9.0 + uTime * 0.3) * 0.004, 0.0) * frost;
-      vec3 col = vec3(0.0);
-      float rad = 0.03 * frost;
-      for (int i = 0; i < 16; i++) {
-        float a = float(i) * 2.39996, r = sqrt((float(i) + 0.5) / 16.0);
-        col += texture2D(uMap, suv + vec2(cos(a), sin(a) * 0.6) * r * rad, 3.5 * frost).rgb;
-      }
-      col /= 16.0;
-      vec3 sharp = texture2D(uMap, uv).rgb;
-      col = mix(col, sharp, clear);
-
-      // frost: milky, ribbed, with a slow sheen crossing it
-      col = mix(col, col * 0.8 + vec3(0.03, 0.07, 0.055), frost * 0.6);
-      col += (rib * 0.5 + 0.5) * 0.03 * frost;
-      float sweep = fract(uTime * 0.06) * 2.6 - 0.8;
-      col += smoothstep(0.12, 0.0, abs(uv.x * 0.8 + uv.y * 0.6 - sweep)) * 0.07 * frost;
-
-      // exposed: the light turns harsh and a scan line runs down the page
-      col = mix(col, col * vec3(1.15, 0.95, 0.8) + vec3(0.05, 0.02, 0.0), uWarn * 0.7);
-      float scan = fract(uTime * 0.25);
-      col += vec3(1.0, 0.55, 0.2) * smoothstep(0.012, 0.0, abs(uv.y - 1.0 + scan)) * uWarn * 0.6;
-
-      // the window's lit edge
-      col += vec3(0.1, 1.0, 0.55) * (1.0 - smoothstep(0.0, 0.012, abs(wd))) * uOpen * 1.4;
-      // rim light on the glass edge, brighter at the top
-      col += mix(vec3(0.35, 0.55, 0.48), vec3(0.9, 1.0, 0.96), uv.y) * (1.0 - smoothstep(0.0, 0.014, abs(d))) * 0.5;
-      gl_FragColor = vec4(col, alpha);
-    }`,
-}));
-scene.add(card);
-// a back plate gives the glass some depth, and a glow sits under it
-const plate = new THREE.Mesh(new THREE.PlaneGeometry(CW * 1.02, CH * 1.015), new THREE.MeshBasicMaterial({
-  map: roundTex("rgba(1,183,99,.22)"), transparent: true, depthWrite: false }));
-plate.position.z = -0.06;
-card.add(plate);
-const glow = new THREE.Mesh(new THREE.PlaneGeometry(CW * 2.4, CH * 1.6), new THREE.MeshBasicMaterial({
-  map: radialTex([[0, "rgba(1,183,99,.35)"], [0.5, "rgba(1,120,70,.12)"], [1, "rgba(0,0,0,0)"]]), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-glow.position.z = -0.5;
-card.add(glow);
-
-function roundTex(color) {
-  const c = document.createElement("canvas"); c.width = 512; c.height = 712;
-  const g = c.getContext("2d"); g.strokeStyle = color; g.lineWidth = 4;
-  g.beginPath(); g.roundRect(4, 4, 504, 704, 34); g.stroke();
-  return new THREE.CanvasTexture(c);
+// ---------- reeded, frosted glass: ribs in the normal map, frost in the roughness map ----------
+const MW = 512, MH = Math.round(512 * H / W), RIBS = 24;
+const nCanvas = document.createElement("canvas"); nCanvas.width = MW; nCanvas.height = MH;
+const rCanvas = document.createElement("canvas"); rCanvas.width = MW; rCanvas.height = MH;
+const eCanvas = document.createElement("canvas"); eCanvas.width = MW; eCanvas.height = MH;
+const ribRow = new Uint8ClampedArray(MW * 4);
+for (let x = 0; x < MW; x++) {
+  const ph = (x / MW) * RIBS * Math.PI * 2, nx = Math.sin(ph) * 0.75, nz = Math.sqrt(1 - nx * nx);
+  ribRow.set([(nx * 0.5 + 0.5) * 255, 128, nz * 255, 255], x * 4);
 }
-function radialTex(stops) {
-  const c = document.createElement("canvas"); c.width = c.height = 256;
-  const g = c.getContext("2d"), grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-  for (const [o, col] of stops) grd.addColorStop(o, col);
-  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
-  return new THREE.CanvasTexture(c);
+const normalTex = new THREE.CanvasTexture(nCanvas), roughTex = new THREE.CanvasTexture(rCanvas), emitTex = new THREE.CanvasTexture(eCanvas);
+let lastOpen = -1;
+function drawGlassMaps(open) {
+  // the window grows from the middle of the proved row outwards
+  const [x0, y0, x1, y1] = WIN, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const ox = THREE.MathUtils.smootherstep(open, 0, 1), oy = THREE.MathUtils.smoothstep(open, 0, 0.35);
+  const wx0 = (cx + (x0 - cx) * ox) * MW, wx1 = (cx + (x1 - cx) * ox) * MW;
+  const wy0 = (1 - (cy + (y1 - cy) * oy)) * MH, wy1 = (1 - (cy + (y0 - cy) * oy)) * MH;
+  const has = open > 0.002, rr = Math.min(10, (wy1 - wy0) / 2);
+  const ng = nCanvas.getContext("2d"), img = ng.createImageData(MW, MH);
+  for (let y = 0; y < MH; y++) img.data.set(ribRow, y * MW * 4);
+  ng.putImageData(img, 0, 0);
+  const rg = rCanvas.getContext("2d");
+  rg.fillStyle = "rgb(0,95,0)"; rg.fillRect(0, 0, MW, MH);
+  const eg = eCanvas.getContext("2d");
+  eg.fillStyle = "#000"; eg.fillRect(0, 0, MW, MH);
+  if (has) {
+    ng.fillStyle = "rgb(128,128,255)"; ng.beginPath(); ng.roundRect(wx0, wy0, wx1 - wx0, wy1 - wy0, rr); ng.fill();
+    rg.fillStyle = "rgb(0,0,0)"; rg.beginPath(); rg.roundRect(wx0, wy0, wx1 - wx0, wy1 - wy0, rr); rg.fill();
+    eg.strokeStyle = "#fff"; eg.lineWidth = 2.5; eg.beginPath(); eg.roundRect(wx0, wy0, wx1 - wx0, wy1 - wy0, rr); eg.stroke();
+  }
+  normalTex.needsUpdate = roughTex.needsUpdate = emitTex.needsUpdate = true;
+  lastOpen = open;
 }
+drawGlassMaps(0);
 
-// ---------- the seal that lands on the window ----------
+const glassMat = new THREE.MeshPhysicalMaterial({
+  color: "#f2fff8", metalness: 0, roughness: 1, roughnessMap: roughTex, normalMap: normalTex, normalScale: new THREE.Vector2(0.4, 0.4),
+  transmission: 1, thickness: 0.45, ior: 1.5, attenuationColor: "#c9f5dd", attenuationDistance: 3.5,
+  clearcoat: 0.6, clearcoatRoughness: 0.08, specularIntensity: 0.8, envMapIntensity: 0.55,
+  emissive: "#2bff9a", emissiveMap: emitTex, emissiveIntensity: 2.4,
+});
+
+function slabGeometry(poly) {
+  const shape = new THREE.Shape(poly.map(([x, y]) => new THREE.Vector2(x, y)));
+  const g = new THREE.ExtrudeGeometry(shape, { depth: DEPTH, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.008, bevelSegments: 2, curveSegments: 1 });
+  g.translate(0, 0, -DEPTH / 2);
+  const pos = g.attributes.position, uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / CW + 0.5, pos.getY(i) / CH + 0.5);
+  g.computeVertexNormals();
+  return g;
+}
+const whole = new THREE.Mesh(slabGeometry(roundRect), glassMat);
+pane.add(whole);
+
+// shards: a Voronoi of jittered seeds, each cell clipped to the pane outline
+function clip(subject, clipPoly) {
+  let out = subject;
+  for (let i = 0; i < clipPoly.length; i++) {
+    const [ax, ay] = clipPoly[i], [bx, by] = clipPoly[(i + 1) % clipPoly.length];
+    const inside = ([x, y]) => (bx - ax) * (y - ay) - (by - ay) * (x - ax) >= 0;
+    const cut = ([px, py], [qx, qy]) => {
+      const a1 = by - ay, b1 = ax - bx, c1 = a1 * ax + b1 * ay, a2 = qy - py, b2 = px - qx, c2 = a2 * px + b2 * py, det = a1 * b2 - a2 * b1;
+      return [(b2 * c1 - b1 * c2) / det, (a1 * c2 - a2 * c1) / det];
+    };
+    const input = out; out = [];
+    for (let j = 0; j < input.length; j++) {
+      const cur = input[j], prev = input[(j + input.length - 1) % input.length];
+      if (inside(cur)) { if (!inside(prev)) out.push(cut(prev, cur)); out.push(cur); }
+      else if (inside(prev)) out.push(cut(prev, cur));
+    }
+    if (!out.length) break;
+  }
+  return out;
+}
+const seeds = [], GX = 6, GY = 8;
+let rs = 7; const rnd = () => ((rs = (rs * 16807) % 2147483647) / 2147483647);
+for (let i = 0; i < GX; i++) for (let j = 0; j < GY; j++)
+  seeds.push([(-0.5 + (i + 0.5 + (rnd() - 0.5) * 0.85) / GX) * CW, (-0.5 + (j + 0.5 + (rnd() - 0.5) * 0.85) / GY) * CH]);
+const vor = Delaunay.from(seeds).voronoi([-CW / 2 - 1, -CH / 2 - 1, CW / 2 + 1, CH / 2 + 1]);
+const shards = [];
+seeds.forEach((s, i) => {
+  const cell = vor.cellPolygon(i); if (!cell) return;
+  let poly = clip(cell.slice(0, -1), roundRect);
+  if (poly.length < 3) return;
+  let area = 0; for (let k = 0; k < poly.length; k++) { const [x1, y1] = poly[k], [x2, y2] = poly[(k + 1) % poly.length]; area += x1 * y2 - x2 * y1; }
+  if (area < 0) poly = poly.reverse();
+  const cx = poly.reduce((a, p) => a + p[0], 0) / poly.length, cy = poly.reduce((a, p) => a + p[1], 0) / poly.length;
+  const g = slabGeometry(poly); g.translate(-cx, -cy, 0);
+  const m = new THREE.Mesh(g, glassMat);
+  m.position.set(cx, cy, 0); m.visible = false;
+  const out = new THREE.Vector3(cx, cy, 0).normalize();
+  m.userData = { home: new THREE.Vector3(cx, cy, 0), dir: new THREE.Vector3(out.x * (0.3 + rnd() * 0.5) + 0.25, out.y * (0.3 + rnd() * 0.5) + 0.15, 0.9 + rnd() * 1.4),
+    spin: new THREE.Vector3((rnd() - 0.5) * 2.6, (rnd() - 0.5) * 2.6, (rnd() - 0.5) * 1.2), delay: Math.hypot(cx, cy) / 3 * 0.25 };
+  pane.add(m); shards.push(m);
+});
+
+// the viewing key's scan line, running down the exposed wallet
+const scan = new THREE.Mesh(new THREE.PlaneGeometry(CW * 0.98, 0.012), new THREE.MeshBasicMaterial({ color: "#ffb054", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, toneMapped: false }));
+scan.position.z = -0.2;
+pane.add(scan);
+
+// ---------- the emerald seal ----------
 const sealCanvas = document.createElement("canvas"); sealCanvas.width = sealCanvas.height = 512;
-const sealTex = new THREE.CanvasTexture(sealCanvas); sealTex.colorSpace = THREE.SRGBColorSpace;
+const sealTex = new THREE.CanvasTexture(sealCanvas); sealTex.colorSpace = THREE.SRGBColorSpace; sealTex.anisotropy = 8;
 function drawSeal() {
   const g = sealCanvas.getContext("2d"), c = 256;
-  g.clearRect(0, 0, 512, 512);
-  const fill = g.createLinearGradient(0, 0, 512, 512);
-  fill.addColorStop(0, "#3ff0a0"); fill.addColorStop(1, "#01874a");
-  g.fillStyle = fill; g.beginPath(); g.arc(c, c, 200, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 4; g.beginPath(); g.arc(c, c, 168, 0, Math.PI * 2); g.stroke();
-  g.strokeStyle = "#fff"; g.lineWidth = 26; g.lineCap = "round"; g.lineJoin = "round";
-  g.beginPath(); g.moveTo(c - 70, c + 4); g.lineTo(c - 18, c + 56); g.lineTo(c + 78, c - 52); g.stroke();
-  g.fillStyle = "#fff"; g.font = "600 30px 'General Sans', sans-serif"; g.textAlign = "center";
+  const fill = g.createRadialGradient(180, 160, 20, 256, 256, 280);
+  fill.addColorStop(0, "#5dffb4"); fill.addColorStop(0.55, "#01b763"); fill.addColorStop(1, "#005b31");
+  g.fillStyle = fill; g.fillRect(0, 0, 512, 512);
+  g.strokeStyle = "rgba(255,255,255,.5)"; g.lineWidth = 4; g.beginPath(); g.arc(c, c, 176, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = "#fff"; g.lineWidth = 30; g.lineCap = "round"; g.lineJoin = "round";
+  g.beginPath(); g.moveTo(c - 74, c + 4); g.lineTo(c - 20, c + 58); g.lineTo(c + 82, c - 54); g.stroke();
+  g.fillStyle = "rgba(255,255,255,.92)"; g.font = "600 30px 'General Sans', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
   const text = "PROVED · ZIP 311 · HALO 2 · ";
   for (let i = 0; i < text.length * 2; i++) {
     const a = (i / (text.length * 2)) * Math.PI * 2 - Math.PI / 2;
-    g.save(); g.translate(c + Math.cos(a) * 228, c + Math.sin(a) * 228); g.rotate(a + Math.PI / 2);
-    g.fillText(text[i % text.length], 0, 0); g.restore();
+    g.save(); g.translate(c + Math.cos(a) * 216, c + Math.sin(a) * 216); g.rotate(a + Math.PI / 2); g.fillText(text[i % text.length], 0, 0); g.restore();
   }
   sealTex.needsUpdate = true;
 }
-const seal = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), new THREE.MeshBasicMaterial({ map: sealTex, transparent: true, depthWrite: false, toneMapped: false }));
-seal.position.z = 0.08;
-card.add(seal);
+const faceMat = new THREE.MeshPhysicalMaterial({ map: sealTex, metalness: 0.35, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.05, emissive: "#01b763", emissiveMap: sealTex, emissiveIntensity: 0.08 });
+const rimMat = new THREE.MeshPhysicalMaterial({ color: "#0d8f53", metalness: 0.8, roughness: 0.25, clearcoat: 1 });
+const seal = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.07, 72), [rimMat, faceMat, faceMat]);
+seal.geometry.rotateX(Math.PI / 2);
+seal.geometry.rotateZ(Math.PI / 2);
+pane.add(seal);
+
+// ---------- other people's wallets, sealed, out in the dark ----------
+const crowd = [];
+const crowdNormal = new THREE.CanvasTexture((() => { const c = document.createElement("canvas"); c.width = MW; c.height = 4; const g = c.getContext("2d"), img = g.createImageData(MW, 4); for (let y = 0; y < 4; y++) img.data.set(ribRow, y * MW * 4); g.putImageData(img, 0, 0); return c; })());
+const crowdMat = glassMat.clone();
+Object.assign(crowdMat, { roughnessMap: null, roughness: 0.37, normalMap: crowdNormal, emissiveMap: null, emissiveIntensity: 0 });
+[[-7.2, 2.4, -9, 0.5], [7.6, 2.8, -10, 0.55], [-6.4, -3.2, -8, 0.45], [6.8, -3.0, -9, 0.5]]
+  .forEach(([x, y, z, s], i) => {
+    const g = new THREE.Group();
+    const l = new THREE.Mesh(ledgerMesh.geometry, ledgerMat); l.position.z = -0.28; g.add(l);
+    g.add(new THREE.Mesh(whole.geometry, crowdMat));
+    g.position.set(x, y, z); g.scale.setScalar(s);
+    g.userData = { base: new THREE.Vector3(x, y, z), ph: i * 1.7 };
+    scene.add(g); crowd.push(g);
+  });
 
 drawLedger(); drawSeal();
 Promise.all([document.fonts?.load("500 38px 'General Sans'"), document.fonts?.load("400 26px 'JetBrains Mono'")])
   .then(() => { drawLedger(); drawSeal(); }, () => {});
 
-// ---------- drifting light, for depth ----------
-const DUST = 260;
-const dpos = new Float32Array(DUST * 3), dseed = new Float32Array(DUST);
-for (let i = 0; i < DUST; i++) { dpos.set([(Math.random() - 0.5) * 16, (Math.random() - 0.5) * 10, -2 - Math.random() * 6], i * 3); dseed[i] = Math.random(); }
-const dgeo = new THREE.BufferGeometry();
-dgeo.setAttribute("position", new THREE.BufferAttribute(dpos, 3));
-dgeo.setAttribute("aSeed", new THREE.BufferAttribute(dseed, 1));
-const dust = new THREE.Points(dgeo, new THREE.ShaderMaterial({
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-  uniforms: { uTime: { value: 0 }, uPix: { value: renderer.getPixelRatio() }, uWarn: { value: 0 } },
-  vertexShader: `attribute float aSeed; uniform float uTime, uPix; varying float vS;
-    void main() { vS = aSeed; vec3 p = position; p.y += mod(uTime * (0.05 + aSeed * 0.08) + aSeed * 10.0, 10.0) - 5.0; p.x += sin(uTime * 0.2 + aSeed * 30.0) * 0.3;
-      vec4 mv = modelViewMatrix * vec4(p, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = (4.0 + aSeed * 18.0) * uPix * (6.0 / -mv.z); }`,
-  fragmentShader: `varying float vS; uniform float uWarn;
-    void main() { float a = smoothstep(0.5, 0.0, length(gl_PointCoord - 0.5)); vec3 c = mix(vec3(0.3, 0.95, 0.65), vec3(1.0, 0.6, 0.25), uWarn);
-      gl_FragColor = vec4(c * a, a * (0.06 + vS * 0.1)); }`,
-}));
-dust.frustumCulled = false;
-scene.add(dust);
-
 // ---------- post ----------
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.6, 0.62);
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.55, 0.72);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
@@ -276,6 +320,7 @@ const mouse = new THREE.Vector2(), sm = new THREE.Vector2();
 addEventListener("pointermove", (e) => mouse.set(e.clientX / innerWidth - 0.5, e.clientY / innerHeight - 0.5), { passive: true });
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
+const WHITE = new THREE.Color("#ffffff"), WARM = new THREE.Color("#ffd2a6");
 let lastT = performance.now(), time = 0;
 
 function frame(now) {
@@ -284,33 +329,63 @@ function frame(now) {
   p += (target - p) * (still ? 1 : 1 - Math.exp(-dt * 3.5));
   sm.lerp(mouse, 1 - Math.exp(-dt * 3));
 
-  const expose = ss(1.3, 1.75, p) * (1 - ss(2.15, 2.45, p));
-  const open = ss(2.45, 2.85, p);
-  const stamp = ss(2.75, 3.0, p);
-  const u = card.material.uniforms;
-  u.uTime.value = time; u.uExpose.value = expose; u.uWarn.value = expose; u.uOpen.value = open;
-  sky.material.uniforms.uTime.value = time; sky.material.uniforms.uWarn.value = expose; sky.material.uniforms.uProof.value = open;
-  dust.material.uniforms.uTime.value = time; dust.material.uniforms.uWarn.value = expose;
+  const burst = ss(1.25, 1.65, p) * (1 - ss(2.15, 2.5, p)); // shards out, then back
+  const expose = burst;
+  const open = ss(2.5, 2.85, p);
+  const stamp = ss(2.7, 2.92, p);
 
-  // hero: low and centred under the headline; story: to the right of the text (above it on phones)
+  sky.material.uniforms.uTime.value = time;
+  sky.material.uniforms.uWarn.value = expose;
+  sky.material.uniforms.uProof.value = open;
+
+  // hero: low and centred under the headline; story: right of the text (above it on phones)
   const k = ss(0.0, 0.9, p);
   const sx = L.narrow ? 0 : 2.05, sy = L.narrow ? 1.25 : 0;
-  card.position.set(lerp(0, sx, k), lerp(L.narrow ? -1.5 : -1.25, sy, k) + Math.sin(time * 0.7) * 0.04, 0);
-  const sc = lerp(L.narrow ? 0.9 : 0.7, L.narrow ? 0.95 : 0.92, k) * (1 + expose * 0.04);
-  card.scale.setScalar(sc);
-  const tilt = lerp(-0.22, 0.0, k);
-  card.rotation.set(tilt + sm.y * 0.12, lerp(-0.18, -0.24, k) + sm.x * 0.3 + expose * 0.2 - open * 0.08, lerp(0.04, 0.0, k));
+  pane.position.set(lerp(0, sx, k), lerp(L.narrow ? -1.5 : -1.3, sy, k) + Math.sin(time * 0.7) * 0.04, 0);
+  pane.scale.setScalar(lerp(L.narrow ? 0.9 : 0.72, L.narrow ? 0.95 : 0.92, k));
+  pane.rotation.set(lerp(-0.2, 0, k) + sm.y * 0.12, lerp(-0.22, -0.26, k) + sm.x * 0.3 + Math.sin(time * 0.3) * 0.04 + expose * 0.12, lerp(0.03, 0, k));
 
-  const w = WIN;
-  seal.position.set((w[2] - 0.5) * CW + 0.02, (w[3] - 0.5) * CH + 0.36, 0.08 + (1 - stamp) * 0.6);
-  seal.scale.setScalar(lerp(1.6, 0.56, stamp));
-  seal.rotation.z = lerp(-0.6, -0.12, stamp);
-  seal.material.opacity = stamp;
+  // the glass: whole when sealed, shards while the viewing key is in play
+  const broken = burst > 0.001;
+  whole.visible = !broken;
+  for (const s of shards) {
+    s.visible = broken;
+    if (!broken) continue;
+    const t = Math.max(0, Math.min(1, (burst - s.userData.delay) / (1 - s.userData.delay)));
+    const e = t * t * (3 - 2 * t);
+    s.position.copy(s.userData.home).addScaledVector(s.userData.dir, e * 1.1);
+    s.position.y -= e * e * 0.5;
+    s.rotation.set(s.userData.spin.x * e, s.userData.spin.y * e, s.userData.spin.z * e);
+  }
+  ledgerMat.color.copy(WHITE).lerp(WARM, expose * 0.6);
+  scan.material.opacity = expose * 0.9;
+  scan.position.y = CH / 2 - ((time * 0.35) % 1) * CH;
+
+  if (Math.abs(open - lastOpen) > 0.004 || (open === 0 && lastOpen !== 0) || (open === 1 && lastOpen !== 1)) drawGlassMaps(open);
+
+  // the seal drops and spins onto the right end of the proved row
+  const [x0, y0, x1, y1] = WIN;
   seal.visible = stamp > 0.001;
+  seal.position.set((x1 - 0.5) * CW - 0.02, (y1 - 0.5) * CH + 0.38 + (1 - stamp) * 0.4, DEPTH / 2 + 0.06 + (1 - stamp) * 2.2);
+  seal.rotation.set(0, (1 - ss(0, 0.8, stamp)) * Math.PI * 3, -0.15);
+  seal.scale.setScalar(Math.max(0.01, stamp));
 
-  bloom.strength = 0.45 + expose * 0.35 + stamp * 0.15;
+  // a soft light drifts across the ribs
+  sweep.position.set(pane.position.x + Math.sin(time * 0.5) * 2.4, pane.position.y + Math.cos(time * 0.37) * 1.6, 2.2);
+  for (const g of crowd) {
+    const b = g.userData.base;
+    g.position.set(b.x * (1 + k * 0.6) + Math.sin(time * 0.15 + g.userData.ph) * 0.3, b.y * (1 + k * 0.4) + Math.cos(time * 0.2 + g.userData.ph) * 0.25, b.z - k * 6);
+    g.visible = k < 0.98;
+    g.rotation.set(Math.sin(time * 0.2 + g.userData.ph) * 0.2, Math.cos(time * 0.17 + g.userData.ph) * 0.4 - 0.2, 0);
+  }
+  camera.position.x = sm.x * 0.4; camera.position.y = -sm.y * 0.25;
+  camera.lookAt(0, 0, 0);
+
+  bloom.strength = 0.5 + expose * 0.3;
   composer.render();
   if (!document.hidden) requestAnimationFrame(frame);
 }
+// lets a test harness skip the scroll easing
+window.zceiptStage = { settle: () => { measure(); p = target; } };
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { lastT = performance.now(); requestAnimationFrame(frame); } });
 requestAnimationFrame(frame);

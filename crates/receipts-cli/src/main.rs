@@ -978,7 +978,7 @@ fn write_private(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        o.mode(0o600);
+        o.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let mut f = o.open(path).with_context(|| format!("writing {}", path.display()))?;
     #[cfg(unix)]

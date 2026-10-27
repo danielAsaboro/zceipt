@@ -140,6 +140,15 @@ pub struct Session {
     pub cert: Certificate,
 }
 
+/// The session's secrets are wiped from memory when it is dropped.
+impl Drop for Session {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.secret.zeroize();
+        self.alpha.zeroize();
+    }
+}
+
 /// Secrets stay out of `{:?}`, logs and panic messages.
 impl std::fmt::Debug for Session {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

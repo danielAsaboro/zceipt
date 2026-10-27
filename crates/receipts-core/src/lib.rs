@@ -295,6 +295,16 @@ pub struct PreparedReceipt {
     alphas: Vec<pallas::Scalar>,
 }
 
+/// The randomizers link a receipt to its spends: best-effort wipe when the prepared receipt is dropped.
+impl Drop for PreparedReceipt {
+    fn drop(&mut self) {
+        for a in self.alphas.iter_mut() {
+            *a = pallas::Scalar::ZERO;
+        }
+        std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 impl PreparedReceipt {
     pub(crate) fn from_parts(unsigned: UnsignedReceipt, alphas: Vec<pallas::Scalar>) -> Self {
         PreparedReceipt { unsigned, alphas }
@@ -338,7 +348,7 @@ impl PreparedReceipt {
             let rk = redpallas::VerificationKey::<SpendAuth>::try_from(s.rk).map_err(|_| Error::Malformed(s.index))?;
             rk.verify(&digest, &redpallas::Signature::<SpendAuth>::from(*sig)).map_err(|_| Error::BadSignature(s.index))?;
         }
-        Ok(Receipt { unsigned: self.unsigned, spend_auth_sigs: sigs })
+        Ok(Receipt { unsigned: self.unsigned.clone(), spend_auth_sigs: sigs })
     }
 }
 
@@ -1428,7 +1438,7 @@ pub fn verifying_key() -> VerifyingKey {
     // derivation (`params_match_derivation`); anything else is derived.
     let shipped = Params::new().hash_length(32).hash(ORCHARD_PARAMS_K11).to_hex().to_string() == ORCHARD_PARAMS_K11_DIGEST;
     if shipped {
-        if let Ok(vk) = VerifyingKey::build_with_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT) {
+        if let Ok(vk) = VerifyingKey::build_with_unchecked_params(ORCHARD_PARAMS_K11, RECEIPT_CIRCUIT) {
             return vk;
         }
     }

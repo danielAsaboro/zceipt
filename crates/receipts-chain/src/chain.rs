@@ -1134,6 +1134,7 @@ pub async fn published_nullifiers(
     let mut recent = std::collections::HashSet::new();
     let cache_line = to.saturating_sub(100).max(from);
     let mut start = from;
+    let mut reused_upto = 0u32;
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
     // Cache layout: from u32 | upto u32 | hash of block `upto` (32) | nullifiers. It is reused only
     // if the chain still has that block hash (same chain, no reorg below it).
@@ -1143,6 +1144,7 @@ pub async fn published_nullifiers(
             if cached_from <= from && upto < to && same_chain {
                 set.extend(cached);
                 start = upto + 1;
+                reused_upto = upto;
             }
         }
     }
@@ -1196,7 +1198,9 @@ pub async fn published_nullifiers(
     }
     // Cache up to 100 blocks below the tip; the newer blocks are scanned again next time.
     let upto = cache_line;
-    if let (Some(c), Some(hash)) = (cache, block_hash(&mut client, upto).await) {
+    // Never shrink the cache line: the set holds nullifiers up to the reused line, and labelling it with an
+    // earlier block would make a later check at that block see spends from after it.
+    if let (Some(c), Some(hash)) = (cache.filter(|_| upto >= reused_upto), block_hash(&mut client, upto).await) {
         let mut h = [0u8; 32];
         h[..hash.len().min(32)].copy_from_slice(&hash[..hash.len().min(32)]);
         let out = encode_nullifier_cache(from, upto, &h, &set);
@@ -1205,7 +1209,7 @@ pub async fn published_nullifiers(
         }
         // Written whole under another name and renamed into place, so a check running at the same
         // time reads the old file or the new one, never half of one (a half would miss nullifiers).
-        let tmp = c.with_extension(format!("tmp{}", std::process::id()));
+        let tmp = c.with_extension(format!("tmp{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)));
         if std::fs::write(&tmp, out).is_ok() && std::fs::rename(&tmp, c).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }

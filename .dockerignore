@@ -1,4 +1,9 @@
 target
+.env
+*.age
+wallets
+*.key
+*.keys
 **/node_modules
 .git
 *.db

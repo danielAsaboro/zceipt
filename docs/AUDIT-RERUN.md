@@ -46,3 +46,11 @@ vendored claim tests run in CI job `circuits`; a stale attestation test fixed). 
 retryable errors and missing keys on some POSTs (R-10), the chain-trust lows (R-11), secrets zeroization,
 nullifier-cache file hardening, `.dockerignore`/release workflow hygiene, `build_with_params`/`add_to_batch`
 visibility.
+
+Second batch of lows (same local branch): idempotency now covers webhook-endpoint creation and never replays
+"not yet" errors (R-10); nullifier cache never shrinks its line and uses an unpredictable temp name, private
+files are opened with O_NOFOLLOW, `.dockerignore` extended (R-11/R-13); batch + challenge refuses the public demo
+key and a source-fetch outage is a retryable 502 (R-11); `Session` secrets and `PreparedReceipt` randomizers are
+wiped on drop (best effort); `build_with_params` renamed `build_with_unchecked_params` with a warning (R-13).
+Still open: TEX second-hop confirmations and `created_height` retry (R-11), refund freshness, release workflow
+action pinning/permissions, base image digest pinning.

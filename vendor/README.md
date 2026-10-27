@@ -10,7 +10,7 @@ What the patch adds, and why Receipts needs it:
 
 | Change | File | Used for |
 |---|---|---|
-| `VerifyingKey::build_with_params`, `params_bytes` | `src/circuit.rs` | load precomputed k=11 commitment parameters instead of deriving them (verifier warm-up 7.7 s → 2.9 s); `params_match_derivation` checks they equal the derived ones |
+| `VerifyingKey::build_with_unchecked_params`, `params_bytes` | `src/circuit.rs` | load precomputed k=11 commitment parameters instead of deriving them (verifier warm-up 7.7 s → 2.9 s); `params_match_derivation` checks they equal the derived ones |
 | `Address::pk_d` public | `src/address.rs` | incoming receipts and outputs without their memo rebuild the note from the address |
 | `EphemeralSecretKey::from_bytes` public | `src/keys.rs` | incoming receipts: the recipient's disclosed `esk` |
 | `Note::esk_bytes` | `src/note.rs` | incoming receipts: the recipient reveals one output's ephemeral secret |

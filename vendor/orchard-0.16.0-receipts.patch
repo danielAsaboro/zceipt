@@ -1,5 +1,5 @@
---- a/src/address.rs	2026-10-26 06:26:56
-+++ b/src/address.rs	2026-10-26 06:26:56
+--- a/src/address.rs	2026-10-27 20:32:48
++++ b/src/address.rs	2026-10-27 20:32:48
 @@ -43,7 +43,8 @@
  
      /// Returns the diversified transmission key for this address.
@@ -11,7 +11,7 @@
      }
  
 --- a/src/circuit/claim.rs	1970-01-01 01:00:00
-+++ b/src/circuit/claim.rs	2026-10-26 06:26:56
++++ b/src/circuit/claim.rs	2026-10-27 20:32:48
 @@ -0,0 +1,316 @@
 +//! Claim tags (local patch for Receipts): the Orchard Action circuit with one more public output,
 +//! `tag = Poseidon(nk, domain)`, and the spent note's nullifier kept private.
@@ -329,8 +329,8 @@
 +        }
 +    }
 +}
---- a/src/circuit.rs	2026-10-26 06:26:56
-+++ b/src/circuit.rs	2026-10-26 06:26:56
+--- a/src/circuit.rs	2026-10-27 20:32:48
++++ b/src/circuit.rs	2026-10-27 20:32:48
 @@ -64,6 +64,7 @@
  mod commit_ivk;
  #[cfg(feature = "unstable-voting-circuits")]
@@ -398,15 +398,16 @@
      }
  
      /// Enforces the post-NU 6.3 cross-address restriction for one action: when
-@@ -1103,6 +1121,28 @@
+@@ -1103,6 +1121,29 @@
          }
      }
  
-+    /// Builds the verifying key from serialized commitment parameters (as written by
++    /// **Unchecked:** the caller must have verified the parameters (a digest of the exact bytes) first;
++    /// trapdoored parameters would let a prover forge proofs. Builds the verifying key from serialized commitment parameters (as written by
 +    /// `Params::write`), skipping their derivation, which is most of the cost of `build`
 +    /// (local patch for Receipts' in-browser verifier).
 +    #[cfg(feature = "std")]
-+    pub fn build_with_params(params: &[u8], circuit_version: OrchardCircuitVersion) -> std::io::Result<Self> {
++    pub fn build_with_unchecked_params(params: &[u8], circuit_version: OrchardCircuitVersion) -> std::io::Result<Self> {
 +        let params = halo2_proofs::poly::commitment::Params::<vesta::Affine>::read(&mut &params[..])?;
 +        if params.k() != K {
 +            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "wrong k"));
@@ -416,7 +417,7 @@
 +        Ok(VerifyingKey { params, vk, circuit_version })
 +    }
 +
-+    /// The commitment parameters, serialized (for caching them; see `build_with_params`).
++    /// The commitment parameters, serialized (for caching them; see `build_with_unchecked_params`).
 +    #[cfg(feature = "std")]
 +    pub fn params_bytes(&self) -> Vec<u8> {
 +        let mut v = Vec::new();
@@ -427,7 +428,7 @@
      /// The circuit version this verifying key was built for.
      pub fn circuit_version(&self) -> OrchardCircuitVersion {
          self.circuit_version
-@@ -1375,8 +1415,16 @@
+@@ -1375,8 +1416,16 @@
          let instances: Vec<_> = instances.iter().map(|i| &i[..]).collect();
  
          let strategy = SingleVerifier::new(&vk.params);
@@ -446,8 +447,8 @@
      }
  
      /// Adds this proof to the given batch for verification with the given instances.
---- a/src/keys.rs	2026-10-26 06:26:56
-+++ b/src/keys.rs	2026-10-26 06:26:56
+--- a/src/keys.rs	2026-10-27 20:32:48
++++ b/src/keys.rs	2026-10-27 20:32:48
 @@ -889,7 +889,8 @@
  }
  
@@ -458,8 +459,8 @@
          NonZeroPallasScalar::from_bytes(bytes).map(EphemeralSecretKey)
      }
  
---- a/src/note.rs	2026-10-26 06:26:56
-+++ b/src/note.rs	2026-10-26 06:26:56
+--- a/src/note.rs	2026-10-27 20:32:48
++++ b/src/note.rs	2026-10-27 20:32:48
 @@ -409,6 +409,20 @@
          self.commitment_inner().unwrap()
      }

@@ -155,6 +155,9 @@ pub struct Expect<'a> {
 pub async fn verify_batch_checked(net: Net, server: Option<&str>, text: &str, expect: Expect<'_>) -> Result<serde_json::Value, ApiError> {
     let (mut body, results) = verify_batch_results(net, server, text).await?;
     if let Some(c) = expect.challenge {
+        if results.iter().any(|v| v.public_demo) {
+            return Err(ApiError::verification("public_demo_key", "a receipt in the batch is from the public demo wallet, whose key anyone has; it can't answer a challenge"));
+        }
         if results.iter().any(|v| v.challenge.as_deref() != Some(c)) {
             return Err(ApiError::verification("challenge_mismatch", "not every receipt in the batch signs this challenge"));
         }
@@ -224,7 +227,15 @@ async fn verify_parsed_inner(net: Net, server: Option<&str>, receipt: &Receipt, 
             ApiError::chain(m)
         }
     })?;
-    let sources = chain::fetch_sources(receipt, net, server).await.map_err(|e| ApiError::verification("source_not_found", e.to_string()))?;
+    // A source the chain doesn't have is the receipt's fault (422); an unreachable server is ours (502, retryable).
+    let sources = chain::fetch_sources(receipt, net, server).await.map_err(|e| {
+        let m = e.to_string();
+        if m.contains("not mined") || m.contains("could not find") || m.contains("NotFound") || m.contains("not found") || m.contains("is not in block") {
+            ApiError::verification("source_not_found", m)
+        } else {
+            ApiError::chain(m)
+        }
+    })?;
     let source_cmx: std::collections::BTreeMap<([u8; 32], u8, u32), [u8; 32]> = sources
         .iter()
         .filter(|(id, s)| s.height <= height && **id != u.txid)

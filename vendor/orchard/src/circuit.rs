@@ -1121,11 +1121,12 @@ impl VerifyingKey {
         }
     }
 
-    /// Builds the verifying key from serialized commitment parameters (as written by
+    /// **Unchecked:** the caller must have verified the parameters (a digest of the exact bytes) first;
+    /// trapdoored parameters would let a prover forge proofs. Builds the verifying key from serialized commitment parameters (as written by
     /// `Params::write`), skipping their derivation, which is most of the cost of `build`
     /// (local patch for Receipts' in-browser verifier).
     #[cfg(feature = "std")]
-    pub fn build_with_params(params: &[u8], circuit_version: OrchardCircuitVersion) -> std::io::Result<Self> {
+    pub fn build_with_unchecked_params(params: &[u8], circuit_version: OrchardCircuitVersion) -> std::io::Result<Self> {
         let params = halo2_proofs::poly::commitment::Params::<vesta::Affine>::read(&mut &params[..])?;
         if params.k() != K {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "wrong k"));
@@ -1135,7 +1136,7 @@ impl VerifyingKey {
         Ok(VerifyingKey { params, vk, circuit_version })
     }
 
-    /// The commitment parameters, serialized (for caching them; see `build_with_params`).
+    /// The commitment parameters, serialized (for caching them; see `build_with_unchecked_params`).
     #[cfg(feature = "std")]
     pub fn params_bytes(&self) -> Vec<u8> {
         let mut v = Vec::new();

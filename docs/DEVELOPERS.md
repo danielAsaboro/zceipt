@@ -124,7 +124,7 @@ After the hackathon, in this order:
    (Ironwood) is not in a release yet. When `zcash_primitives` and its siblings release with it,
    replace each `git`/`rev` with the version, and drop the `zcash-devtool` patch's port.
 2. **orchard.** `vendor/orchard` adds accessors to orchard 0.16 ([vendor/README.md](../vendor/README.md)).
-   Propose the five to orchard upstream as one PR; `build_with_params` and `params_bytes` only
+   Propose the five to orchard upstream as one PR; `build_with_unchecked_params` and `params_bytes` only
    speed up the verifier and can stay local. Until they land, the ZIP 311 profile builds on stock
    orchard (`scripts/check-stock-orchard.sh`).
 3. **ZIP text.** Fold [ZIP311-ORCHARD.md](ZIP311-ORCHARD.md) into ZIP 311 beside zcash/zips#1406,

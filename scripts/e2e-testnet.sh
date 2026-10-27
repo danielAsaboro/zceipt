@@ -4,7 +4,7 @@
 # delegated receipts, income from distinct payers, and the attacks on each.
 #
 #   FUNDER=/path/to/funded/testnet/wallet FUNDER_ID=/path/to/its.age \
-#   ZCASH_DEVTOOL=/path/to/zcash-devtool RECEIPTS=/path/to/receipts ./scripts/e2e-testnet.sh
+#   ZCASH_DEVTOOL=/path/to/zcash-devtool ZCEIPT=/path/to/zceipt ./scripts/e2e-testnet.sh
 #
 # FUNDER is a zcash-devtool testnet wallet holding at least 0.05 TAZ in Ironwood (the Valar faucet,
 # faucet.testnet.valargroup.dev, gives it; the demo wallet's key is public, never fund it).
@@ -16,13 +16,13 @@ trap 'echo "e2e stopped at line $LINENO: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 D=${ZCASH_DEVTOOL:-zcash-devtool}
-R=${RECEIPTS:-receipts}
+R=${ZCEIPT:-receipts}
 FUNDER=$(cd "${FUNDER:?set FUNDER to a funded testnet wallet directory}" && pwd)
 FUNDER_ID=$(cd "$(dirname "${FUNDER_ID:?set FUNDER_ID to its age identity file}")" && pwd)/$(basename "$FUNDER_ID")
 ATTACK=${ATTACK:-$(dirname "$(command -v "$R" || echo "$R")")/examples/attack}
 SERVER=${SERVER:-}
 API=${API:-8744}
-WORK=${RESUME:-$(mktemp -d "${TMPDIR:-/tmp}/receipts-e2e-testnet.XXXXXX")}
+WORK=${RESUME:-$(mktemp -d "${TMPDIR:-/tmp}/zceipt-e2e-testnet.XXXXXX")}
 PASS=(); FAIL=()
 ok() { PASS+=("$1"); echo "  ok   $1"; }
 bad() { FAIL+=("$1"); echo "  FAIL $1"; }
@@ -34,7 +34,7 @@ cleanup() {
 }
 trap cleanup EXIT
 for t in "$D" "$R" jq curl node perl; do command -v "$t" >/dev/null || { echo "missing: $t" >&2; exit 1; }; done
-[ -x "$ATTACK" ] || { echo "missing the attack example: cargo build --release -p receipts-wallet --example attack (or set ATTACK)" >&2; exit 1; }
+[ -x "$ATTACK" ] || { echo "missing the attack example: cargo build --release -p zceipt-wallet --example attack (or set ATTACK)" >&2; exit 1; }
 S=(); [ -n "$SERVER" ] && S=(-s "$SERVER")
 cd "$WORK"
 

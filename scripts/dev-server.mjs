@@ -74,4 +74,4 @@ http
       res.writeHead(404); res.end("not found");
     }
   })
-  .listen(PORT, "127.0.0.1", () => console.log(`receipts dev server on http://localhost:${PORT} (lightwalletd ${LWD})`));
+  .listen(PORT, "127.0.0.1", () => console.log(`zceipt dev server on http://localhost:${PORT} (lightwalletd ${LWD})`));

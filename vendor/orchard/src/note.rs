@@ -410,7 +410,7 @@ impl Note {
     }
 
     /// The canonical bytes of this note's ephemeral secret key `esk` (derived from `rseed` and
-    /// `ρ`). Receipts patch: a recipient reveals it to open exactly this output.
+    /// `ρ`). Zceipt patch: a recipient reveals it to open exactly this output.
     pub fn esk_bytes(&self) -> [u8; 32] {
         self.esk().0.to_repr()
     }
@@ -418,7 +418,7 @@ impl Note {
     /// Returns `(ψ, rcm)`: the parts of the commitment opening that `rseed` derives, without
     /// `rseed` itself (which would also derive `esk` and so open the memo).
     ///
-    /// Receipts patch: lets a sender disclose a note's recipient and value but withhold its memo.
+    /// Zceipt patch: lets a sender disclose a note's recipient and value but withhold its memo.
     pub fn commitment_opening(&self) -> ([u8; 32], [u8; 32]) {
         (self.psi().to_repr(), self.rcm().0.to_repr())
     }
@@ -605,7 +605,7 @@ mod tests {
 /// Recomputes `cmx` from a note opening that gives `ψ` and `rcm` instead of `rseed`
 /// (see [`Note::commitment_opening`]). `None` if a field is not canonical or the commitment is ⊥.
 ///
-/// Receipts patch, for disclosures that withhold the memo.
+/// Zceipt patch, for disclosures that withhold the memo.
 pub fn extracted_commitment_from_opening(
     recipient: &Address,
     value: NoteValue,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Soak test: run a fresh `receipts serve` under sustained mixed load and watch for leaks/drift.
+"""Soak test: run a fresh `zceipt serve` under sustained mixed load and watch for leaks/drift.
 
-    python3 scripts/soak.py --minutes 15 [--receipts path/to/receipts] [--port 8760]
+    python3 scripts/soak.py --minutes 15 [--zceipt path/to/zceipt] [--port 8760]
 
 Each loop: proof requests of every kind on test clocks, sandbox payments, refunds, attestations,
 sign-in challenges, link checks, clock advances (finality) and reorgs, all with a webhook
@@ -20,17 +20,17 @@ import argparse, hashlib, hmac, http.server, json, os, random, subprocess, sys, 
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--minutes", type=float, default=10)
-ap.add_argument("--receipts", default="receipts")
+ap.add_argument("--zceipt", default="zceipt")
 ap.add_argument("--port", type=int, default=8760)
 ap.add_argument("--keep", action="store_true", help="keep the work dir (database, logs); it grows ~50 MB a minute")
 args = ap.parse_args()
 
 PAYEE = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa"
-work = tempfile.mkdtemp(prefix="receipts-soak-")
+work = tempfile.mkdtemp(prefix="zceipt-soak-")
 db = os.path.join(work, "soak.db")
 log = open(os.path.join(work, "server.log"), "w")
 # A high per-key limit: the soak drives one key far harder than the 300/min default allows.
-srv = subprocess.Popen([args.receipts, "serve", "--listen", f"127.0.0.1:{args.port}", "--db", db, "--rate-limit", "1000000"], stderr=log, stdout=log)
+srv = subprocess.Popen([args.zceipt, "serve", "--listen", f"127.0.0.1:{args.port}", "--db", db, "--rate-limit", "1000000"], stderr=log, stdout=log)
 base = f"http://127.0.0.1:{args.port}"
 for _ in range(60):
     try:
@@ -64,7 +64,7 @@ secret = {"v": ""}
 class Hook(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         raw = self.rfile.read(int(self.headers.get("content-length", 0)))
-        sig = dict(p.split("=", 1) for p in self.headers.get("receipts-signature", "").split(","))
+        sig = dict(p.split("=", 1) for p in self.headers.get("zceipt-signature", "").split(","))
         want = hmac.new(secret["v"].encode(), f"{sig.get('t')}.".encode() + raw, hashlib.sha256).hexdigest()
         ok = hmac.compare_digest(want, sig.get("v1", ""))
         t = json.loads(raw).get("type", "?")

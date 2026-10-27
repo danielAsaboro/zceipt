@@ -1,7 +1,7 @@
 # Technical note
 
 ZIP 311 defines a payment disclosure for Zcash and leaves its spend-authority proof as `TODO` for
-Orchard. Receipts fills that in for Orchard and Ironwood, then extends it: a receipt proves
+Orchard. Zceipt fills that in for Orchard and Ironwood, then extends it: a receipt proves
 one payment, and a small set of further proofs state relationships between payments, wallets and
 keys without revealing the wallet's history.
 
@@ -76,7 +76,7 @@ let a wallet claim twice or forge a tag. The base receipt does not depend on it.
 
 **Problem.** Payer tags are per account. A donor with two accounts of one wallet gets two tags.
 
-**Construction.** `crates/receipts-kce` proves, for public `domain`, `tag_1`, `tag_2`, that there is
+**Construction.** `crates/zceipt-kce` proves, for public `domain`, `tag_1`, `tag_2`, that there is
 a hidden parent `(sk_par, c_par)` and two indices whose ZIP 32 hardened children have the `nk`s
 behind the tags. BLAKE2b runs inside the circuit (four compressions), so the circuit is `k = 17`
 and a proof takes about 72 seconds.

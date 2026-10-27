@@ -10,21 +10,21 @@ transparent deposit would have shown you; nothing else about the customer's wall
 ## 1. Run the API
 
 ```bash
-receipts serve --listen 127.0.0.1:8723 --db desk.db     # prints a test key and a live key
-export RECEIPTS_KEY=rcpt_test_…                          # test mode: testnet
+zceipt serve --listen 127.0.0.1:8723 --db desk.db     # prints a test key and a live key
+export ZCEIPT_KEY=rcpt_test_…                          # test mode: testnet
 ```
 
 Subscribe your backend to the desk's events (signed webhooks, see [WEBHOOKS.md](../WEBHOOKS.md)):
 
 ```bash
-curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $RECEIPTS_KEY" \
+curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $ZCEIPT_KEY" \
   -d '{"url":"https://exchange.example/hooks/receipts","events":["request.fulfilled","request.held_for_review","request.rejected","refund.succeeded"]}'
 ```
 
 ## 2. Ask for each deposit
 
 ```bash
-curl -s 127.0.0.1:8723/v1/requests -H "Authorization: Bearer $RECEIPTS_KEY" -d '{
+curl -s 127.0.0.1:8723/v1/requests -H "Authorization: Bearer $ZCEIPT_KEY" -d '{
   "payee": "utest1…your deposit address…", "amount_zatoshis": 50000000, "label": "account 7731",
   "source_of_funds": { "required": true, "blocked_addresses": ["tm…", "tm…"] } }'
 ```
@@ -38,13 +38,13 @@ screened.
 With a zcash-devtool wallet, one command pays, waits for the block and answers the request:
 
 ```bash
-receipts pay '<hosted_url>' -w ./wallet -i ./wallet.age --refund-to fresh
+zceipt pay '<hosted_url>' -w ./wallet -i ./wallet.age --refund-to fresh
 ```
 
-`receipts pay` adds the source-of-funds proof and reveals the spent notes' values by itself for a
+`zceipt pay` adds the source-of-funds proof and reveals the spent notes' values by itself for a
 desk, signs a fresh refund address of the wallet into the receipt, and waits for the payment by
 syncing the wallet (the chain server never learns which transaction it is waiting for). Wallets
-that embed receipts-core make the same receipt with `prepare` (viewing key) and a signature from
+that embed zceipt-core make the same receipt with `prepare` (viewing key) and a signature from
 wherever the spending key lives ([DEVELOPERS.md](../DEVELOPERS.md)).
 
 ## 4. What the desk decides
@@ -58,16 +58,16 @@ wherever the spending key lives ([DEVELOPERS.md](../DEVELOPERS.md)).
 Review a held deposit:
 
 ```bash
-curl -s 127.0.0.1:8723/v1/requests/<id>/review -H "Authorization: Bearer $RECEIPTS_KEY" \
+curl -s 127.0.0.1:8723/v1/requests/<id>/review -H "Authorization: Bearer $ZCEIPT_KEY" \
   -d '{"decision":"reject","note":"funded by a listed address"}'
-curl -s 127.0.0.1:8723/v1/requests/<id>/refunds -H "Authorization: Bearer $RECEIPTS_KEY" -d '{}'
+curl -s 127.0.0.1:8723/v1/requests/<id>/refunds -H "Authorization: Bearer $ZCEIPT_KEY" -d '{}'
 ```
 
 A rejected deposit is refunded to the address the customer signed into the receipt; only the
 customer could have chosen it. `accept` credits the deposit instead (`request.fulfilled`).
 
 Money that moved through several of the customer's own transactions (a withdrawal, a
-self-transfer, then the deposit) can be shown as a batch with `receipts create --txid <hop>
+self-transfer, then the deposit) can be shown as a batch with `zceipt create --txid <hop>
 --txid <deposit> --prove-source`, which verifiers print as a chain back to the withdrawal. The
 desk itself takes one receipt per request: such deposits land in review, where the batch answers
 the question.
@@ -100,11 +100,11 @@ as it is.
 
 ```bash
 # You: publish the list (one note commitment per line) of the outputs you vetted.
-receipts screened-list --network main --txid <vetted tx> --txid <vetted tx> … > screened.txt
+zceipt screened-list --network main --txid <vetted tx> --txid <vetted tx> … > screened.txt
 # The customer: a receipt plus a proof against that list.
-receipts create … --screened-set screened.txt --screened-proof deposit.screened
+zceipt create … --screened-set screened.txt --screened-proof deposit.screened
 # You: check both. The list's root is computed from your own file, never taken from the proof.
-receipts verify '<link>' --screened-set screened.txt --screened-proof @deposit.screened
+zceipt verify '<link>' --screened-set screened.txt --screened-proof @deposit.screened
 ```
 
 The proof covers one hop: the spent note itself must be one of the listed outputs.
@@ -118,7 +118,7 @@ public, but nothing on chain says who made them, so the exchange can't tell whic
 deposited. A deposit receipt fixes that:
 
 ```bash
-receipts create -w ./wallet -i ./wallet.age --txid <first step> \
+zceipt create -w ./wallet -i ./wallet.age --txid <first step> \
   --tex-deposit textest1… --second-tx <second step> -m "Account 7731"
 ```
 

@@ -1,7 +1,7 @@
 // Makes the proofs off the main thread: scanning, the Merkle path and the proving key take tens
 // of seconds. Only the prepared receipt (no key) comes back.
-import init, * as wasm from "./zcash-receipts/pkg/receipts_wasm.js";
-import { prepareFromViewingKey } from "./zcash-receipts/maker.js";
+import init, * as wasm from "./zceipt/pkg/zceipt_wasm.js";
+import { prepareFromViewingKey } from "./zceipt/maker.js";
 
 const ready = init();
 self.onmessage = async ({ data }) => {

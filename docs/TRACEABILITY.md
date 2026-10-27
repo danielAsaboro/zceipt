@@ -1,13 +1,13 @@
 # Traceability: every requirement, where it is implemented, what checks it
 
-Two verifiers implement each verification rule: the Rust one (`crates/receipts-core`, used by the
+Two verifiers implement each verification rule: the Rust one (`crates/zceipt-core`, used by the
 CLI, API and WebAssembly page) and the spec verifier (`spec-verifier/specverify`, Python, written
 from the specifications without reading the Rust verification code). The spec verifier checks
 everything except Halo 2 proofs, and reports the exact public inputs each proof must be checked
 against; `tests/test_differential.py` requires those to equal the Rust verifier's.
 
-Abbreviations: `core` = `crates/receipts-core/src`, `rt` = `crates/receipts-core/tests/roundtrip.rs`,
-`prop` = `crates/receipts-core/tests/properties.rs`, `conf` = `crates/receipts-cli/tests/conformance.rs`,
+Abbreviations: `core` = `crates/zceipt-core/src`, `rt` = `crates/zceipt-core/tests/roundtrip.rs`,
+`prop` = `crates/zceipt-core/tests/properties.rs`, `conf` = `crates/zceipt-cli/tests/conformance.rs`,
 `sv` = `spec-verifier/specverify`, `svt` = `spec-verifier/tests`, corpus = the signed adversarial
 cases in `svt/corpus.json` (written by `rt::differential_corpus`, each re-signed after the change).
 
@@ -18,9 +18,9 @@ cases in `svt/corpus.json` (written by `rt::differential_corpus`, each re-signed
 | Disclose zero or more outputs | `core/lib.rs::create_cross`, `verify_cross` | `sv/verify.py::verify_bundles` | corpus `resigned/no-outputs` (both accept); `examples/testnet/deposit-receipt.txt` |
 | Only a sender can create one | Action proof for the spent note + `SpendAuthSig` by `rk` | signature (proof: public inputs only) | `rt::only_the_spender_can_create`; corpus `signed-by-someone-else` |
 | Non-malleable | strict canonical decoding `core/encoding.rs::Receipt::from_bytes`; signature over all bytes | `sv/receipt.py::decode` (from `SPEC.md`) | `prop::encoding_is_a_bijection`, `::only_canonical_encodings_decode`, `::the_signing_digest_covers_every_field`; `rt::every_byte_matters`; corpus `flip/*`; the 278 conformance vectors in both |
-| Can be tied to a challenge | `msg` is signed; `challenge:<hex>` checked by proof requests | `msg` is in the signed bytes | corpus `resigned/new-message`; `receipts-server/tests/api.rs::real_receipt_replay_is_refused` |
+| Can be tied to a challenge | `msg` is signed; `challenge:<hex>` checked by proof requests | `msg` is in the signed bytes | corpus `resigned/new-message`; `zceipt-server/tests/api.rs::real_receipt_replay_is_refused` |
 | Optionally prove the sender's address | `core/lib.rs::address_proof`, `verify_address_proof` | `sv/verify.py::check_address_proof` | `rt::address_proof_roundtrip_and_rejections`, `::claiming_someone_elses_sender_address_is_refused`; corpus `honest/with-address`, `forged-address/*` |
-| No ephemeral data kept from sending | Merkle path rebuilt from chain data | n/a | `receipts-chain/src/chain.rs::rebuild_witness`; `receipts create --from-chain` on testnet (`ASSURANCE.md`) |
+| No ephemeral data kept from sending | Merkle path rebuilt from chain data | n/a | `zceipt-chain/src/chain.rs::rebuild_witness`; `zceipt create --from-chain` on testnet (`ASSURANCE.md`) |
 | No new trusted setup | Halo 2; shipped parameters equal a fresh derivation | n/a | `rt::params_match_derivation` |
 
 ## Creating a disclosure (ZIP 311, "Creating a payment disclosure")
@@ -38,7 +38,7 @@ cases in `svt/corpus.json` (written by `rt::differential_corpus`, each re-signed
 
 | Step | Rust | Spec verifier | Checked by |
 |---|---|---|---|
-| `pd.txid = tx.txid()` | `receipts-chain/src/chain.rs::verify_offline` (zcash_primitives txid), `verify_cross` (`TxidMismatch`) | `sv/tx.py::txid`, ZIP 244 + ZIP 229 written out | `svt/test_vectors.py` (10 ZIP 244 vectors); the real testnet v6 transaction `571de6e4…` recomputes; conformance `cross/regtest-receipt-testnet-tx` |
+| `pd.txid = tx.txid()` | `zceipt-chain/src/chain.rs::verify_offline` (zcash_primitives txid), `verify_cross` (`TxidMismatch`) | `sv/tx.py::txid`, ZIP 244 + ZIP 229 written out | `svt/test_vectors.py` (10 ZIP 244 vectors); the real testnet v6 transaction `571de6e4…` recomputes; conformance `cross/regtest-receipt-testnet-tx` |
 | Indices in range | `check_indices` (`IndexOutOfRange`) | `verify_bundles` | corpus `resigned/output-index-out-of-range` |
 | Indices unique | `check_indices` (`DuplicateIndex`) | `verify_bundles` | corpus `resigned/duplicate-output` |
 | At least one spend | `verify_cross` (`NoSpends`) | `verify_bundles` | conformance vectors |

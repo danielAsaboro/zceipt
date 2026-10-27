@@ -1,7 +1,7 @@
-# Receipts next to viewing-key payment processors
+# Zceipt next to viewing-key payment processors
 
 Zcash payment processors detect payments by holding a viewing key for the merchant's wallet or
-account. That works, and it is the only option ZIP 311's absence left them. Receipts takes the
+account. That works, and it is the only option ZIP 311's absence left them. Zceipt takes the
 other route ZIP 311 describes: the payer proves one payment, and nobody holds a standing key.
 The two are complementary; a processor could accept receipts too.
 
@@ -10,7 +10,7 @@ Sources are each project's own repository and docs, read on 2026-10-15. Points m
 
 ## Side by side
 
-| | CipherPay | BTCPay Server, Zcash plugin | ZGo | **Receipts** |
+| | CipherPay | BTCPay Server, Zcash plugin | ZGo | **Zceipt** |
 |---|---|---|---|---|
 | What the shop's system holds | The merchant submits a UFVK; the server keeps the Orchard incoming viewing key, encrypted at rest ([README][cp-readme], [`merchants/mod.rs`][cp-merchants]) | The merchant's UFVK, in the wallet daemon's config ([plugin][btcpay], [zcash-walletd][walletd]) | A Sapling FVK or UFVK in the service's database ([backend][zgo]) | **Nothing.** The shop gets one receipt per payment |
 | What that reveals, for as long as it's held | Amount and memo of every incoming Orchard payment to the account ([ZIP 316][zip316]) | Incoming notes, and when they are spent; a UFVK can also recover outgoing details ([ZIP 316][zip316]; *inferred* for walletd) | Incoming amounts and memos; outgoing with a FVK (*inferred*) | Only the outputs the payer disclosed in that one transaction, plus proof the payer authorized it ([threat model](THREAT-MODEL.md)) |
@@ -36,8 +36,8 @@ about the payer's address or balance, and it can't be turned into a key for anyt
 A merchant who wants automatic detection of every incoming payment, with no action from the
 customer, needs something that watches the chain; that is what these processors do well, and the
 CipherPay design limits exposure by keeping only an incoming key and recommending a dedicated
-store wallet ([SPEC][cp-spec]). Receipts needs the payer's wallet to make the receipt (or
-`receipts pay` to do it in one step). The two combine: detect with a dedicated store wallet, and
+store wallet ([SPEC][cp-spec]). Zceipt needs the payer's wallet to make the receipt (or
+`zceipt pay` to do it in one step). The two combine: detect with a dedicated store wallet, and
 use receipts wherever proof has to leave that system (disputes, refunds, audits, exchanges,
 donors), so no viewing key ever has to.
 

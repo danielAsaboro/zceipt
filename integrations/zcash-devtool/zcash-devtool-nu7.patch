@@ -3501,14 +3501,14 @@ index 3f7203d..67a4459 100644
 -version = "0.5.5"
 -source = "registry+https://github.com/rust-lang/crates.io-index"
 -checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
-+name = "receipts-chain"
++name = "zceipt-chain"
 +version = "0.1.0"
 +dependencies = [
 + "anyhow",
 + "hex",
 + "incrementalmerkletree",
 + "orchard",
-+ "receipts-core",
++ "zceipt-core",
 + "serde",
 + "toml 0.8.23",
 + "tonic",
@@ -3520,7 +3520,7 @@ index 3f7203d..67a4459 100644
 +]
 +
 +[[package]]
-+name = "receipts-core"
++name = "zceipt-core"
 +version = "0.1.0"
 +dependencies = [
 + "base64",
@@ -3544,7 +3544,7 @@ index 3f7203d..67a4459 100644
 +]
 +
 +[[package]]
-+name = "receipts-wallet"
++name = "zceipt-wallet"
 +version = "0.1.0"
 +dependencies = [
 + "age",
@@ -3553,8 +3553,8 @@ index 3f7203d..67a4459 100644
 + "incrementalmerkletree",
 + "orchard",
 + "rand 0.10.2",
-+ "receipts-chain",
-+ "receipts-core",
++ "zceipt-chain",
++ "zceipt-core",
 + "rusqlite",
 + "secrecy 0.8.0",
 + "serde",
@@ -4920,7 +4920,7 @@ index 3f7203d..67a4459 100644
 - "ratatui",
 + "rand 0.10.2",
   "rayon",
-+ "receipts-wallet",
++ "zceipt-wallet",
   "regex",
   "ripemd 0.1.3",
 - "roaring",
@@ -5438,7 +5438,7 @@ index ea4f1f8..79212cf 100644
 +zcash_protocol = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6", features = ["local-consensus"] }
 +zcash_script = "0.6"
 +zip32 = "0.3"
-+receipts-wallet = { path = "@RECEIPTS_REPO@/crates/receipts-wallet" }
++zceipt-wallet = { path = "@ZCEIPT_REPO@/crates/zceipt-wallet" }
 +zip321 = { git = "https://github.com/zcash/librustzcash.git", rev = "9e3b2e15d0f7042d42106276830e3e8e0c0165c6" }
  
  # CLI
@@ -5509,7 +5509,7 @@ index ea4f1f8..79212cf 100644
 -]
 +
 +[patch.crates-io]
-+orchard = { path = "@RECEIPTS_REPO@/vendor/orchard" }
++orchard = { path = "@ZCEIPT_REPO@/vendor/orchard" }
 diff --git a/src/commands.rs b/src/commands.rs
 index cd4ef60..9c088e0 100644
 --- a/src/commands.rs
@@ -5765,7 +5765,7 @@ index 0000000..85e39f0
 +++ b/src/commands/wallet/receipt.rs
 @@ -0,0 +1,137 @@
 +//! `wallet receipt`: prove one payment this wallet sent (ZIP 311, Orchard/Ironwood), without
-+//! handing anyone a viewing key. Local integration of Receipts (crates/receipts-wallet).
++//! handing anyone a viewing key. Local integration of Zceipt (crates/zceipt-wallet).
 +
 +use std::path::PathBuf;
 +
@@ -5839,8 +5839,8 @@ index 0000000..85e39f0
 +        let request = match &self.request {
 +            None => None,
 +            Some(link) => {
-+                // Same parsing and checks as `receipts create --request`.
-+                let r = receipts_wallet::parse_request_link(link)?;
++                // Same parsing and checks as `zceipt create --request`.
++                let r = zceipt_wallet::parse_request_link(link)?;
 +                lines.push(format!("challenge:{}", r.code));
 +                link_base = link.split('#').next().unwrap_or(link).to_string();
 +                Some(r)
@@ -5853,7 +5853,7 @@ index 0000000..85e39f0
 +            lines.push(self.message.clone());
 +        }
 +        if let Some(a) = &self.refund_to {
-+            receipts_wallet::check_refund_address(a)?;
++            zceipt_wallet::check_refund_address(a)?;
 +            lines.push(format!("refund-to:{a}"));
 +        }
 +        let msg = lines.join("\n");
@@ -5863,27 +5863,27 @@ index 0000000..85e39f0
 +        let server = self.server.as_deref();
 +
 +        eprintln!("Building the receipt (a fresh Halo 2 proof for each note you spent)…");
-+        let (receipt, height) = receipts_wallet::create_receipt(
++        let (receipt, height) = zceipt_wallet::create_receipt(
 +            &dir,
 +            std::path::Path::new(&self.identity),
 +            txid,
 +            msg.as_bytes(),
 +            &[],
 +            None,
-+            receipts_wallet::WitnessSource::Auto,
++            zceipt_wallet::WitnessSource::Auto,
 +            server,
 +            self.prove_address.as_deref(),
 +            match (self.prove_source, self.reveal_source_value) {
 +                (false, _) => None,
-+                (true, false) => Some(receipts_wallet::SourceMode::HideValue),
-+                (true, true) => Some(receipts_wallet::SourceMode::RevealValue),
++                (true, false) => Some(zceipt_wallet::SourceMode::HideValue),
++                (true, true) => Some(zceipt_wallet::SourceMode::RevealValue),
 +            },
 +            self.withhold_memo,
 +        )
 +        .await?;
 +        if let Some(r) = &request {
 +            // Refuse to hand over a "receipt" that doesn't actually answer the request.
-+            let paid = receipts_wallet::check_answers(&receipt, r, server, None).await?;
++            let paid = zceipt_wallet::check_answers(&receipt, r, server, None).await?;
 +            eprintln!("Answers request {}: paid {} zatoshis to the requested address.", r.code, paid);
 +        }
 +        let text = receipt.to_text();

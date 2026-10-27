@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Receipts · embed a verified payment</title>
+  <title>Zceipt · embed a verified payment</title>
   <style>
     :root { color-scheme: light; }
     body { margin: 0; background: #fbfaf7; color: #1d1c1a; font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -23,7 +23,7 @@
   <main>
     <h1>One tag to show a verified Zcash payment</h1>
     <p>This is how a shop, an exchange support desk or a grant program can check a customer's receipt on its own site. The proof is verified in the visitor's browser. Your server never sees the receipt, and the customer's wallet stays private.</p>
-    <pre>&lt;script type="module" src="/zcash-receipts/widget.js"&gt;&lt;/script&gt;
+    <pre>&lt;script type="module" src="/zceipt/widget.js"&gt;&lt;/script&gt;
 &lt;zcash-receipt receipt="zip311r1…"
                expect-address="utest1…your address…"
                min-zatoshis="1000000"&gt;&lt;/zcash-receipt&gt;</pre>
@@ -39,9 +39,9 @@
 
     <p>The element fires <code>receipt-verified</code> or <code>receipt-invalid</code>, so the page can mark the order paid:</p>
     <pre>document.querySelector("zcash-receipt").addEventListener("receipt-verified", (e) =&gt; markPaid(e.detail));</pre>
-    <p>For servers and scripts, use the same package without the UI: <code>import { verifyReceipt } from "zcash-receipts"</code>.</p>
+    <p>For servers and scripts, use the same package without the UI: <code>import { verifyReceipt } from "zceipt"</code>.</p>
   </main>
-  <script type="module" src="./zcash-receipts/widget.js"></script>
+  <script type="module" src="./zceipt/widget.js"></script>
   <script type="module">
     const r = document.getElementById("r"), s = document.getElementById("status");
     r.addEventListener("receipt-verified", (e) => { s.textContent = "Paid ✓ " + (e.detail.paidToExpected / 1e8) + " ZEC received"; s.style.color = "#1d6b45"; });

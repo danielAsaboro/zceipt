@@ -7,15 +7,15 @@ for invoice 42 by the end of the quarter". An attestation states exactly that an
 Try it in the sandbox: create a request and pay it with a fixture, then attest.
 
 ```bash
-ID=$(curl -s localhost:8723/v1/requests -H "authorization: Bearer $RECEIPTS_KEY" \
+ID=$(curl -s localhost:8723/v1/requests -H "authorization: Bearer $ZCEIPT_KEY" \
   -d '{"payee":"utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa","amount_zatoshis":1000000}' | jq -r .id)
-curl -s localhost:8723/v1/requests/$ID/receipts -H "authorization: Bearer $RECEIPTS_KEY" -d '{"receipt":"zip311_test_valid"}' >/dev/null
+curl -s localhost:8723/v1/requests/$ID/receipts -H "authorization: Bearer $ZCEIPT_KEY" -d '{"receipt":"zip311_test_valid"}' >/dev/null
 curl -s -X POST localhost:8723/v1/requests/$ID/attestations \
-  -H "authorization: Bearer $RECEIPTS_KEY" -d '{"at_least_zatoshis":500000,"before":"2026-12-31"}'
+  -H "authorization: Bearer $ZCEIPT_KEY" -d '{"at_least_zatoshis":500000,"before":"2026-12-31"}'
 ```
 
 The response has a `presentation` to hand over. It is an SD-JWT (the IETF selective-disclosure
-JWT format), signed with Ed25519 by your Receipts server, stating only:
+JWT format), signed with Ed25519 by your Zceipt server, stating only:
 
 | claim | example |
 |---|---|
@@ -34,9 +34,9 @@ signature still checks. Nothing can be revealed that wasn't signed.
 Verify without an account, in a browser or Node:
 
 ```js
-import { verifyAttestation } from "zcash-receipts";
+import { verifyAttestation } from "zceipt";
 // Name the server you trust: anyone can sign a token and host keys of their own.
-const facts = await verifyAttestation(presentation, { issuer: "https://receipts.example.com" });
+const facts = await verifyAttestation(presentation, { issuer: "https://zceipt.example" });
 facts.paid_at_least_zatoshis, facts.paid_on_or_before, facts.revealed.label
 ```
 

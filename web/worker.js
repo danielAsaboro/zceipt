@@ -1,6 +1,6 @@
 // Runs the WASM verifier off the main thread: building the Halo 2 verifying key takes a
 // few seconds and would otherwise freeze the page.
-import init, { inspect, verify, warm_up, orchard_receiver_hex, verify_incoming, verify_aggregated } from "./zcash-receipts/pkg/receipts_wasm.js";
+import init, { inspect, verify, warm_up, orchard_receiver_hex, verify_incoming, verify_aggregated } from "./zceipt/pkg/zceipt_wasm.js";
 
 const ready = init();
 

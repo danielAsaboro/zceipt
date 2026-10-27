@@ -8,6 +8,6 @@ wallets
 .git
 *.db
 *.db-*
-web/zcash-receipts
-packages/receipts-python/build
+web/zceipt
+packages/zceipt-python/build
 .venv

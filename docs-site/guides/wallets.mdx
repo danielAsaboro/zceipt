@@ -33,7 +33,7 @@ let receipt = prepared.apply_signatures(sigs)?;
 ```
 
 Wallets on the Zcash Android or iOS SDK get the same two calls from Swift and Kotlin bindings:
-`prepareReceipt(dbPath, …)` and `signPrepared(…)` (`crates/receipts-ffi`).
+`prepareReceipt(dbPath, …)` and `signPrepared(…)` (`crates/zceipt-ffi`).
 
 ## Composing from a wallet
 
@@ -43,7 +43,7 @@ receipts](/composability/delegation) to a back office, without new key handling.
 
 ## Building on stock orchard
 
-`receipts-core` without the `orchard-ext` feature builds on stock `orchard` 0.16 and gives receipts,
+`zceipt-core` without the `orchard-ext` feature builds on stock `orchard` 0.16 and gives receipts,
 batches, source proofs, sign-in, payment requests and proof of funds. Claim tags need the
 patched crate. `scripts/check-stock-orchard.sh` builds the stock profile and runs real testnet
 receipts through it.

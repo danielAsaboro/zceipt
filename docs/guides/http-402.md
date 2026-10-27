@@ -1,12 +1,12 @@
 # HTTP 402 for Zcash: gate a route behind a receipt
 
-`zcash-receipts/middleware` (Node) and `zcash_receipts.web` (Python) turn any route into "pay,
+`zceipt/middleware` (Node) and `zceipt.web` (Python) turn any route into "pay,
 prove, get in", without the server ever seeing the payer's wallet.
 
 1. A request without proof gets **402 Payment Required** and JSON with a ZIP-321 `payment_uri`,
    a `receipt_link` and the request id.
 2. The caller pays from any shielded wallet and answers the link with a receipt
-   (`receipts create … --request '<receipt_link>'`, or the hosted page).
+   (`zceipt create … --request '<receipt_link>'`, or the hosted page).
 3. The caller retries with `Receipt-Request: <id>` and gets through once the request is
    fulfilled (or final, with `requireFinal`).
 
@@ -29,10 +29,10 @@ key's rate limit.
 ## Express
 
 ```js
-import { receiptGate, webhookHandler } from "zcash-receipts/middleware";
+import { receiptGate, webhookHandler } from "zceipt/middleware";
 app.get("/report.pdf", receiptGate.express({ receipts, payee: SHOP_UA, amountZatoshis: 1_000_000, bindTo: (req) => req.session.id }), sendReport);
 app.post("/webhooks/receipts", express.raw({ type: "application/json" }),
-  webhookHandler.express({ secret: process.env.RECEIPTS_WHSEC, on: { "request.final": markPaid } }));
+  webhookHandler.express({ secret: process.env.ZCEIPT_WHSEC, on: { "request.final": markPaid } }));
 ```
 
 ## Next.js route handlers (and Hono, Bun, Deno)
@@ -42,13 +42,13 @@ export async function GET(request) {
   const blocked = await receiptGate.fetch(request, { receipts, payee: SHOP_UA, amountZatoshis: 1_000_000, bindTo: sessionId(request) });
   return blocked ?? Response.json(await report());
 }
-export const POST = (request) => webhookHandler.fetch(request, { secret: process.env.RECEIPTS_WHSEC, on: { "*": log } });
+export const POST = (request) => webhookHandler.fetch(request, { secret: process.env.ZCEIPT_WHSEC, on: { "*": log } });
 ```
 
 ## FastAPI, Django, Flask
 
 ```python
-from zcash_receipts.web import check_gate, handle_webhook
+from zceipt.web import check_gate, handle_webhook
 gate = check_gate(receipts, payee=SHOP_UA, amount_zatoshis=1_000_000,
                   request_id=request.headers.get("receipt-request"), bind_to=session_id)
 if not gate.allow:

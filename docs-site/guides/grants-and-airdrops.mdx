@@ -13,7 +13,7 @@ regtest, and are unaudited. See [status](/status).
 A treasury proves it paid everyone, with one link:
 
 ```bash
-receipts create -w treasury -i key.age --txid <a> --txid <b> --txid <c> -m "Grant round 3"
+zceipt create -w treasury -i key.age --txid <a> --txid <b> --txid <c> -m "Grant round 3"
 ```
 
 The batch link verifies every payment and fails if any is dropped, added or reordered. The
@@ -24,7 +24,7 @@ private.
 ## Run a campaign that counts wallets
 
 1. The organiser names a domain, for example `round-2026`.
-2. Each donor tags the payment: `receipts tag -w <wallet> -i <identity> --txid <txid> --domain round-2026`.
+2. Each donor tags the payment: `zceipt tag -w <wallet> -i <identity> --txid <txid> --domain round-2026`.
 3. The organiser verifies each tag with `--domain` and counts distinct tag values. One donor
    splitting a gift into ten payments gives one tag.
 4. A donor with several accounts of one wallet gets one tag per account. They can merge them
@@ -34,9 +34,9 @@ private.
 ## Airdrop: one claim per wallet
 
 ```bash
-receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
+zceipt claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
   -m "payout to my address" --out claim.txt
-receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
+zceipt verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
 ```
 
 Pick a snapshot block that is already final (`verify` warns when it is not): a reorg would replace the tree under every claim accepted against it. The claim shows a note of at least the floor was held at the snapshot block. The claimant picks

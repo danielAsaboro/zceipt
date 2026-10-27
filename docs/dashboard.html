@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>Receipts · Dashboard</title>
+<title>Zceipt · Dashboard</title>
 <style>
   :root { color-scheme: dark; --bg:#121110; --panel:#1b1a18; --line:#2c2a26; --text:#ebe7dd; --dim:#a39d90; --paper:#f3efe4; --ink:#161513; --good:#3f9b6c; --bad:#d2483d; --warn:#c9a227;
           --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace; --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
@@ -60,7 +60,7 @@
 </head>
 <body>
 <header>
-  <h1 class="brand">RECEIPTS <span class="muted" style="letter-spacing:normal;font-weight:400;font-family:var(--sans);font-size:13px">dashboard</span></h1>
+  <h1 class="brand">ZCEIPT <span class="muted" style="letter-spacing:normal;font-weight:400;font-family:var(--sans);font-size:13px">dashboard</span></h1>
   <span class="mode" id="mode">no key</span>
   <input id="key" type="password" aria-label="API key" placeholder="rcpt_test_… (kept in this tab only)" autocomplete="off" spellcheck="false">
   <span class="muted" id="health"></span>
@@ -131,7 +131,7 @@
         <select id="we-events"><option value="*">All events</option><option>request.created</option><option>request.payment_received</option><option>request.fulfilled</option><option>request.held_for_review</option><option>request.rejected</option><option>request.final</option><option>request.payment_reorged</option><option>request.expired</option><option>receipt.rejected</option><option>refund.created</option><option>refund.succeeded</option></select>
         <button class="primary" id="we-create">Add endpoint</button>
         <div id="we-out"></div>
-        <p class="muted">For local development: <span class="mono">receipts listen --forward-to http://localhost:3000/…</span></p>
+        <p class="muted">For local development: <span class="mono">zceipt listen --forward-to http://localhost:3000/…</span></p>
       </div>
       <div class="card"><h2>Endpoints</h2><table><thead><tr><th>Endpoint</th><th>Events</th><th></th></tr></thead><tbody id="we-list"></tbody></table></div>
     </div>
@@ -313,9 +313,9 @@ function code() {
   const base = location.origin;
   return {
     curl: `curl ${base}/v1/verify \\\n  -H "Authorization: Bearer ${k}" \\\n  -H "content-type: application/json" \\\n  -d '${JSON.stringify(body)}'`,
-    js: `import { Receipts } from "zcash-receipts/client";\nconst receipts = new Receipts("${k}", { baseUrl: "${base}" });\nconst v = await receipts.verify(${JSON.stringify(body, null, 2)});`,
-    py: `from zcash_receipts import Receipts\nreceipts = Receipts("${k}", base_url="${base}")\nv = receipts.verify(${[JSON.stringify(r), addr && `expect_address="${addr}"`, min && `min_zatoshis=${min}`, ch && `challenge="${ch}"`].filter(Boolean).join(", ")})`,
-    rs: `let client = receipts_client::Client::new("${k}").base_url("${base}");\nlet v = client.verify(&receipts_client::VerifyParams {\n    receipt: ${JSON.stringify(r)}.into(),${addr ? `\n    expect_address: Some("${addr}".into()),` : ""}${min ? `\n    min_zatoshis: Some(${min}),` : ""}${ch ? `\n    challenge: Some("${ch}".into()),` : ""}\n    ..Default::default()\n}).await?;`,
+    js: `import { Zceipt } from "zceipt/client";\nconst receipts = new Zceipt("${k}", { baseUrl: "${base}" });\nconst v = await receipts.verify(${JSON.stringify(body, null, 2)});`,
+    py: `from zceipt import Zceipt\nreceipts = Zceipt("${k}", base_url="${base}")\nv = receipts.verify(${[JSON.stringify(r), addr && `expect_address="${addr}"`, min && `min_zatoshis=${min}`, ch && `challenge="${ch}"`].filter(Boolean).join(", ")})`,
+    rs: `let client = zceipt_client::Client::new("${k}").base_url("${base}");\nlet v = client.verify(&zceipt_client::VerifyParams {\n    receipt: ${JSON.stringify(r)}.into(),${addr ? `\n    expect_address: Some("${addr}".into()),` : ""}${min ? `\n    min_zatoshis: Some(${min}),` : ""}${ch ? `\n    challenge: Some("${ch}".into()),` : ""}\n    ..Default::default()\n}).await?;`,
   }[lang];
 }
 const renderCode = () => { $("#pg-code").textContent = code(); };

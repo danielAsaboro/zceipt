@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Receipts · prove one Zcash payment</title>
+  <title>Zceipt · prove one Zcash payment</title>
   <meta name="description" content="Prove one shielded Zcash payment to one person without handing over a viewing key. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -142,7 +142,7 @@
 <body>
   <main>
     <section>
-      <div class="eyebrow">Receipts · ZIP 311 for Orchard &amp; Ironwood</div>
+      <div class="eyebrow">Zceipt · ZIP 311 for Orchard &amp; Ironwood</div>
       <h1>Prove one Zcash payment. <em>Keep your viewing key.</em></h1>
       <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves it was signed by the key that spent the money. No viewing key changes hands. The proof is checked in this browser; only public chain data is fetched.</p>
 
@@ -219,9 +219,9 @@
           <li>The payer's wallet proves, with a fresh zero-knowledge proof, that it holds the key that spent the money in this transaction, and signs the whole receipt with that key. Someone who only saw the payment can't.</li>
           <li>A signed message, such as an invoice number or your request's code, ties the receipt to one purpose.</li>
         </ol>
-        <div class="cli">receipts create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt
-receipts sign r.txt --seed-stdin
-receipts verify 'https://…#zip311r1…'</div>
+        <div class="cli">zceipt create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt
+zceipt sign r.txt --seed-stdin
+zceipt verify 'https://…#zip311r1…'</div>
       </div>
     </section>
 

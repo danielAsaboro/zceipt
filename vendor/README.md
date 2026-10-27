@@ -1,12 +1,12 @@
 # vendor/
 
 `vendor/orchard` is the published `orchard` 0.16.0 crate from crates.io, unchanged except for the
-patch in [`orchard-0.16.0-receipts.patch`](orchard-0.16.0-receipts.patch). Every other file,
+patch in [`orchard-0.16.0-zceipt.patch`](orchard-0.16.0-zceipt.patch). Every other file,
 including its `AGENTS.md`, licences and CI config, is upstream's, copied as published. The Action
 circuit and its keys are unchanged (`params_match_derivation` and every testnet receipt check
 that); the patch adds one new circuit beside it, for claims.
 
-What the patch adds, and why Receipts needs it:
+What the patch adds, and why Zceipt needs it:
 
 | Change | File | Used for |
 |---|---|---|
@@ -20,7 +20,7 @@ What the patch adds, and why Receipts needs it:
 
 Check it yourself (`scripts/check-vendor-patch.sh` does this against the published crate). The claim
 circuit's constraint system is pinned by `claim::tests::verifying_keys_are_pinned`, the sibling circuit's
-by `receipts-kce`'s ignored `pinned::verifying_key_is_pinned`:
+by `zceipt-kce`'s ignored `pinned::verifying_key_is_pinned`:
 
 ```sh
 curl -sL https://static.crates.io/crates/orchard/orchard-0.16.0.crate | tar xz -C /tmp
@@ -28,12 +28,12 @@ diff -ru /tmp/orchard-0.16.0/src vendor/orchard/src     # shows exactly the patc
 ```
 
 It is wired in through `[patch.crates-io]` in the workspace `Cargo.toml`, and used only by
-receipts-core's `orchard-ext` feature, which this workspace's binaries turn on. A wallet that
-depends on receipts-core without that feature builds on stock orchard 0.16 and gets receipts
+zceipt-core's `orchard-ext` feature, which this workspace's binaries turn on. A wallet that
+depends on zceipt-core without that feature builds on stock orchard 0.16 and gets receipts
 v1-v4, batches, source proofs, sign-in, payment requests and proof of funds;
 `scripts/check-stock-orchard.sh` builds it and runs real testnet receipts through it.
 
-`crates/receipts-kce/src/blake2b_halo2` is eryxcoop/blake2b_halo2 at 6ed2fa2 (Apache-2.0, its
+`crates/zceipt-kce/src/blake2b_halo2` is eryxcoop/blake2b_halo2 at 6ed2fa2 (Apache-2.0, its
 LICENSE beside it), ported from midnight-proofs to zcash's halo2_proofs 0.4: import paths, the
 lookup and gate API, and a personalization option for the initial state. Its authors say it has
 not been audited, and neither has the port.

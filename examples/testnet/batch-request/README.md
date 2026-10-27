@@ -6,6 +6,6 @@ the two payments (`571de6e4…` and `db7c3c5e…`): every receipt signs the chal
 paid the shop at least 0.01 TAZ, and the batch's same-payer proof shows one key signed both.
 `link.txt` is the link's fragment.
 
-    receipts verify "#$(cat examples/testnet/batch-request/link.txt)" --challenge b7e2c41a9d03 --expect-address "$(cat examples/testnet/merchant.ua)" --min 0.01
+    zceipt verify "#$(cat examples/testnet/batch-request/link.txt)" --challenge b7e2c41a9d03 --expect-address "$(cat examples/testnet/merchant.ua)" --min 0.01
 
-Made with `receipts create --txid … --txid … --request '<the shop's request link>'`.
+Made with `zceipt create --txid … --txid … --request '<the shop's request link>'`.

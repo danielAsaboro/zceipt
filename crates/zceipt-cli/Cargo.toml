@@ -1,0 +1,51 @@
+[package]
+name = "zceipt-cli"
+version = "0.1.0"
+description = "Create and verify Zcash payment receipts (ZIP 311) from the command line"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "zceipt"
+path = "src/main.rs"
+
+[dependencies]
+zceipt-core = { path = "../zceipt-core", features = ["orchard-ext", "extensions"] }
+zceipt-kce = { path = "../zceipt-kce" }
+zceipt-chain = { path = "../zceipt-chain" }
+zceipt-server = { path = "../zceipt-server" }
+zceipt-client = { path = "../zceipt-client" }
+zceipt-wallet = { path = "../zceipt-wallet" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = "0.8"
+qrcode = { version = "0.14", default-features = false }
+anyhow = "1"
+libc = "0.2"
+clap = { version = "4.5", features = ["derive", "env"] }
+tokio = { version = "1.21", features = ["macros", "rt-multi-thread", "net", "signal", "io-std", "io-util", "process"] }
+tonic = { version = "0.14", features = ["tls-webpki-roots"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+hex = "0.4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+age = { version = "0.12", features = ["armor"] }
+bip0039 = "0.12"
+secrecy = "0.8"
+rusqlite = "0.37"
+rand = { version = "0.10", features = ["std", "sys_rng"] }
+orchard.workspace = true
+incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
+shardtree = "0.8"
+zcash_client_backend = { workspace = true, features = ["lightwalletd-tonic-tls-webpki-roots", "orchard"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard"] }
+zcash_keys = { workspace = true, features = ["orchard"] }
+zcash_primitives.workspace = true
+zcash_protocol = { workspace = true, features = ["local-consensus"] }
+zcash_address.workspace = true
+zip32 = "0.3"
+zcash_note_encryption.workspace = true
+
+[dev-dependencies]
+base64 = "0.22"

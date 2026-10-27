@@ -34,7 +34,7 @@ rpc generatetoaddress '[2,"tmGys6dBuEGjch5LFnhdo5gpSa7jiNRWse6"]'
 zcash-devtool wallet -w ./sender sync -s 127.0.0.1:9067
 
 # 6. Receipt, then verify (CLI and browser)
-receipts create -w ./sender -i ./sender.age --txid <txid> -m "Order #42" --link-base 'http://localhost:5321/?regtest'
-receipts verify @receipt.txt --regtest ./heights.toml --expect-address "$MERCHANT"
+zceipt create -w ./sender -i ./sender.age --txid <txid> -m "Order #42" --link-base 'http://localhost:5321/?regtest'
+zceipt verify @receipt.txt --regtest ./heights.toml --expect-address "$MERCHANT"
 node ../dev-server.mjs   # serves web/ and bridges grpc-web to lightwalletd; open the printed link
 ```

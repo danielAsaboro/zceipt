@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Receipts",
+  "name": "Zceipt",
   "colors": {
     "primary": "#B8860B",
     "light": "#E8B923",

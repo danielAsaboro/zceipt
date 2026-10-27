@@ -1,0 +1,2589 @@
+//! End-to-end receipts over real Orchard/Ironwood bundles built in memory.
+
+use incrementalmerkletree::{Hashable, Marking, Retention};
+use orchard::{
+    builder::{Builder, BundleType},
+    bundle::{Authorized, BundleVersion, Flags, TxVersion},
+    circuit::{OrchardCircuitVersion, ProvingKey},
+    keys::{FullViewingKey, PreparedIncomingViewingKey, Scope, SpendAuthorizingKey, SpendingKey},
+    note::ExtractedNoteCommitment,
+    note_encryption::{IronwoodDomain, OrchardDomain},
+    tree::{MerkleHashOrchard, MerklePath},
+    value::NoteValue,
+    Bundle, Note,
+};
+use rand::{rand_core::UnwrapErr, rngs::SysRng};
+
+#[allow(non_upper_case_globals)]
+const OsRng: UnwrapErr<SysRng> = UnwrapErr(SysRng);
+use zceipt_core::{create, verify, Error, Pool, Receipt, SpendWitness, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
+use shardtree::{store::memory::MemoryShardStore, ShardTree};
+use std::sync::OnceLock;
+use zcash_note_encryption::try_note_decryption;
+
+fn keys() -> &'static (ProvingKey, orchard::circuit::VerifyingKey) {
+    static K: OnceLock<(ProvingKey, orchard::circuit::VerifyingKey)> = OnceLock::new();
+    K.get_or_init(|| (zceipt_core::proving_key(), zceipt_core::verifying_key()))
+}
+
+/// Proving key the network uses for bundles of `version`.
+fn network_pk(version: BundleVersion) -> &'static ProvingKey {
+    static POST_NU6_3: OnceLock<ProvingKey> = OnceLock::new();
+    static FIXED: OnceLock<ProvingKey> = OnceLock::new();
+    match version.circuit_version() {
+        OrchardCircuitVersion::PostNu6_3 => POST_NU6_3.get_or_init(|| ProvingKey::build(OrchardCircuitVersion::PostNu6_3)),
+        v => FIXED.get_or_init(|| ProvingKey::build(v)),
+    }
+}
+
+fn single_leaf_witness(cmx: &ExtractedNoteCommitment) -> (MerkleHashOrchard, MerklePath) {
+    let leaf = MerkleHashOrchard::from_cmx(cmx);
+    let mut tree: ShardTree<MemoryShardStore<MerkleHashOrchard, u32>, 32, 16> = ShardTree::new(MemoryShardStore::empty(), 100);
+    tree.append(leaf, Retention::Checkpoint { id: 0, marking: Marking::Marked }).unwrap();
+    let root = tree.root_at_checkpoint_id(&0).unwrap().unwrap();
+    let position = tree.max_leaf_position(None).unwrap().unwrap();
+    let path = tree.witness_at_checkpoint_id(position, &0).unwrap().unwrap();
+    (root, path.into())
+}
+
+struct Scenario {
+    sender_sk: SpendingKey,
+    /// The transaction that created the sender's note (the payment's source).
+    funding: Bundle<Authorized, i64>,
+    funding_index: usize,
+    payment: Bundle<Authorized, i64>,
+    funding_note: Note,
+    funding_path: MerklePath,
+    spend_index: usize,
+    merchant_index: usize,
+    merchant_value: u64,
+}
+
+fn decrypt(version: BundleVersion, bundle: &Bundle<Authorized, i64>, fvk: &FullViewingKey) -> Note {
+    let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+    bundle
+        .actions()
+        .iter()
+        .find_map(|a| {
+            if version == BundleVersion::ironwood_v3() {
+                try_note_decryption(&IronwoodDomain::for_action(a), &ivk, a).map(|r| r.0)
+            } else {
+                try_note_decryption(&OrchardDomain::for_action(a), &ivk, a).map(|r| r.0)
+            }
+        })
+        .expect("funding note decrypts")
+}
+
+/// Sender is funded with 100_000 zats, then pays a merchant 42_000 zats with a memo.
+fn scenario(version: BundleVersion) -> Scenario {
+    scenario_valued(version, 100_000, 42_000)
+}
+
+/// Sender is funded with `fund` zats, then pays a merchant `pay` zats with a memo.
+fn scenario_valued(version: BundleVersion, fund: u64, pay: u64) -> Scenario {
+    scenario_from(version, fund, pay, 7)
+}
+
+/// The same, paid by the wallet whose spending key is `[sender; 32]`.
+fn scenario_from(version: BundleVersion, fund: u64, pay: u64, sender: u8) -> Scenario {
+    let mut rng = OsRng;
+    let pk = network_pk(version);
+    let sender_sk = SpendingKey::from_bytes([sender; 32]).unwrap();
+    let sender_fvk = FullViewingKey::from(&sender_sk);
+    let sender_addr = sender_fvk.address_at(0u32, Scope::External);
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let merchant_addr = FullViewingKey::from(&merchant_sk).address_at(3u32, Scope::External);
+
+    let empty: orchard::Anchor = MerkleHashOrchard::empty_root(32.into()).into();
+    let mut b = Builder::new(BundleType::DEFAULT, version, Flags::SPENDS_DISABLED, empty).unwrap();
+    b.add_output(None, sender_addr, NoteValue::from_raw(fund), [0u8; 512]).unwrap();
+    let (unauth, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
+    let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
+    let funding = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[]).unwrap();
+
+    let funding_note = decrypt(version, &funding, &sender_fvk);
+    let cmx: ExtractedNoteCommitment = funding_note.commitment().into();
+    let funding_index = funding.actions().iter().position(|a| *a.cmx() == cmx).unwrap();
+    let (root, funding_path) = single_leaf_witness(&cmx);
+
+    let mut memo = [0u8; 512];
+    memo[..10].copy_from_slice(b"Invoice 42");
+    let ovk = sender_fvk.to_ovk(Scope::External);
+    let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), root.into()).unwrap();
+    b.add_spend(sender_fvk.clone(), funding_note, funding_path.clone()).unwrap();
+    b.add_output(Some(ovk.clone()), merchant_addr, NoteValue::from_raw(pay), memo).unwrap();
+    b.add_output(Some(ovk), sender_addr, NoteValue::from_raw(fund - pay), [0u8; 512]).unwrap();
+    let (unauth, meta) = b.build::<i64>(&mut rng).unwrap().unwrap();
+    let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
+    let payment = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[SpendAuthorizingKey::from(&sender_sk)]).unwrap();
+
+    Scenario {
+        sender_sk,
+        spend_index: meta.spend_action_index(0).unwrap(),
+        merchant_index: meta.output_action_index(0).unwrap(),
+        funding,
+        funding_index,
+        payment,
+        funding_note,
+        funding_path,
+        merchant_value: pay,
+    }
+}
+
+const TXID: [u8; 32] = [0xab; 32];
+
+fn make_receipt(s: &Scenario, pool: Pool, msg: &[u8]) -> Receipt {
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    create(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        pool,
+        TXID,
+        &s.payment,
+        msg,
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness {
+            index: s.spend_index,
+            sk: s.sender_sk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: None,
+        }],
+        OsRng,
+    )
+    .unwrap()
+}
+
+fn roundtrip(version: BundleVersion, pool: Pool) {
+    let s = scenario(version);
+    let receipt = make_receipt(&s, pool, b"challenge: order 42");
+
+    // Text round trip.
+    let text = receipt.to_text();
+    assert!(text.starts_with("zip311r1"));
+    let parsed = Receipt::from_text(&text).unwrap();
+    assert_eq!(parsed, receipt);
+
+    let v = verify(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment).unwrap();
+    assert_eq!(v.proven_spends, vec![s.spend_index as u32]);
+    assert_eq!(v.outputs.len(), 1);
+    assert_eq!(v.outputs[0].value, s.merchant_value);
+    assert_eq!(&v.outputs[0].memo[..10], b"Invoice 42");
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(v.outputs[0].recipient, merchant.to_raw_address_bytes());
+    assert_eq!(v.msg, b"challenge: order 42");
+    println!("{pool:?} receipt: {} bytes, {} chars as text", receipt.to_bytes().len(), text.len());
+    if let Ok(dir) = std::env::var("RECEIPT_FIXTURE_DIR") {
+        std::fs::write(format!("{dir}/{pool:?}.receipt"), &text).unwrap();
+    }
+}
+
+#[test]
+fn ironwood_receipt_roundtrip() {
+    roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_receipt_roundtrip() {
+    // Orchard pool transactions from before NU6.3 (the pool is closed to new value since).
+    roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+#[test]
+fn tampering_is_rejected() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = make_receipt(&s, Pool::Ironwood, b"hello");
+    let vk = &keys().1;
+    let check = |r: &Receipt| verify(vk, r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+    assert!(check(&good).is_ok());
+
+    // Changed message: signature no longer matches.
+    let mut r = good.clone();
+    r.unsigned.msg = b"hellp".to_vec();
+    assert_eq!(check(&r).unwrap_err(), Error::BadSignature(s.spend_index as u32));
+
+    // Flipped proof byte.
+    let mut r = good.clone();
+    r.unsigned.spends[0].proof[100] ^= 1;
+    assert!(matches!(check(&r).unwrap_err(), Error::BadSignature(_) | Error::BadProof(_)));
+
+    // Stripped spends: not allowed.
+    let mut r = good.clone();
+    r.unsigned.spends.clear();
+    r.spend_auth_sigs.clear();
+    assert_eq!(check(&r).unwrap_err(), Error::NoSpends);
+
+    // Wrong ock (and re-signing is impossible without the key).
+    let mut r = good.clone();
+    r.unsigned.outputs[0].ock[0] ^= 1;
+    assert!(check(&r).is_err());
+
+    // Pointing the spend proof at another action's nullifier.
+    let mut r = good.clone();
+    r.unsigned.spends[0].index = s.merchant_index as u32;
+    if s.merchant_index != s.spend_index {
+        assert!(check(&r).is_err());
+    }
+
+    // Wrong transaction / network.
+    assert!(matches!(verify(vk, &good, COIN_TYPE_TESTNET, Pool::Ironwood, [0; 32], &s.payment).unwrap_err(), Error::TxidMismatch(_)));
+    assert!(matches!(verify(vk, &good, COIN_TYPE_MAINNET, Pool::Ironwood, TXID, &s.payment).unwrap_err(), Error::CoinTypeMismatch(_, _)));
+}
+
+#[test]
+fn only_the_spender_can_create() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let thief = SpendingKey::from_bytes([3; 32]).unwrap();
+    let err = create(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        TXID,
+        &s.payment,
+        b"",
+        &[],
+        &[SpendWitness { index: s.spend_index, sk: thief, note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None }],
+        OsRng,
+    )
+    .unwrap_err();
+    assert_eq!(err, Error::WrongNullifier(s.spend_index as u32));
+}
+
+#[test]
+fn batch_roundtrip_and_checks() {
+    use zceipt_core::{check_batch, ReceiptBatch};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mk = |i: u16, n: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/{n}\nGrant round 3").as_bytes());
+    // Two payments: the second receipt names another transaction (only the batch structure is
+    // checked here, not signatures).
+    let mut second = mk(2, 2);
+    second.unsigned.txid[0] ^= 1;
+    let batch = ReceiptBatch { receipts: vec![mk(1, 2), second], aggregate: None };
+    let text = batch.to_text();
+    assert!(text.starts_with("zip311b1"));
+    let parsed = ReceiptBatch::from_text(&text).unwrap();
+    assert_eq!(parsed, batch);
+    assert_eq!(check_batch(&parsed).unwrap(), "ab12cd34");
+
+    // Dropping one receipt is detected.
+    let short = ReceiptBatch { receipts: vec![batch.receipts[0].clone()], aggregate: None };
+    assert!(check_batch(&short).is_err());
+    // Duplicating a position is detected.
+    let dup = ReceiptBatch { receipts: vec![mk(1, 2), mk(1, 2)], aggregate: None };
+    assert!(check_batch(&dup).is_err());
+}
+
+#[test]
+fn batch_refuses_one_output_counted_twice() {
+    use zceipt_core::{check_batch, ReceiptBatch};
+    // Two receipts at different positions that disclose the same output of the same
+    // transaction: the batch total would count one payment twice.
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mk = |i: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/2").as_bytes());
+    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), mk(2)], aggregate: None }).unwrap_err();
+    assert!(err.contains("disclosed more than once"), "{err}");
+}
+
+#[test]
+fn batch_refuses_mixed_networks() {
+    use zceipt_core::{check_batch, ReceiptBatch};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mk = |i: u16| make_receipt(&s, Pool::Ironwood, format!("batch:ab12cd34 {i}/2").as_bytes());
+    let mut second = mk(2);
+    second.unsigned.txid[0] ^= 1;
+    second.unsigned.coin_type = 133;
+    let err = check_batch(&ReceiptBatch { receipts: vec![mk(1), second], aggregate: None }).unwrap_err();
+    assert!(err.contains("different networks"), "{err}");
+}
+
+#[test]
+fn address_proof_roundtrip_and_rejections() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let public_addr = fvk.address_at(5u32, Scope::External);
+    let mk = |addr| {
+        create(
+            &keys().0,
+            COIN_TYPE_TESTNET,
+            Pool::Ironwood,
+            TXID,
+            &s.payment,
+            b"donation drive",
+            &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+            &[SpendWitness {
+                index: s.spend_index,
+                sk: s.sender_sk.clone(),
+                note: s.funding_note,
+                merkle_path: s.funding_path.clone(),
+                prove_address: Some(addr),
+                source: None,
+            }],
+            OsRng,
+        )
+    };
+    let r = mk(public_addr).unwrap();
+    let text = r.to_text();
+    let parsed = Receipt::from_text(&text).unwrap();
+    assert_eq!(parsed, r);
+    let v = verify(&keys().1, &parsed, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+    assert_eq!(v.proven_addresses, vec![(s.spend_index as u32, public_addr.to_raw_address_bytes())]);
+
+    // Someone else's address can't be claimed.
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(mk(merchant).unwrap_err(), Error::AddressNotOwned);
+
+    // The anchor the verifier uses is the root of a one-leaf tree holding the revealed note.
+    let a = r.unsigned.spends[0].address.as_ref().unwrap();
+    let rho = orchard::note::Rho::from_bytes(&a.rho).unwrap();
+    let rseed = orchard::note::RandomSeed::from_bytes(a.rseed, &rho).unwrap();
+    let note = Note::from_parts(public_addr, NoteValue::from_raw(1), rho, rseed, orchard::note::NoteVersion::V3).unwrap();
+    let (root, _) = single_leaf_witness(&note.commitment().into());
+    assert_eq!(zceipt_core::address_proof_anchor(Pool::Ironwood, a), Some(root.to_bytes()));
+    assert_eq!(a.cv_net, zceipt_core::address_proof_cv_net().to_bytes());
+
+    // Two proofs for the same address share nothing a verifier could link them by.
+    let r2 = mk(public_addr).unwrap();
+    let a2 = r2.unsigned.spends[0].address.as_ref().unwrap();
+    assert_ne!(a.rho, a2.rho);
+    assert_ne!(a.nf, a2.nf);
+    assert_ne!(a.cmx, a2.cmx);
+    assert_ne!(r.unsigned.spends[0].rk, r2.unsigned.spends[0].rk);
+
+    // Swapping the claimed address after signing breaks the signature.
+    let mut bad = r.clone();
+    bad.unsigned.spends[0].address.as_mut().unwrap().address = merchant.to_raw_address_bytes();
+    assert!(verify(&keys().1, &bad, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).is_err());
+}
+
+/// Flipping any single byte of a receipt (header, txid, message, ock, cv_net, rk, cmx, proof
+/// or signature) must make it fail to decode or fail to verify. Never a different valid result.
+#[test]
+fn every_byte_matters() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = make_receipt(&s, Pool::Ironwood, b"order 42");
+    let bytes = good.to_bytes();
+    let vk = &keys().1;
+    // Every byte of the structured fields, plus a sample across the proof.
+    let proof_start = bytes.len() - 64 - good.unsigned.spends[0].proof.len();
+    let mut positions: Vec<usize> = (0..proof_start).collect();
+    positions.extend((proof_start..bytes.len() - 64).step_by(97));
+    positions.extend(bytes.len() - 64..bytes.len());
+    let mut checked = 0;
+    for &i in &positions {
+        let mut b = bytes.clone();
+        b[i] ^= 0x01;
+        if let Ok(r) = Receipt::from_bytes(&b) {
+            let res = verify(vk, &r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+            assert!(res.is_err(), "flipping byte {i} still verified");
+        }
+        checked += 1;
+    }
+    assert!(checked > 300, "checked {checked} positions");
+}
+
+#[test]
+fn sign_in_roundtrip_and_replay() {
+    use zceipt_core::signin::{sign_in, verify_sign_in, SignIn};
+    let (pk, vk) = keys();
+    let sk = SpendingKey::from_bytes([7; 32]).unwrap();
+    let addr = FullViewingKey::from(&sk).address_at(0u32, Scope::External);
+    let s = sign_in(pk, 1, "shop.example", "n0nce-1", 1_760_000_000, &sk, addr, OsRng).unwrap();
+    let text = s.to_text();
+    assert!(text.starts_with("zsig1"));
+    let back = SignIn::from_text(&text).unwrap();
+    assert_eq!(back, s);
+    assert_eq!(verify_sign_in(vk, &back, 1, "shop.example", "n0nce-1").unwrap(), addr.to_raw_address_bytes());
+    // Another site, another nonce, another network: all refused.
+    assert!(verify_sign_in(vk, &back, 1, "evil.example", "n0nce-1").is_err());
+    assert!(verify_sign_in(vk, &back, 1, "shop.example", "n0nce-2").is_err());
+    assert!(verify_sign_in(vk, &back, 133, "shop.example", "n0nce-1").is_err());
+    // Rewriting the signed fields breaks the signature.
+    let mut forged = back.clone();
+    forged.domain = "evil.example".into();
+    assert!(verify_sign_in(vk, &forged, 1, "evil.example", "n0nce-1").is_err());
+    let mut forged = back.clone();
+    forged.address.address = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(0u32, Scope::External).to_raw_address_bytes();
+    assert!(verify_sign_in(vk, &forged, 1, "shop.example", "n0nce-1").is_err());
+    // Only the key holder can sign in as the address.
+    let thief = SpendingKey::from_bytes([3; 32]).unwrap();
+    assert!(sign_in(pk, 1, "shop.example", "n", 0, &thief, addr, OsRng).is_err());
+    assert!(SignIn::from_text(&text[..text.len() - 4]).is_none());
+}
+
+#[test]
+fn params_match_derivation() {
+    // The shipped parameters are exactly what deriving them gives.
+    let derived = zceipt_core::verifying_key_slow().params_bytes();
+    assert_eq!(derived, zceipt_core::verifying_key().params_bytes());
+    assert_eq!(derived.as_slice(), &include_bytes!("../src/orchard-params-k11.bin")[..]);
+}
+
+#[test]
+fn encodings_are_canonical() {
+    // The real testnet receipt (v1) relabelled as v2 with an "absent" flag byte decodes to the
+    // same receipt; strict decoding refuses it, so one receipt has exactly one encoding.
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/receipt.txt")).unwrap();
+    let mut b = URL_SAFE_NO_PAD.decode(text.trim().strip_prefix("zip311r1").unwrap()).unwrap();
+    assert!(Receipt::from_bytes(&b).is_ok());
+    b[4] = 2;
+    assert!(Receipt::from_bytes(&b).is_err(), "v1 bytes labelled v2 must not decode");
+    let x = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/regtest-crosspool/receipt.txt")).unwrap();
+    let r = Receipt::from_text(x.trim()).unwrap();
+    assert_eq!(Receipt::from_bytes(&r.to_bytes()).unwrap(), r);
+}
+
+#[test]
+fn disclosures_are_unlinkable_to_the_action_and_to_each_other() {
+    // The spend disclosure re-randomizes everything that could identify the spender: its rk and
+    // cv_net differ from the on-chain action's, and two receipts for the same spend share none.
+    let s = scenario(BundleVersion::ironwood_v3());
+    let a = make_receipt(&s, Pool::Ironwood, b"one");
+    let b = make_receipt(&s, Pool::Ironwood, b"one");
+    let action = &s.payment.actions()[s.spend_index];
+    let onchain_rk: [u8; 32] = action.rk().into();
+    let onchain_cv = action.cv_net().to_bytes();
+    for r in [&a, &b] {
+        let sp = &r.unsigned.spends[0];
+        assert_ne!(sp.rk, onchain_rk);
+        assert_ne!(sp.cv_net, onchain_cv);
+        // No output disclosure reveals a key beyond that one output's ock.
+        assert_eq!(r.unsigned.outputs.len(), 1);
+    }
+    assert_ne!(a.unsigned.spends[0].rk, b.unsigned.spends[0].rk);
+    assert_ne!(a.unsigned.spends[0].cv_net, b.unsigned.spends[0].cv_net);
+    assert_ne!(a.unsigned.spends[0].cmx, b.unsigned.spends[0].cmx);
+}
+
+// ---------- forged address proofs (zero-value witness note) ----------
+//
+// The Action circuit only checks the Merkle path when the spent note's value is non-zero
+// (`v_old * (root - anchor) = 0`). An address proof is meant to spend a 1-zatoshi note to the
+// claimed address under a one-leaf tree, but if the verifier takes `cv_net` from the prover it
+// cannot tell whether the witness note really had value 1. A prover can then witness a
+// zero-value note to an address of their own, skip the anchor check, and claim any address.
+// ZIP 304 avoids this by fixing `cv = ValueCommit_0(1)` on the verifier's side.
+
+/// An address proof for `victim`, made by the holder of `attacker_sk` (who does not own it).
+fn forge_address_proof(
+    attacker_sk: &SpendingKey,
+    alpha: pasta_curves::pallas::Scalar,
+    victim: orchard::Address,
+    version: orchard::note::NoteVersion,
+) -> zceipt_core::AddressProof {
+    use ff::{Field, PrimeField};
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::{RandomSeed, Rho},
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let mut rng = OsRng;
+    let rand32 = |rng: &mut UnwrapErr<SysRng>| {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(rng, &mut b);
+        b
+    };
+    let fvk = FullViewingKey::from(attacker_sk);
+    let own = fvk.address_at(0u32, Scope::External);
+    let note_for = |addr, value, rng: &mut UnwrapErr<SysRng>| loop {
+        let Some(rho) = Option::<Rho>::from(Rho::from_bytes(&pasta_curves::pallas::Base::random(&mut *rng).to_repr())) else { continue };
+        let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(rand32(rng), &rho)) else { continue };
+        if let Some(n) = Option::<Note>::from(Note::from_parts(addr, NoteValue::from_raw(value), rho, rseed, version)) {
+            break (rho, rseed, n);
+        }
+    };
+    // The note the verifier will rebuild: 1 zatoshi to the victim.
+    let (rho_v, rseed_v, victim_note) = note_for(victim, 1, &mut rng);
+    let (_, victim_path) = single_leaf_witness(&victim_note.commitment().into());
+    let anchor = victim_path.root(victim_note.commitment().into());
+    // The note actually witnessed: zero value, to the attacker's own address.
+    let (_, _, own_note) = note_for(own, 0, &mut rng);
+    let nf = own_note.nullifier(&fvk);
+    let spend = SpendInfo::new(fvk.clone(), own_note, victim_path).unwrap();
+    let (_, _, dummy) = loop {
+        let rho = Rho::from_bytes(&nf.to_bytes()).unwrap();
+        let Some(rseed) = Option::<RandomSeed>::from(RandomSeed::from_bytes(rand32(&mut rng), &rho)) else { continue };
+        if let Some(n) = Option::<Note>::from(Note::from_parts(own, NoteValue::ZERO, rho, rseed, version)) {
+            break (rho, rseed, n);
+        }
+    };
+    let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
+    let cv_net = ValueCommitment::derive(NoteValue::from_raw(0) - NoteValue::ZERO, rcv.clone());
+    let rk = VerificationKey::<SpendAuth>::from(&SpendAuthorizingKey::from(attacker_sk).randomize(&alpha));
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(anchor, cv_net.clone(), nf, rk, cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
+    zceipt_core::AddressProof {
+        address: victim.to_raw_address_bytes(),
+        rho: rho_v.to_bytes(),
+        rseed: *rseed_v.as_bytes(),
+        nf: nf.to_bytes(),
+        cv_net: cv_net.to_bytes(),
+        cmx: cmx.to_bytes(),
+        proof: proof.as_ref().to_vec(),
+    }
+}
+
+/// A receipt that wouldn't fit its encoding's length fields is refused when created, rather than
+/// encoded with a wrapped length.
+#[test]
+fn oversized_receipts_are_refused_at_creation() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let w = || SpendWitness {
+        index: s.spend_index,
+        sk: s.sender_sk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: None,
+    };
+    let long = vec![b'x'; 65_536];
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long, &[], &[w()], OsRng).unwrap_err(), Error::TooLarge);
+    let outs = vec![(s.merchant_index, fvk.to_ovk(Scope::External)); 256];
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &outs, &[w()], OsRng).unwrap_err(), Error::TooLarge);
+    let spends: Vec<_> = (0..256).map(|_| w()).collect();
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &spends, OsRng).unwrap_err(), Error::TooLarge);
+    // At the limits themselves the size check passes (these then fail on the repeated index).
+    assert_eq!(
+        create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &outs[..255], &[w()], OsRng).unwrap_err(),
+        Error::DuplicateIndex(s.merchant_index as u32)
+    );
+    assert_eq!(
+        create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &spends[..255], OsRng).unwrap_err(),
+        Error::DuplicateIndex(s.spend_index as u32)
+    );
+    assert!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &long[..65_535], &[], &[w()], OsRng).is_ok());
+    // The same limit for outputs disclosed without their memo.
+    let ext = |withheld: &[(usize, orchard::keys::OutgoingViewingKey)]| {
+        zceipt_core::create_cross_ext(
+            &keys().0,
+            COIN_TYPE_TESTNET,
+            Pool::Ironwood,
+            &s.payment,
+            Pool::Ironwood,
+            &s.payment,
+            TXID,
+            b"",
+            &[],
+            withheld,
+            &[w()],
+            OsRng,
+        )
+    };
+    assert_eq!(ext(&outs).unwrap_err(), Error::TooLarge);
+    assert_eq!(ext(&outs[..255]).unwrap_err(), Error::DuplicateIndex(s.merchant_index as u32));
+}
+
+#[test]
+fn sign_in_as_someone_elses_address_is_refused() {
+    use ff::Field;
+    use zceipt_core::signin::{verify_sign_in, SignIn};
+    let vk = &keys().1;
+    let thief = SpendingKey::from_bytes([3; 32]).unwrap();
+    let victim = FullViewingKey::from(&SpendingKey::from_bytes([7; 32]).unwrap()).address_at(0u32, Scope::External);
+    let mut rng = OsRng;
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&thief).randomize(&alpha);
+    let rk: [u8; 32] = (&orchard::primitives::redpallas::VerificationKey::from(&rsk)).into();
+    let address = forge_address_proof(&thief, alpha, victim, orchard::note::NoteVersion::V3);
+    // As made, and with `cv_net` replaced by the value the verifier expects.
+    for cv_net in [address.cv_net, zceipt_core::address_proof_cv_net().to_bytes()] {
+        let address = zceipt_core::AddressProof { cv_net, ..address.clone() };
+        let mut forged = SignIn { coin_type: 1, domain: "shop.example".into(), nonce: "n0nce-1".into(), issued_at: 1_760_000_000, rk, address, sig: [0; 64] };
+        let digest = zceipt_core::signin::signing_digest(&forged);
+        forged.sig = (&rsk.sign(OsRng, &digest)).into();
+        let res = verify_sign_in(vk, &forged, 1, "shop.example", "n0nce-1");
+        assert!(res.is_err(), "a thief signed in as the victim's address: {res:?}");
+    }
+}
+
+#[test]
+fn claiming_someone_elses_sender_address_is_refused() {
+    use ff::Field;
+    use ff::PrimeField;
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::RandomSeed,
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let s = scenario(BundleVersion::ironwood_v3());
+    let mut rng = OsRng;
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let victim = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    // An honest spend disclosure with a known alpha (as `create` makes it)...
+    let action = &s.payment.actions()[s.spend_index];
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let rk = VerificationKey::<SpendAuth>::from(&rsk);
+    let rho = action.rho();
+    let dummy_addr = FullViewingKey::from(&SpendingKey::from_bytes([5; 32]).unwrap()).address_at(0u32, Scope::External);
+    let dummy = loop {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(&mut rng, &mut b);
+        if let Some(rs) = Option::<RandomSeed>::from(RandomSeed::from_bytes(b, &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(dummy_addr, NoteValue::ZERO, rho, rs, s.funding_note.version())) {
+                break n;
+            }
+        }
+    };
+    let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
+    let cv_net = ValueCommitment::derive(s.funding_note.value() - NoteValue::ZERO, rcv.clone());
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let spend = SpendInfo::new(fvk.clone(), s.funding_note, s.funding_path.clone()).unwrap();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(*s.payment.anchor(), cv_net.clone(), *action.nullifier(), rk.clone(), cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
+    // ...plus an address proof for the merchant's address, which the sender does not own.
+    let forged_address = forge_address_proof(&s.sender_sk, alpha, victim, s.funding_note.version());
+    for cv in [forged_address.cv_net, zceipt_core::address_proof_cv_net().to_bytes()] {
+        let address = zceipt_core::AddressProof { cv_net: cv, ..forged_address.clone() };
+        let unsigned = zceipt_core::UnsignedReceipt {
+            coin_type: COIN_TYPE_TESTNET,
+            pool: Pool::Ironwood,
+            output_pool: None,
+            txid: TXID,
+            msg: b"I am the merchant".to_vec(),
+            outputs: vec![],
+            opened: vec![],
+            spends: vec![zceipt_core::SpendDisclosure {
+                index: s.spend_index as u32,
+                cv_net: cv_net.to_bytes(),
+                rk: (&rk).into(),
+                cmx: cmx.to_bytes(),
+                proof: proof.as_ref().to_vec(),
+                address: Some(address),
+                source: None,
+            }],
+        };
+        let digest = zceipt_core::signing_digest(&unsigned);
+        let forged = Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned };
+        let forged = Receipt::from_bytes(&forged.to_bytes()).unwrap();
+        let res = verify(&keys().1, &forged, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+        assert!(res.is_err(), "a sender proved control of the merchant's address: {:?}", res.map(|v| v.proven_addresses));
+    }
+}
+
+// ---------- differential corpus for the independent Python verifier ----------
+
+/// An honest spend disclosure for the scenario's spent note, with a chosen alpha (as `create`
+/// makes it), so tests can re-sign receipts they alter.
+fn honest_spend(s: &Scenario, bundle: &Bundle<Authorized, i64>, alpha: pasta_curves::pallas::Scalar) -> zceipt_core::SpendDisclosure {
+    use ff::{Field, PrimeField};
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::RandomSeed,
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let mut rng = OsRng;
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let action = &bundle.actions()[s.spend_index];
+    let rk = VerificationKey::<SpendAuth>::from(&SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha));
+    let rho = action.rho();
+    let dummy_addr = FullViewingKey::from(&SpendingKey::from_bytes([5; 32]).unwrap()).address_at(0u32, Scope::External);
+    let dummy = loop {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(&mut rng, &mut b);
+        if let Some(rs) = Option::<RandomSeed>::from(RandomSeed::from_bytes(b, &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(dummy_addr, NoteValue::ZERO, rho, rs, s.funding_note.version())) {
+                break n;
+            }
+        }
+    };
+    let rcv = ValueCommitTrapdoor::from_bytes(pasta_curves::pallas::Scalar::random(&mut rng).to_repr()).unwrap();
+    let cv_net = ValueCommitment::derive(s.funding_note.value() - NoteValue::ZERO, rcv.clone());
+    let cmx: ExtractedNoteCommitment = dummy.commitment().into();
+    let spend = SpendInfo::new(fvk, s.funding_note, s.funding_path.clone()).unwrap();
+    let circuit = Circuit::from_action_context(spend, dummy, alpha, rcv, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(*bundle.anchor(), cv_net.clone(), *action.nullifier(), rk.clone(), cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], &[instance], &mut rng).unwrap();
+    zceipt_core::SpendDisclosure {
+        index: s.spend_index as u32,
+        cv_net: cv_net.to_bytes(),
+        rk: (&rk).into(),
+        cmx: cmx.to_bytes(),
+        proof: proof.as_ref().to_vec(),
+        address: None,
+        source: None,
+    }
+}
+
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn bundle_json(b: &Bundle<Authorized, i64>) -> serde_json::Value {
+    let actions: Vec<_> = b
+        .actions()
+        .iter()
+        .map(|a| {
+            let rk: [u8; 32] = a.rk().into();
+            serde_json::json!({
+                "cv": hex(&a.cv_net().to_bytes()), "nf": hex(&a.nullifier().to_bytes()), "rk": hex(&rk),
+                "cmx": hex(&a.cmx().to_bytes()), "epk": hex(&a.encrypted_note().epk_bytes),
+                "enc": hex(&a.encrypted_note().enc_ciphertext.0), "out": hex(&a.encrypted_note().out_ciphertext),
+            })
+        })
+        .collect();
+    serde_json::json!({ "anchor": hex(&b.anchor().to_bytes()), "actions": actions })
+}
+
+/// What the Rust verifier says, plus the public inputs it uses for every proof (whatever the verdict).
+fn rust_view(r: &Receipt, pool: Pool, b: &Bundle<Authorized, i64>, coin: u32, source: Option<&Bundle<Authorized, i64>>) -> serde_json::Value {
+    let lookup = |_p: Pool, t: &[u8; 32], i: u32| if t == &FUNDING_TXID { source.and_then(|sb| zceipt_core::output_cmx(sb, i)) } else { None };
+    let res = zceipt_core::verify_with_sources(&keys().1, r, coin, pool, TXID, b, &lookup);
+    let pis: Vec<_> = r
+        .unsigned
+        .spends
+        .iter()
+        .map(|s| {
+            let nf = b.actions().get(s.index as usize).map(|a| hex(&a.nullifier().to_bytes()));
+            serde_json::json!({
+                "anchor": hex(&b.anchor().to_bytes()), "cv_net": hex(&s.cv_net), "nf": nf, "rk": hex(&s.rk), "cmx": hex(&s.cmx),
+                "address_anchor": s.address.as_ref().and_then(|a| zceipt_core::address_proof_anchor(pool, a)).map(|x| hex(&x)),
+                "source": s.source.as_ref().map(|src| serde_json::json!({
+                    "anchor": source.and_then(|sb| zceipt_core::output_cmx(sb, src.index)).and_then(|c| zceipt_core::source_proof_anchor(&c)).map(|a| hex(&a.to_bytes())),
+                    "cv_net": zceipt_core::source_proof_cv_net(src.revealed_value()).map(|c| hex(&c.to_bytes())),
+                    "cmx": b.actions().get(s.index as usize).and_then(|a| zceipt_core::source_proof_cmx(pool, &a.nullifier().to_bytes(), src)).map(|c| hex(&c)),
+                })),
+            })
+        })
+        .collect();
+    match res {
+        Ok(v) => serde_json::json!({
+            "ok": true, "public_inputs": pis,
+            "outputs": v.outputs.iter().map(|o| serde_json::json!({"index": o.index, "recipient": hex(&o.recipient), "value": o.value, "memo": (!o.memo_withheld).then(|| hex(&o.memo))})).collect::<Vec<_>>(),
+            "proven_addresses": v.proven_addresses.iter().map(|(_, a)| hex(a)).collect::<Vec<_>>(),
+            "sources": v.sources.iter().map(|x| serde_json::json!({"spend": x.spend, "index": x.index, "value": x.value})).collect::<Vec<_>>(),
+        }),
+        Err(e) => serde_json::json!({ "ok": false, "error": format!("{e:?}"), "public_inputs": pis }),
+    }
+}
+
+/// Writes signed adversarial receipts (each re-signed after the change, so only the check under
+/// test can catch it) with the Rust verdicts, for `spec-verifier/tests/test_differential.py`.
+/// Set DIFF_CORPUS=path to write the file.
+#[test]
+fn differential_corpus() {
+    use ff::Field;
+    use orchard::primitives::redpallas::{SigningKey, SpendAuth, VerificationKey};
+    let Ok(path) = std::env::var("DIFF_CORPUS") else { return };
+    let mut rng = OsRng;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let so = scenario(BundleVersion::orchard_v2());
+    let mut cases = Vec::new();
+    let mut add = |name: &str, pool: Pool, b: &Bundle<Authorized, i64>, r: &Receipt, coin: u32| {
+        // Source proofs are checked against each scenario's own funding transaction.
+        let source = if pool == Pool::Orchard { &so.funding } else { &s.funding };
+        cases.push(serde_json::json!({
+            "name": name, "pool": if pool == Pool::Orchard { "orchard" } else { "ironwood" }, "coin_type": coin,
+            "receipt": hex(&r.to_bytes()), "rust": rust_view(r, pool, b, coin, Some(source)),
+        }));
+    };
+    let sign = |u: zceipt_core::UnsignedReceipt, rsks: &[&SigningKey<SpendAuth>]| {
+        let d = zceipt_core::signing_digest(&u);
+        Receipt { spend_auth_sigs: rsks.iter().map(|k| (&k.sign(OsRng, &d)).into()).collect(), unsigned: u }
+    };
+
+    let a = make_receipt(&s, Pool::Ironwood, b"order 42");
+    add("honest/ironwood", Pool::Ironwood, &s.payment, &a, COIN_TYPE_TESTNET);
+    add("honest/orchard", Pool::Orchard, &so.payment, &make_receipt(&so, Pool::Orchard, b"order 7"), COIN_TYPE_TESTNET);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let with_addr = create(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        TXID,
+        &s.payment,
+        b"from my public address",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness {
+            index: s.spend_index,
+            sk: s.sender_sk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: Some(fvk.address_at(5u32, Scope::External)),
+            source: None,
+        }],
+        OsRng,
+    )
+    .unwrap();
+    add("honest/with-address", Pool::Ironwood, &s.payment, &with_addr, COIN_TYPE_TESTNET);
+
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let spend = honest_spend(&s, &s.payment, alpha);
+    let base = zceipt_core::UnsignedReceipt {
+        coin_type: COIN_TYPE_TESTNET,
+        pool: Pool::Ironwood,
+        output_pool: None,
+        txid: TXID,
+        msg: b"manual".to_vec(),
+        outputs: a.unsigned.outputs.clone(),
+        opened: vec![],
+        spends: vec![spend.clone()],
+    };
+    add("manual/valid", Pool::Ironwood, &s.payment, &sign(base.clone(), &[&rsk]), COIN_TYPE_TESTNET);
+    add(
+        "resigned/new-message",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { msg: b"challenge:00ff".to_vec(), ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/no-outputs",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { outputs: vec![], ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    let victim = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    let forged = forge_address_proof(&s.sender_sk, alpha, victim, s.funding_note.version());
+    let with = |a: zceipt_core::AddressProof| zceipt_core::UnsignedReceipt {
+        spends: vec![zceipt_core::SpendDisclosure { address: Some(a), ..spend.clone() }],
+        ..base.clone()
+    };
+    add("forged-address/prover-cv", Pool::Ironwood, &s.payment, &sign(with(forged.clone()), &[&rsk]), COIN_TYPE_TESTNET);
+    add(
+        "forged-address/fixed-cv",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with(zceipt_core::AddressProof { cv_net: zceipt_core::address_proof_cv_net().to_bytes(), ..forged.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    let mut o = base.clone();
+    o.outputs[0].index = s.payment.actions().len() as u32;
+    add("resigned/output-index-out-of-range", Pool::Ironwood, &s.payment, &sign(o, &[&rsk]), COIN_TYPE_TESTNET);
+    let mut o = base.clone();
+    o.outputs.push(o.outputs[0].clone());
+    add("resigned/duplicate-output", Pool::Ironwood, &s.payment, &sign(o, &[&rsk]), COIN_TYPE_TESTNET);
+    let mut o = base.clone();
+    o.outputs[0].ock[0] ^= 1;
+    add("resigned/wrong-ock", Pool::Ironwood, &s.payment, &sign(o, &[&rsk]), COIN_TYPE_TESTNET);
+    add(
+        "resigned/ock-for-another-output",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(
+            zceipt_core::UnsignedReceipt {
+                outputs: vec![zceipt_core::OutputDisclosure {
+                    index: (s.merchant_index as u32 + 1) % s.payment.actions().len() as u32,
+                    ock: base.outputs[0].ock,
+                }],
+                ..base.clone()
+            },
+            &[&rsk],
+        ),
+        COIN_TYPE_TESTNET,
+    );
+    let zero = SigningKey::<SpendAuth>::try_from([0u8; 32]).unwrap();
+    let zero_rk: [u8; 32] = (&VerificationKey::from(&zero)).into();
+    add(
+        "resigned/rk-identity",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { spends: vec![zceipt_core::SpendDisclosure { rk: zero_rk, ..spend.clone() }], ..base.clone() }, &[&zero]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/non-canonical-cmx",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { spends: vec![zceipt_core::SpendDisclosure { cmx: [0xff; 32], ..spend.clone() }], ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/cv-not-a-point",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { spends: vec![zceipt_core::SpendDisclosure { cv_net: [0xff; 32], ..spend.clone() }], ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/proof-from-another-receipt",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(
+            zceipt_core::UnsignedReceipt {
+                spends: vec![zceipt_core::SpendDisclosure { proof: a.unsigned.spends[0].proof.clone(), ..spend.clone() }],
+                ..base.clone()
+            },
+            &[&rsk],
+        ),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/cv-from-another-receipt",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(
+            zceipt_core::UnsignedReceipt {
+                spends: vec![zceipt_core::SpendDisclosure { cv_net: a.unsigned.spends[0].cv_net, ..spend.clone() }],
+                ..base.clone()
+            },
+            &[&rsk],
+        ),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/spend-index-of-another-action",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(
+            zceipt_core::UnsignedReceipt {
+                spends: vec![zceipt_core::SpendDisclosure { index: (s.spend_index as u32 + 1) % s.payment.actions().len() as u32, ..spend.clone() }],
+                ..base.clone()
+            },
+            &[&rsk],
+        ),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/mainnet-receipt-on-testnet",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { coin_type: COIN_TYPE_MAINNET, ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/wrong-pool-bundle",
+        Pool::Orchard,
+        &so.payment,
+        &sign(zceipt_core::UnsignedReceipt { pool: Pool::Orchard, ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap()).randomize(&alpha);
+    add("signed-by-someone-else", Pool::Ironwood, &s.payment, &sign(base.clone(), &[&other]), COIN_TYPE_TESTNET);
+    // Source proofs.
+    add("honest/source-hidden", Pool::Ironwood, &s.payment, &receipt_with_source(&s, Pool::Ironwood, false), COIN_TYPE_TESTNET);
+    let revealed = receipt_with_source(&s, Pool::Ironwood, true);
+    add("honest/source-revealed", Pool::Ironwood, &s.payment, &revealed, COIN_TYPE_TESTNET);
+    add("honest/source-orchard", Pool::Orchard, &so.payment, &receipt_with_source(&so, Pool::Orchard, true), COIN_TYPE_TESTNET);
+    let honest_src = zceipt_core::__source_proof_for_tests(
+        &keys().0,
+        Pool::Ironwood,
+        s.spend_index as u32,
+        &fvk,
+        s.funding_note,
+        &source_witness(&s, true),
+        alpha,
+        &orchard::primitives::redpallas::VerificationKey::from(&rsk),
+        &mut { OsRng },
+    )
+    .unwrap();
+    let with_src = |p: zceipt_core::SourceProof| zceipt_core::UnsignedReceipt {
+        spends: vec![zceipt_core::SpendDisclosure { source: Some(p), ..spend.clone() }],
+        ..base.clone()
+    };
+    add("manual/source-valid", Pool::Ironwood, &s.payment, &sign(with_src(honest_src.clone()), &[&rsk]), COIN_TYPE_TESTNET);
+    let lie = |v: u64| {
+        let mut p = honest_src.clone();
+        if let zceipt_core::SourceValue::Revealed { value, .. } = &mut p.value {
+            *value = v;
+        }
+        p
+    };
+    add("resigned/source-value-lower", Pool::Ironwood, &s.payment, &sign(with_src(lie(99_999)), &[&rsk]), COIN_TYPE_TESTNET);
+    add("resigned/source-value-higher", Pool::Ironwood, &s.payment, &sign(with_src(lie(100_001)), &[&rsk]), COIN_TYPE_TESTNET);
+    let other_out = ((s.funding_index + 1) % s.funding.actions().len()) as u32;
+    add(
+        "resigned/source-other-output",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_src(zceipt_core::SourceProof { index: other_out, ..honest_src.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/source-unknown-tx",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_src(zceipt_core::SourceProof { txid: [0x11; 32], ..honest_src.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/source-is-the-payment",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_src(zceipt_core::SourceProof { txid: TXID, ..honest_src.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/source-proof-from-another-receipt",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_src(revealed.unsigned.spends[0].source.clone().unwrap()), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    let hidden_as_revealed = zceipt_core::__source_proof_for_tests(
+        &keys().0,
+        Pool::Ironwood,
+        s.spend_index as u32,
+        &fvk,
+        s.funding_note,
+        &source_witness(&s, false),
+        alpha,
+        &orchard::primitives::redpallas::VerificationKey::from(&rsk),
+        &mut { OsRng },
+    )
+    .unwrap();
+    add(
+        "resigned/source-hidden-relabelled-as-1",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(
+            with_src(zceipt_core::SourceProof {
+                value: zceipt_core::SourceValue::Revealed {
+                    value: 1,
+                    address: s.funding_note.recipient().to_raw_address_bytes(),
+                    rseed: *s.funding_note.rseed().as_bytes(),
+                },
+                ..hidden_as_revealed
+            }),
+            &[&rsk],
+        ),
+        COIN_TYPE_TESTNET,
+    );
+    // Outputs disclosed without their memo.
+    let mw = receipt_memo_withheld(&s, Pool::Ironwood);
+    add("honest/memo-withheld", Pool::Ironwood, &s.payment, &mw, COIN_TYPE_TESTNET);
+    add("honest/memo-withheld-orchard", Pool::Orchard, &so.payment, &receipt_memo_withheld(&so, Pool::Orchard), COIN_TYPE_TESTNET);
+    let op = mw.unsigned.opened[0].clone();
+    let with_opened = |o: zceipt_core::OpenedOutput| zceipt_core::UnsignedReceipt { outputs: vec![], opened: vec![o], ..base.clone() };
+    add("manual/opened-valid", Pool::Ironwood, &s.payment, &sign(with_opened(op.clone()), &[&rsk]), COIN_TYPE_TESTNET);
+    add(
+        "resigned/opened-value-higher",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_opened(zceipt_core::OpenedOutput { value: op.value + 1, ..op.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/opened-other-recipient",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_opened(zceipt_core::OpenedOutput { address: fvk.address_at(0u32, Scope::External).to_raw_address_bytes(), ..op.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/opened-other-psi",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_opened(zceipt_core::OpenedOutput { psi: [2; 32], ..op.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/opened-noncanonical-rcm",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(with_opened(zceipt_core::OpenedOutput { rcm: [0xff; 32], ..op.clone() }), &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    add(
+        "resigned/opened-and-ock-same-output",
+        Pool::Ironwood,
+        &s.payment,
+        &sign(zceipt_core::UnsignedReceipt { opened: vec![op.clone()], ..base.clone() }, &[&rsk]),
+        COIN_TYPE_TESTNET,
+    );
+    // Single-byte flips of an honest receipt, not re-signed.
+    let bytes = a.to_bytes();
+    for i in (0..bytes.len()).step_by(41).chain(bytes.len() - 64..bytes.len()).step_by(1) {
+        let mut b = bytes.clone();
+        b[i] ^= 0x10;
+        if let Ok(r) = Receipt::from_bytes(&b) {
+            add(&format!("flip/{i}"), Pool::Ironwood, &s.payment, &r, COIN_TYPE_TESTNET);
+        }
+    }
+    let out = serde_json::json!({
+        "bundles": { "ironwood": bundle_json(&s.payment), "orchard": bundle_json(&so.payment) },
+        // The funding transaction of each scenario, at FUNDING_TXID, for source proofs.
+        "source_txid": hex(&FUNDING_TXID),
+        "source_bundles": { "ironwood": bundle_json(&s.funding), "orchard": bundle_json(&so.funding) },
+        "cases": cases,
+    });
+    std::fs::write(path, serde_json::to_string_pretty(&out).unwrap()).unwrap();
+}
+
+// ---------- source proofs: where the spent money came from ----------
+
+const FUNDING_TXID: [u8; 32] = [0xcd; 32];
+
+fn funding_lookup(s: &Scenario) -> impl Fn(Pool, &[u8; 32], u32) -> Option<[u8; 32]> + '_ {
+    move |_pool, txid, index| (txid == &FUNDING_TXID).then(|| zceipt_core::output_cmx(&s.funding, index)).flatten()
+}
+
+fn source_witness(s: &Scenario, reveal_value: bool) -> zceipt_core::SourceWitness {
+    zceipt_core::SourceWitness { txid: FUNDING_TXID, index: s.funding_index as u32, cmx: s.funding.actions()[s.funding_index].cmx().to_bytes(), reveal_value }
+}
+
+fn receipt_with_source(s: &Scenario, pool: Pool, reveal_value: bool) -> Receipt {
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    create(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        pool,
+        TXID,
+        &s.payment,
+        b"deposit to exchange B",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness {
+            index: s.spend_index,
+            sk: s.sender_sk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: Some(source_witness(s, reveal_value)),
+        }],
+        OsRng,
+    )
+    .unwrap()
+}
+
+fn source_roundtrip(version: BundleVersion, pool: Pool) {
+    let s = scenario(version);
+    for reveal in [false, true] {
+        let receipt = receipt_with_source(&s, pool, reveal);
+        assert_eq!(receipt.to_bytes()[4], 4, "a receipt with a source proof is format v4");
+        let parsed = Receipt::from_text(&receipt.to_text()).unwrap();
+        assert_eq!(parsed, receipt);
+        let lookup = funding_lookup(&s);
+        let v = zceipt_core::verify_with_sources(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment, &lookup).unwrap();
+        assert_eq!(
+            v.sources,
+            vec![zceipt_core::VerifiedSource {
+                spend: s.spend_index as u32,
+                txid: FUNDING_TXID,
+                index: s.funding_index as u32,
+                value: reveal.then_some(100_000),
+            }]
+        );
+        assert_eq!(v.outputs[0].value, s.merchant_value);
+        // A verifier that can't see the source transaction refuses rather than ignoring the claim.
+        assert_eq!(verify(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment).unwrap_err(), Error::SourceUnavailable(s.spend_index as u32));
+        println!("{pool:?} receipt with source (reveal={reveal}): {} bytes", receipt.to_bytes().len());
+        if let Ok(dir) = std::env::var("RECEIPT_FIXTURE_DIR") {
+            std::fs::write(format!("{dir}/{pool:?}-source-{reveal}.receipt"), receipt.to_text()).unwrap();
+        }
+    }
+}
+
+#[test]
+fn ironwood_source_roundtrip() {
+    source_roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_source_roundtrip() {
+    source_roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+#[test]
+fn a_source_must_be_the_output_that_created_the_note() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let receipt = receipt_with_source(&s, Pool::Ironwood, false);
+    let i = s.spend_index as u32;
+    // The claimed index points at another output of the source transaction (its dummy action).
+    let other = (s.funding_index + 1) % s.funding.actions().len();
+    let wrong_output = |_p: Pool, _t: &[u8; 32], _i: u32| zceipt_core::output_cmx(&s.funding, other as u32);
+    assert_eq!(
+        zceipt_core::verify_with_sources(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &wrong_output).unwrap_err(),
+        Error::BadSourceProof(i)
+    );
+    // ...or at an output of an unrelated transaction (here: the merchant's output of the payment).
+    let unrelated = |_p: Pool, _t: &[u8; 32], _i: u32| zceipt_core::output_cmx(&s.payment, s.merchant_index as u32);
+    assert_eq!(
+        zceipt_core::verify_with_sources(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &unrelated).unwrap_err(),
+        Error::BadSourceProof(i)
+    );
+    // `create` refuses a source whose cmx isn't the note's.
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let mut bad = source_witness(&s, false);
+    bad.cmx = s.funding.actions()[other].cmx().to_bytes();
+    let w = SpendWitness {
+        index: s.spend_index,
+        sk: s.sender_sk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: Some(bad),
+    };
+    assert_eq!(
+        create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[w], OsRng)
+            .unwrap_err(),
+        Error::WrongSource(i)
+    );
+}
+
+#[test]
+fn source_claims_are_bound_by_the_signature_and_the_proof() {
+    use zceipt_core::{SourceProof, SourceValue};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let lookup = funding_lookup(&s);
+    let check = |r: &Receipt| zceipt_core::verify_with_sources(&keys().1, r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &lookup);
+    let hidden = receipt_with_source(&s, Pool::Ironwood, false);
+    let revealed = receipt_with_source(&s, Pool::Ironwood, true);
+    let edit = |r: &Receipt, f: &dyn Fn(&mut SourceProof)| {
+        let mut r = r.clone();
+        f(r.unsigned.spends[0].source.as_mut().unwrap());
+        r
+    };
+    let set_value = |p: &mut SourceProof, v: u64| {
+        if let SourceValue::Revealed { value, .. } = &mut p.value {
+            *value = v;
+        }
+    };
+    // Edits without re-signing break the signature.
+    assert_eq!(check(&edit(&revealed, &|p| set_value(p, 1_000_000))).unwrap_err(), Error::BadSignature(s.spend_index as u32));
+    assert!(check(&edit(&hidden, &|p| p.index += 1)).is_err());
+    // Dropping the source proof breaks the signature too (the claim can't be silently removed).
+    let mut dropped = hidden.clone();
+    dropped.unsigned.spends[0].source = None;
+    assert!(check(&dropped).is_err());
+
+    // The signer themself can't lie about the value either: re-sign with a known alpha.
+    use ff::Field;
+    let mut rng = OsRng;
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let rk = orchard::primitives::redpallas::VerificationKey::from(&rsk);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let mut spend = honest_spend(&s, &s.payment, alpha);
+    let honest_source = |reveal: bool| {
+        zceipt_core::__source_proof_for_tests(
+            &keys().0,
+            Pool::Ironwood,
+            s.spend_index as u32,
+            &fvk,
+            s.funding_note,
+            &source_witness(&s, reveal),
+            alpha,
+            &rk,
+            &mut { OsRng },
+        )
+        .unwrap()
+    };
+    let resign = |spend: zceipt_core::SpendDisclosure| {
+        let unsigned = zceipt_core::UnsignedReceipt {
+            coin_type: COIN_TYPE_TESTNET,
+            pool: Pool::Ironwood,
+            output_pool: None,
+            txid: TXID,
+            msg: vec![],
+            outputs: vec![],
+            opened: vec![],
+            spends: vec![spend],
+        };
+        let digest = zceipt_core::signing_digest(&unsigned);
+        Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned }
+    };
+    let bad = Error::BadSourceProof(s.spend_index as u32);
+    let opened = honest_source(true);
+    spend.source = Some(opened.clone());
+    assert_eq!(check(&resign(spend.clone())).unwrap().sources[0].value, Some(100_000));
+    spend.source = Some(honest_source(false));
+    assert_eq!(check(&resign(spend.clone())).unwrap().sources[0].value, None);
+    // Revealing any other value than the note's fails, smaller or larger.
+    for lie in [1, 99_999, 100_001, 1_000_000] {
+        let mut p = opened.clone();
+        set_value(&mut p, lie);
+        spend.source = Some(p);
+        assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad, "value {lie} accepted");
+    }
+    // A hidden-value proof can't be relabelled as revealing 1 zatoshi (its output isn't 0), and
+    // a revealed one can't be relabelled as hidden with a made-up output.
+    let SourceValue::Hidden { cmx } = honest_source(false).value else { unreachable!() };
+    let hidden_proof = honest_source(false);
+    for addr_seed in [([0u8; 43], [0u8; 32]), (s.funding_note.recipient().to_raw_address_bytes(), *s.funding_note.rseed().as_bytes())] {
+        spend.source = Some(SourceProof { value: SourceValue::Revealed { value: 1, address: addr_seed.0, rseed: addr_seed.1 }, ..hidden_proof.clone() });
+        assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad);
+    }
+    spend.source = Some(SourceProof { value: SourceValue::Hidden { cmx }, ..opened.clone() });
+    assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad);
+    // A source proof made under another receipt's key doesn't transfer.
+    spend.source = hidden.unsigned.spends[0].source.clone();
+    assert_eq!(check(&resign(spend.clone())).unwrap_err(), bad);
+}
+
+/// The forgery that fixing `cv_net` prevents. The circuit only checks the anchor when the spent
+/// value is non-zero, so the owner of a *zero-value* note could otherwise "prove" it came from any
+/// output at all, for instance a withdrawal from a regulated exchange they never received.
+#[test]
+fn a_zero_value_note_cannot_claim_any_source() {
+    use ff::Field;
+    use orchard::{
+        builder::SpendInfo,
+        circuit::{Circuit, Instance, OrchardCircuitVersion},
+        note::{RandomSeed, Rho},
+        primitives::redpallas::{SpendAuth, VerificationKey},
+        value::{ValueCommitTrapdoor, ValueCommitment},
+        Proof,
+    };
+    let s = scenario_valued(BundleVersion::ironwood_v3(), 0, 0);
+    assert_eq!(s.funding_note.value().inner(), 0);
+    let victim = scenario(BundleVersion::ironwood_v3());
+    let claimed: ExtractedNoteCommitment = *victim.funding.actions()[victim.funding_index].cmx();
+    let mut rng = OsRng;
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let rk = VerificationKey::<SpendAuth>::from(&rsk);
+    // `create` refuses outright.
+    let w = SpendWitness {
+        index: s.spend_index,
+        sk: s.sender_sk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: Some(source_witness(&s, false)),
+    };
+    assert_eq!(create(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &[], &[w], OsRng).unwrap_err(), Error::ZeroValueSource);
+    // A hand-made proof: the real (zero-value) note, witnessed against the claimed output's tree.
+    let (_, claimed_path) = single_leaf_witness(&claimed);
+    let anchor = claimed_path.root(claimed);
+    let nf = s.funding_note.nullifier(&fvk);
+    let spend = SpendInfo::new(fvk.clone(), s.funding_note, claimed_path).unwrap();
+    let rho = Rho::from_bytes(&nf.to_bytes()).unwrap();
+    let out = loop {
+        let mut b = [0u8; 32];
+        rand::rand_core::Rng::fill_bytes(&mut rng, &mut b);
+        if let Some(rs) = Option::<RandomSeed>::from(RandomSeed::from_bytes(b, &rho)) {
+            if let Some(n) = Option::<Note>::from(Note::from_parts(fvk.address_at(0u32, Scope::External), NoteValue::ZERO, rho, rs, s.funding_note.version())) {
+                break n;
+            }
+        }
+    };
+    let zero = ValueCommitTrapdoor::from_bytes([0; 32]).unwrap();
+    let cv_own = ValueCommitment::derive(NoteValue::from_raw(0) - NoteValue::ZERO, zero.clone());
+    let cmx: ExtractedNoteCommitment = out.commitment().into();
+    let circuit = Circuit::from_action_context(spend, out, alpha, zero, OrchardCircuitVersion::PostNu6_3).unwrap();
+    let instance = Instance::from_parts(anchor, cv_own.clone(), nf, rk.clone(), cmx, Flags::ENABLED).unwrap();
+    let proof = Proof::create(&keys().0, &[circuit], std::slice::from_ref(&instance), &mut rng).unwrap();
+    // The proof is valid for the prover's own value commitment: this is a real forgery...
+    assert!(proof.verify(&keys().1, &[instance]).is_ok(), "the forgery should satisfy the circuit");
+    // ...which the verifier refuses because it fixes the value commitment itself.
+    let mut honest = honest_spend(&s, &s.payment, alpha);
+    let lookup = |_p: Pool, _t: &[u8; 32], _i: u32| Some(claimed.to_bytes());
+    for claimed_value in [None, Some(1u64), Some(100_000)] {
+        let value = match claimed_value {
+            None => zceipt_core::SourceValue::Hidden { cmx: cmx.to_bytes() },
+            Some(v) => zceipt_core::SourceValue::Revealed { value: v, address: out.recipient().to_raw_address_bytes(), rseed: *out.rseed().as_bytes() },
+        };
+        honest.source = Some(zceipt_core::SourceProof { txid: FUNDING_TXID, index: 0, value, proof: proof.as_ref().to_vec() });
+        let unsigned = zceipt_core::UnsignedReceipt {
+            coin_type: COIN_TYPE_TESTNET,
+            pool: Pool::Ironwood,
+            output_pool: None,
+            txid: TXID,
+            msg: vec![],
+            outputs: vec![],
+            opened: vec![],
+            spends: vec![honest.clone()],
+        };
+        let digest = zceipt_core::signing_digest(&unsigned);
+        let forged = Receipt::from_bytes(&Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &digest)).into()], unsigned }.to_bytes()).unwrap();
+        let res = zceipt_core::verify_with_sources(&keys().1, &forged, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, &lookup);
+        assert_eq!(res.unwrap_err(), Error::BadSourceProof(s.spend_index as u32), "a zero-value note claimed a source (value {claimed_value:?})");
+    }
+}
+
+/// Source proofs reveal the link the payer chose to reveal, and nothing that links this receipt
+/// to the transaction's own `rk` or to another receipt for the same spend.
+#[test]
+fn source_proofs_stay_unlinkable() {
+    let s = scenario(BundleVersion::ironwood_v3());
+    let a = receipt_with_source(&s, Pool::Ironwood, false);
+    let b = receipt_with_source(&s, Pool::Ironwood, false);
+    let (sa, sb) = (&a.unsigned.spends[0], &b.unsigned.spends[0]);
+    assert_ne!(sa.rk, sb.rk);
+    assert_ne!(sa.source, sb.source);
+    let tx_rk: [u8; 32] = s.payment.actions()[s.spend_index].rk().into();
+    assert_ne!(sa.rk, tx_rk);
+    // Hidden value: the encoding carries no value and no value commitment.
+    assert_eq!(sa.source.as_ref().unwrap().revealed_value(), None);
+}
+
+// ---------- outputs disclosed without their memo (per-field disclosure) ----------
+
+fn receipt_memo_withheld(s: &Scenario, pool: Pool) -> Receipt {
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    zceipt_core::create_cross_ext(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        pool,
+        &s.payment,
+        pool,
+        &s.payment,
+        TXID,
+        b"paid, memo withheld",
+        &[],
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness {
+            index: s.spend_index,
+            sk: s.sender_sk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: None,
+        }],
+        OsRng,
+    )
+    .unwrap()
+}
+
+fn memo_withheld_roundtrip(version: BundleVersion, pool: Pool) {
+    let s = scenario(version);
+    let r = receipt_memo_withheld(&s, pool);
+    assert_eq!(r.to_bytes()[4], 5, "a receipt with a memo-withheld output is format v5");
+    let parsed = Receipt::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    let v = verify(&keys().1, &parsed, COIN_TYPE_TESTNET, pool, TXID, &s.payment).unwrap();
+    assert_eq!(v.outputs.len(), 1);
+    let o = &v.outputs[0];
+    assert!(o.memo_withheld);
+    assert_eq!(o.value, s.merchant_value);
+    assert_eq!(o.memo, [0; 512]);
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(o.recipient, merchant.to_raw_address_bytes());
+    // The receipt carries nothing that opens the memo: no ock and not the note's rseed (from
+    // which esk, and so the memo key, derive).
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let action = &s.payment.actions()[s.merchant_index];
+    let ovk = fvk.to_ovk(Scope::External);
+    let note = s.payment.recover_output_with_ovk(s.merchant_index, &ovk).map(|(n, _, _)| n).or_else(|| {
+        // Ironwood bundles need the Ironwood domain.
+        zcash_note_encryption::try_output_recovery_with_ovk(
+            &IronwoodDomain::for_action(action),
+            &ovk,
+            action,
+            action.cv_net(),
+            &action.encrypted_note().out_ciphertext,
+        )
+        .map(|(n, _, _)| n)
+    });
+    let note = note.expect("sender recovers its own output");
+    let bytes = r.to_bytes();
+    assert!(!bytes.windows(32).any(|w| w == note.rseed().as_bytes()), "rseed must not be in the receipt");
+    assert!(r.unsigned.outputs.is_empty(), "no ock for the withheld output");
+    println!("{pool:?} memo-withheld receipt: {} bytes", bytes.len());
+    if let Ok(dir) = std::env::var("RECEIPT_FIXTURE_DIR") {
+        std::fs::write(format!("{dir}/{pool:?}-memo-withheld.receipt"), r.to_text()).unwrap();
+    }
+}
+
+#[test]
+fn ironwood_memo_withheld_roundtrip() {
+    memo_withheld_roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_memo_withheld_roundtrip() {
+    memo_withheld_roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+/// The signer can't change what an opened output says: a different value, recipient, or a
+/// different opening of the same commitment is refused, and an index can't be disclosed twice.
+#[test]
+fn opened_outputs_must_open_the_commitment() {
+    use ff::Field;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = receipt_memo_withheld(&s, Pool::Ironwood);
+    let o = good.unsigned.opened[0].clone();
+    let mut rng = OsRng;
+    let alpha = pasta_curves::pallas::Scalar::random(&mut rng);
+    let rsk = SpendAuthorizingKey::from(&s.sender_sk).randomize(&alpha);
+    let spend = honest_spend(&s, &s.payment, alpha);
+    let sign = |opened: Vec<zceipt_core::OpenedOutput>, outputs: Vec<zceipt_core::OutputDisclosure>| {
+        let u = zceipt_core::UnsignedReceipt {
+            coin_type: COIN_TYPE_TESTNET,
+            pool: Pool::Ironwood,
+            output_pool: None,
+            txid: TXID,
+            msg: vec![],
+            outputs,
+            opened,
+            spends: vec![spend.clone()],
+        };
+        let d = zceipt_core::signing_digest(&u);
+        Receipt { spend_auth_sigs: vec![(&rsk.sign(OsRng, &d)).into()], unsigned: u }
+    };
+    let check = |r: &Receipt| verify(&keys().1, r, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment);
+    let i = o.index;
+    assert!(check(&sign(vec![o.clone()], vec![])).is_ok());
+    for (what, bad) in [
+        ("value + 1", zceipt_core::OpenedOutput { value: o.value + 1, ..o.clone() }),
+        ("value - 1", zceipt_core::OpenedOutput { value: o.value - 1, ..o.clone() }),
+        (
+            "another recipient",
+            zceipt_core::OpenedOutput { address: FullViewingKey::from(&s.sender_sk).address_at(0u32, Scope::External).to_raw_address_bytes(), ..o.clone() },
+        ),
+        ("another psi", zceipt_core::OpenedOutput { psi: [1; 32], ..o.clone() }),
+        ("another rcm", zceipt_core::OpenedOutput { rcm: [1; 32], ..o.clone() }),
+        ("non-canonical psi", zceipt_core::OpenedOutput { psi: [0xff; 32], ..o.clone() }),
+        ("another output", zceipt_core::OpenedOutput { index: (i + 1) % s.payment.actions().len() as u32, ..o.clone() }),
+    ] {
+        assert!(check(&sign(vec![bad], vec![])).is_err(), "{what} accepted");
+    }
+    // Disclosing the same output both ways, or twice opened, is refused.
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let full = make_receipt(&s, Pool::Ironwood, b"x");
+    assert_eq!(check(&sign(vec![o.clone()], full.unsigned.outputs.clone())).unwrap_err(), Error::DuplicateIndex(i));
+    assert_eq!(check(&sign(vec![o.clone(), o.clone()], vec![])).unwrap_err(), Error::DuplicateIndex(i));
+    let both = zceipt_core::create_cross_ext(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        &s.payment,
+        Pool::Ironwood,
+        &s.payment,
+        TXID,
+        b"",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[SpendWitness {
+            index: s.spend_index,
+            sk: s.sender_sk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: None,
+        }],
+        OsRng,
+    );
+    assert_eq!(both.unwrap_err(), Error::DuplicateIndex(i));
+    // Editing the opening without re-signing breaks the signature.
+    let mut edited = good.clone();
+    edited.unsigned.opened[0].value += 1;
+    assert!(check(&edited).is_err());
+}
+
+// ---------- incoming receipts: the recipient proves it was paid ----------
+
+fn incoming(s: &Scenario, pool: Pool) -> zceipt_core::incoming::IncomingReceipt {
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    zceipt_core::incoming::create_incoming(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        pool,
+        TXID,
+        &s.payment,
+        b"challenge:ab12cd",
+        &merchant_sk,
+        &[s.merchant_index],
+        OsRng,
+    )
+    .unwrap()
+}
+
+fn incoming_roundtrip(version: BundleVersion, pool: Pool) {
+    use zceipt_core::incoming::{verify_incoming, IncomingReceipt};
+    let s = scenario(version);
+    let r = incoming(&s, pool);
+    let text = r.to_text();
+    assert!(text.starts_with("zrcin1"));
+    let parsed = IncomingReceipt::from_text(&text).unwrap();
+    assert_eq!(parsed, r);
+    let v = verify_incoming(&keys().1, &parsed, COIN_TYPE_TESTNET, TXID, &s.payment).unwrap();
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External);
+    assert_eq!(v.recipient, merchant.to_raw_address_bytes());
+    assert_eq!(v.outputs.len(), 1);
+    assert_eq!(v.outputs[0].value, s.merchant_value);
+    assert_eq!(&v.outputs[0].memo[..10], b"Invoice 42");
+    assert_eq!(v.msg, b"challenge:ab12cd");
+    // With no indices, the wallet finds its own outputs.
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let auto = zceipt_core::incoming::create_incoming(&keys().0, COIN_TYPE_TESTNET, pool, TXID, &s.payment, b"", &merchant_sk, &[], OsRng).unwrap();
+    assert_eq!(auto.outputs.iter().map(|o| o.index).collect::<Vec<_>>(), vec![s.merchant_index as u32]);
+    // No nullifier of the received note appears (its later spend stays unlinkable).
+    let n = decrypt(version, &s.payment, &FullViewingKey::from(&merchant_sk));
+    let nf = n.nullifier(&FullViewingKey::from(&merchant_sk)).to_bytes();
+    assert!(!r.to_bytes().windows(32).any(|w| w == nf), "the received note's nullifier is in the receipt");
+    println!("{pool:?} incoming receipt: {} bytes", r.to_bytes().len());
+}
+
+#[test]
+fn ironwood_incoming_roundtrip() {
+    incoming_roundtrip(BundleVersion::ironwood_v3(), Pool::Ironwood);
+}
+
+#[test]
+fn orchard_incoming_roundtrip() {
+    incoming_roundtrip(BundleVersion::orchard_v2(), Pool::Orchard);
+}
+
+/// Only the recipient can make one. The sender knows `esk` (its outgoing viewing key recovers
+/// it) but not the recipient's keys, so it can't prove the address; with its own address the
+/// output doesn't open. Edits, other outputs, other transactions and networks are refused.
+#[test]
+fn only_the_recipient_can_prove_receipt() {
+    use zceipt_core::incoming::{create_incoming, verify_incoming, IncomingOutput, IncomingReceipt};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let good = incoming(&s, Pool::Ironwood);
+    let check = |r: &IncomingReceipt| verify_incoming(&keys().1, r, COIN_TYPE_TESTNET, TXID, &s.payment);
+    assert!(check(&good).is_ok());
+    // The sender's wallet can't find the output as received.
+    assert!(create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, b"", &s.sender_sk, &[s.merchant_index], OsRng).is_err());
+    // The sender, with the right esk, signing for its own address, is refused: the output
+    // doesn't open to that address.
+    use zceipt_core::incoming::__sign_unchecked_for_tests as sign_for;
+    let sender_addr = FullViewingKey::from(&s.sender_sk).address_at(0u32, Scope::External);
+    let claim = sign_for(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, b"", &s.sender_sk, sender_addr, good.outputs.clone(), OsRng).unwrap();
+    assert_eq!(check(&claim).unwrap_err(), Error::BadOutputKey(s.merchant_index as u32), "the sender proved receipt of the merchant's payment");
+    // The recipient itself, validly signing wrong contents, is refused too.
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let merchant = FullViewingKey::from(&merchant_sk).address_at(3u32, Scope::External);
+    let resign =
+        |outputs: Vec<IncomingOutput>| sign_for(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, b"", &merchant_sk, merchant, outputs, OsRng).unwrap();
+    let i = s.merchant_index as u32;
+    let e = good.outputs[0].esk;
+    assert!(check(&resign(vec![IncomingOutput { index: i, esk: e }])).is_ok());
+    let other = ((s.merchant_index + 1) % s.payment.actions().len()) as u32;
+    assert_eq!(check(&resign(vec![IncomingOutput { index: other, esk: e }])).unwrap_err(), Error::BadOutputKey(other));
+    let mut e2 = e;
+    e2[0] ^= 1;
+    assert_eq!(check(&resign(vec![IncomingOutput { index: i, esk: e2 }])).unwrap_err(), Error::BadOutputKey(i));
+    assert_eq!(check(&resign(vec![IncomingOutput { index: i, esk: e }; 2])).unwrap_err(), Error::DuplicateIndex(i));
+    assert_eq!(check(&resign(vec![IncomingOutput { index: 99, esk: e }])).unwrap_err(), Error::IndexOutOfRange(99));
+    assert!(check(&resign(vec![])).is_err(), "an empty incoming receipt proves nothing");
+    // Edits without the key break the signature.
+    let mut edited = good.clone();
+    edited.msg = b"challenge:000000".to_vec();
+    assert_eq!(check(&edited).unwrap_err(), Error::BadSignature(0));
+    assert!(verify_incoming(&keys().1, &good, COIN_TYPE_MAINNET, TXID, &s.payment).is_err());
+    assert!(verify_incoming(&keys().1, &good, COIN_TYPE_TESTNET, [0x11; 32], &s.payment).is_err());
+    // Canonical decoding: trailing bytes or a truncation don't decode.
+    let mut b = good.to_bytes();
+    b.push(0);
+    assert!(IncomingReceipt::from_bytes(&b).is_none());
+    assert!(IncomingReceipt::from_bytes(&good.to_bytes()[..100]).is_none());
+}
+
+// ---------- signed payment requests ----------
+
+#[test]
+fn signed_payment_requests() {
+    use zceipt_core::payreq::{domain_lists_payee, sign_request, verify_request, PaymentRequest, RequestError};
+    let shop_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let payee = FullViewingKey::from(&shop_sk).address_at(3u32, Scope::External);
+    let now = 1_760_000_000;
+    let r = sign_request(&keys().0, COIN_TYPE_TESTNET, "Shop.Example", 250_000, "Order 42", "a1b2c3d4", now + 3600, &shop_sk, payee, OsRng).unwrap();
+    assert_eq!(r.domain, "shop.example");
+    let parsed = PaymentRequest::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    assert_eq!(verify_request(&keys().1, &parsed, COIN_TYPE_TESTNET, now).unwrap(), payee.to_raw_address_bytes());
+    // Expired, wrong network.
+    assert_eq!(verify_request(&keys().1, &r, COIN_TYPE_TESTNET, now + 3601).unwrap_err(), RequestError::Expired);
+    assert_eq!(verify_request(&keys().1, &r, COIN_TYPE_MAINNET, now).unwrap_err(), RequestError::Network);
+    // Any edit without the payee's key fails: amount, memo, code, domain, expiry, address.
+    type Edit = Box<dyn Fn(&mut PaymentRequest)>;
+    let edits: Vec<(&str, Edit)> = vec![
+        ("amount", Box::new(|r| r.amount += 1)),
+        ("memo", Box::new(|r| r.memo = "Order 43".into())),
+        ("code", Box::new(|r| r.code = "ffffffff".into())),
+        ("domain", Box::new(|r| r.domain = "evil.example".into())),
+        ("expiry", Box::new(|r| r.expires_at += 86_400)),
+        (
+            "payee",
+            Box::new(|r| {
+                r.address.address = FullViewingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap()).address_at(0u32, Scope::External).to_raw_address_bytes()
+            }),
+        ),
+    ];
+    for (what, f) in edits {
+        let mut e = r.clone();
+        f(&mut e);
+        assert!(verify_request(&keys().1, &e, COIN_TYPE_TESTNET, now).is_err(), "edited {what} accepted");
+    }
+    // An attacker signing its own request for its own address is valid as a signature, but the
+    // shop's domain doesn't list that address.
+    let thief_sk = SpendingKey::from_bytes([3; 32]).unwrap();
+    let thief = FullViewingKey::from(&thief_sk).address_at(0u32, Scope::External);
+    let swapped = sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 250_000, "Order 42", "a1b2c3d4", now + 3600, &thief_sk, thief, OsRng).unwrap();
+    let thief_payee = verify_request(&keys().1, &swapped, COIN_TYPE_TESTNET, now).unwrap();
+    let listed = serde_json::json!({ "payees": ["ua-of-the-shop"] });
+    let resolve = |ua: &str| (ua == "ua-of-the-shop").then(|| payee.to_raw_address_bytes());
+    assert!(domain_lists_payee(&listed, &payee.to_raw_address_bytes(), resolve));
+    assert!(!domain_lists_payee(&listed, &thief_payee, resolve));
+    // Nobody can sign for an address it doesn't own.
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, "", "a1b2c3d4", now, &thief_sk, payee, OsRng).is_err());
+    // Malformed fields are refused when signing and decoding: each rule on its own.
+    let ok = |d: &str, m: &str, c: &str, a: u64| sign_request(&keys().0, COIN_TYPE_TESTNET, d, a, m, c, now, &shop_sk, payee, OsRng).is_ok();
+    assert!(ok("shop.example:8443", &"m".repeat(512), &"a".repeat(64), 1));
+    assert!(ok("shop.example", "", "abcdef", 1));
+    assert!(ok("kemis-coffee.test", "", "abcdef", 1), "hyphen in domain");
+    assert!(!ok("", "", "abcdef", 1), "empty domain");
+    assert!(!ok("shop example", "", "abcdef", 1), "space in domain");
+    assert!(!ok("shop.example/path", "", "abcdef", 1), "path in domain");
+    assert!(!ok(&"a".repeat(254), "", "abcdef", 1), "domain too long");
+    assert!(ok(&"a".repeat(253), "", "abcdef", 1));
+    assert!(!ok("shop.example", "", "abcde", 1), "code too short");
+    assert!(!ok("shop.example", "", &"a".repeat(65), 1), "code too long");
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 0, "", "a1b2c3d4", now, &shop_sk, payee, OsRng).is_err());
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, &"x".repeat(513), "a1b2c3d4", now, &shop_sk, payee, OsRng).is_err());
+    assert!(sign_request(&keys().0, COIN_TYPE_TESTNET, "shop.example", 1, "", "not-hex!", now, &shop_sk, payee, OsRng).is_err());
+    let mut b = r.to_bytes();
+    b.push(0);
+    assert!(PaymentRequest::from_bytes(&b).is_none());
+    println!("signed request: {} bytes, {} chars", r.to_bytes().len(), r.to_text().len());
+}
+
+/// Exact limits for incoming receipts: message length and output count at creation, proof length
+/// when decoding.
+#[test]
+fn incoming_receipt_limits_are_exact() {
+    use zceipt_core::incoming::{create_incoming, IncomingReceipt};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let mk = |msg: &[u8], idx: &[usize]| create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment, msg, &sk, idx, OsRng);
+    let long = vec![b'x'; 65_536];
+    assert_eq!(mk(&long, &[s.merchant_index]).unwrap_err(), Error::TooLarge);
+    assert!(mk(&long[..65_535], &[s.merchant_index]).is_ok());
+    let many = vec![s.merchant_index; 256];
+    assert_eq!(mk(b"", &many).unwrap_err(), Error::TooLarge);
+    assert_eq!(mk(b"", &many[..255]).unwrap_err(), Error::DuplicateIndex(s.merchant_index as u32));
+    let good = mk(b"", &[s.merchant_index]).unwrap();
+    for (n, ok) in [(1usize << 16, true), ((1 << 16) + 1, false)] {
+        let mut r = good.clone();
+        r.address.proof = vec![7; n];
+        assert_eq!(IncomingReceipt::from_bytes(&r.to_bytes()).is_some(), ok, "proof of {n} bytes");
+    }
+}
+
+/// One incoming receipt proves one address: with outputs to two of the wallet's addresses in one
+/// transaction, the default picks the first address's outputs, and asking for both is refused.
+#[test]
+fn incoming_receipts_cover_one_address() {
+    use zceipt_core::incoming::{create_incoming, verify_incoming};
+    let version = BundleVersion::ironwood_v3();
+    let mut rng = OsRng;
+    let pk = network_pk(version);
+    let sender_sk = SpendingKey::from_bytes([7; 32]).unwrap();
+    let sender_fvk = FullViewingKey::from(&sender_sk);
+    let shop_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let shop = FullViewingKey::from(&shop_sk);
+    let (a3, a4) = (shop.address_at(3u32, Scope::External), shop.address_at(4u32, Scope::External));
+    let empty: orchard::Anchor = MerkleHashOrchard::empty_root(32.into()).into();
+    let mut b = Builder::new(BundleType::DEFAULT, version, Flags::SPENDS_DISABLED, empty).unwrap();
+    b.add_output(None, sender_fvk.address_at(0u32, Scope::External), NoteValue::from_raw(100_000), [0u8; 512]).unwrap();
+    let (unauth, _) = b.build::<i64>(&mut rng).unwrap().unwrap();
+    let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
+    let funding = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[]).unwrap();
+    let note = decrypt(version, &funding, &sender_fvk);
+    let (root, path) = single_leaf_witness(&note.commitment().into());
+    let mut b = Builder::new(BundleType::DEFAULT, version, version.default_flags(), root.into()).unwrap();
+    b.add_spend(sender_fvk.clone(), note, path).unwrap();
+    b.add_output(None, a3, NoteValue::from_raw(30_000), [0u8; 512]).unwrap();
+    b.add_output(None, a4, NoteValue::from_raw(40_000), [0u8; 512]).unwrap();
+    let (unauth, meta) = b.build::<i64>(&mut rng).unwrap().unwrap();
+    let sighash: [u8; 32] = unauth.commitment(TxVersion::V6).unwrap().into();
+    let pay = unauth.create_proof(pk, &mut rng).unwrap().apply_signatures(rng, sighash, &[SpendAuthorizingKey::from(&sender_sk)]).unwrap();
+    let (i3, i4) = (meta.output_action_index(0).unwrap(), meta.output_action_index(1).unwrap());
+    let auto = create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &pay, b"", &shop_sk, &[], OsRng).unwrap();
+    let v = verify_incoming(&keys().1, &auto, COIN_TYPE_TESTNET, TXID, &pay).unwrap();
+    assert_eq!(v.outputs.len(), 1, "one address per receipt");
+    let first = i3.min(i4);
+    assert_eq!(v.outputs[0].index as usize, first);
+    assert_eq!(v.recipient, if first == i3 { a3 } else { a4 }.to_raw_address_bytes());
+    assert_eq!(create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &pay, b"", &shop_sk, &[i3, i4], OsRng).unwrap_err(), Error::AddressNotOwned);
+    let only4 = create_incoming(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &pay, b"", &shop_sk, &[i4], OsRng).unwrap();
+    let v4 = verify_incoming(&keys().1, &only4, COIN_TYPE_TESTNET, TXID, &pay).unwrap();
+    assert_eq!((v4.recipient, v4.outputs[0].value), (a4.to_raw_address_bytes(), 40_000));
+}
+
+// ---------- proof of funds ----------
+
+#[test]
+fn proof_of_funds() {
+    use zceipt_core::reserve::{__resign_for_tests, create_reserve, verify_reserve, ReserveProof, ReserveWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    // The sender's funding note sits in a one-leaf tree; its root is the "chain" anchor here.
+    let anchor = s.funding_path.root(s.funding_note.commitment().into());
+    let w = || ReserveWitness { note: s.funding_note, merkle_path: s.funding_path.clone() };
+    let r = create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"challenge:0tc0ffer", &s.sender_sk, &[w()], OsRng).unwrap();
+    let parsed = ReserveProof::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    let chain = anchor.to_bytes();
+    let v = verify_reserve(&keys().1, &parsed, COIN_TYPE_TESTNET, &chain).unwrap();
+    assert_eq!(v.total, 100_000);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    assert_eq!(v.nullifiers, vec![s.funding_note.nullifier(&fvk).to_bytes()], "the note's real nullifier, so the chain can show it unspent");
+    // Another tree root (the chain says something else at that height) is refused.
+    assert_eq!(verify_reserve(&keys().1, &r, COIN_TYPE_TESTNET, &[1; 32]).unwrap_err(), Error::WrongAnchor);
+    assert!(verify_reserve(&keys().1, &r, COIN_TYPE_MAINNET, &chain).is_err());
+    // The holder can't overstate or understate a value, or prove the same note twice.
+    for lie in [99_999u64, 100_001, 1, 1_000_000] {
+        let mut e = r.clone();
+        e.notes[0].value = lie;
+        assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadSignature(0), "unsigned edit");
+        __resign_for_tests(&mut e, &mut { OsRng });
+        assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadProof(0), "value {lie} accepted");
+    }
+    assert_eq!(
+        create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"", &s.sender_sk, &[w(), w()], OsRng).unwrap_err(),
+        Error::DuplicateIndex(1)
+    );
+    let mut twice = r.clone();
+    twice.notes.push(twice.notes[0].clone());
+    twice.sigs.push(twice.sigs[0]);
+    __resign_for_tests(&mut twice, &mut { OsRng });
+    assert!(verify_reserve(&keys().1, &twice, COIN_TYPE_TESTNET, &chain).is_err());
+    // Someone else's key can't prove the note; a zero-value note proves nothing.
+    assert!(create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"", &SpendingKey::from_bytes([3; 32]).unwrap(), &[w()], OsRng).is_err());
+    let z = scenario_valued(BundleVersion::ironwood_v3(), 0, 0);
+    let za = z.funding_path.root(z.funding_note.commitment().into());
+    assert_eq!(
+        create_reserve(
+            &keys().0,
+            COIN_TYPE_TESTNET,
+            Pool::Ironwood,
+            1,
+            za,
+            b"",
+            &z.sender_sk,
+            &[ReserveWitness { note: z.funding_note, merkle_path: z.funding_path.clone() }],
+            OsRng
+        )
+        .unwrap_err(),
+        Error::ZeroValueSource
+    );
+    // A path to another root is refused at creation.
+    assert_eq!(create_reserve(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1, za, b"", &s.sender_sk, &[w()], OsRng).unwrap_err(), Error::WrongAnchor);
+    // Strict decoding.
+    let mut b = r.to_bytes();
+    b.push(0);
+    assert!(ReserveProof::from_bytes(&b).is_none());
+    println!("proof of funds, one note: {} bytes", r.to_bytes().len());
+}
+
+/// The prove step needs only the full viewing key; the signature can come from elsewhere (a
+/// hardware wallet holding `ask`), and a signature by the wrong key is caught before it ships.
+#[test]
+fn prepare_with_viewing_key_then_sign_elsewhere() {
+    use zceipt_core::{prepare, ViewingSpendWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness {
+        index: s.spend_index,
+        fvk: fvk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: None,
+    };
+    let prepared = prepare(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        &s.payment,
+        Pool::Ironwood,
+        &s.payment,
+        TXID,
+        b"Invoice 42",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[],
+        &[witness],
+        OsRng,
+    )
+    .unwrap();
+
+    // It travels to the signer as `zip311u1…` text and comes back the same; a changed byte is refused.
+    let text = prepared.to_text();
+    assert!(text.starts_with(zceipt_core::PREPARED_TEXT_PREFIX));
+    let back = zceipt_core::PreparedReceipt::from_text(&text).unwrap();
+    assert_eq!(back.unsigned(), prepared.unsigned());
+    assert_eq!(back.alphas(), prepared.alphas());
+    let mut bytes = prepared.to_bytes();
+    bytes.push(0);
+    assert!(zceipt_core::PreparedReceipt::from_bytes(&bytes).is_err());
+    bytes.truncate(bytes.len() - 2);
+    assert!(zceipt_core::PreparedReceipt::from_bytes(&bytes).is_err());
+
+    // The "hardware wallet": given the unsigned receipt and the randomizers, it computes the
+    // digest itself and checks each rk before signing.
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let sigs = zceipt_core::sign_prepared(prepared.unsigned(), prepared.alphas(), std::slice::from_ref(&ask), OsRng).unwrap();
+    let receipt = prepared.clone().apply_signatures(sigs).unwrap();
+    verify(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+
+    // The proofs don't cover the message: the same prepared receipt signs another one, which
+    // verifies with that message, and moving a signature across messages is refused.
+    let other_msg = prepared.clone().with_message(b"challenge:a1b2c3").unwrap().sign(&[ask], OsRng).unwrap();
+    let what = verify(&keys().1, &other_msg, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+    assert_eq!(what.msg, b"challenge:a1b2c3");
+    let mut moved = other_msg.clone();
+    moved.spend_auth_sigs = receipt.spend_auth_sigs.clone();
+    assert!(matches!(verify(&keys().1, &moved, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment), Err(Error::BadSignature(_))));
+
+    // Another wallet's key: the signer refuses (its rk doesn't match), and a signature made with
+    // it anyway is refused when attached.
+    let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
+    assert!(matches!(zceipt_core::sign_prepared(prepared.unsigned(), prepared.alphas(), std::slice::from_ref(&other), OsRng), Err(Error::BadSignature(_))));
+    let digest = zceipt_core::signing_digest(prepared.unsigned());
+    let bad: [u8; 64] = (&other.randomize(&prepared.alphas()[0]).sign(OsRng, &digest)).into();
+    assert!(matches!(prepared.apply_signatures(vec![bad]), Err(Error::BadSignature(_))));
+}
+
+#[test]
+fn screened_set_proof_shows_membership_not_which_member() {
+    use zceipt_core::{prepare, screened, ViewingSpendWitness};
+    let mut rng = OsRng;
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness {
+        index: s.spend_index,
+        fvk: fvk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: None,
+    };
+    let prepared = prepare(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        &s.payment,
+        Pool::Ironwood,
+        &s.payment,
+        TXID,
+        b"Deposit 7",
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[],
+        &[witness],
+        OsRng,
+    )
+    .unwrap();
+    let alpha = prepared.alphas()[0];
+    let rk = orchard::primitives::redpallas::VerificationKey::try_from(prepared.unsigned().spends[0].rk).unwrap();
+    let receipt = prepared.sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
+    verify(&keys().1, &receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).unwrap();
+
+    // The exchange's published list: other screened deposits, with the sender's note among them.
+    let mine = ExtractedNoteCommitment::from(s.funding_note.commitment()).to_bytes();
+    let others: Vec<[u8; 32]> = s.payment.actions().iter().chain(s.funding.actions()).map(|a| a.cmx().to_bytes()).filter(|c| *c != mine).collect();
+    let mut set = others.clone();
+    set.insert(1, mine);
+    let p = screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &set, 60_000, alpha, &rk, &mut rng)
+        .unwrap();
+    let nf = s.payment.actions()[s.spend_index].nullifier().to_bytes();
+    let back = screened::ScreenedProof::from_text(&p.to_text()).unwrap();
+    assert_eq!(back, p);
+    screened::verify(&keys().1, &receipt, &nf, &back, &set).unwrap();
+    // ZCEIPT_WRITE_FIXTURES=1 refreshes the copy the independent Python verifier checks.
+    if std::env::var_os("ZCEIPT_WRITE_FIXTURES").is_some() {
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let fixture = format!(
+            "{{\"proof\": \"{}\", \"set\": [{}], \"rk\": \"{}\", \"nf\": \"{}\", \"txid\": \"{}\"}}\n",
+            p.to_text(),
+            set.iter().map(|c| format!("\"{}\"", hex(c))).collect::<Vec<_>>().join(", "),
+            hex(&receipt.unsigned.spends[0].rk),
+            hex(&nf),
+            hex(&TXID)
+        );
+        std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec-verifier/tests/screened.json"), fixture).unwrap();
+    }
+    // The proof names the set's root, not the member.
+    assert!(!p.to_bytes().windows(32).any(|w| w == mine));
+
+    // A list without the note: no proof can be made, and this one doesn't verify against it.
+    assert!(matches!(
+        screened::prove(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, s.spend_index as u32, &fvk, s.funding_note, &others, 1, alpha, &rk, &mut rng),
+        Err(Error::NotInSet)
+    ));
+    assert!(screened::verify(&keys().1, &receipt, &nf, &p, &others).is_err());
+    // Another action's nullifier, or a proof moved to another receipt, is refused.
+    let other_nf = s.payment.actions()[1 - s.spend_index].nullifier().to_bytes();
+    assert!(screened::verify(&keys().1, &receipt, &other_nf, &p, &set).is_err());
+    let mut moved = p.clone();
+    moved.txid = [9; 32];
+    assert!(screened::verify(&keys().1, &receipt, &nf, &moved, &set).is_err());
+    // The floor is part of the statement: a proof for 60,000 doesn't pass as one for more (or
+    // less), and no proof can claim more than the note held.
+    for lie in [60_001u64, 59_999, 100_000] {
+        let mut e = p.clone();
+        e.floor = lie;
+        assert!(screened::verify(&keys().1, &receipt, &nf, &e, &set).is_err(), "floor {lie} accepted");
+    }
+    assert!(screened::prove(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        TXID,
+        s.spend_index as u32,
+        &fvk,
+        s.funding_note,
+        &set,
+        100_001,
+        alpha,
+        &rk,
+        &mut rng
+    )
+    .is_err());
+}
+
+#[test]
+fn proof_of_funds_can_hide_each_value_and_show_only_the_total() {
+    use zceipt_core::reserve::{__resign_for_tests, create_reserve_hiding_values, verify_reserve, ReserveProof, ReserveWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let anchor = s.funding_path.root(s.funding_note.commitment().into());
+    let w = ReserveWitness { note: s.funding_note, merkle_path: s.funding_path.clone() };
+    let r = create_reserve_hiding_values(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, 1234, anchor, b"challenge:0tc0ffer", &s.sender_sk, &[w], OsRng).unwrap();
+    let parsed = ReserveProof::from_text(&r.to_text()).unwrap();
+    assert_eq!(parsed, r);
+    let chain = anchor.to_bytes();
+    let v = verify_reserve(&keys().1, &parsed, COIN_TYPE_TESTNET, &chain).unwrap();
+    assert_eq!((v.total, v.values.len()), (100_000, 0), "the total, and no per-note value");
+    assert!(r.notes.iter().all(|n| n.value == 0 && n.cv_net.is_some()));
+    // ZCEIPT_WRITE_FIXTURES=1 refreshes the copy the independent Python verifier checks.
+    if std::env::var_os("ZCEIPT_WRITE_FIXTURES").is_some() {
+        std::fs::write(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec-verifier/tests/reserve-hidden.txt"),
+            format!("{}\n{}\n", r.to_text(), chain.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+        )
+        .unwrap();
+    }
+    // The total can't be overstated or understated, even re-signed.
+    for lie in [99_999u64, 100_001, 1_000_000] {
+        let mut e = r.clone();
+        e.hidden_total.as_mut().unwrap().0 = lie;
+        __resign_for_tests(&mut e, &mut { OsRng });
+        assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadTotal, "total {lie} accepted");
+    }
+    // A note's commitment swapped for one to a bigger value breaks its proof.
+    let mut e = r.clone();
+    e.notes[0].cv_net = Some(
+        orchard::value::ValueCommitment::derive(
+            NoteValue::from_raw(200_000) - NoteValue::ZERO,
+            Option::from(orchard::value::ValueCommitTrapdoor::from_bytes([0; 32])).unwrap(),
+        )
+        .to_bytes(),
+    );
+    e.hidden_total.as_mut().unwrap().1 = [0; 32];
+    e.hidden_total.as_mut().unwrap().0 = 200_000;
+    __resign_for_tests(&mut e, &mut { OsRng });
+    assert_eq!(verify_reserve(&keys().1, &e, COIN_TYPE_TESTNET, &chain).unwrap_err(), Error::BadProof(0));
+}
+
+/// Prepared receipts for `s`'s payment from its sender's viewing key.
+fn prepared_for(s: &Scenario, msg: &[u8]) -> zceipt_core::PreparedReceipt {
+    use zceipt_core::{prepare, ViewingSpendWitness};
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness {
+        index: s.spend_index,
+        fvk: fvk.clone(),
+        note: s.funding_note,
+        merkle_path: s.funding_path.clone(),
+        prove_address: None,
+        source: None,
+    };
+    prepare(
+        &keys().0,
+        COIN_TYPE_TESTNET,
+        Pool::Ironwood,
+        &s.payment,
+        Pool::Ironwood,
+        &s.payment,
+        TXID,
+        msg,
+        &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+        &[],
+        &[witness],
+        OsRng,
+    )
+    .unwrap()
+}
+
+#[test]
+fn same_payer_proof_links_one_key_and_nothing_else() {
+    use zceipt_core::link;
+    let a = scenario_from(BundleVersion::ironwood_v3(), 100_000, 42_000, 7);
+    let other = scenario_from(BundleVersion::ironwood_v3(), 100_000, 42_000, 8);
+    let ask = |s: &Scenario| SpendAuthorizingKey::from(&s.sender_sk);
+    // Two receipts from wallet 7 (fresh alphas, so their rks differ), one from wallet 8.
+    let (p1, p2, q) = (prepared_for(&a, b"Invoice 1"), prepared_for(&a, b"Invoice 2"), prepared_for(&other, b"Invoice 3"));
+    assert_ne!(p1.unsigned().spends[0].rk, p2.unsigned().spends[0].rk);
+    let proof = link::prove(&[&p1, &p2], b"challenge:5a3e11", OsRng).unwrap();
+    let text = proof.to_text();
+    assert_eq!(link::LinkProof::from_text(&text).unwrap(), proof);
+    let (r1, r2) = (p1.clone().sign(&[ask(&a)], OsRng).unwrap(), p2.clone().sign(&[ask(&a)], OsRng).unwrap());
+    let r3 = q.clone().sign(&[ask(&other)], OsRng).unwrap();
+    link::verify(&proof, &[&r1, &r2]).unwrap();
+
+    // Another wallet's prepared receipt can't be proven linked: the prover refuses.
+    assert_eq!(link::prove(&[&p1, &q], b"", OsRng).unwrap_err(), Error::BadLink);
+    // Nor can a proof be moved to other receipts, reordered, or have a value changed.
+    assert_eq!(link::verify(&proof, &[&r1, &r3]).unwrap_err(), Error::BadLink);
+    assert_eq!(link::verify(&proof, &[&r2, &r1]).unwrap_err(), Error::BadLink);
+    let mut bent = proof.clone();
+    bent.msg = b"challenge:000000".to_vec();
+    assert_eq!(link::verify(&bent, &[&r1, &r2]).unwrap_err(), Error::BadLink);
+    let mut bent = proof.clone();
+    bent.links[0].1[0] ^= 1;
+    assert!(link::verify(&bent, &[&r1, &r2]).is_err());
+    // A forger who knows only the public rks (no alphas) and tries a proof for wallet 8's receipt
+    // as if it were wallet 7's: pick s at random and solve for R; the challenge then differs.
+    let g = link::spend_auth_base();
+    use group::GroupEncoding;
+    let rk = |r: &zceipt_core::Receipt| <pasta_curves::pallas::Point as GroupEncoding>::from_bytes(&r.unsigned.spends[0].rk).unwrap();
+    let mut rng = OsRng;
+    let s = <pasta_curves::pallas::Scalar as group::ff::Field>::random(&mut rng);
+    let guess_c = <pasta_curves::pallas::Scalar as group::ff::Field>::random(&mut rng);
+    let big_r = g * s - (rk(&r3) - rk(&r1)) * guess_c;
+    let forged = link::LinkProof {
+        coin_type: COIN_TYPE_TESTNET,
+        msg: vec![],
+        receipts: vec![zceipt_core::signing_digest(&r1.unsigned), zceipt_core::signing_digest(&r3.unsigned)],
+        links: vec![(big_r.to_bytes(), group::ff::PrimeField::to_repr(&s))],
+    };
+    assert_eq!(link::verify(&forged, &[&r1, &r3]).unwrap_err(), Error::BadLink);
+}
+
+#[test]
+fn spend_auth_base_is_the_orchard_generator() {
+    // rk = ak.randomize(alpha) = ak + [alpha]G, so (rk - ak) = [alpha]G for the base G.
+    use group::GroupEncoding;
+    let ask = SpendAuthorizingKey::from(&SpendingKey::from_bytes([7; 32]).unwrap());
+    let mut rng = OsRng;
+    let alpha = <pasta_curves::pallas::Scalar as group::ff::Field>::random(&mut rng);
+    let vk = orchard::keys::SpendValidatingKey::from(&ask);
+    let ak: [u8; 32] = (&vk.randomize(&<pasta_curves::pallas::Scalar as group::ff::Field>::ZERO)).into();
+    let rk: [u8; 32] = (&vk.randomize(&alpha)).into();
+    let p = |b: [u8; 32]| <pasta_curves::pallas::Point as GroupEncoding>::from_bytes(&b).unwrap();
+    assert_eq!(p(rk) - p(ak), zceipt_core::link::spend_auth_base() * alpha);
+}
+
+#[test]
+fn an_aggregated_batch_proves_every_spend_with_one_proof() {
+    use zceipt_core::{aggregate_proof, prepare_deferred, verify_aggregate, verify_tx_bundles_deferred, ViewingSpendWitness};
+    let (a, b) = (scenario_from(BundleVersion::ironwood_v3(), 100_000, 42_000, 7), scenario_from(BundleVersion::ironwood_v3(), 90_000, 30_000, 8));
+    let mut statements = vec![];
+    let prep = |s: &Scenario, msg: &[u8], st: &mut zceipt_core::Statements| {
+        let fvk = FullViewingKey::from(&s.sender_sk);
+        let w = ViewingSpendWitness {
+            index: s.spend_index,
+            fvk: fvk.clone(),
+            note: s.funding_note,
+            merkle_path: s.funding_path.clone(),
+            prove_address: None,
+            source: None,
+        };
+        prepare_deferred(
+            &keys().0,
+            COIN_TYPE_TESTNET,
+            Pool::Ironwood,
+            &s.payment,
+            Pool::Ironwood,
+            &s.payment,
+            TXID,
+            msg,
+            &[(s.merchant_index, fvk.to_ovk(Scope::External))],
+            &[w],
+            OsRng,
+            st,
+        )
+        .unwrap()
+    };
+    let (pa, pb) = (prep(&a, b"batch:ab 1/2", &mut statements), prep(&b, b"batch:ab 2/2", &mut statements));
+    assert!(pa.unsigned().spends[0].proof.is_empty());
+    let proof = aggregate_proof(&keys().0, statements, OsRng).unwrap();
+    let ra = pa.sign(&[SpendAuthorizingKey::from(&a.sender_sk)], OsRng).unwrap();
+    let rb = pb.sign(&[SpendAuthorizingKey::from(&b.sender_sk)], OsRng).unwrap();
+    // One proof, smaller than two proved alone (about 5 KB each).
+    assert!(proof.len() < 2 * 4992, "{} bytes", proof.len());
+
+    let check = |rs: &[&Receipt], proof: &[u8]| -> Result<(), Error> {
+        let mut instances = vec![];
+        for (r, s) in rs.iter().zip([&a, &b]) {
+            verify_tx_bundles_deferred(&keys().1, r, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &mut instances)?;
+        }
+        verify_aggregate(&keys().1, &instances, proof)
+    };
+    check(&[&ra, &rb], &proof).unwrap();
+    // A receipt without its own proof never verifies alone.
+    assert!(verify(&keys().1, &ra, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &a.payment).is_err());
+    // The proof covers exactly these statements in this order.
+    let mut instances = vec![];
+    verify_tx_bundles_deferred(&keys().1, &ra, COIN_TYPE_TESTNET, TXID, None, Some(&a.payment), &mut instances).unwrap();
+    verify_tx_bundles_deferred(&keys().1, &rb, COIN_TYPE_TESTNET, TXID, None, Some(&b.payment), &mut instances).unwrap();
+    instances.swap(0, 1);
+    assert_eq!(verify_aggregate(&keys().1, &instances, &proof).unwrap_err(), Error::BadAggregate);
+    let mut bent = proof.clone();
+    bent[100] ^= 1;
+    assert_eq!(check(&[&ra, &rb], &bent).unwrap_err(), Error::BadAggregate);
+    let mut instances = vec![];
+    verify_tx_bundles_deferred(&keys().1, &ra, COIN_TYPE_TESTNET, TXID, None, Some(&a.payment), &mut instances).unwrap();
+    assert_eq!(verify_aggregate(&keys().1, &instances, &proof).unwrap_err(), Error::BadAggregate);
+}
+
+#[test]
+fn proof_of_income_shows_a_total_not_the_amounts() {
+    use zceipt_core::income::{prove, spread, verify, IncomeWitness};
+    let v3 = BundleVersion::ironwood_v3();
+    // Two payments to the merchant (key [9; 32]): 42,000 and 30,000 zatoshis.
+    let (a, b) = (scenario_from(v3, 100_000, 42_000, 7), scenario_from(v3, 90_000, 30_000, 8));
+    let merchant_sk = SpendingKey::from_bytes([9; 32]).unwrap();
+    let fvk = FullViewingKey::from(&merchant_sk);
+    let (ta, tb) = ([0xa1; 32], [0xb2; 32]);
+    let found = |s: &Scenario, txid: [u8; 32]| -> IncomeWitness {
+        let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+        let (index, note) = s
+            .payment
+            .actions()
+            .iter()
+            .enumerate()
+            .find_map(|(i, act)| try_note_decryption(&IronwoodDomain::for_action(act), &ivk, act).map(|r| (i as u32, r.0)))
+            .unwrap();
+        IncomeWitness { pool: Pool::Ironwood, txid, index, height: 100, note }
+    };
+    let (wa, wb) = (found(&a, ta), found(&b, tb));
+    let source = |pool: Pool, txid: &[u8; 32], index: u32| -> Option<[u8; 32]> {
+        let s = if *txid == ta {
+            &a
+        } else if *txid == tb {
+            &b
+        } else {
+            return None;
+        };
+        (pool == Pool::Ironwood).then(|| s.payment.actions().get(index as usize).map(|act| act.cmx().to_bytes())).flatten()
+    };
+
+    // At least 60,000 in total, the floors as even as the notes allow (30,000 each).
+    let floors = spread(&[wa.note.value().inner(), wb.note.value().inner()], 60_000).unwrap();
+    assert_eq!(floors, vec![30_000, 30_000]);
+    let ask = SpendAuthorizingKey::from(&merchant_sk);
+    let p = prove(&keys().0, COIN_TYPE_TESTNET, &fvk, &ask, &[wa, wb], &floors, b"challenge:1ec0e1", OsRng).unwrap();
+    assert_eq!(verify(&keys().1, &p, &source).unwrap(), 60_000);
+    assert_eq!(zceipt_core::income::IncomeProof::from_text(&p.to_text()).unwrap(), p);
+
+    // A floor raised after signing, an output swapped for another, or one counted twice: refused.
+    let mut bent = p.clone();
+    bent.items[0].floor += 1;
+    assert_eq!(verify(&keys().1, &bent, &source).unwrap_err(), Error::BadIncome);
+    let wrong = |pool: Pool, txid: &[u8; 32], index: u32| source(pool, txid, index ^ 1);
+    assert_eq!(verify(&keys().1, &p, &wrong).unwrap_err(), Error::BadIncome);
+    let mut twice = p.clone();
+    twice.items[1] = twice.items[0].clone();
+    assert_eq!(verify(&keys().1, &twice, &source).unwrap_err(), Error::BadIncome);
+    // More than the notes hold can't be proven, and another wallet's note can't be used.
+    assert!(spread(&[42_000, 30_000], 72_001).is_none());
+    let (wa, wb) = (found(&a, ta), found(&b, tb));
+    assert!(prove(&keys().0, COIN_TYPE_TESTNET, &fvk, &ask, &[wa, wb], &[42_001, 1], b"", OsRng).is_err());
+    let stranger = FullViewingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
+    let (wa, wb) = (found(&a, ta), found(&b, tb));
+    assert!(prove(&keys().0, COIN_TYPE_TESTNET, &stranger, &ask, &[wa, wb], &floors, b"", OsRng).is_err());
+}
+
+#[test]
+fn key_set_proof_names_the_set_not_the_key() {
+    use zceipt_core::keyset::{prove, verify, KeySetProof};
+    let ak = |b: u8| -> [u8; 32] {
+        let vk = orchard::keys::SpendValidatingKey::from(&SpendAuthorizingKey::from(&SpendingKey::from_bytes([b; 32]).unwrap()));
+        (&vk.randomize(&<pasta_curves::pallas::Scalar as group::ff::Field>::ZERO)).into()
+    };
+    // A department's four published keys; the payer (key [7; 32]) is the third.
+    let dept = vec![ak(1), ak(2), ak(7), ak(4)];
+    let s = scenario(BundleVersion::ironwood_v3());
+    let prepared = prepared_for(&s, b"Payroll October");
+    let p = prove(&prepared, dept.clone(), b"challenge:d3a1b9", OsRng).unwrap();
+    let receipt = prepared.clone().sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
+    assert_eq!(verify(&KeySetProof::from_text(&p.to_text()).unwrap(), &receipt).unwrap(), 4);
+    // ZCEIPT_WRITE_KEYSET_VECTOR=1 refreshes conformance/keyset.json, which the spec verifier checks.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/keyset.json");
+    if std::env::var_os("ZCEIPT_WRITE_KEYSET_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A receipt and its key-set proof over 4 published keys (roundtrip.rs).", "receipt": receipt.to_text(), "keyset": p.to_text(), "keys": 4 });
+        std::fs::write(path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let vr = zceipt_core::Receipt::from_text(v["receipt"].as_str().unwrap()).unwrap();
+    assert_eq!(verify(&KeySetProof::from_text(v["keyset"].as_str().unwrap()).unwrap(), &vr).unwrap(), 4);
+    // Every key's pair looks alike: nothing marks the third as the real one.
+    assert!(p.spends[0].iter().all(|(c, s)| c != &[0; 32] && s != &[0; 32]));
+
+    // A set without the payer's key can't be proven, and a proof can't be moved or bent.
+    assert_eq!(prove(&prepared, vec![ak(1), ak(2)], b"", OsRng).unwrap_err(), Error::BadKeySet);
+    let mut other = p.clone();
+    other.keys[2] = ak(5);
+    assert_eq!(verify(&other, &receipt).unwrap_err(), Error::BadKeySet);
+    let mut bent = p.clone();
+    bent.msg = b"challenge:000000".to_vec();
+    assert_eq!(verify(&bent, &receipt).unwrap_err(), Error::BadKeySet);
+    let another = prepared_for(&s, b"Payroll November").sign(&[SpendAuthorizingKey::from(&s.sender_sk)], OsRng).unwrap();
+    assert_eq!(verify(&p, &another).unwrap_err(), Error::BadKeySet);
+}
+
+#[test]
+fn claims_are_one_per_key_per_domain() {
+    use zceipt_core::{claim, screened};
+    let mut rng = OsRng;
+    let version = BundleVersion::ironwood_v3();
+    // Two notes of one key, one note of another; the snapshot holds all three.
+    let a1 = scenario_from(version, 100_000, 1_000, 7);
+    let a2 = scenario_from(version, 60_000, 1_000, 7);
+    let b = scenario_from(version, 80_000, 1_000, 8);
+    let cmx = |s: &Scenario| ExtractedNoteCommitment::from(s.funding_note.commitment()).to_bytes();
+    let set = vec![cmx(&a1), cmx(&b), cmx(&a2)];
+    let anchor = screened::set_root(&set).unwrap();
+    let make = |s: &Scenario, floor: u64, domain: &[u8], rng: &mut _| {
+        let fvk = FullViewingKey::from(&s.sender_sk);
+        let path = claim::snapshot_path(&set, &cmx(s)).unwrap();
+        claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, path, floor, claim::TagKind::Claim, domain, b"payout to me", 0, false, rng)
+    };
+
+    let c1 = make(&a1, 50_000, b"airdrop-1", &mut rng).unwrap();
+    let back = claim::Claim::from_text(&c1.to_text()).unwrap();
+    assert_eq!(back, c1);
+    let t1 = claim::verify(&back, b"airdrop-1", &anchor).unwrap();
+    // The same key with its other note: the same tag, so a verifier keeps only one.
+    let c2 = make(&a2, 50_000, b"airdrop-1", &mut rng).unwrap();
+    assert_eq!(claim::verify(&c2, b"airdrop-1", &anchor).unwrap(), t1);
+    assert_ne!(c1.rk, c2.rk);
+    // Another key: another tag.
+    let c3 = make(&b, 50_000, b"airdrop-1", &mut rng).unwrap();
+    assert_ne!(claim::verify(&c3, b"airdrop-1", &anchor).unwrap(), t1);
+    // Another domain: a tag that doesn't link to the first.
+    let c4 = make(&a1, 50_000, b"airdrop-2", &mut rng).unwrap();
+    assert_ne!(claim::verify(&c4, b"airdrop-2", &anchor).unwrap(), t1);
+
+    // Below the floor, the wrong domain or snapshot, or any edit: refused.
+    assert!(make(&a2, 60_001, b"airdrop-1", &mut rng).is_err());
+    assert!(claim::verify(&c1, b"airdrop-2", &anchor).is_err());
+    assert!(claim::verify(&c1, b"airdrop-1", &screened::set_root(&set[..2]).unwrap()).is_err());
+    let mut forged = c1.clone();
+    forged.tag = c3.tag;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    let mut forged = c1.clone();
+    forged.floor = 90_000;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    let mut forged = c1.clone();
+    forged.msg = b"payout to someone else".to_vec();
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    // The proof alone can't be moved to a fresh tag even when re-signed: the tag is in the proof.
+    let mut forged = c3.clone();
+    forged.tag = c1.tag;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+
+    // For a chain snapshot the nullifier is revealed, and it's the note's real one.
+    let fvk = FullViewingKey::from(&a1.sender_sk);
+    let path = claim::snapshot_path(&set, &cmx(&a1)).unwrap();
+    let c5 = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&a1.sender_sk), a1.funding_note, path, 50_000, claim::TagKind::Claim, b"airdrop-1", b"x", 0, true, &mut rng).unwrap();
+    assert_eq!(c5.nf, Some(a1.funding_note.nullifier(&fvk).to_bytes()));
+    let back = claim::Claim::from_text(&c5.to_text()).unwrap();
+    assert_eq!(claim::verify(&back, b"airdrop-1", &anchor).unwrap(), t1);
+    let mut forged = c5.clone();
+    forged.nf = Some(a2.funding_note.nullifier(&fvk).to_bytes());
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+    let mut forged = c5.clone();
+    forged.nf = None;
+    assert!(claim::verify(&forged, b"airdrop-1", &anchor).is_err());
+}
+
+#[test]
+fn payer_tags_tell_wallets_apart() {
+    use zceipt_core::claim;
+    let mut rng = OsRng;
+    let version = BundleVersion::ironwood_v3();
+    let a1 = scenario_from(version, 100_000, 1_000, 7);
+    let a2 = scenario_from(version, 60_000, 2_000, 7);
+    let b = scenario_from(version, 80_000, 3_000, 8);
+    let txids = [[1u8; 32], [2; 32], [3; 32]];
+    let tag = |s: &Scenario, txid: &[u8; 32], rng: &mut _| {
+        let fvk = FullViewingKey::from(&s.sender_sk);
+        let c = claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &SpendAuthorizingKey::from(&s.sender_sk), s.funding_note, s.funding_path.clone(), 1, claim::TagKind::PayerTag, b"round-7", &claim::payer_tag_msg(txid), 0, true, rng).unwrap();
+        let nfs: Vec<[u8; 32]> = s.payment.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
+        let t = claim::verify_payer_tag(&c, b"round-7", txid, &s.payment.anchor().to_bytes(), &nfs).unwrap();
+        (c, t, nfs)
+    };
+    let (c1, t1, nfs1) = tag(&a1, &txids[0], &mut rng);
+    let (_, t2, _) = tag(&a2, &txids[1], &mut rng);
+    let (_, t3, nfs3) = tag(&b, &txids[2], &mut rng);
+    // One donor's two payments share a tag; another donor's differs.
+    assert_eq!(t1, t2);
+    assert_ne!(t1, t3);
+    // A tag doesn't move to another payment, round or anchor.
+    let anchor = a1.payment.anchor().to_bytes();
+    assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[2], &anchor, &nfs1).is_err());
+    assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &anchor, &nfs3).is_err());
+    assert!(claim::verify_payer_tag(&c1, b"round-8", &txids[0], &anchor, &nfs1).is_err());
+    assert!(claim::verify_payer_tag(&c1, b"round-7", &txids[0], &b.payment.anchor().to_bytes(), &nfs1).is_err());
+}
+
+#[test]
+fn a_claim_and_a_payer_tag_in_one_domain_do_not_link() {
+    use zceipt_core::claim::{self, TagKind};
+    let s = scenario_from(BundleVersion::ironwood_v3(), 100_000, 1_000, 7);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let txid = [5u8; 32];
+    let msg = claim::payer_tag_msg(&txid);
+    let nfs: Vec<[u8; 32]> = s.payment.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
+    let anchor = s.payment.anchor().to_bytes();
+    let make = |kind| claim::prove(COIN_TYPE_TESTNET, Pool::Ironwood, &fvk, &ask, s.funding_note, s.funding_path.clone(), 1, kind, b"round-7", &msg, 0, true, OsRng).unwrap();
+    let as_tag = make(TagKind::PayerTag);
+    let as_claim = make(TagKind::Claim);
+    // One key, one domain name, two purposes: the tags are unrelated values.
+    let t = claim::verify_payer_tag(&as_tag, b"round-7", &txid, &anchor, &nfs).unwrap();
+    assert_ne!(t, as_claim.tag);
+    // And neither passes as the other: a payer tag is no claim, a claim is no payer tag.
+    assert!(claim::verify(&as_tag, b"round-7", &anchor).is_err());
+    assert!(claim::verify_payer_tag(&as_claim, b"round-7", &txid, &anchor, &nfs).is_err());
+}
+
+#[test]
+fn designated_receipts_convince_only_their_verifier() {
+    use zceipt_core::{designated, prepare, verify_designated_tx_bundles, ViewingSpendWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let witness = ViewingSpendWitness { index: s.spend_index, fvk: fvk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None };
+    let prepared = prepare(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"Order 9", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[], &[witness], OsRng).unwrap();
+    let (y, v) = designated::verifier_key(OsRng);
+    let d = designated::prove(prepared, std::slice::from_ref(&s.sender_sk), v, OsRng).unwrap();
+    let back = designated::DesignatedReceipt::from_text(&d.to_text()).unwrap();
+    assert_eq!(back, d);
+    let none = |_: Pool, _: &[u8; 32], _: u32| None;
+    let ok = verify_designated_tx_bundles(&keys().1, &back, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    assert_eq!(ok.outputs[0].value, s.merchant_value);
+    // It has no ordinary signatures: as a plain receipt it is refused.
+    assert!(verify(&keys().1, &back.receipt, COIN_TYPE_TESTNET, Pool::Ironwood, TXID, &s.payment).is_err());
+    // An edit, or another verifier's key, breaks the proofs.
+    let mut e = d.clone();
+    e.receipt.unsigned.msg = b"Order 10".to_vec();
+    assert!(e.check_proofs().is_err());
+    let (_, v2) = designated::verifier_key(OsRng);
+    let mut e = d.clone();
+    e.verifier = v2;
+    assert!(e.check_proofs().is_err());
+    // The verifier can make an equally valid one with its own key and no spend key, so the receipt
+    // proves nothing to anyone it forwards it to.
+    // A verifier key whose log is known to everyone (the identity, y = 0) would let anyone make the
+    // proof: refused when making one, and when checking one that names it.
+    assert!(designated::simulate(d.receipt.clone(), &[0; 32], OsRng).is_err());
+    let mut ident = d.clone();
+    ident.verifier = [0; 32];
+    assert!(ident.check_proofs().is_err());
+    let forged = designated::simulate(d.receipt.clone(), &y, OsRng).unwrap();
+    assert_eq!(forged.verifier, v);
+    verify_designated_tx_bundles(&keys().1, &forged, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    // ZCEIPT_WRITE_DESIGNATED_VECTOR=1 refreshes conformance/designated.json, which the spec verifier checks.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/designated.json");
+    if std::env::var_os("ZCEIPT_WRITE_DESIGNATED_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A receipt for one verifier, and one that verifier simulated with its key alone (roundtrip.rs).", "designated": d.to_text(), "simulated": forged.to_text() });
+        std::fs::write(path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for k in ["designated", "simulated"] {
+        designated::DesignatedReceipt::from_text(v[k].as_str().unwrap()).unwrap().check_proofs().unwrap();
+    }
+}
+
+#[test]
+fn delegated_receipts_stay_within_their_policy() {
+    use zceipt_core::{delegated, prepare, verify_delegated_tx_bundles, ViewingSpendWitness};
+    let s = scenario(BundleVersion::ironwood_v3());
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let merchant = FullViewingKey::from(&SpendingKey::from_bytes([9; 32]).unwrap()).address_at(3u32, Scope::External).to_raw_address_bytes();
+    let prep = || {
+        let w = ViewingSpendWitness { index: s.spend_index, fvk: fvk.clone(), note: s.funding_note, merkle_path: s.funding_path.clone(), prove_address: None, source: None };
+        prepare(&keys().0, COIN_TYPE_TESTNET, Pool::Ironwood, &s.payment, Pool::Ironwood, &s.payment, TXID, b"Order 11", &[(s.merchant_index, fvk.to_ovk(Scope::External))], &[], &[w], OsRng).unwrap()
+    };
+    let none = |_: Pool, _: &[u8; 32], _: u32| None;
+    // The spend key authorizes a session key: at most 0.5 ZEC, until block 1000, to the merchant only.
+    let session = delegated::delegate(COIN_TYPE_TESTNET, &ask, 50_000, 1000, vec![merchant], OsRng).unwrap();
+    let session = delegated::Session::from_text(&session.to_text()).unwrap();
+    let d = delegated::issue(prep(), &session, OsRng).unwrap();
+    let back = delegated::DelegatedReceipt::from_text(&d.to_text()).unwrap();
+    assert_eq!(back, d);
+    let v = verify_delegated_tx_bundles(&keys().1, &back, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    delegated::check_policy(&back.cert, &v, 900).unwrap();
+    // Too late, too much, or to someone not listed: refused.
+    assert!(delegated::check_policy(&back.cert, &v, 1001).is_err());
+    let small = delegated::delegate(COIN_TYPE_TESTNET, &ask, 10_000, 1000, vec![], OsRng).unwrap();
+    let ds = delegated::issue(prep(), &small, OsRng).unwrap();
+    let vs = verify_delegated_tx_bundles(&keys().1, &ds, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    assert!(delegated::check_policy(&ds.cert, &vs, 900).is_err());
+    let elsewhere = delegated::delegate(COIN_TYPE_TESTNET, &ask, 50_000, 1000, vec![[1; 43]], OsRng).unwrap();
+    let de = delegated::issue(prep(), &elsewhere, OsRng).unwrap();
+    let ve = verify_delegated_tx_bundles(&keys().1, &de, COIN_TYPE_TESTNET, TXID, None, Some(&s.payment), &none).unwrap();
+    assert!(delegated::check_policy(&de.cert, &ve, 900).is_err());
+    // Another wallet's certificate can't cover this payment: its spends aren't under that key.
+    let other = SpendAuthorizingKey::from(&SpendingKey::from_bytes([8; 32]).unwrap());
+    let foreign = delegated::delegate(COIN_TYPE_TESTNET, &other, 50_000, 1000, vec![], OsRng).unwrap();
+    assert!(delegated::issue(prep(), &foreign, OsRng).is_err());
+    let mut swapped = d.clone();
+    swapped.cert = foreign.cert.clone();
+    assert!(swapped.check_authorization().is_err());
+    // A policy edited after signing, or an edited receipt: refused.
+    let mut e = d.clone();
+    e.cert.max_zats = 1 << 40;
+    assert!(e.check_authorization().is_err());
+    let mut e = d.clone();
+    e.receipt.unsigned.msg = b"Order 12".to_vec();
+    assert!(e.check_authorization().is_err());
+    // ZCEIPT_WRITE_DELEGATED_VECTOR=1 refreshes conformance/delegated.json, which the spec verifier checks.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../conformance/delegated.json");
+    if std::env::var_os("ZCEIPT_WRITE_DELEGATED_VECTOR").is_some() {
+        let v = serde_json::json!({ "description": "A delegated receipt: at most 50000 zatoshis, until block 1000, to one payee (roundtrip.rs).", "delegated": d.to_text() });
+        std::fs::write(path, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    }
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    delegated::DelegatedReceipt::from_text(v["delegated"].as_str().unwrap()).unwrap().check_authorization().unwrap();
+}
+
+#[test]
+fn a_dishonest_claim_prover_is_caught_by_the_proof() {
+    use zceipt_core::claim;
+    let s = scenario_from(BundleVersion::ironwood_v3(), 60_000, 1_000, 7);
+    let other = scenario_from(BundleVersion::ironwood_v3(), 60_000, 1_000, 8);
+    let fvk = FullViewingKey::from(&s.sender_sk);
+    let ask = SpendAuthorizingKey::from(&s.sender_sk);
+    let cmx = |s: &Scenario| ExtractedNoteCommitment::from(s.funding_note.commitment()).to_bytes();
+    let set = vec![cmx(&s), cmx(&other)];
+    let anchor = zceipt_core::screened::set_root(&set).unwrap();
+    let path = || claim::snapshot_path(&set, &cmx(&s)).unwrap();
+    let forge = |floor, out, tag| claim::__prove_dishonest_for_tests(&fvk, &ask, s.funding_note, path(), floor, out, tag, claim::TagKind::Claim, b"drop", OsRng).unwrap();
+    // Honest through the same path: accepted (all 60_000 claimed, nothing left over).
+    claim::verify(&forge(60_000, 0, None), b"drop", &anchor).unwrap();
+    // More than the note holds (the hidden output can't go negative, so the values don't balance).
+    assert!(claim::verify(&forge(90_000, 0, None), b"drop", &anchor).is_err());
+    // Another wallet's tag, to pass as a fresh claimant.
+    let d = claim::domain_field(claim::TagKind::Claim, b"drop");
+    let theirs = orchard::circuit::claim::claim_tag(&FullViewingKey::from(&other.sender_sk), d);
+    assert!(claim::verify(&forge(50_000, 10_000, Some(theirs)), b"drop", &anchor).is_err());
+    // A made-up tag.
+    assert!(claim::verify(&forge(50_000, 10_000, Some(d + pasta_curves::pallas::Base::from(1))), b"drop", &anchor).is_err());
+    // A note that isn't in the snapshot: another note's path for this one. The claim then names
+    // the root that path leads to, which isn't the verifier's; set to the verifier's root it
+    // doesn't prove.
+    let wrong = claim::snapshot_path(&set, &cmx(&other)).unwrap();
+    let off_tree = claim::__prove_dishonest_for_tests(&fvk, &ask, s.funding_note, wrong, 50_000, 10_000, None, claim::TagKind::Claim, b"drop", OsRng);
+    if let Ok(mut c) = off_tree {
+        assert!(claim::verify(&c, b"drop", &anchor).is_err());
+        c.anchor = anchor;
+        assert!(claim::verify(&c, b"drop", &anchor).is_err());
+    }
+    // Someone else's claim, re-signed under their own key with the message changed: the proof is
+    // bound to the claimant's randomized key, so the new signature does not carry it.
+    let honest = forge(50_000, 10_000, None);
+    let thief = SpendAuthorizingKey::from(&SpendingKey::from_bytes([3; 32]).unwrap());
+    let thief_alpha = pasta_curves::pallas::Scalar::from(5);
+    let mut stolen = honest.clone();
+    stolen.msg = b"pay me instead".to_vec();
+    stolen.rk = (&orchard::primitives::redpallas::VerificationKey::<orchard::primitives::redpallas::SpendAuth>::from(&thief.randomize(&thief_alpha))).into();
+    stolen.sig = (&thief.randomize(&thief_alpha).sign(OsRng, &stolen.digest())).into();
+    assert!(claim::verify(&stolen, b"drop", &anchor).is_err());
+    // The same, keeping the claimant's key: the thief's signature is not under it.
+    let mut stolen = honest.clone();
+    stolen.msg = b"pay me instead".to_vec();
+    stolen.sig = (&thief.randomize(&thief_alpha).sign(OsRng, &stolen.digest())).into();
+    assert!(claim::verify(&stolen, b"drop", &anchor).is_err());
+}

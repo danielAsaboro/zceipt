@@ -8,5 +8,5 @@ address proofs, and the forged artifacts are kept as must-fail vectors. Treat it
 Please report a vulnerability privately (GitHub's "Report a vulnerability" on this repository) rather
 than in a public issue: what is affected, how to reproduce it, and its impact. A forgery (a
 receipt any verifier here accepts for a payment the presenter's key did not authorize) or a
-leak of anything a receipt is meant to withhold is in scope for all of `receipts-core`,
-`receipts-chain`, the CLI, the server, the browser verifier and the SDKs.
+leak of anything a receipt is meant to withhold is in scope for all of `zceipt-core`,
+`zceipt-chain`, the CLI, the server, the browser verifier and the SDKs.

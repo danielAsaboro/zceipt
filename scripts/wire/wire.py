@@ -4,7 +4,7 @@
     wire.py proxy  PORT UPSTREAM_HOST:443 OUT_DIR   # plaintext h2c on 127.0.0.1:PORT -> TLS upstream
     wire.py decode OUT_DIR                          # every HTTP/2 frame the client sent, decoded
 
-The verifier talks plaintext to 127.0.0.1 (receipts-chain uses h2c for localhost), the proxy
+The verifier talks plaintext to 127.0.0.1 (zceipt-chain uses h2c for localhost), the proxy
 opens TLS to the real server, and records both directions byte for byte. The decoder parses the
 client's bytes as HTTP/2 (RFC 9113), HPACK (RFC 7541; tables from hpack-tables.json, extracted
 from the h2 crate's RFC 7541 tables) and gRPC length-prefixed protobuf, so the report shows the

@@ -1,4 +1,4 @@
-# Submission: Receipts
+# Submission: Zceipt
 
 **Track:** Core & Tooling.
 
@@ -14,7 +14,7 @@ reveal the wallet's history.
 1. **Spend authority for Orchard and Ironwood.** The part of ZIP 311 that says `TODO` for Orchard:
    a fresh Action proof for the spent note and a signature by the key that spent it, so only the
    payer can make the receipt. Stock Orchard circuit, no new setup. The proposed ZIP text, a
-   `receipts-core` crate and a second verifier written from the spec.
+   `zceipt-core` crate and a second verifier written from the spec.
 2. **Cross-receipt composability.** Same payer, distinct payers (claim and payer tags), sibling
    accounts, key sets, delegation, income, FROST policy, source of funds. Each is a separate proof
    with its own page: [docs-site/composability](docs-site/composability/overview.mdx).
@@ -27,8 +27,8 @@ else in the repository (the shop API, SDKs, dashboard) is tooling around that co
 | | Proves | Can be made by |
 |---|---|---|
 | Output disclosure (zreceipt and the ZIP 311 draft) | Who was paid and how much | Anyone who saw the payment |
-| A Receipts receipt | The above, and that the payer's key made the payment | Only the payer |
-| Receipts relationships | One key made all of these; these are different wallets; these accounts are one wallet; an agent issued this within a policy; at least X was received | Only the parties involved |
+| A Zceipt receipt | The above, and that the payer's key made the payment | Only the payer |
+| Zceipt relationships | One key made all of these; these are different wallets; these accounts are one wallet; an agent issued this within a policy; at least X was received | Only the parties involved |
 
 Run it: `./scripts/serve-verifier.sh`, then click *Try a claim by someone who only saw it*. The same
 payment claimed with another key reads **NOT PROVEN BY THE PAYER**.

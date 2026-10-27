@@ -1,0 +1,36 @@
+[package]
+name = "zceipt-server"
+version = "0.1.0"
+description = "Self-hostable REST API for Zcash payment receipts: proof requests, verification, signed webhooks"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zceipt-core = { path = "../zceipt-core", features = ["orchard-ext", "extensions"] }
+zceipt-chain = { path = "../zceipt-chain" }
+anyhow = "1"
+axum = "0.8"
+tokio = { version = "1.21", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+hmac = "0.12"
+sha2 = "0.10"
+ed25519-dalek = "2"
+hex = "0.4"
+base64 = "0.22"
+getrandom = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+url = "2"
+orchard.workspace = true
+zcash_address.workspace = true
+zcash_protocol.workspace = true
+tracing = "0.1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+rand = { version = "0.10", features = ["std", "sys_rng"] }

@@ -1,0 +1,41 @@
+[package]
+name = "zceipt-wallet"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+description = "Make ZIP 311 receipts and Sign in with Zcash proofs from a zcash-devtool (zcash_client_sqlite) wallet."
+
+[dependencies]
+zceipt-core = { path = "../zceipt-core", features = ["orchard-ext", "extensions"] }
+zceipt-kce = { path = "../zceipt-kce" }
+zceipt-chain = { path = "../zceipt-chain" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+age = { version = "0.12", features = ["armor"] }
+bip0039 = "0.12"
+secrecy = "0.8"
+rusqlite = "0.37"
+blake2b_simd.workspace = true
+rand = { version = "0.10", features = ["std", "sys_rng"] }
+orchard.workspace = true
+incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
+shardtree = "0.8"
+zcash_client_backend = { workspace = true, features = ["orchard"] }
+zcash_client_sqlite = { workspace = true, features = ["orchard"] }
+zcash_keys = { workspace = true, features = ["orchard"] }
+zcash_primitives.workspace = true
+zcash_protocol = { workspace = true, features = ["local-consensus"] }
+zip32 = "0.3"
+zcash_note_encryption.workspace = true
+
+[dev-dependencies]
+# examples/frost_policy.rs: a 2-of-3 FROST treasury signs a receipt of a testnet payment.
+reddsa05 = { package = "reddsa", version = "0.5.2", features = ["frost"] }
+frost-rerandomized = "3.0.0"
+rand_core06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
+pasta_curves.workspace = true
+group.workspace = true
+ff.workspace = true
+hex = "0.4"

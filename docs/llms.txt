@@ -1,11 +1,11 @@
-# Receipts
+# Zceipt
 
-> Prove one shielded Zcash payment, reveal nothing else. Receipts is ZIP 311 (payment disclosure) for Orchard and Ironwood: a Rust library, CLI, REST API with signed webhooks, SDKs (TypeScript, Python, Go, Rust), a WASM verifier and a web component.
+> Prove one shielded Zcash payment, reveal nothing else. Zceipt is ZIP 311 (payment disclosure) for Orchard and Ironwood: a Rust library, CLI, REST API with signed webhooks, SDKs (TypeScript, Python, Go, Rust), a WASM verifier and a web component.
 
 Key facts for agents:
 - A receipt is a `zip311r1…` string (or `zip311b1…` for a batch). It carries a Halo 2 proof that the sender spent a note in the transaction, plus `ock` keys that open only the disclosed outputs.
-- Verify with `POST /v1/verify {receipt, expect_address?, min_zatoshis?, challenge?}`, the `verifyReceipt()` npm function, or `receipts verify`.
-- Ask for proof with `POST /v1/requests {payee, amount_zatoshis?}`. The payer answers with `receipts create --request <receipt_link>`, then `POST /v1/requests/{id}/receipts {receipt}`.
+- Verify with `POST /v1/verify {receipt, expect_address?, min_zatoshis?, challenge?}`, the `verifyReceipt()` npm function, or `zceipt verify`.
+- Ask for proof with `POST /v1/requests {payee, amount_zatoshis?}`. The payer answers with `zceipt create --request <receipt_link>`, then `POST /v1/requests/{id}/receipts {receipt}`.
 - `rcpt_test_` keys serve testnet, `rcpt_live_` keys serve mainnet. Sandbox fixtures (`zip311_test_valid`, `zip311_test_wrong_payee`, …) need no wallet.
 - Errors have a stable `code`; branch on it.
 
@@ -25,7 +25,7 @@ Key facts for agents:
 - [Prove a payout round with one link](/docs/guides/grant-payouts.md)
 - [Refunds to a signed address, with proof both ways](/docs/guides/refunds.md)
 - [Attestations: prove a business fact without the transaction](/docs/guides/attestations.md)
-- `receipts demo`: the whole flow in the sandbox, one command; `receipts pay <pay link>`: pay and prove from a wallet
+- `zceipt demo`: the whole flow in the sandbox, one command; `zceipt pay <pay link>`: pay and prove from a wallet
 - [HTTP 402: gate a route behind a receipt (Express, Next.js, FastAPI, Django)](/docs/guides/http-402.md)
 - [Sign in with Zcash: prove an address, no transaction](/docs/guides/sign-in.md)
 

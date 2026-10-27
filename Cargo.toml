@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/receipts-core", "crates/receipts-chain", "crates/receipts-server", "crates/receipts-client", "crates/receipts-cli", "crates/receipts-wallet", "crates/receipts-wasm", "crates/receipts-ffi", "crates/receipts-kce"]
+members = ["crates/zceipt-core", "crates/zceipt-chain", "crates/zceipt-server", "crates/zceipt-client", "crates/zceipt-cli", "crates/zceipt-wallet", "crates/zceipt-wasm", "crates/zceipt-ffi", "crates/zceipt-kce"]
 resolver = "2"
 
 [workspace.package]
@@ -37,7 +37,7 @@ lto = "thin"
 opt-level = 3
 
 
-# orchard 0.16.0 from crates.io plus a patch (vendor/orchard-0.16.0-receipts.patch, checked by
+# orchard 0.16.0 from crates.io plus a patch (vendor/orchard-0.16.0-zceipt.patch, checked by
 # scripts/check-vendor-patch.sh) that adds the claim circuit (circuit/claim.rs), and:
 # precomputed verifier parameters, and a few note/address accessors made public for incoming
 # receipts and memo-withheld outputs. The Action circuit is unchanged. See vendor/README.md.

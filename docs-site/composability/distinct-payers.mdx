@@ -35,9 +35,9 @@ the round's name. In the circuit the same `nk` cell feeds both the address check
 Shows a note of at least `floor` was held in the tree at a snapshot block, and carries the tag.
 
 ```bash
-receipts claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
+zceipt claim -w <wallet> -i <identity> --domain airdrop-2026 --floor 0.1 \
   -m "payout to my address" --out claim.txt
-receipts verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
+zceipt verify @claim.txt --domain airdrop-2026 --height <snapshot-block> --min 0.1
 ```
 
 The claimant picks the floor the claim shows, so you must say the least you accept with `--min`
@@ -58,7 +58,7 @@ A payer tag is the same proof on a note a payment **spent**: its nullifier is on
 payment's, its anchor is the payment's.
 
 ```bash
-receipts tag -w <wallet> -i <identity> --txid <txid> --domain round-2026 --out tag.txt
+zceipt tag -w <wallet> -i <identity> --txid <txid> --domain round-2026 --out tag.txt
 ```
 
 Different tags mean different paying keys. A round that wants *k* different wallets collects one
@@ -70,7 +70,7 @@ tag per payment and counts distinct values.
 came from at least *k* different wallets.
 
 ```bash
-receipts verify @income.txt --payer-tag @tag1.txt --payer-tag @tag2.txt --min-payers 2
+zceipt verify @income.txt --payer-tag @tag1.txt --payer-tag @tag2.txt --min-payers 2
 ```
 
 If a payer shows a [sibling-account proof](/composability/sibling-accounts) for two of the tags,
@@ -85,5 +85,5 @@ add `--siblings @sib.txt` and the two count as one wallet.
 - Claims against a published list (not a chain snapshot) use a second key mode where the
   nullifier stays private, since there is no chain to check it against.
 
-Code: `crates/receipts-core/src/claim.rs`, circuit in `vendor/orchard/src/circuit/claim.rs`.
+Code: `crates/zceipt-core/src/claim.rs`, circuit in `vendor/orchard/src/circuit/claim.rs`.
 Tests: `roundtrip.rs::claims_are_one_per_key_per_domain`, `::payer_tags_tell_wallets_apart`.

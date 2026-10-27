@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every check that needs no build, install or wallet, in about two minutes: the independent spec
 # verifier against the conformance vectors and adversarial corpus, the npm package's tests, and
-# (if a `receipts` binary is on PATH or in $RECEIPTS) the real and edited testnet receipts, and the
+# (if a `zceipt` binary is on PATH or in $ZCEIPT) the real and edited testnet receipts, and the
 # verifier page in headless Chrome.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -10,12 +10,12 @@ echo "   (it checks everything but the Halo 2 proofs; for the adversarial cases 
 echo "   proof tells apart, it confirms both verifiers derive the same public inputs)"
 python3 -m unittest discover -s spec-verifier/tests 2>&1 | tail -3
 echo "== npm package (WebAssembly verifier, conformance vectors, offline testnet receipts)"
-echo "   (the skipped tests call a running Receipts API; with a receipts binary they run below)"
-(cd packages/zcash-receipts && node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
-R=${RECEIPTS:-$(command -v receipts || true)}
+echo "   (the skipped tests call a running Zceipt API; with a zceipt binary they run below)"
+(cd packages/zceipt && node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
+R=${ZCEIPT:-$(command -v zceipt || true)}
 if [ -n "$R" ]; then
   echo "== CLI: the real testnet receipt, fetched by block, then the edited copy"
-  "$R" verify "$(tr -d '\n' < examples/testnet/receipt-link.txt)" > "${TMPDIR:-/tmp}/receipts-verify.txt" 2>&1 && head -3 "${TMPDIR:-/tmp}/receipts-verify.txt" || { cat "${TMPDIR:-/tmp}/receipts-verify.txt"; exit 1; }
+  "$R" verify "$(tr -d '\n' < examples/testnet/receipt-link.txt)" > "${TMPDIR:-/tmp}/zceipt-verify.txt" 2>&1 && head -3 "${TMPDIR:-/tmp}/zceipt-verify.txt" || { cat "${TMPDIR:-/tmp}/zceipt-verify.txt"; exit 1; }
   if "$R" verify @examples/testnet/receipt-edited.txt >/dev/null 2>&1; then echo "edited receipt ACCEPTED (bug)"; exit 1; else echo "edited receipt refused"; fi
   echo "== CLI: a receipt checked against the request it answers (payee, amount, challenge)"
   L=$(tr -d '\n' < examples/testnet/request-answer-link.txt); TO=$(echo "$L" | grep -o 'to=[a-z0-9]*' | cut -c4-)
@@ -46,17 +46,17 @@ if [ -n "$R" ]; then
   API_PID=$!
   KEY=""
   for _ in $(seq 1 60); do KEY=$(cat "$API_DB.log" "$API_DB.keys" 2>/dev/null | grep -o 'rcpt_test_[A-Za-z0-9_]*' | head -1 || true); [ -n "$KEY" ] && curl -sf "http://127.0.0.1:$API_PORT/v1/health" >/dev/null && break; sleep 1; done
-  (cd packages/zcash-receipts && RECEIPTS_URL="http://127.0.0.1:$API_PORT" RECEIPTS_KEY="$KEY" node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
-  (cd packages/receipts-python && RECEIPTS_URL="http://127.0.0.1:$API_PORT" RECEIPTS_KEY="$KEY" python3 -m unittest discover -s tests 2>&1 | tail -1)
+  (cd packages/zceipt && ZCEIPT_URL="http://127.0.0.1:$API_PORT" ZCEIPT_KEY="$KEY" node --test test/*.test.js 2>&1 | grep -E "^ℹ (tests|pass|fail|skipped)")
+  (cd packages/zceipt-python && ZCEIPT_URL="http://127.0.0.1:$API_PORT" ZCEIPT_KEY="$KEY" python3 -m unittest discover -s tests 2>&1 | tail -1)
   kill "$API_PID" 2>/dev/null || true
   RAN="all 7 sections"
 else
-  echo "== CLI skipped (no receipts binary; cargo install --locked --path crates/receipts-cli)"
-  RAN="3 of 7 sections (the CLI, request, export and SDK-against-API sections need a receipts binary)"
+  echo "== CLI skipped (no zceipt binary; cargo install --locked --path crates/zceipt-cli)"
+  RAN="3 of 7 sections (the CLI, request, export and SDK-against-API sections need a zceipt binary)"
 fi
 echo "== browser: the verifier page in headless Chrome (skipped if Chrome isn't installed)"
-rm -rf web/zcash-receipts && mkdir -p web/zcash-receipts
-cp -R packages/zcash-receipts/{index.js,grpc.js,maker.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
+rm -rf web/zceipt && mkdir -p web/zceipt
+cp -R packages/zceipt/{index.js,grpc.js,maker.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zceipt/
 P=$((5400 + RANDOM % 500))
 python3 -m http.server --bind 127.0.0.1 -d web "$P" >/dev/null 2>&1 &
 SERVER=$!

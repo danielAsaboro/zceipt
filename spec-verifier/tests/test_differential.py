@@ -1,7 +1,7 @@
 """Differential test: the spec verifier against the Rust verifier on signed adversarial receipts.
 
 tests/corpus.json is written by the Rust test `differential_corpus`
-(DIFF_CORPUS=spec-verifier/tests/corpus.json cargo test -p receipts-core --test roundtrip differential_corpus).
+(DIFF_CORPUS=spec-verifier/tests/corpus.json cargo test -p zceipt-core --test roundtrip differential_corpus).
 Each altered receipt is re-signed by the spender, so the signature can't be what rejects it.
 
 For every case the two verifiers must agree, with one allowed difference: when the Rust verifier

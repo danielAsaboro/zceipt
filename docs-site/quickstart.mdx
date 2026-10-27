@@ -28,8 +28,8 @@ python3 -m unittest discover -s spec-verifier/tests
 ## With Rust
 
 ```bash
-cargo install --locked --path crates/receipts-cli
-receipts demo
+cargo install --locked --path crates/zceipt-cli
+zceipt demo
 ```
 
 The first build takes about ten minutes.
@@ -39,8 +39,8 @@ The first build takes about ten minutes.
 From a viewing key and a seed phrase, on separate machines if you like:
 
 ```bash
-receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
-receipts sign r.txt --seed-stdin
+zceipt create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
+zceipt sign r.txt --seed-stdin
 ```
 
 `create` makes the proofs with no spending key. `sign` shows everything the receipt reveals and
@@ -49,7 +49,7 @@ asks before signing. The seed phrase is typed or piped in, never put on the comm
 ## Verify
 
 ```bash
-receipts verify @examples/testnet/receipt-link.txt \
+zceipt verify @examples/testnet/receipt-link.txt \
   --expect-address "$(cat examples/testnet/merchant.ua)"
 ```
 
@@ -58,7 +58,7 @@ receipts verify @examples/testnet/receipt-link.txt \
 A batch of payments proves they were signed by one key:
 
 ```bash
-receipts create -w <wallet> -i <identity> --txid <txid1> --txid <txid2>
+zceipt create -w <wallet> -i <identity> --txid <txid1> --txid <txid2>
 ```
 
 The other relationships have their own commands; start from the

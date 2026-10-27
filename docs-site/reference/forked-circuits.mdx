@@ -10,7 +10,7 @@ written here. Neither has been reviewed.
 ## 1. Claim circuit
 
 `vendor/orchard/src/circuit/claim.rs`, shipped as a patch to `orchard` 0.16.0
-(`vendor/orchard-0.16.0-receipts.patch`).
+(`vendor/orchard-0.16.0-zceipt.patch`).
 
 | Change | File |
 |---|---|
@@ -36,7 +36,7 @@ precomputed verifier parameters, and nothing that changes the Action circuit.
 
 ## 2. Sibling-account circuit
 
-`crates/receipts-kce`. A new Halo 2 circuit that proves two tags come from two hardened ZIP 32
+`crates/zceipt-kce`. A new Halo 2 circuit that proves two tags come from two hardened ZIP 32
 children of one hidden coin-level key. BLAKE2b runs in the circuit, so it is `k = 17`.
 
 The BLAKE2b gadget is [eryxcoop/blake2b_halo2](https://github.com/eryxcoop/blake2b_halo2) at

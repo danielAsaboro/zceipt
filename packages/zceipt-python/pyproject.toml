@@ -1,0 +1,12 @@
+[project]
+name = "zceipt"
+version = "0.1.0"
+description = "Python client for the Zceipt API: Zcash payment receipts (ZIP 311 for Orchard and Ironwood)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"

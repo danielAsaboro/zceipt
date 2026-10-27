@@ -10,13 +10,13 @@ A DAO, grant program or payroll shows that **one treasury** paid everyone, with 
 A batch is several receipts in one link. Pass more than one `--txid`:
 
 ```bash
-receipts create -w <wallet> -i <identity> --txid <txid1> --txid <txid2> --txid <txid3>
+zceipt create -w <wallet> -i <identity> --txid <txid1> --txid <txid2> --txid <txid3>
 ```
 
 The link carries a same-payer proof (`k=zip311k1…`). Verifying the batch checks it:
 
 ```bash
-receipts verify @batch-same-payer-link.txt
+zceipt verify @batch-same-payer-link.txt
 ```
 
 A real three-payment testnet batch, total 0.022 ZEC, is at `examples/testnet/batch.txt`, and one
@@ -47,6 +47,6 @@ No circuit is involved; it is Schnorr proofs over the Pallas curve.
 - Payments made through [sibling accounts](/composability/sibling-accounts) have different
   keys; this proof does not link them.
 
-Code: `crates/receipts-core/src/link.rs`. Test:
+Code: `crates/zceipt-core/src/link.rs`. Test:
 `roundtrip.rs::same_payer_proof_links_one_key_and_nothing_else`. The spec verifier checks the
 testnet batch's proof independently.

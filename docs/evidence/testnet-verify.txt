@@ -1,4 +1,4 @@
-$ receipts verify @examples/testnet/receipt.txt
+$ zceipt verify @examples/testnet/receipt.txt
 VALID receipt
   network   testnet
   tx        571de6e4cc96b64c0d849cc172905449011b195e521532d78fe9c29a149e0e73 (mined at height 4500997)
@@ -10,7 +10,7 @@ VALID receipt
   nothing else about the sender's wallet is revealed
 (exit 0)
 
-$ receipts verify @examples/testnet/receipt-with-sender-address.txt
+$ zceipt verify @examples/testnet/receipt-with-sender-address.txt
 VALID receipt
   network   testnet
   tx        db7c3c5e854aefbf8027311b77c49d8f02ac3ee60f1578382627ed1eee69c7ba (mined at height 4501025)
@@ -23,7 +23,7 @@ VALID receipt
   nothing else about the sender's wallet (balance, other transactions) is revealed
 (exit 0)
 
-$ receipts verify @examples/testnet/receipt-with-refund-address.txt
+$ zceipt verify @examples/testnet/receipt-with-refund-address.txt
 VALID receipt
   network   testnet
   tx        de9ef067013d3a9d332f6c528c188caddf7a681423a702f484a54cac9efde64d (mined at height 4502724)
@@ -32,11 +32,11 @@ VALID receipt
             refund-to:utest1vuxevmthp07lftrlqy86a3us3nsl5ssq8ejwp5t5mqly2zrqa79v06qsm89983eqqllwwchnqkl0z2gh2nragk474pgexmf508m2qtz3r7w7nv25jaktzm4nxselfl5de9z9f8a9sv23r7v8fsr7nzcfz4vwsd80h2jtq0h0qpj5h3znrdf09hns22nmeh99a8mk8znd75cfzgs5nqu
   sender    proved spend authority for action(s) [1]
   paid      0.00300000 ZEC to utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa
-            memo: Receipts request preq_258595e67724270f21011e0c
+            memo: Zceipt request preq_258595e67724270f21011e0c
   nothing else about the sender's wallet is revealed
 (exit 0)
 
-$ receipts verify @examples/testnet/refund-receipt.txt
+$ zceipt verify @examples/testnet/refund-receipt.txt
 VALID receipt
   network   testnet
   tx        deede14f59a39af0f4da4aababa85658dda5e58d8bacf1cacda20991e4bb3e36 (mined at height 4502726)
@@ -48,7 +48,7 @@ VALID receipt
   nothing else about the sender's wallet is revealed
 (exit 0)
 
-$ receipts verify @examples/testnet/deposit-receipt.txt
+$ zceipt verify @examples/testnet/deposit-receipt.txt
 VALID receipt
   network   testnet
   tx        cfb97544057a676b9fa204c8f7e223c11996852d932f46190581cbdf2068a78a (mined at height 4502928)
@@ -64,7 +64,7 @@ EXCHANGE DEPOSIT (ZIP 320)
   warning   This receipt links the sender's shielded funds to an exchange deposit. Share it only with the exchange (or whoever must clear the deposit).
 (exit 0)
 
-$ receipts verify @examples/testnet/batch.txt
+$ zceipt verify @examples/testnet/batch.txt
 VALID batch 5323c7445292135d: 3 payments, each proven by its sender
   0.01000000 ZEC  tx 571de6e4cc96…  Invoice 42: two coffees
   0.00500000 ZEC  tx db7c3c5e854a…  Grant round 3: docs translation (Tolu)
@@ -72,6 +72,6 @@ VALID batch 5323c7445292135d: 3 payments, each proven by its sender
   total 0.02200000 ZEC to 2 recipient(s)
 (exit 0)
 
-$ receipts verify @examples/testnet/pre-fix/receipt-with-sender-address.txt
+$ zceipt verify @examples/testnet/pre-fix/receipt-with-sender-address.txt
 Error: the address proof for action 1 is invalid (pools: spends Ironwood, outputs Ironwood)
 (exit 1)

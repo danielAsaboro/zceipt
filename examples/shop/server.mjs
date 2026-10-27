@@ -1,26 +1,26 @@
 #!/usr/bin/env node
-// Kemi's Coffee: a complete shop integration of Receipts in ~200 lines, no dependencies.
+// Kemi's Coffee: a complete shop integration of Zceipt in ~200 lines, no dependencies.
 //
-//   RECEIPTS_KEY=rcpt_test_… SHOP_ADDRESS=utest1… node examples/shop/server.mjs
+//   ZCEIPT_KEY=rcpt_test_… SHOP_ADDRESS=utest1… node examples/shop/server.mjs
 //   open http://localhost:4242
 //
 // Flow: the customer picks drinks → the shop creates a proof request (amount + order id) →
 // the customer pays the ZIP-321 QR from any shielded wallet → they hand back a receipt
-// (`receipts create --request <link>`, or paste it on the order page) → Receipts verifies it
+// (`zceipt create --request <link>`, or paste it on the order page) → Zceipt verifies it
 // and sends a signed `request.fulfilled` webhook → the order is marked paid.
 // The shop never holds a viewing key and never learns who the customer is.
 
 import http from "node:http";
-import { Receipts, webhooks, VerificationError } from "../../packages/zcash-receipts/client.js";
+import { Zceipt, webhooks, VerificationError } from "../../packages/zceipt/client.js";
 
 const PORT = Number(process.env.PORT || 4242);
-const API = process.env.RECEIPTS_URL || "http://127.0.0.1:8723";
+const API = process.env.ZCEIPT_URL || "http://127.0.0.1:8723";
 const SHOP_ADDRESS = process.env.SHOP_ADDRESS;
-if (!process.env.RECEIPTS_KEY || !SHOP_ADDRESS) {
-  console.error("Set RECEIPTS_KEY (rcpt_test_…) and SHOP_ADDRESS (your utest1… address).");
+if (!process.env.ZCEIPT_KEY || !SHOP_ADDRESS) {
+  console.error("Set ZCEIPT_KEY (rcpt_test_…) and SHOP_ADDRESS (your utest1… address).");
   process.exit(1);
 }
-const receipts = new Receipts(process.env.RECEIPTS_KEY, { baseUrl: API });
+const receipts = new Zceipt(process.env.ZCEIPT_KEY, { baseUrl: API });
 
 const MENU = [
   { id: "flat-white", name: "Flat white", zats: 500_000 },
@@ -30,7 +30,7 @@ const MENU = [
 const orders = new Map(); // order id → { items, total, requestId, status, paidTx }
 let whsec = "";
 
-// Register this shop's webhook endpoint with the Receipts API.
+// Register this shop's webhook endpoint with the Zceipt API.
 const endpoint = await receipts.webhookEndpoints.create({ url: `http://127.0.0.1:${PORT}/webhooks/receipts`, events: ["request.fulfilled"] });
 whsec = endpoint.secret;
 process.on("SIGINT", async () => { await receipts.webhookEndpoints.del(endpoint.id).catch(() => {}); process.exit(0); });
@@ -57,7 +57,7 @@ async function orderPage(id, error = "") {
   const o = orders.get(id);
   const r = await receipts.requests.retrieve(o.requestId);
   if (r.status === "fulfilled" && o.status !== "paid") { o.status = "paid"; o.paidTx = r.fulfillment.txid; }
-  const qr = o.status === "paid" ? "" : await fetch(`${API}/v1/requests/${r.id}/qr.svg`, { headers: { authorization: `Bearer ${process.env.RECEIPTS_KEY}` } }).then((x) => x.text());
+  const qr = o.status === "paid" ? "" : await fetch(`${API}/v1/requests/${r.id}/qr.svg`, { headers: { authorization: `Bearer ${process.env.ZCEIPT_KEY}` } }).then((x) => x.text());
   return page(`Order ${id}`, `
     <div class="card"><b>Order ${esc(id)}</b> · ${o.items.map((i) => `${i.qty}× ${esc(i.name)}`).join(", ")} · <b>${zec(o.total)} ZEC</b>
       <div style="margin-top:8px">${o.status === "paid" ? `<span class="paid">PAID ✓</span> · tx <code>${esc(o.paidTx.slice(0, 16))}…</code> · we'll start brewing.` : `<span class="wait">Waiting for payment proof…</span>`}</div></div>
@@ -111,7 +111,7 @@ http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/webhooks/receipts") {
       const raw = await readBody(req);
       let event;
-      try { event = await webhooks.constructEvent(raw, req.headers["receipts-signature"], whsec); }
+      try { event = await webhooks.constructEvent(raw, req.headers["zceipt-signature"], whsec); }
       catch (e) { return send(res, 400, "bad signature", "text/plain"); }
       if (event.type === "request.fulfilled") {
         const r = event.data.object;
@@ -128,4 +128,4 @@ http.createServer(async (req, res) => {
   } catch (e) {
     send(res, 500, page("Error", `<p class="err">${esc(e.message)}</p>`));
   }
-}).listen(PORT, "127.0.0.1", () => console.log(`Kemi's Coffee on http://localhost:${PORT}  (Receipts API ${API})`));
+}).listen(PORT, "127.0.0.1", () => console.log(`Kemi's Coffee on http://localhost:${PORT}  (Zceipt API ${API})`));

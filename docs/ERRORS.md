@@ -41,7 +41,7 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="refund_not_found"></a>`refund_not_found` | 404 | No refund with that id for this key's mode. |
 | <a id="payment_not_found"></a>`payment_not_found` | 404 | No payment with that txid on this request. |
 | <a id="refund_not_possible"></a>`refund_not_possible` | 409 | The request has no payments to refund. |
-| <a id="refund_address_missing"></a>`refund_address_missing` | 409 | The payer did not sign a refund address into their receipt (`receipts create --refund-to`). |
+| <a id="refund_address_missing"></a>`refund_address_missing` | 409 | The payer did not sign a refund address into their receipt (`zceipt create --refund-to`). |
 | <a id="refund_amount_invalid"></a>`refund_amount_invalid` | 400 | The refund amount is zero or more than what is left of the payment. |
 | <a id="refund_already_succeeded"></a>`refund_already_succeeded` | 409 | The refund was already settled with a receipt. |
 | <a id="claim_malformed"></a>`claim_malformed` | 400 | The `claim` text could not be decoded as a zip311t1… claim or payer tag. |
@@ -55,14 +55,14 @@ Branch on `code`, never on `message`. SDKs raise `AuthenticationError` (401), `I
 | <a id="webhook_endpoint_not_found"></a>`webhook_endpoint_not_found` | 404 | No webhook endpoint with that id. |
 | <a id="event_not_found"></a>`event_not_found` | 404 | No event with that id. |
 | <a id="idempotency_key_reused"></a>`idempotency_key_reused` | 409 | The Idempotency-Key was used with a different request body. |
-| <a id="api_version_unsupported"></a>`api_version_unsupported` | 400 | The Receipts-Version header names a version this server doesn't speak. |
+| <a id="api_version_unsupported"></a>`api_version_unsupported` | 400 | The Zceipt-Version header names a version this server doesn't speak. |
 | <a id="rate_limited"></a>`rate_limited` | 429 | Too many requests for this key this minute. Wait `Retry-After` seconds; SDKs do this automatically. |
 | <a id="chain_unavailable"></a>`chain_unavailable` | 502 | lightwalletd could not be reached. Safe to retry. |
 | <a id="internal_error"></a>`internal_error` | 500 | Unexpected server error. Safe to retry. |
 
 Retry `transaction_not_mined`, `chain_unavailable` and `internal_error`. Retries with the same `Idempotency-Key` are safe; the SDKs set one automatically.
 
-## The CLI: `receipts verify --json`
+## The CLI: `zceipt verify --json`
 
 `verify --json` always prints one JSON object. A refusal exits 1, and a check that couldn't run
 (`usage`, `chain_unavailable`) exits 2, with

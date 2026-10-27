@@ -1,6 +1,6 @@
 # What a receipt proves, and what it reveals
 
-This is the one claim Receipts makes, stated precisely, with the argument for it and the limits of
+This is the one claim Zceipt makes, stated precisely, with the argument for it and the limits of
 it. Everything else in the repository (API, SDKs, pages) is a way to deliver or check this claim.
 
 Sources: ZIP 311 (draft, `zips/zip-0311.rst` at zcash/zips `7b9e678`), ZIP 304, ZIP 229, ZIP 244,
@@ -85,7 +85,7 @@ Let `T` be a transaction with identifier `txid`, and `R` a receipt that a verifi
 13. **Sibling accounts (a separate `zip311w1` proof).** The two tags are `Poseidon(nk_j, domain)`
    for the `nk` of two ZIP 32 hardened children of one hidden coin-level key: the circuit
    computes the child derivation and `nk` with BLAKE2b, so a tag can't be claimed for another
-   wallet's account without a BLAKE2b or Poseidon collision. `receipts-kce`;
+   wallet's account without a BLAKE2b or Poseidon collision. `zceipt-kce`;
    `against_orchard::accounts_are_children_of_the_coin_key` checks the derivation equals
    orchard's, and the regtest e2e ties a proof to a real payer tag.
 14. **Delegation (a `zip311a1` receipt).** The certificate's SpendAuthSig under `rk_c` shows the
@@ -103,7 +103,7 @@ It does **not** claim:
 
 - that `T` was mined: the verifier must establish that separately. The chain verifier fetches it
   from a lightwalletd server and counts confirmations, so "mined" rests on that server's word
-  (`receipts verify --cross-check <second server>` asks a second one); offline verification says
+  (`zceipt verify --cross-check <second server>` asks a second one); offline verification says
   it did not check;
 - that a disclosed output went to someone other than the payer: the sender chooses which outputs
   to disclose, and change or a payment to itself discloses like any other output. What binds a

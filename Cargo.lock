@@ -3176,242 +3176,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "receipts-chain"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake2b_simd",
- "getrandom 0.3.4",
- "hex",
- "incrementalmerkletree",
- "orchard",
- "receipts-core",
- "serde",
- "tokio",
- "toml 0.8.23",
- "tonic",
- "zcash_address",
- "zcash_client_backend",
- "zcash_primitives",
- "zcash_protocol",
- "zcash_transparent",
-]
-
-[[package]]
-name = "receipts-cli"
-version = "0.1.0"
-dependencies = [
- "age",
- "anyhow",
- "axum",
- "base64 0.22.1",
- "bip0039",
- "clap",
- "hex",
- "incrementalmerkletree",
- "libc",
- "orchard",
- "qrcode",
- "rand 0.10.3",
- "receipts-chain",
- "receipts-client",
- "receipts-core",
- "receipts-kce",
- "receipts-server",
- "receipts-wallet",
- "reqwest",
- "rusqlite",
- "rustls",
- "secrecy 0.8.0",
- "serde",
- "serde_json",
- "shardtree",
- "tokio",
- "toml 0.8.23",
- "tonic",
- "zcash_address",
- "zcash_client_backend",
- "zcash_client_sqlite",
- "zcash_keys",
- "zcash_note_encryption",
- "zcash_primitives",
- "zcash_protocol",
- "zip32",
-]
-
-[[package]]
-name = "receipts-client"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.3.4",
- "hex",
- "hmac 0.12.1",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "tokio",
-]
-
-[[package]]
-name = "receipts-core"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "blake2b_simd",
- "ff 0.14.0",
- "frost-rerandomized",
- "group 0.14.0",
- "halo2_proofs",
- "incrementalmerkletree",
- "orchard",
- "pasta_curves 0.6.1",
- "qrcode",
- "rand 0.10.3",
- "rand_core 0.10.1",
- "rand_core 0.6.4",
- "receipts-core",
- "reddsa 0.5.2",
- "serde_json",
- "sha2 0.10.9",
- "shardtree",
- "thiserror 2.0.21",
- "zcash_address",
- "zcash_note_encryption",
- "zcash_primitives",
- "zcash_protocol",
- "zcash_transparent",
- "zeroize",
- "zip321",
-]
-
-[[package]]
-name = "receipts-ffi"
-version = "0.1.0"
-dependencies = [
- "hex",
- "orchard",
- "rand 0.10.3",
- "receipts-chain",
- "receipts-core",
- "receipts-wallet",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "uniffi",
-]
-
-[[package]]
-name = "receipts-kce"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "blake2b_simd",
- "ff 0.14.0",
- "halo2_gadgets",
- "halo2_proofs",
- "hex",
- "num-bigint 0.4.8",
- "orchard",
- "pasta_curves 0.6.1",
- "rand 0.10.3",
- "regex",
- "zip32",
-]
-
-[[package]]
-name = "receipts-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "ed25519-dalek",
- "getrandom 0.3.4",
- "hex",
- "hmac 0.12.1",
- "http-body-util",
- "orchard",
- "qrcode",
- "rand 0.10.3",
- "receipts-chain",
- "receipts-core",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "url",
- "zcash_address",
- "zcash_protocol",
-]
-
-[[package]]
-name = "receipts-wallet"
-version = "0.1.0"
-dependencies = [
- "age",
- "anyhow",
- "bip0039",
- "blake2b_simd",
- "ff 0.14.0",
- "frost-rerandomized",
- "group 0.14.0",
- "hex",
- "incrementalmerkletree",
- "orchard",
- "pasta_curves 0.6.1",
- "rand 0.10.3",
- "rand_core 0.6.4",
- "receipts-chain",
- "receipts-core",
- "receipts-kce",
- "reddsa 0.5.2",
- "rusqlite",
- "secrecy 0.8.0",
- "serde",
- "shardtree",
- "toml 0.8.23",
- "zcash_client_backend",
- "zcash_client_sqlite",
- "zcash_keys",
- "zcash_note_encryption",
- "zcash_primitives",
- "zcash_protocol",
- "zip32",
-]
-
-[[package]]
-name = "receipts-wasm"
-version = "0.1.0"
-dependencies = [
- "bip0039",
- "console_error_panic_hook",
- "getrandom 0.2.17",
- "getrandom 0.4.3",
- "hex",
- "incrementalmerkletree",
- "orchard",
- "qrcode",
- "rand 0.10.3",
- "receipts-core",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "zcash_address",
- "zcash_note_encryption",
- "zcash_primitives",
- "zcash_protocol",
- "zcash_transparent",
- "zip32",
-]
-
-[[package]]
 name = "reddsa"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5432,6 +5196,242 @@ dependencies = [
  "zcash_protocol",
  "zcash_script",
  "zcash_spec",
+ "zip32",
+]
+
+[[package]]
+name = "zceipt-chain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake2b_simd",
+ "getrandom 0.3.4",
+ "hex",
+ "incrementalmerkletree",
+ "orchard",
+ "serde",
+ "tokio",
+ "toml 0.8.23",
+ "tonic",
+ "zcash_address",
+ "zcash_client_backend",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zcash_transparent",
+ "zceipt-core",
+]
+
+[[package]]
+name = "zceipt-cli"
+version = "0.1.0"
+dependencies = [
+ "age",
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "bip0039",
+ "clap",
+ "hex",
+ "incrementalmerkletree",
+ "libc",
+ "orchard",
+ "qrcode",
+ "rand 0.10.3",
+ "reqwest",
+ "rusqlite",
+ "rustls",
+ "secrecy 0.8.0",
+ "serde",
+ "serde_json",
+ "shardtree",
+ "tokio",
+ "toml 0.8.23",
+ "tonic",
+ "zcash_address",
+ "zcash_client_backend",
+ "zcash_client_sqlite",
+ "zcash_keys",
+ "zcash_note_encryption",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zceipt-chain",
+ "zceipt-client",
+ "zceipt-core",
+ "zceipt-kce",
+ "zceipt-server",
+ "zceipt-wallet",
+ "zip32",
+]
+
+[[package]]
+name = "zceipt-client"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "hex",
+ "hmac 0.12.1",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
+name = "zceipt-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake2b_simd",
+ "ff 0.14.0",
+ "frost-rerandomized",
+ "group 0.14.0",
+ "halo2_proofs",
+ "incrementalmerkletree",
+ "orchard",
+ "pasta_curves 0.6.1",
+ "qrcode",
+ "rand 0.10.3",
+ "rand_core 0.10.1",
+ "rand_core 0.6.4",
+ "reddsa 0.5.2",
+ "serde_json",
+ "sha2 0.10.9",
+ "shardtree",
+ "thiserror 2.0.21",
+ "zcash_address",
+ "zcash_note_encryption",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zcash_transparent",
+ "zceipt-core",
+ "zeroize",
+ "zip321",
+]
+
+[[package]]
+name = "zceipt-ffi"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "orchard",
+ "rand 0.10.3",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "uniffi",
+ "zceipt-chain",
+ "zceipt-core",
+ "zceipt-wallet",
+]
+
+[[package]]
+name = "zceipt-kce"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake2b_simd",
+ "ff 0.14.0",
+ "halo2_gadgets",
+ "halo2_proofs",
+ "hex",
+ "num-bigint 0.4.8",
+ "orchard",
+ "pasta_curves 0.6.1",
+ "rand 0.10.3",
+ "regex",
+ "zip32",
+]
+
+[[package]]
+name = "zceipt-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "hex",
+ "hmac 0.12.1",
+ "http-body-util",
+ "orchard",
+ "qrcode",
+ "rand 0.10.3",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "url",
+ "zcash_address",
+ "zcash_protocol",
+ "zceipt-chain",
+ "zceipt-core",
+]
+
+[[package]]
+name = "zceipt-wallet"
+version = "0.1.0"
+dependencies = [
+ "age",
+ "anyhow",
+ "bip0039",
+ "blake2b_simd",
+ "ff 0.14.0",
+ "frost-rerandomized",
+ "group 0.14.0",
+ "hex",
+ "incrementalmerkletree",
+ "orchard",
+ "pasta_curves 0.6.1",
+ "rand 0.10.3",
+ "rand_core 0.6.4",
+ "reddsa 0.5.2",
+ "rusqlite",
+ "secrecy 0.8.0",
+ "serde",
+ "shardtree",
+ "toml 0.8.23",
+ "zcash_client_backend",
+ "zcash_client_sqlite",
+ "zcash_keys",
+ "zcash_note_encryption",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zceipt-chain",
+ "zceipt-core",
+ "zceipt-kce",
+ "zip32",
+]
+
+[[package]]
+name = "zceipt-wasm"
+version = "0.1.0"
+dependencies = [
+ "bip0039",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "getrandom 0.4.3",
+ "hex",
+ "incrementalmerkletree",
+ "orchard",
+ "qrcode",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "zcash_address",
+ "zcash_note_encryption",
+ "zcash_primitives",
+ "zcash_protocol",
+ "zcash_transparent",
+ "zceipt-core",
  "zip32",
 ]
 

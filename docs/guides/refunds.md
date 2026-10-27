@@ -1,11 +1,11 @@
 # Refunds, with proof both ways
 
 Shielded payments have no "return to sender": the merchant cannot see who paid. Asking the
-customer for an address by email invites phishing ("send my refund here instead"). Receipts
+customer for an address by email invites phishing ("send my refund here instead"). Zceipt
 fixes both:
 
 1. **The payer signs a refund address into their receipt.**
-   `receipts create … --request '<link>' --refund-to <your address>` adds `refund-to:<address>`
+   `zceipt create … --request '<link>' --refund-to <your address>` adds `refund-to:<address>`
    to the signed message. Only whoever authorized the payment can write that line, so the
    address is authenticated. A payer who doesn't add it stays fully private.
 2. **The merchant creates a refund.** `POST /v1/requests/{id}/refunds` with an optional
@@ -22,7 +22,7 @@ Either can show it to the other, a support agent or an arbiter, without a viewin
 
 ```bash
 curl -s -X POST localhost:8723/v1/requests/$ID/refunds \
-  -H "authorization: Bearer $RECEIPTS_KEY" -d '{"amount_zatoshis":100000,"reason":"one coffee was cold"}'
+  -H "authorization: Bearer $ZCEIPT_KEY" -d '{"amount_zatoshis":100000,"reason":"one coffee was cold"}'
 ```
 
 SDKs: `receipts.refunds.create(id, {…})` and `receipts.refunds.submitReceipt(rf, { receipt })` (JS),

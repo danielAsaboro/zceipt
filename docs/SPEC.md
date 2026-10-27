@@ -1,4 +1,4 @@
-# Receipts: an Orchard and Ironwood instantiation of ZIP 311
+# Zceipt: an Orchard and Ironwood instantiation of ZIP 311
 
 ZIP 311 ("Zcash Payment Disclosures", Draft) defines how the sender of a shielded
 transaction proves what they paid without handing over a viewing key. It specifies Sapling
@@ -232,7 +232,7 @@ covers every field. The domain is a lowercase host (with an optional port), the 
 bytes, the code 6 to 64 hex characters. A wallet:
 
 1. checks the signature, the address proof, the network and `now <= expires_at`;
-2. fetches `https://<domain>/.well-known/zcash-receipts.json` (`{"payees": ["u1…"]}`, no
+2. fetches `https://<domain>/.well-known/zceipt.json` (`{"payees": ["u1…"]}`, no
    redirects; plain http only for localhost) and requires a listed unified address with the
    payee's Orchard receiver. An attacker who swaps in their own address must sign with their own
    key, and the shop's domain doesn't list it;
@@ -280,7 +280,7 @@ Each note's proof uses the holder's own value commitment `cv_i = ValueCommit_rcv
 verifier checks every proof and signature as in version 1, with `cv_i` as given, then requires
 `sum cv_i = ValueCommit_rcv_sum(total)`. A note of value 0 skips the circuit's anchor check and
 could be made up, but adds nothing to the total. The verifier learns the total and the
-nullifiers. `receipts reserve --hide-values`; `roundtrip.rs::proof_of_funds_can_hide_each_value_and_show_only_the_total`;
+nullifiers. `zceipt reserve --hide-values`; `roundtrip.rs::proof_of_funds_can_hide_each_value_and_show_only_the_total`;
 the independent spec verifier checks the sum (`tests/test_testnet.py`).
 
 ## Screened-set proofs (`zip311s1`)
@@ -308,7 +308,7 @@ the list (`create --screened-amount`), without any note's value.
 What it shows: each note the payer's spends used is one of the list's notes, holding at least its
 floor. What it doesn't: which one, its value, or anything about inputs other parties added to the
 transaction. The independent spec verifier recomputes the root and the public inputs
-(`tests/test_testnet.py`). `receipts screened-list`, `create --screened-set`, `verify --screened-set`;
+(`tests/test_testnet.py`). `zceipt screened-list`, `create --screened-set`, `verify --screened-set`;
 `src/screened.rs`; `roundtrip.rs::screened_set_proof_shows_membership_not_which_member`; the
 regtest run proves and refuses one.
 
@@ -326,8 +326,8 @@ that `rk = SpendAuthSig.RandomizePublic(alpha, ak)` for its own `ak`, shows what
 would reveal (outputs, address and source proofs, every message line), and signs. `alpha` with
 the finished receipt gives `ak`, which would link the wallet's receipts, so the prepared form is
 kept between the two machines and discarded after signing. `roundtrip.rs::prepare_with_viewing_key_then_sign_elsewhere`
-(round trip, a changed or truncated encoding refused, another key refused); `receipts create
---unsigned` and `receipts sign`.
+(round trip, a changed or truncated encoding refused, another key refused); `zceipt create
+--unsigned` and `zceipt sign`.
 
 ## Batches
 
@@ -345,7 +345,7 @@ receipt but its proof, collecting the statements `(anchor, cv_net, nf, rk, cmx)`
 `aggregate` against all of them at once. The empty proof fields are part of what each receipt
 signs, so a receipt taken out of an aggregated batch never verifies on its own. One proof of `n`
 actions is about 2.7 KB + 2.3 KB·n instead of 5 KB·n: a three-payment batch link is a third
-shorter (`receipts create` makes batches this way unless `--no-aggregate`).
+shorter (`zceipt create` makes batches this way unless `--no-aggregate`).
 
 Every receipt in a batch carries `batch:<id> <i>/<n>` as the first line of `msg`, which its
 signature covers. A verifier checks that all ids match, `n` equals the count, and each
@@ -416,18 +416,18 @@ payer tag) picks the personalization, never the claim's own bytes: a claimant wh
 would obtain a second tag in the same domain and claim twice.
 
 `floor` is chosen by the claimant. A verifier states the least its rules allow and refuses a claim
-below it (`receipts verify --min`, `min_floor_zatoshis` in the API); otherwise a note of one
+below it (`zceipt verify --min`, `min_floor_zatoshis` in the API); otherwise a note of one
 zatoshi proves "at least 1".
 
 For a chain snapshot (`height` > 0), `anchor` must be the pool's tree root at `height`, set by
-the verifier (`receipts verify --domain D --height H`), and `nf` must be revealed and not
+the verifier (`zceipt verify --domain D --height H`), and `nf` must be revealed and not
 published up to `height`. For a published list of commitments the verifier knows were held
 (`height` = 0, `anchor` its root), `nf` may stay private, and the claim then doesn't mark the
 note's later spend. The two modes are two circuits (two verifying keys).
 
 A **payer tag** is a claim with `height` = 0, `floor` = 1 and `msg` = `"payer-tag:" || txid`
 (display order) on a note the payment spent: the verifier fetches the payment and checks `nf` is
-one of its spend nullifiers and `anchor` its anchor (`receipts tag`, then `receipts verify
+one of its spend nullifiers and `anchor` its anchor (`zceipt tag`, then `zceipt verify
 --domain D`). Payments in one domain with different tags were paid by different keys; with equal
 tags, by one. A round that matches donations can count donors this way, not payments, and learns
 nothing else about them.
@@ -450,16 +450,16 @@ sessionSig:= Schnorr (R, z) by S over BLAKE2b-512("ZIP311DSess\0" || coinType, d
 
 The spend key signs a certificate for a session key `S`: the most a receipt may show paid, the
 last block a payment may be in, and optionally the only payees. The delegate holds the viewing
-key, `S`'s secret and `alpha_c` (`receipts delegate` writes them to a session file). For a
+key, `S`'s secret and `alpha_c` (`zceipt delegate` writes them to a session file). For a
 payment, it proves each spend's `rk` is under the certificate's key (`rk_i - rk_c` is a known
-multiple of G) and signs with `S` (`receipts sign --session`). The verifier checks the
+multiple of G) and signs with `S` (`zceipt sign --session`). The verifier checks the
 certificate, the links, the session signature, the policy against the disclosed outputs and the
 payment's block, then the receipt as usual. The delegate can't spend; every receipt under one
 certificate carries it, so they link to each other.
 
 ## Proof of income from several payers
 
-`receipts verify <zip311i1…> --payer-tag @t1 --payer-tag @t2 --domain D --min-payers 2`: each
+`zceipt verify <zip311i1…> --payer-tag @t1 --payer-tag @t2 --domain D --min-payers 2`: each
 payer tag must be on one of the payments the proof of income counts, and the distinct tags are
 distinct paying wallets. A payment the recipient made to itself would count its own tag.
 
@@ -472,7 +472,7 @@ public   := [domainField, tag1, tag2], tag1 != tag2
 ```
 
 Two payer tags in one domain are of two accounts of one ZIP 32 wallet. The proof (crate
-`receipts-kce`, k = 17) shows there are a coin-level key `(sk_par, c_par)` and indices `i1`, `i2`
+`zceipt-kce`, k = 17) shows there are a coin-level key `(sk_par, c_par)` and indices `i1`, `i2`
 with, for each `j`, `sk_j = BLAKE2b-512("Zcash_ExpandSeed", c_par || 0x81 || sk_par ||
 I2LEOSP32(i_j))[..32]`, `nk_j = ToBase(BLAKE2b-512("Zcash_ExpandSeed", sk_j || 0x07))` and
 `tag_j = Poseidon(nk_j, domainField)`. BLAKE2b runs in the circuit through a port of
@@ -492,7 +492,7 @@ check      := R1 = [s1]G - [c1]rk, R2 = [s2]G - [c2]V, c1 + c2 == c
 
 Each spend's SpendAuthSig is replaced by a one-of-two Schnorr proof over the same signing digest:
 the prover knows `x` with `rk = [x]G` (its `ask + alpha`), or `y` with `V = [y]G`, `V` the
-verifier's published key (`receipts verifier-key`). The verifier knows it didn't use `y`, so it is
+verifier's published key (`zceipt verifier-key`). The verifier knows it didn't use `y`, so it is
 convinced the spend key authorized the receipt; it could make the same proof for any receipt
 with `y`, so anyone it shows the receipt to learns nothing about spend authority. The Action
 proofs are unchanged and still show that someone holding the payer's viewing key built it. A
@@ -537,7 +537,7 @@ check := [s_i]G == R_i + [c](rk_i - rk_0), R_i not the identity
 `digest` is each receipt's signing digest, so the proof names exact receipts and their order;
 `msg` binds a context (a batch's `batch:<id>`, or a verifier's `challenge:<hex>`). The prover
 needs the `alpha`s, so the proof is made while the prepared receipts are at hand; a batch made
-by `receipts create --txid … --txid …` carries one after `&k=`. What it shows: the maker knows
+by `zceipt create --txid … --txid …` carries one after `&k=`. What it shows: the maker knows
 how every `rk` relates to the first. For different holders that relation is the difference of
 their secret keys, which neither knows, so the receipts share one key or keys their holders
 pooled. It links these receipts only.
@@ -629,7 +629,7 @@ trustworthy as the server; the receipt remains the trustless proof.
   ZIP 320 deposit above proves a transparent hop that follows a shielded spend, not a
   transparent input itself.
 - **Witness availability.** The sender needs the spent note's Merkle path at the
-  transaction's anchor. `receipts create` first uses the wallet's checkpoints. If they have
+  transaction's anchor. `zceipt create` first uses the wallet's checkpoints. If they have
   been pruned, it rebuilds the path from public chain data: the pool's tree frontier just
   before the note's block (`GetTreeState`), then every note commitment from that block
   onwards (`GetBlockRange`, compact blocks), until the root equals the transaction's anchor.

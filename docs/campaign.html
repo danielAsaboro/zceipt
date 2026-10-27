@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light">
-<meta name="referrer" content="no-referrer"><title>Campaign · Receipts</title>
+<meta name="referrer" content="no-referrer"><title>Campaign · Zceipt</title>
 <style>
 :root{color-scheme:light;--paper:#fbfaf6;--ink:#1d1c1a;--dim:#6b665c;--line:#e5dfd2;--good:#1d6b45;--bad:#a3271f}
 *{box-sizing:border-box}body{margin:0;background:#efeae0;color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,sans-serif}
@@ -13,7 +13,7 @@ button{margin-top:8px;background:var(--ink);color:#fff;border:0;border-radius:10
 .note{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0;font-style:italic}
 </style></head>
 <body><main>
-<div class="card" id="head"><div class="brand">RECEIPTS · CAMPAIGN</div><p class="muted">Loading…</p></div>
+<div class="card" id="head"><div class="brand">ZCEIPT · CAMPAIGN</div><p class="muted">Loading…</p></div>
 <div class="card"><h2 style="margin:0 0 6px;font-size:17px">How this stays private</h2>
 <p class="muted">Every contribution is a shielded Zcash payment whose sender proved it with a zero-knowledge receipt. This page shows only a rounded total and a count, after enough people have given, refreshed in batches. No amounts, transactions or times of individual gifts are shown, so nobody can match a gift to a person. Notes appear only if a contributor chose to sign one.</p>
 <div id="notes"></div></div>
@@ -31,14 +31,14 @@ async function load() {
   if (!r.ok) { document.getElementById("head").innerHTML = `<p class="err">${esc(c.error?.message)}</p>`; return; }
   const t = c.tally;
   const pct = c.goal_zatoshis && t.visible ? Math.min(100, (100 * t.received_zatoshis_rounded) / c.goal_zatoshis) : 0;
-  document.getElementById("head").innerHTML = `<div class="brand">RECEIPTS · CAMPAIGN · ${c.livemode ? "ZCASH" : "ZCASH TESTNET"}</div>
+  document.getElementById("head").innerHTML = `<div class="brand">ZCEIPT · CAMPAIGN · ${c.livemode ? "ZCASH" : "ZCASH TESTNET"}</div>
     <h1>${esc(c.label || "Campaign")}</h1>
     ${t.visible ? `<div class="total">≈ ${zec(t.received_zatoshis_rounded)} ZEC</div>
       <div class="muted">${t.contributions} verified contributions${c.goal_zatoshis ? ` · goal ${zec(c.goal_zatoshis)} ZEC` : ""} · updated ${new Date(t.as_of * 1000).toLocaleTimeString()}, refreshed every ${Math.round(c.refresh_secs / 60)} min</div>
       ${c.goal_zatoshis ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ""}`
     : `<div class="muted">The total appears once ${c.min_contributions_to_publish} people have contributed, so no single gift can be singled out.</div>`}`;
   document.getElementById("notes").innerHTML = (t.public_notes || []).map((n) => `<div class="note">“${esc(n)}”</div>`).join("");
-  document.getElementById("cmd").textContent = `receipts create -w <wallet> -i <key.age> --txid <txid> --request '${c.receipt_link}'`;
+  document.getElementById("cmd").textContent = `zceipt create -w <wallet> -i <key.age> --txid <txid> --request '${c.receipt_link}'`;
   if (!document.getElementById("qr").innerHTML) document.getElementById("qr").innerHTML = await (await fetch(`/v1/public/requests/${id}/qr.svg`)).text();
 }
 document.getElementById("submit").onclick = async () => {

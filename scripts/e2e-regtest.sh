@@ -4,11 +4,11 @@
 #   ZCASH_DEVTOOL=/path/to/zcash-devtool LIGHTWALLETD=/path/to/lightwalletd ./scripts/e2e-regtest.sh
 #
 # Orchard era (blocks < 300): fund a wallet with Orchard coinbase, pay a merchant, make a
-# receipt, verify it. Then NU6.3 activates (Ironwood): fund again, run the Receipts API on the
-# chain, and have `receipts pay` answer a proof request end to end, then refund it with the
+# receipt, verify it. Then NU6.3 activates (Ironwood): fund again, run the Zceipt API on the
+# chain, and have `zceipt pay` answer a proof request end to end, then refund it with the
 # merchant's own receipt, attest it, and sign in with the payer's address.
 # Needs Docker (zfnd/zebra:6.4.2), lightwalletd, zcash-devtool built with regtest support, and
-# `receipts` (cargo install --path crates/receipts-cli). Everything runs on 127.0.0.1.
+# `zceipt` (cargo install --path crates/zceipt-cli). Everything runs on 127.0.0.1.
 set -euo pipefail
 # Say where it stopped, if a setup step fails.
 trap 'echo "e2e stopped at line $LINENO: $BASH_COMMAND" >&2' ERR
@@ -16,11 +16,11 @@ cd "$(dirname "$0")/.."
 ROOT=$PWD
 D=${ZCASH_DEVTOOL:-zcash-devtool}
 LWD=${LIGHTWALLETD:-lightwalletd}
-R=${RECEIPTS:-receipts}
+R=${ZCEIPT:-receipts}
 NU63=300
 RPC=${RPC:-18252}; GRPC=${GRPC:-9078}; API=${API:-8733}
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/receipts-e2e.XXXXXX")
-NAME=receipts-e2e-$$
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/zceipt-e2e.XXXXXX")
+NAME=zceipt-e2e-$$
 PASS=(); FAIL=()
 ok() { PASS+=("$1"); echo "  ok   $1"; }
 # A chain read can race the miner (lightwalletd briefly behind): try a read-only check up to 3 times.
@@ -144,7 +144,7 @@ auth=(-H "authorization: Bearer $KEY")
 REQ=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests" -d "{\"payee\":\"$MERCHANT\",\"amount_zatoshis\":25000000,\"label\":\"e2e order\"}")
 RID=$(echo "$REQ" | jq -r .id); HOSTED=$(echo "$REQ" | jq -r .hosted_url)
 ( while true; do mine 1; sleep 3; done ) & MINER=$!
-"$R" pay "$HOSTED" --yes -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" --refund-to "$SENDER" > pay.log 2>&1 && ok "receipts pay answered $RID" || { bad "receipts pay"; tail -5 pay.log; }
+"$R" pay "$HOSTED" --yes -w ./sender -i ./sender.age --devtool "$D" -s "127.0.0.1:$GRPC" --refund-to "$SENDER" > pay.log 2>&1 && ok "zceipt pay answered $RID" || { bad "zceipt pay"; tail -5 pay.log; }
 STATUS=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$RID" | jq -r '.status + " " + .fulfillment.verification.pool')
 [ "$STATUS" = "fulfilled ironwood" ] && ok "request fulfilled by an Ironwood receipt" || bad "request status: $STATUS"
 RF=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$RID/refunds" -d '{"amount_zatoshis":5000000,"reason":"e2e"}')
@@ -160,7 +160,7 @@ RS=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/refunds/$RFID/receipts" -d "
 ATT=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$RID/attestations" -d '{}' | jq -r .presentation)
 curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/attestations/verify" -d "{\"attestation\":\"$ATT\"}" | jq -e '.valid and .claims.paid_at_least_zatoshis == 20000000' >/dev/null && ok "attestation: paid at least 0.2 ZEC net of the refund" || bad "attestation"
 NONCE=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/sign_in/challenges" -d '{"domain":"e2e.test"}' | jq -r .nonce)
-RECEIPTS_KEY=$KEY "$R" sign-in -w ./sender -i ./sender.age --domain e2e.test --nonce "$NONCE" --submit "http://127.0.0.1:$API" 2>/dev/null | jq -e .verified >/dev/null && ok "Sign in with Zcash as the payer" || bad "sign-in"
+ZCEIPT_KEY=$KEY "$R" sign-in -w ./sender -i ./sender.age --domain e2e.test --nonce "$NONCE" --submit "http://127.0.0.1:$API" 2>/dev/null | jq -e .verified >/dev/null && ok "Sign in with Zcash as the payer" || bad "sign-in"
 
 echo "== Source of funds: an exchange withdrawal to a transparent address, shielded, then spent"
 for w in exchange customer; do init_wallet "$w" || bad "wallet $w"; done
@@ -267,7 +267,7 @@ if [ -n "${EXPORT_SOURCE:-}" ]; then mkdir -p "$EXPORT_SOURCE"; cp source.txt so
 
 echo "== Signed payment request: the shop signs, its domain lists the address, the payer checks both"
 WK=$((GRPC + 200)); mkdir -p shop/.well-known
-printf '{"payees":["%s"]}' "$MERCHANT" > shop/.well-known/zcash-receipts.json
+printf '{"payees":["%s"]}' "$MERCHANT" > shop/.well-known/zceipt.json
 python3 -m http.server "$WK" --bind 127.0.0.1 --directory shop > wk.log 2>&1 & WK_PID=$!
 for i in $(seq 1 20); do nc -z 127.0.0.1 "$WK" 2>/dev/null && break; sleep 0.5; done
 REQ1=$("$R" request -w ./merchant -i ./merchant.age --domain "127.0.0.1:$WK" --amount 0.07 --memo "Order 77" --code c0ffee77 --payee "$MERCHANT" 2>/dev/null) && ok "shop signed a payment request" || bad "sign request"
@@ -322,10 +322,10 @@ D1=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID/receipts" -d "
 echo "$D1" > desk-cleared.json
 echo "$D1" | jq -e --arg t "$TRADER_T" '.status == "fulfilled" and .provenance.status == "cleared" and (.provenance.funding | map(.address) | index($t)) != null' >/dev/null \
   && ok "with --prove-source the deposit is credited: funding screened and cleared ($TRADER_T)" || { bad "cleared deposit"; echo "$D1" | head -c 400; }
-# Screened against a list that holds the trader's address: receipts pay attaches the proof; the deposit is held.
+# Screened against a list that holds the trader's address: zceipt pay attaches the proof; the deposit is held.
 DQ2=$(desk 19000000 "\"$TRADER_T\""); DID2=$(echo "$DQ2" | jq -r .id); DH2=$(echo "$DQ2" | jq -r .hosted_url)
-"$R" pay "$DH2" --yes --refund-to "$TRADER" -w ./trader -i ./trader.age --devtool "$D" -s "127.0.0.1:$GRPC" > desk-pay.log 2>&1 || { bad "receipts pay (deposit)"; tail -3 desk-pay.log; }
-grep -q "held while the shop reviews" desk-pay.log && ok "receipts pay attached the proof by itself; the deposit is held: its funding address is on the desk's list" || { bad "held deposit"; tail -3 desk-pay.log; }
+"$R" pay "$DH2" --yes --refund-to "$TRADER" -w ./trader -i ./trader.age --devtool "$D" -s "127.0.0.1:$GRPC" > desk-pay.log 2>&1 || { bad "zceipt pay (deposit)"; tail -3 desk-pay.log; }
+grep -q "held while the shop reviews" desk-pay.log && ok "zceipt pay attached the proof by itself; the deposit is held: its funding address is on the desk's list" || { bad "held deposit"; tail -3 desk-pay.log; }
 H=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2")
 echo "$H" | jq -e '.status == "held_for_review" and .provenance.status == "review" and (.provenance.reasons | any(test("blocked address")))' >/dev/null && ok "the desk sees why: funded by a blocked address" || { bad "held reasons"; echo "$H" | head -c 400; }
 RJ=$(curl -s "${auth[@]}" "http://127.0.0.1:$API/v1/requests/$DID2/review" -d '{"decision":"reject","note":"listed address"}' | jq -r .status)

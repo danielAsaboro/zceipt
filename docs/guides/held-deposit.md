@@ -11,11 +11,11 @@ With your wallet's viewing key on an online machine (no spending key there), the
 the seed is, offline if you like ([other ways](../../README.md#make-a-receipt-from-your-wallet)):
 
 ```bash
-receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <your deposit txid> \
+zceipt create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <your deposit txid> \
   --prove-source --reveal-source-value \
   --prove-address <your address they know, if any> \
   -m "Deposit for account 7731" --unsigned deposit.prepared
-receipts sign deposit.prepared --seed-stdin    # shows everything it reveals, asks before signing
+zceipt sign deposit.prepared --seed-stdin    # shows everything it reveals, asks before signing
 ```
 
 If the desk gave you a request link, add `--request '<its link>'` so the receipt answers that
@@ -38,7 +38,7 @@ What it never shows: your balance, your other notes or transactions, your viewin
 Try it on the verifier page: **Try a deposit with its source** opens a real testnet receipt that
 proves the note it spent came from transaction `2a2bd721…`. That transaction was itself funded
 from shielded notes, so a desk would hold it for review and could ask for the next hop (a batch:
-`--txid <earlier> --txid <deposit> --prove-source`). A desk running `receipts serve` screens the
+`--txid <earlier> --txid <deposit> --prove-source`). A desk running `zceipt serve` screens the
 funding automatically; see the [exchange runbook](exchange-deposit.md).
 
 ## Before you send it

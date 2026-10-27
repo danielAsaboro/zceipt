@@ -1,7 +1,7 @@
 // The npm package checks what the CLI made in the regtest end to end, offline (raw transactions
 // given): node scripts/e2e-npm.mjs <dir> <T1 hex> <T1 height> <DEP hex> <DEP height>
 import { readFile } from "node:fs/promises";
-import { verifyDesignated, verifyDelegated, verifyPayerTag } from "../packages/zcash-receipts/index.js";
+import { verifyDesignated, verifyDelegated, verifyPayerTag } from "../packages/zceipt/index.js";
 
 const [dir, t1, h1, dep, hd] = process.argv.slice(2);
 const read = (f) => readFile(`${dir}/${f}`, "utf8");

@@ -1,7 +1,7 @@
-# Ambiguities and gaps in the sources, and how Receipts resolves them
+# Ambiguities and gaps in the sources, and how Zceipt resolves them
 
 Each entry names the source text, why it is ambiguous or incomplete for an Orchard/Ironwood
-implementation, what Receipts does, and what checks it. Sources: zcash/zips at `7b9e678`
+implementation, what Zceipt does, and what checks it. Sources: zcash/zips at `7b9e678`
 (ZIP 311 last changed there), `protocol/protocol.tex` at `18d642d`, ZIP 229, ZIP 244, ZIP 304,
 and the zcashd v4.0.0 Sprout payment-disclosure code (`src/wallet/paymentdisclosure.h`), the
 prior art ZIP 311 replaces. Nothing here has been proposed upstream.
@@ -39,7 +39,7 @@ binds a height, and nothing proves the transaction was mined. *Resolution:* the 
 fetches the transaction by `txid` and uses the mined height; offline verification now says it
 did not check (CLI: "height N as given; not checked against the chain"; page: "as you gave it,
 not checked"). Before 2026-10-15 the offline page showed the supplied height as `BLOCK` like a
-fetched one. *Checked by:* `receipts-chain/src/chain.rs::verify_offline` sets `chain_checked = false`.
+fetched one. *Checked by:* `zceipt-chain/src/chain.rs::verify_offline` sets `chain_checked = false`.
 
 **A5. Spend proofs use "the same anchor" taken from `tx`.** For v6 transactions the `txid` does
 not commit to the anchor (ZIP 229, "Anchor commitment (version 6)"), so "the anchor of `tx`" is
@@ -96,7 +96,7 @@ layout, the proof-length cap, or the fixed `cv`. Writing the spec verifier from 
 exposed this; the layout is now in `SPEC.md`.
 
 **A15. Flags of the disclosure proof.** ZIP 311 does not say which `enableSpends` /
-`enableOutputs` flags the Orchard disclosure proof uses. Receipts proves with both enabled
+`enableOutputs` flags the Orchard disclosure proof uses. Zceipt proves with both enabled
 (`Flags::ENABLED`), with a zero-value dummy output, so the action is built by the same unmodified
 Orchard builder path as any wallet action and its `cmx`, `cv_net` and `rk` look like ordinary
 public inputs. Soundness of spend authority does not depend on the output half: the proof shows

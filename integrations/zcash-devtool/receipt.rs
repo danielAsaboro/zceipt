@@ -1,5 +1,5 @@
 //! `wallet receipt`: prove one payment this wallet sent (ZIP 311, Orchard/Ironwood), without
-//! handing anyone a viewing key. Local integration of Receipts (crates/receipts-wallet).
+//! handing anyone a viewing key. Local integration of Zceipt (crates/zceipt-wallet).
 
 use std::path::PathBuf;
 
@@ -73,8 +73,8 @@ impl Command {
         let request = match &self.request {
             None => None,
             Some(link) => {
-                // Same parsing and checks as `receipts create --request`.
-                let r = receipts_wallet::parse_request_link(link)?;
+                // Same parsing and checks as `zceipt create --request`.
+                let r = zceipt_wallet::parse_request_link(link)?;
                 lines.push(format!("challenge:{}", r.code));
                 link_base = link.split('#').next().unwrap_or(link).to_string();
                 Some(r)
@@ -87,7 +87,7 @@ impl Command {
             lines.push(self.message.clone());
         }
         if let Some(a) = &self.refund_to {
-            receipts_wallet::check_refund_address(a)?;
+            zceipt_wallet::check_refund_address(a)?;
             lines.push(format!("refund-to:{a}"));
         }
         let msg = lines.join("\n");
@@ -97,27 +97,27 @@ impl Command {
         let server = self.server.as_deref();
 
         eprintln!("Building the receipt (a fresh Halo 2 proof for each note you spent)…");
-        let (receipt, height) = receipts_wallet::create_receipt(
+        let (receipt, height) = zceipt_wallet::create_receipt(
             &dir,
             std::path::Path::new(&self.identity),
             txid,
             msg.as_bytes(),
             &[],
             None,
-            receipts_wallet::WitnessSource::Auto,
+            zceipt_wallet::WitnessSource::Auto,
             server,
             self.prove_address.as_deref(),
             match (self.prove_source, self.reveal_source_value) {
                 (false, _) => None,
-                (true, false) => Some(receipts_wallet::SourceMode::HideValue),
-                (true, true) => Some(receipts_wallet::SourceMode::RevealValue),
+                (true, false) => Some(zceipt_wallet::SourceMode::HideValue),
+                (true, true) => Some(zceipt_wallet::SourceMode::RevealValue),
             },
             self.withhold_memo,
         )
         .await?;
         if let Some(r) = &request {
             // Refuse to hand over a "receipt" that doesn't actually answer the request.
-            let paid = receipts_wallet::check_answers(&receipt, r, server, None).await?;
+            let paid = zceipt_wallet::check_answers(&receipt, r, server, None).await?;
             eprintln!("Answers request {}: paid {} zatoshis to the requested address.", r.code, paid);
         }
         let text = receipt.to_text();

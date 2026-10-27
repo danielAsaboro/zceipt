@@ -1,0 +1,57 @@
+[package]
+name = "zceipt-core"
+version = "0.1.0"
+description = "ZIP 311 payment disclosures (receipts) for Zcash Orchard and Ironwood"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Needs the small orchard patch in vendor/ (see vendor/README.md): incoming receipts, outputs
+# with the memo withheld (format v5), and precomputed verifier parameters (about 3x faster key
+# building). Without it zceipt-core builds on stock orchard 0.16, and receipts that use those
+# features are refused with Error::NeedsOrchardExt.
+orchard-ext = []
+# Everything beyond the ZIP 311 profile (create, prepare, sign, verify, encoding): payment
+# requests, sign-in, proof of funds, screened sets, exchange deposits, link linting and the
+# secret tripwire. `default-features = false` gives the ZIP 311 profile alone.
+extensions = ["dep:zip321", "dep:zcash_transparent", "dep:zcash_address", "dep:qrcode", "dep:serde_json"]
+default = []
+
+[dependencies]
+orchard.workspace = true
+zcash_note_encryption.workspace = true
+pasta_curves.workspace = true
+ff.workspace = true
+group.workspace = true
+rand.workspace = true
+rand_core.workspace = true
+blake2b_simd.workspace = true
+thiserror.workspace = true
+base64.workspace = true
+sha2 = "0.10"
+zeroize = "1"
+incrementalmerkletree = "0.9"
+zip321 = { workspace = true, optional = true }
+zcash_primitives.workspace = true
+zcash_transparent = { workspace = true, optional = true }
+zcash_address = { workspace = true, optional = true }
+zcash_protocol.workspace = true
+qrcode = { version = "0.14", default-features = false, optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+zceipt-core = { path = ".", features = ["orchard-ext", "extensions"] }
+halo2_proofs = { version = "0.4", default-features = false }
+rand = { version = "0.10", features = ["std", "sys_rng"] }
+incrementalmerkletree = "0.9"
+shardtree = "0.8"
+# tests/frost.rs: a 2-of-3 FROST treasury signs a receipt (Zcash Foundation re-randomized FROST).
+reddsa05 = { package = "reddsa", version = "0.5.2", features = ["frost"] }
+frost-rerandomized = "3.0.0"
+rand_core06 = { package = "rand_core", version = "0.6", features = ["getrandom"] }
+serde_json = "1"
+
+[[example]]
+name = "write_params"
+required-features = ["orchard-ext"]

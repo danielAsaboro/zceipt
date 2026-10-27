@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Receipts · prove one Zcash payment</title>
+<title>Zceipt · prove one Zcash payment</title>
 <style>
   :root { --bg:#141311; --panel:#1c1b18; --text:#ece7dc; --dim:#a39d90; --line:#2e2c27; --accent:#e3b75f; --good:#5fbf8a; }
   * { box-sizing:border-box; }
@@ -34,9 +34,9 @@
 </head>
 <body>
 <main>
-  <div class="eyebrow">RECEIPTS · ZIP 311 FOR ORCHARD &amp; IRONWOOD</div>
+  <div class="eyebrow">ZCEIPT · ZIP 311 FOR ORCHARD &amp; IRONWOOD</div>
   <h1>Prove one Zcash payment. Reveal nothing else.</h1>
-  <p class="lead">Shielded Zcash payments are private, which is the point. But sometimes you need to prove one: a shop checking an order, a refund, an exchange clearing a deposit, an auditor. Today that usually means handing over a viewing key, which shows <em>every</em> payment, forever. Receipts shows just the one.</p>
+  <p class="lead">Shielded Zcash payments are private, which is the point. But sometimes you need to prove one: a shop checking an order, a refund, an exchange clearing a deposit, an auditor. Today that usually means handing over a viewing key, which shows <em>every</em> payment, forever. Zceipt shows just the one.</p>
 
   <h2>How it works</h2>
   <ol class="steps">
@@ -52,7 +52,7 @@
     <a class="card" href="/docs">API reference<span>Every endpoint, with examples</span></a>
     <a class="card" href="/docs#QUICKSTART.md">Quickstart<span>From zero to a verified payment</span></a>
   </div>
-  <p style="margin-top:14px">The whole flow in seconds once built, no wallet needed: <code>receipts demo</code> (or <code>docker compose run --build --rm receipts demo --no-wait</code>).</p>
+  <p style="margin-top:14px">The whole flow in seconds once built, no wallet needed: <code>zceipt demo</code> (or <code>docker compose run --build --rm zceipt demo --no-wait</code>).</p>
 
   <h2>What each party learns</h2>
   <table>
@@ -65,7 +65,7 @@
 
   <h2>For developers</h2>
   <p>A REST API with proof requests, signed webhooks, refunds, attestations and Sign in with Zcash; SDKs for TypeScript, Python, Rust and Go; a drop-in "prove you paid" (HTTP 402) gate for Express, Next.js, FastAPI and Django; and a sandbox with fixtures and test clocks.</p>
-  <pre>curl -s localhost:{port}/v1/verify -H "authorization: Bearer $RECEIPTS_KEY" \
+  <pre>curl -s localhost:{port}/v1/verify -H "authorization: Bearer $ZCEIPT_KEY" \
   -d '{"receipt":"zip311_test_valid"}'</pre>
 
   <p class="foot">This server's test mode runs on <b>{net}</b>. Live keys use mainnet. <a href="/v1/health">Health</a> · <a href="/openapi.yaml">OpenAPI</a> · <a href="/llms.txt">llms.txt</a></p>

@@ -5,7 +5,7 @@ description: "How a receipt proves the payer, and only the payer, made it."
 
 ZIP 311 calls a payment disclosure complete only with a proof that the payer's spend authority
 made the payment. For Sapling it specifies a fresh Spend proof and a `spendAuthSig`. For Orchard
-it says `TODO`. Receipts fills that in for Orchard and Ironwood by carrying the Sapling design
+it says `TODO`. Zceipt fills that in for Orchard and Ironwood by carrying the Sapling design
 over to the Orchard Action circuit.
 
 ## Construction
@@ -46,7 +46,7 @@ it*.
 ## What it does not prove
 
 - **Mined.** The verifier fetches the transaction from a lightwalletd server, so "mined" rests on
-  that server's word. `receipts verify --cross-check <host:port>` asks a second server.
+  that server's word. `zceipt verify --cross-check <host:port>` asks a second server.
 - **Payee.** The payer chooses which outputs to disclose. Change discloses like any other
   output. A verifier checks the recipient it expects (`--expect-address`).
 - **Presenter.** A receipt is a bearer proof. A verifier who needs freshness issues a challenge,

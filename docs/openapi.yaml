@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Receipts API
+  title: Zceipt API
   version: "2026-10-14"
   summary: Prove one shielded Zcash payment, reveal nothing else.
   description: |
@@ -15,7 +15,7 @@ info:
     Every error has the same shape and a stable `code`. `GET /v1/errors` lists them all.
 servers:
   - url: http://localhost:8723
-    description: receipts serve (local)
+    description: zceipt serve (local)
 security:
   - bearer: []
 tags:
@@ -180,7 +180,7 @@ paths:
       operationId: createRefund
       summary: Refund a payment to the payer's signed refund address
       description: |
-        Only works if the payer signed `refund-to:<address>` into their receipt (`receipts create --refund-to`).
+        Only works if the payer signed `refund-to:<address>` into their receipt (`zceipt create --refund-to`).
         Returns a ZIP-321 `payment_uri` to that address and a `challenge` for the refund receipt. Emits `refund.created`.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
@@ -290,7 +290,7 @@ paths:
       summary: Issue a single-use sign-in challenge
       description: |
         Returns a nonce bound to `domain` that expires after 5 minutes. The user's wallet answers with
-        `receipts sign-in --domain <domain> --nonce <nonce>`, which proves control of a shielded address
+        `zceipt sign-in --domain <domain> --nonce <nonce>`, which proves control of a shielded address
         with a Halo 2 proof and a RedPallas signature. No transaction and no fee.
       requestBody:
         content:
@@ -305,7 +305,7 @@ paths:
           description: Challenge
           content:
             application/json:
-              example: { object: sign_in_challenge, id: sic_016fcd1628de976b20b5eaeb, livemode: false, coin_type: 1, domain: kemis-coffee.test, nonce: 3586f998c75075f243d65a88, expires_at: 1792014583, status: pending, wallet_command: "receipts sign-in --domain kemis-coffee.test --nonce 3586f998c75075f243d65a88" }
+              example: { object: sign_in_challenge, id: sic_016fcd1628de976b20b5eaeb, livemode: false, coin_type: 1, domain: kemis-coffee.test, nonce: 3586f998c75075f243d65a88, expires_at: 1792014583, status: pending, wallet_command: "zceipt sign-in --domain kemis-coffee.test --nonce 3586f998c75075f243d65a88" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
   /v1/sign_in/verify:
@@ -387,7 +387,7 @@ paths:
                 public_min_contributions: { type: integer, minimum: 1, maximum: 1000, default: 3, description: "Campaigns: contributions needed before the public page shows a total" }
                 source_of_funds:
                   type: object
-                  description: "Deposit desks (single requests): only accept a receipt that proves where every spent note came from (receipts create --prove-source; receipts pay adds it), and screen the transparent addresses that funded it against blocked_addresses. Cleared: fulfilled. Otherwise: held_for_review until POST /v1/requests/{id}/review."
+                  description: "Deposit desks (single requests): only accept a receipt that proves where every spent note came from (zceipt create --prove-source; zceipt pay adds it), and screen the transparent addresses that funded it against blocked_addresses. Cleared: fulfilled. Otherwise: held_for_review until POST /v1/requests/{id}/review."
                   properties:
                     required: { const: true }
                     blocked_addresses: { type: array, items: { type: string }, maxItems: 10000, description: "Transparent addresses of this network; never shown publicly" }
@@ -544,7 +544,7 @@ webhooks:
     post:
       summary: A valid receipt fulfilled a proof request
       description: |
-        Header `Receipts-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`.
+        Header `Zceipt-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`.
         Verify it, reject stale timestamps, and deduplicate on the event `id`, because deliveries can repeat.
       requestBody:
         content: { application/json: { schema: { $ref: "#/components/schemas/Event" } } }
@@ -675,7 +675,7 @@ components:
         hosted_url: { type: string, description: "Hosted pay page: /pay/{id}?secret=…" }
         public_url: { type: [string, "null"], description: "Campaigns only: public tally page /c/{id}" }
         payment_uri: { type: string, description: "ZIP-321 URI: zcash:<payee>?amount=…&memo=… (asks for the remaining amount)" }
-        receipt_link: { type: string, description: "Verifier page link; pass it to `receipts create --request`" }
+        receipt_link: { type: string, description: "Verifier page link; pass it to `zceipt create --request`" }
         cli_command: { type: string }
         fulfillment:
           type: [object, "null"]

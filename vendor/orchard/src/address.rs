@@ -43,7 +43,7 @@ impl Address {
 
     /// Returns the diversified transmission key for this address.
     #[cfg_attr(feature = "unstable-voting-circuits", visibility::make(pub))]
-    /// Receipts patch: public, for recovering one output with a disclosed `esk`.
+    /// Zceipt patch: public, for recovering one output with a disclosed `esk`.
     pub fn pk_d(&self) -> &DiversifiedTransmissionKey {
         &self.pk_d
     }

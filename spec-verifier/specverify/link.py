@@ -1,4 +1,4 @@
-"""Same-payer proofs (zip311k1, crates/receipts-core/src/link.rs), checked from the description:
+"""Same-payer proofs (zip311k1, crates/zceipt-core/src/link.rs), checked from the description:
 several receipts were signed with one spend authorizing key.
 
   link  := "ZRCK" | 1 | coinType:u32le | msgLen:u16le | msg | nReceipts:u8 | digest[32]*
@@ -53,7 +53,7 @@ def _digest(r):
 
 
 def verify(proof, receipts) -> int:
-    """Raises ValueError unless `proof` links `receipts` (in order). Returns the spends linked."""
+    """Raises ValueError unless `proof` links `zceipt` (in order). Returns the spends linked."""
     if len(receipts) != len(proof["digests"]) or any(r.coin_type != proof["coin"] for r in receipts):
         raise ValueError("the proof names other receipts")
     if any(_digest(r) != d for r, d in zip(receipts, proof["digests"])):
@@ -79,7 +79,7 @@ def verify(proof, receipts) -> int:
 
 
 def verify_policy(text: str, receipt):
-    """A policy proof (zip311p1, crates/receipts-core/src/policy.rs): every spend's rk is
+    """A policy proof (zip311p1, crates/zceipt-core/src/policy.rs): every spend's rk is
     C_0 + [alpha]G with alpha known to the prover, C_0 the published t-of-n key. Returns (t, n)."""
     s = text.strip()
     if not s.startswith("zip311p1"):
@@ -131,7 +131,7 @@ def verify_policy(text: str, receipt):
 
 
 def verify_keyset(text: str, receipt) -> int:
-    """A key-set proof (zip311m1, crates/receipts-core/src/keyset.rs): for every spend, a
+    """A key-set proof (zip311m1, crates/zceipt-core/src/keyset.rs): for every spend, a
     one-of-many Schnorr proof that rk - K_j = [alpha]G for one published key K_j. Returns the
     number of keys."""
     s = text.strip()
@@ -188,7 +188,7 @@ def verify_keyset(text: str, receipt) -> int:
 
 
 def verify_designated(text: str, verifier_key: bytes = None):
-    """A receipt for one verifier (zip311d1, crates/receipts-core/src/designated.rs): per spend, a
+    """A receipt for one verifier (zip311d1, crates/zceipt-core/src/designated.rs): per spend, a
     one-of-two Schnorr proof that the prover knows rk's or V's discrete log, in place of the
     signature. Returns (receipt, V); verify the receipt's proofs against the chain as usual. If
     `verifier_key` is given, V must be it (a receipt for another key proves nothing to you)."""
@@ -224,7 +224,7 @@ def verify_designated(text: str, verifier_key: bytes = None):
 
 
 def verify_delegated(text: str):
-    """A delegated receipt (zip311a1, crates/receipts-core/src/delegated.rs): the certificate's
+    """A delegated receipt (zip311a1, crates/zceipt-core/src/delegated.rs): the certificate's
     SpendAuthSig under rk_c, a Schnorr link from every spend's rk to rk_c, and the session key's
     Schnorr signature. Returns (receipt, policy); check the policy against the verified receipt."""
     from . import receipt as rc

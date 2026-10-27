@@ -257,7 +257,7 @@ def verify_incoming(text: str, raw_tx: bytes, expected_coin_type: int):
 def verify_request(text: str, expected_coin_type: int, now: int):
     """A signed payment request: signature by rk, and rk's key controls the payee (address proof,
     Halo 2 proof not checked: public inputs returned). The caller checks the domain's
-    /.well-known/zcash-receipts.json lists the payee."""
+    /.well-known/zceipt.json lists the payee."""
     r = rc.decode_request(text)
     if r.coin_type != expected_coin_type:
         raise Invalid("wrong network (coin type)")
@@ -370,7 +370,7 @@ def challenge_of(msg: str):
 
 
 def verify_income(text: str, expected_coin_type: int, source_cmx):
-    """Proof of income (zip311i1, crates/receipts-core/src/income.rs): the signature over the whole
+    """Proof of income (zip311i1, crates/zceipt-core/src/income.rs): the signature over the whole
     proof by its one rk, each output counted once, and each item's public inputs: the anchor is
     the root of a one-leaf tree holding the output's cmx (`source_cmx(pool, txid, index)`, read by
     the caller from the chain) and cv_net is fixed to ValueCommit_0(floor). Halo 2 (one proof for

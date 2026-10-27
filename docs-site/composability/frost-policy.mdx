@@ -11,7 +11,7 @@ wallet. Any two signers sign with the receipt's own randomizer; the signature is
 Tested with the Zcash Foundation's re-randomized FROST over Pallas (`reddsa` 0.5.2) in a unit test
 and conformance vectors, and on the Zcash public testnet: a 2-of-3 treasury (a testnet wallet's
 spend key split by a trusted dealer, group key equal to its `ak`) signed a receipt for a real
-payment, and `receipts verify` accepts it against the chain with its policy proof.
+payment, and `zceipt verify` accepts it against the chain with its policy proof.
 </Note>
 
 ## Policy proof
@@ -27,7 +27,7 @@ for each spend. The proof is a Schnorr proof of knowledge of each spend's `alpha
 The verifier learns "this payment was authorized under that t-of-n key".
 
 ```bash
-receipts verify @receipt.txt --policy-commitment commitment.txt
+zceipt verify @receipt.txt --policy-commitment commitment.txt
 ```
 
 `receipt.txt` holds the receipt and the policy proof (`zip311p1…`); `commitment.txt` lists the
@@ -52,4 +52,4 @@ without that flag `verify` says the commitment is the proof's own.
 - The signer-side flow is the one in [spend authority](/concepts/spend-authority): the proofs need
   only the viewing key, so a multisig signs a prepared receipt.
 
-Code: `crates/receipts-core/src/policy.rs`, `crates/receipts-core/tests/frost.rs`.
+Code: `crates/zceipt-core/src/policy.rs`, `crates/zceipt-core/tests/frost.rs`.

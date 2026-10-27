@@ -7,11 +7,11 @@ height 222 of a Zebra regtest chain with every upgrade through NU6.3 active from
 
 `receipt.txt` was created from that sending wallet with:
 
-    receipts create -w ./sender -i ./sender.age --txid dcd2700d… -m "Order #42 at Kemi's Coffee"
+    zceipt create -w ./sender -i ./sender.age --txid dcd2700d… -m "Order #42 at Kemi's Coffee"
 
 Verify it with no network at all:
 
-    cargo test -p receipts-cli --release --test regtest_fixture
+    cargo test -p zceipt-cli --release --test regtest_fixture
 
 or open the verifier page, tick "Local regtest chain" in Settings, and paste `tx.hex` with
 height `222`.

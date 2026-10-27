@@ -1,8 +1,8 @@
 # Review of the cryptographic core
 
-A focused review of `crates/receipts-core` (and the places the server compares secrets), done
+A focused review of `crates/zceipt-core` (and the places the server compares secrets), done
 2026-10-15. Each invariant names the test that checks it. Property tests run thousands of random
-cases with a fixed seed (`crates/receipts-core/tests/properties.rs`), so failures reproduce.
+cases with a fixed seed (`crates/zceipt-core/tests/properties.rs`), so failures reproduce.
 
 ## Invariants
 
@@ -24,7 +24,7 @@ cases with a fixed seed (`crates/receipts-core/tests/properties.rs`), so failure
 | Where | Secret | Comparison |
 |---|---|---|
 | Webhook signatures (server, Rust, JS, Python, Go SDKs) | HMAC-SHA256 | Constant time: `ct_eq`, `Mac::verify_slice`, `safeEqual`, `hmac.compare_digest`, `hmac.Equal` |
-| Hosted pay-page client secret | random 96-bit token | **Was** `==`; now constant time (`receipts-server/src/lib.rs::ct_eq`) |
+| Hosted pay-page client secret | random 96-bit token | **Was** `==`; now constant time (`zceipt-server/src/lib.rs::ct_eq`) |
 | RedPallas, Halo 2 | n/a | Verification of public data; no secret-dependent branches in our code |
 | API keys | 192-bit random | Looked up by SQLite primary key. A remote timing attack on a B-tree lookup of a 192-bit random key isn't practical; hashing keys at rest would remove it but changes how keys are shown at startup (not done) |
 
@@ -36,7 +36,7 @@ cases with a fixed seed (`crates/receipts-core/tests/properties.rs`), so failure
   phrases and age keys (also inside JSON escapes) without echoing them
   (`api.rs::pasted_viewing_keys_are_refused_and_never_echoed`, `::second_qa_pass_regressions`).
 - The wallet code reads the mnemonic into memory only to derive keys, wrapped in `secrecy`, and
-  never writes it anywhere (`crates/receipts-wallet/src/lib.rs::decrypt_seed`).
+  never writes it anywhere (`crates/zceipt-wallet/src/lib.rs::decrypt_seed`).
 
 ## Residual notes
 
@@ -46,4 +46,4 @@ cases with a fixed seed (`crates/receipts-core/tests/properties.rs`), so failure
   (`verifyAttestation(…, { issuer })`).
 - RedPallas and Halo 2 come from the `orchard` and `reddsa` crates (with a local patch that loads
   precomputed parameters and adds the claim circuit, which this review does not cover; see
-  `AUDIT-HOSTILE.md`); this review covers how Receipts uses them, not the crates.
+  `AUDIT-HOSTILE.md`); this review covers how Zceipt uses them, not the crates.

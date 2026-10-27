@@ -369,9 +369,9 @@ version 1). Any other disclosure needs ZIP 311's general encoding, which remains
 Reference implementation
 ========================
 
-The Receipts repository implements this text. Paths are relative to its root.
+The Zceipt repository implements this text. Paths are relative to its root.
 
-- ``crates/receipts-core`` (Rust): creation (``create_cross``), preparation with a full viewing
+- ``crates/zceipt-core`` (Rust): creation (``create_cross``), preparation with a full viewing
   key (``prepare``), the separate-signer checks (``sign_prepared``), verification
   (``verify_cross``, which takes the anchor and nullifier from the transaction), output recovery
   (``recover_with_ock``) and the circuit choice (``RECEIPT_CIRCUIT``) in ``src/lib.rs``; the
@@ -382,7 +382,7 @@ The Receipts repository implements this text. Paths are relative to its root.
   against.
 - ``conformance/vectors.json``: 278 cases from real Orchard, Ironwood and cross-pool receipts,
   each with the answer a correct verifier gives.
-- Tests in ``crates/receipts-core/tests``: ``roundtrip.rs`` (``orchard_receipt_roundtrip``,
+- Tests in ``crates/zceipt-core/tests``: ``roundtrip.rs`` (``orchard_receipt_roundtrip``,
   ``ironwood_receipt_roundtrip``, ``only_the_spender_can_create``, ``tampering_is_rejected``,
   ``every_byte_matters``, ``encodings_are_canonical``,
   ``disclosures_are_unlinkable_to_the_action_and_to_each_other``,
@@ -413,7 +413,7 @@ updates the section titles and anchors of the two §4.20 entries.
 Appendix: Other signing domains (non-normative)
 ===============================================
 
-This ZIP specifies one signing personalization, ``ZIP311Signed``. The Receipts implementation
+This ZIP specifies one signing personalization, ``ZIP311Signed``. The Zceipt implementation
 defines further signed formats with their own BLAKE2b personalizations (12 bytes, then
 $coinType$ as 4 bytes little-endian), so that no signature made for one verifies as another or
 as a transaction. They are outside ZIP 311's scope, are not registered names, and are listed

@@ -1,6 +1,6 @@
 // "Make a receipt": the proofs from a viewing key (in make-worker.js), then the signature from the
 // seed phrase, both on this device. The verifier page then checks the result.
-import init, { sign_with_phrase } from "./zcash-receipts/pkg/receipts_wasm.js";
+import init, { sign_with_phrase } from "./zceipt/pkg/zceipt_wasm.js";
 
 const $ = (s) => document.querySelector(s);
 const local = init();
@@ -66,7 +66,7 @@ $("#signBtn").onclick = async () => {
   location.href = `./#${req}${receipt}&h=${made.height}`;
 };
 
-// For a hardware wallet or another machine: `receipts sign <file>` reads this.
+// For a hardware wallet or another machine: `zceipt sign <file>` reads this.
 $("#saveBtn").onclick = () => {
   const a = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(new Blob([`${made.prepared}\nh=${made.height}\n`], { type: "text/plain" })),

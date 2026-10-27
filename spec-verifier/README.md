@@ -37,7 +37,7 @@ against these public inputs".
 
 The zcash-test-vectors files used are copied unmodified into `tests/zcash-test-vectors` (MIT; see
 `SOURCE` there for the commit). Regenerate the corpus with
-`DIFF_CORPUS=spec-verifier/tests/corpus.json cargo test -p receipts-core --test roundtrip differential_corpus`.
+`DIFF_CORPUS=spec-verifier/tests/corpus.json cargo test -p zceipt-core --test roundtrip differential_corpus`.
 
 Independence is in the sources, language and code paths, not the authorship: it was written by
 the same team (an AI agent) that wrote the Rust verifier, working from `protocol.tex`, the ZIPs

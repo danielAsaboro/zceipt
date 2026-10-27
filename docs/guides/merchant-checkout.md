@@ -9,7 +9,7 @@ instead.
 
 1. At checkout: `requests.create({ payee, amount_zatoshis, metadata: { order_id } })`, then show
    `payment_uri` as a QR code.
-2. After paying, the customer's wallet (or `receipts create --request <receipt_link>`)
+2. After paying, the customer's wallet (or `zceipt create --request <receipt_link>`)
    produces a receipt. They paste it on your order page, or their wallet posts it.
 3. `requests.submitReceipt(id, { receipt })`, or listen for `request.fulfilled`, then ship.
 

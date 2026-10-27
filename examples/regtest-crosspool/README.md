@@ -8,5 +8,5 @@ action, and the disclosed Ironwood output.
 It was made by `scripts/e2e-regtest.sh` (the merchant's refund in that run, signing the refund's
 challenge) on a regtest chain with NU6.3 at height 300 (`heights.toml`).
 
-    receipts verify @examples/regtest-crosspool/receipt.txt --regtest examples/regtest-crosspool/heights.toml \
+    zceipt verify @examples/regtest-crosspool/receipt.txt --regtest examples/regtest-crosspool/heights.toml \
       --raw-tx examples/regtest-crosspool/tx.hex --height $(cat examples/regtest-crosspool/height)

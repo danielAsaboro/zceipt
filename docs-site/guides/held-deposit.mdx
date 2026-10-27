@@ -12,11 +12,11 @@ this one deposit and, if you choose, where its money came from and an address yo
 Make the proofs with the viewing key on an online machine, then sign where the seed is:
 
 ```bash
-receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <deposit txid> \
+zceipt create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <deposit txid> \
   --prove-source --reveal-source-value \
   --prove-address <an address the desk knows> \
   -m "Deposit for account 7731" --unsigned deposit.prepared
-receipts sign deposit.prepared --seed-stdin
+zceipt sign deposit.prepared --seed-stdin
 ```
 
 `sign` shows everything the receipt reveals and asks before signing. If the desk gave you a request

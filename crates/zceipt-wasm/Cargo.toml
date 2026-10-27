@@ -1,0 +1,31 @@
+[package]
+name = "zceipt-wasm"
+version = "0.1.0"
+description = "Browser verifier for Zcash payment receipts (ZIP 311)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+zceipt-core = { path = "../zceipt-core", features = ["orchard-ext", "extensions"] }
+orchard.workspace = true
+wasm-bindgen = "=0.2.104"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+zcash_primitives.workspace = true
+zcash_protocol.workspace = true
+zcash_address.workspace = true
+zcash_transparent.workspace = true
+getrandom = { version = "0.2", features = ["js"] }
+getrandom04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+console_error_panic_hook = "0.1"
+rand = { workspace = true, features = ["sys_rng"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+zcash_note_encryption.workspace = true
+incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
+bip0039 = "0.12"
+zip32 = "0.3"

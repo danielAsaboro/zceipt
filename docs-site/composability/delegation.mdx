@@ -11,7 +11,7 @@ policy you sign, and **can't spend**.
 The spend-key holder signs a policy for a fresh session key and writes a session file:
 
 ```bash
-receipts delegate -w <wallet> -i <identity> \
+zceipt delegate -w <wallet> -i <identity> \
   --max 0.5 --until 100000 --payee <address> --out office.session
 ```
 
@@ -25,8 +25,8 @@ The delegate holds the session file and the viewing key. It makes the proofs, th
 receipt with no spend key:
 
 ```bash
-receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
-receipts sign r.txt --session office.session --out receipt.txt
+zceipt create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
+zceipt sign r.txt --session office.session --out receipt.txt
 ```
 
 A verifier checks it like any receipt. A receipt over its policy, for example more than `--max`,
@@ -57,6 +57,6 @@ key; `S` vouched for this receipt within the policy.
   wallet's other payments).
 
 Formats: `zip311a1` (the delegated receipt) and `zip311g1` (the certificate). Code:
-`crates/receipts-core/src/delegated.rs`. Test:
+`crates/zceipt-core/src/delegated.rs`. Test:
 `roundtrip.rs::delegated_receipts_stay_within_their_policy`. The decoders are fuzzed, and the
 spec verifier checks `conformance/delegated.json`.

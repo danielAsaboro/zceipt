@@ -1,0 +1,27 @@
+[package]
+name = "zceipt-ffi"
+version = "0.1.0"
+description = "Swift and Kotlin bindings (uniffi) for Zcash payment receipts: verify, and sign a prepared receipt"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "zceipt_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+hex = "0.4"
+zceipt-core = { path = "../zceipt-core", features = ["orchard-ext", "extensions"] }
+zceipt-chain = { path = "../zceipt-chain" }
+zceipt-wallet = { path = "../zceipt-wallet" }
+tokio = { version = "1", features = ["rt"] }
+orchard.workspace = true
+rand = { workspace = true, features = ["std", "sys_rng"] }
+serde_json = "1"
+thiserror = "2"
+uniffi = { version = "0.29", features = ["cli"] }

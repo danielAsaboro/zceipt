@@ -10,7 +10,7 @@ Scope:    output disclosure and spend authority (format versions 1 and 3). The o
 ```
 
 The key words MUST, MUST NOT, SHOULD and MAY are to be interpreted as in BCP 14 (RFC 2119,
-RFC 8174). Implementations: `crates/receipts-core` (Rust) and `spec-verifier/` (Python,
+RFC 8174). Implementations: `crates/zceipt-core` (Rust) and `spec-verifier/` (Python,
 written from this text and SPEC.md; it checks everything but the Halo 2 proof).
 Test vectors: `conformance/vectors.json`.
 
@@ -135,7 +135,7 @@ defined by ZIP 321.
 | Payment request (`zreq1`) | `ZIP321Signed` | a fresh `rk` of the payee |
 | Proof of funds (`zrsv1`) | `ZcashReserve` | a fresh `rk` per note |
 
-`receipts-core/tests/properties.rs::all_signing_domains_are_distinct` checks the five are distinct.
+`zceipt-core/tests/properties.rs::all_signing_domains_are_distinct` checks the five are distinct.
 
 ## Rationale
 
@@ -171,7 +171,7 @@ defined by ZIP 321.
   personalization, MUST check each spend's `rk = SpendAuthSig.RandomizePublic(alpha, ak)`, and
   SHOULD display the txid, the disclosed outputs and `msg` before signing. It MUST NOT sign a
   digest supplied by the host: that could be a transaction's sighash, and the signature would
-  authorize a real spend. `receipts_core::sign_prepared` is a reference signer that does these
+  authorize a real spend. `zceipt_core::sign_prepared` is a reference signer that does these
   checks. The randomizers MUST stay between the prover and the signer and be discarded once
   signing is done: with a finished receipt, `alpha` gives `ak = rk - [alpha] G`, which would
   link every receipt the wallet signs. The proofs don't cover `msg`, so a signer MAY sign one

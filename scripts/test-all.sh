@@ -17,32 +17,32 @@ grep -E "^test result" target/test-all.log | awk '{p+=$4; f+=$6} END {print "  p
 step "spec verifier"
 check python3 -m unittest discover -s spec-verifier/tests
 
-R="${CARGO_TARGET_DIR:-target}/release/receipts"
-cargo build --release --quiet -p receipts-cli || fail=1
+R="${CARGO_TARGET_DIR:-target}/release/zceipt"
+cargo build --release --quiet -p zceipt-cli || fail=1
 DB=$(mktemp -d)/api.db
 PORT=$((8800 + RANDOM % 100))
 "$R" serve --listen "127.0.0.1:$PORT" --db "$DB" > "$DB.log" 2>&1 &
 API_PID=$!
 trap 'kill $API_PID 2>/dev/null' EXIT
 sleep 2
-export RECEIPTS_URL="http://127.0.0.1:$PORT" RECEIPTS_KEY
-RECEIPTS_KEY=$(grep -o "rcpt_test_[A-Za-z0-9_]*" "$DB.log" | head -1)
+export ZCEIPT_URL="http://127.0.0.1:$PORT" ZCEIPT_KEY
+ZCEIPT_KEY=$(grep -o "rcpt_test_[A-Za-z0-9_]*" "$DB.log" | head -1)
 
 step "npm package (live SDK tests against the local API)"
-(cd packages/zcash-receipts && node --test test/*.test.js 2>&1 | grep -E "^ℹ (pass|fail|skipped)|^not ok") || true
-(cd packages/zcash-receipts && node --test test/*.test.js >/dev/null 2>&1) || { echo "FAILED: npm tests"; fail=1; }
+(cd packages/zceipt && node --test test/*.test.js 2>&1 | grep -E "^ℹ (pass|fail|skipped)|^not ok") || true
+(cd packages/zceipt && node --test test/*.test.js >/dev/null 2>&1) || { echo "FAILED: npm tests"; fail=1; }
 
 step "Python SDK"
-(cd packages/receipts-python && check python3 -m unittest discover -s tests)
+(cd packages/zceipt-python && check python3 -m unittest discover -s tests)
 
 step "Go SDK"
-(cd packages/receipts-go && check go test -count=1 ./...)
+(cd packages/zceipt-go && check go test -count=1 ./...)
 kill $API_PID 2>/dev/null
-unset RECEIPTS_URL RECEIPTS_KEY
+unset ZCEIPT_URL ZCEIPT_KEY
 
 if [ -n "${ZCASH_DEVTOOL:-}" ] && [ -n "${LIGHTWALLETD:-}" ]; then
   step "regtest end to end"
-  RECEIPTS="$R" ./scripts/e2e-regtest.sh > target/e2e.log 2>&1 || fail=1; grep -E -A3 "^  FAIL" target/e2e.log; grep -E "passed, " target/e2e.log
+  ZCEIPT="$R" ./scripts/e2e-regtest.sh > target/e2e.log 2>&1 || fail=1; grep -E -A3 "^  FAIL" target/e2e.log; grep -E "passed, " target/e2e.log
 else
   step "regtest end to end skipped (set ZCASH_DEVTOOL and LIGHTWALLETD)"
 fi

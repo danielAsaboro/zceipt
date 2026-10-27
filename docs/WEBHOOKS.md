@@ -3,7 +3,7 @@
 Register an endpoint:
 
 ```bash
-curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $RECEIPTS_KEY" \
+curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $ZCEIPT_KEY" \
   -H 'content-type: application/json' -d '{"url":"https://example.com/hooks/receipts","events":["request.fulfilled"]}'
 # → { "id": "we_…", "secret": "whsec_…" }   (the secret is only shown once)
 ```
@@ -21,12 +21,12 @@ curl -s 127.0.0.1:8723/v1/webhook_endpoints -H "Authorization: Bearer $RECEIPTS_
 | `receipt.rejected` | a submitted receipt failed verification, or its payment was already used; `data.object.error.code` says why |
 
 **Signature.** Each delivery carries
-`Receipts-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`. Verify it on the
+`Zceipt-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`. Verify it on the
 **raw** body with the SDK helpers:
 
 - JS: `webhooks.constructEvent(raw, header, secret)`
 - Python: `construct_event(raw, header, secret)`
-- Rust: `receipts_client::webhooks::construct_event(raw, header, secret, 300)`
+- Rust: `zceipt_client::webhooks::construct_event(raw, header, secret, 300)`
 
 They reject bad signatures and timestamps more than 5 minutes off.
 
@@ -36,6 +36,6 @@ They reject bad signatures and timestamps more than 5 minutes off.
 - Deliveries can repeat, so deduplicate on the event `id`.
 - `POST /v1/events/{id}/resend` re-delivers an event.
 
-**Local development.** `receipts listen --forward-to http://localhost:3000/…` registers a
+**Local development.** `zceipt listen --forward-to http://localhost:3000/…` registers a
 temporary endpoint, prints every event and forwards it with its signature.
-`receipts trigger request.fulfilled` fires a real test-mode event.
+`zceipt trigger request.fulfilled` fires a real test-mode event.

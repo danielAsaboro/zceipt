@@ -1,5 +1,5 @@
 name: release
-# On a version tag: build the receipts CLI for Linux and macOS and attach it, with SHA-256
+# On a version tag: build the zceipt CLI for Linux and macOS and attach it, with SHA-256
 # checksums, to the GitHub release, so making or verifying a receipt needs no Rust toolchain.
 on:
   push:
@@ -20,14 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup target add ${{ matrix.target }}
-      - run: cargo build --release --locked -p receipts-cli --target ${{ matrix.target }}
+      - run: cargo build --release --locked -p zceipt-cli --target ${{ matrix.target }}
       - name: Package
         shell: bash
         run: |
-          name=receipts-${{ github.ref_name }}-${{ matrix.target }}
-          mkdir "$name" && cp target/${{ matrix.target }}/release/receipts* README.md LICENSE* "$name"/ && rm -f "$name"/receipts.d "$name"/receipts.pdb
+          name=zceipt-${{ github.ref_name }}-${{ matrix.target }}
+          mkdir "$name" && cp target/${{ matrix.target }}/release/zceipt* README.md LICENSE* "$name"/ && rm -f "$name"/zceipt.d "$name"/zceipt.pdb
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - uses: softprops/action-gh-release@v2
         with:
-          files: receipts-*.tar.gz*
+          files: zceipt-*.tar.gz*

@@ -1,4 +1,4 @@
-//! Claim tags (local patch for Receipts): the Orchard Action circuit with one more public output,
+//! Claim tags (local patch for Zceipt): the Orchard Action circuit with one more public output,
 //! `tag = Poseidon(nk, domain)`, and the spent note's nullifier kept private.
 //!
 //! The statement is the Action statement (the note is in the tree at `anchor`, it belongs to the

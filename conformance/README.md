@@ -12,7 +12,7 @@ testnet), a real testnet incoming receipt and a real testnet "Sign in with Zcash
 - "was I paid" expectations: a valid receipt checked against an expected address and minimum,
   including the wrong payee, a minimum one zatoshi too high, the same receiver as a mainnet
   address, and an output disclosed without its memo. The Rust, npm and Python verifiers all run
-  them (`receipts_chain::chain::paid_to_address` is the Rust rule).
+  them (`zceipt_chain::chain::paid_to_address` is the Rust rule).
 
 Every valid receipt also carries `known_answers`, computed by the independent spec verifier
 (`spec-verifier/`, written from the protocol specification): the signing digest, each spend's
@@ -21,8 +21,8 @@ raw recipient and value, so a new implementation can compare intermediate values
 final yes or no. The Rust test checks the digest and `cv_net` against them.
 
 Both verifiers in this repository run every vector: the Rust one
-(`cargo test -p receipts-cli --test conformance`) and the WebAssembly/npm one
-(`node --test packages/zcash-receipts/test/conformance.test.js`). A third-party verifier is
+(`cargo test -p zceipt-cli --test conformance`) and the WebAssembly/npm one
+(`node --test packages/zceipt/test/conformance.test.js`). A third-party verifier is
 conformant when it agrees with `expect.valid` on all of them. Everything is offline: each
 receipt vector carries its raw transaction and height.
 

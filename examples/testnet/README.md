@@ -7,7 +7,7 @@ faucet.
 
 Verify it against the chain:
 
-    receipts verify @examples/testnet/receipt-link.txt --expect-address "$(cat examples/testnet/merchant.ua)"
+    zceipt verify @examples/testnet/receipt-link.txt --expect-address "$(cat examples/testnet/merchant.ua)"
 
 Or open the verifier page with `#` followed by the contents of `receipt-link.txt` after its `#`.
 With its `h=` block hint, the page fetches the payment among its block's transactions from
@@ -25,7 +25,7 @@ address to the TEX). The receipt is for the first one and signs `tex-deposit:` a
 lines; verifiers check the spend proof and that the second transaction spends the first and pays
 the TEX.
 
-    receipts verify @examples/testnet/deposit-receipt.txt
+    zceipt verify @examples/testnet/deposit-receipt.txt
 
 It links the sender's shielded funds to the exchange deposit, so share it only with the exchange.
 
@@ -33,7 +33,7 @@ It links the sender's shielded funds to the exchange deposit, so share it only w
 
 Made by `scripts/e2e-testnet.sh`'s steps on 2026-10-25 from throwaway testnet wallets (a payer with
 accounts 0 and 1, a second wallet, a merchant), checked offline by
-`crates/receipts-cli/tests/testnet_adversarial.rs` and `packages/zcash-receipts/test/testnet-proofs.test.js`:
+`crates/zceipt-cli/tests/testnet_adversarial.rs` and `packages/zceipt/test/testnet-proofs.test.js`:
 
 | File | What |
 |---|---|

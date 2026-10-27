@@ -9,7 +9,7 @@ single payment.
 ## Use
 
 ```bash
-receipts income -w <wallet> -i <identity> \
+zceipt income -w <wallet> -i <identity> \
   --txid <txid1> --txid <txid2> --txid <txid3> --txid <txid4> \
   --min 0.02 -m "challenge:10a4e7c3d2b1"
 ```
@@ -17,7 +17,7 @@ receipts income -w <wallet> -i <identity> \
 The verifier checks it with the challenge it issued:
 
 ```bash
-receipts verify @proof.txt --challenge 10a4e7c3d2b1 --min 0.02
+zceipt verify @proof.txt --challenge 10a4e7c3d2b1 --min 0.02
 ```
 
 A real proof over four testnet payments is at `examples/testnet/income`. It reveals which
@@ -26,8 +26,8 @@ outputs were counted and each note's nullifier, and nothing else.
 ## Requiring separate payments and separate payers
 
 ```bash
-receipts verify @proof.txt --min 0.02 --min-payments 4
-receipts verify @proof.txt --min 0.02 --payer-tag @t1.txt --payer-tag @t2.txt --min-payers 2
+zceipt verify @proof.txt --min 0.02 --min-payments 4
+zceipt verify @proof.txt --min 0.02 --payer-tag @t1.txt --payer-tag @t2.txt --min-payers 2
 ```
 
 `--min-payers` needs [payer tags](/composability/distinct-payers) from the payers. That makes the
@@ -50,5 +50,5 @@ The proof shows the sum of the floors, not the amounts.
 - Whoever gives the lender the proof chose the payments; a lender who needs a full history asks
   for a viewing key, which is the thing receipts avoid.
 
-Code: `crates/receipts-core/src/income.rs`. Test:
+Code: `crates/zceipt-core/src/income.rs`. Test:
 `roundtrip.rs::proof_of_income_shows_a_total_not_the_amounts`.

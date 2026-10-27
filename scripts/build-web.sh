@@ -10,32 +10,32 @@ rustup target list --installed 2>/dev/null | grep -q wasm32-unknown-unknown || {
 # Fat LTO and one codegen unit make the module about 12% smaller (a faster first load).
 RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=~ --remap-path-prefix=$PWD=." \
 CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-  cargo build -p receipts-wasm --release --target wasm32-unknown-unknown
+  cargo build -p zceipt-wasm --release --target wasm32-unknown-unknown
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
-PKG=packages/zcash-receipts/pkg
+PKG=packages/zceipt/pkg
 rm -rf "$PKG"
-wasm-bindgen --target web --out-dir "$PKG" "$TARGET_DIR"/wasm32-unknown-unknown/release/receipts_wasm.wasm
+wasm-bindgen --target web --out-dir "$PKG" "$TARGET_DIR"/wasm32-unknown-unknown/release/zceipt_wasm.wasm
 
 # zcash_primitives links secp256k1 for transparent signatures. Receipts never touch
 # transparent signing, and the C library is not compiled for wasm32-unknown-unknown, so the
 # module imports three context functions from "env". Satisfy them with stubs that fail
 # loudly if they are ever called.
-syms=$(wasm-tools print "$PKG"/receipts_wasm_bg.wasm | grep -o '(import "env" "[A-Za-z0-9_]*"' | sed 's/.*"env" "//; s/"$//' | sort -u)
+syms=$(wasm-tools print "$PKG"/zceipt_wasm_bg.wasm | grep -o '(import "env" "[A-Za-z0-9_]*"' | sed 's/.*"env" "//; s/"$//' | sort -u)
 if [ -n "$syms" ]; then
   stub="const __wbg_star0 = {"
-  for s in $syms; do stub="$stub $s: () => { throw new Error('secp256k1 is not available in the receipts verifier'); },"; done
+  for s in $syms; do stub="$stub $s: () => { throw new Error('secp256k1 is not available in the Zceipt verifier'); },"; done
   stub="$stub };"
   python3 - "$stub" <<'PY'
 import sys
-p = "packages/zcash-receipts/pkg/receipts_wasm.js"
+p = "packages/zceipt/pkg/zceipt_wasm.js"
 t = open(p).read()
 t = t.replace("import * as __wbg_star0 from 'env';", sys.argv[1], 1)
 open(p, "w").write(t)
 PY
 fi
 # The page serves the package as-is (no bundler).
-rm -rf web/zcash-receipts web/pkg
-mkdir -p web/zcash-receipts
-cp -R packages/zcash-receipts/{index.js,grpc.js,maker.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zcash-receipts/
-grep -q "from 'env'" "$PKG"/receipts_wasm.js && { echo "error: env imports were not stubbed" >&2; exit 1; }
-echo "web build OK: $(du -h "$PKG"/receipts_wasm_bg.wasm | cut -f1) wasm"
+rm -rf web/zceipt web/pkg
+mkdir -p web/zceipt
+cp -R packages/zceipt/{index.js,grpc.js,maker.js,widget.js,worker.js,background.js,client.js,react.js,package.json,pkg} web/zceipt/
+grep -q "from 'env'" "$PKG"/zceipt_wasm.js && { echo "error: env imports were not stubbed" >&2; exit 1; }
+echo "web build OK: $(du -h "$PKG"/zceipt_wasm_bg.wasm | cut -f1) wasm"

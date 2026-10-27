@@ -1,6 +1,6 @@
-# What people say is hard about Zcash, and what Receipts does about it
+# What people say is hard about Zcash, and what Zceipt does about it
 
-Receipts proves one shielded payment and reveals nothing else (ZIP 311 for Orchard and
+Zceipt proves one shielded payment and reveals nothing else (ZIP 311 for Orchard and
 Ironwood). This document steps back from the code. It collects what real users, merchants,
 exchanges and developers say is painful about Zcash, isolates the pains a payment-proof tool can
 honestly fix, looks at how other chains handle the same problems, and records what we built in
@@ -17,7 +17,7 @@ is paraphrased.
 ## 1. The pain points
 
 `Fit` says how a payment-proof tool relates to the pain: **core** (it is the job), **related**
-(a receipt is part of the answer), **no** (a different problem). `Status` says where Receipts
+(a receipt is part of the answer), **no** (a different problem). `Status` says where Zceipt
 stands: **done** (shipped before this pass), **new** (built in this pass), **open**.
 
 ### A. Proving a payment without a viewing key
@@ -34,7 +34,7 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 | A8 | **Can't prove the *source* of a shielded payment** (marked as blocking ZIP 311) | [zcash#3828](https://github.com/zcash/zcash/issues/3828) | core | **new** (§3) |
 | A9 | Disclosure is all or nothing per output (reveal only the amount, or not the memo) | [zcash#2631](https://github.com/zcash/zcash/issues/2631) (blocking ZIP 311) | related | **new**: `--withhold-memo` discloses recipient and amount, not the memo (§3b) |
 | A10 | How viewing keys and payment disclosures interact is unspecified | [zips#327](https://github.com/zcash/zips/issues/327) | core | done ([CLAIM.md](CLAIM.md): a viewing key can't make a receipt) |
-| A11 | A "selected-payment receipts SDK" grant was turned down; the grants committee asked for receipts through ZIP 311 on Ironwood instead | [forum, Sep 2026](https://forum.zcashcommunity.com/t/grant-application-zcash-selected-payment-receipts-sdk/57729/4) | core | done (this is what Receipts is) |
+| A11 | A "selected-payment receipts SDK" grant was turned down; the grants committee asked for receipts through ZIP 311 on Ironwood instead | [forum, Sep 2026](https://forum.zcashcommunity.com/t/grant-application-zcash-selected-payment-receipts-sdk/57729/4) | core | done (this is what Zceipt is) |
 
 ### B. Exchanges, source of funds and the transparent trap
 
@@ -57,12 +57,12 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 
 | # | Pain | Sources | Fit | Status |
 |---|---|---|---|---|
-| C1 | Accepting ZEC means syncing nodes, Docker and exporting viewing keys; a non-technical merchant gave up in 20 minutes; the BTCPay plugin broke unnoticed | [forum: CipherPay](https://forum.zcashcommunity.com/t/cipherpay-yes-another-zcash-payment-processor-sorry-live/54830), [forum: BTCPay](https://forum.zcashcommunity.com/t/btcpayserver-zcash-plugin-opinions-on-next-steps/53734) | related | done (no viewing key on the server; `receipts demo`) |
+| C1 | Accepting ZEC means syncing nodes, Docker and exporting viewing keys; a non-technical merchant gave up in 20 minutes; the BTCPay plugin broke unnoticed | [forum: CipherPay](https://forum.zcashcommunity.com/t/cipherpay-yes-another-zcash-payment-processor-sorry-live/54830), [forum: BTCPay](https://forum.zcashcommunity.com/t/btcpayserver-zcash-plugin-opinions-on-next-steps/53734) | related | done (no viewing key on the server; `zceipt demo`) |
 | C2 | No standard refund, underpaid or expired states | [forum: order-pay](https://forum.zcashcommunity.com/t/grant-application-zec-order-pay-shielded-zec-checkout-refunds-and-creator-payouts-for-service-marketplaces/58168) | related | done (requests, refunds, finality) |
 | C3 | Refunds are slow because privacy makes failed payments hard to trace | [X: ZECBIT](https://x.com/NafterG/status/2103437968124018963) | core | done (signed `refund-to:`) |
 | C4 | Shielded receivers learn no return address; swap UIs make users type refund addresses by hand, unvalidated | [X](https://x.com/monaverse_nft/status/2101960445267472704), [zodl-android#1983](https://github.com/zodl-inc/zodl-android/issues/1983) | related | done |
 | C5 | Unsigned ZIP 321 requests: over/under/duplicate payments, no way to authenticate who is asking | [zips#611](https://github.com/zcash/zips/issues/611), [zips#977](https://github.com/zcash/zips/issues/977), [forum: ZecAuth](https://forum.zcashcommunity.com/t/zip-321-tells-a-wallet-what-to-pay-zecauth-adds-authenticated-privacy-aware-interaction/57553) | related | **new**: signed requests checked against the shop's domain (§3d) |
-| C6 | Multi-payment URIs can hide recipients the user then signs | [zodl-android#2217](https://github.com/zodl-inc/zodl-android/issues/2217) | related | done (`receipts check-link` warns; `receipts pay` shows the full address and amount) |
+| C6 | Multi-payment URIs can hide recipients the user then signs | [zodl-android#2217](https://github.com/zodl-inc/zodl-android/issues/2217) | related | done (`zceipt check-link` warns; `zceipt pay` shows the full address and amount) |
 | C7 | Strangers can't trade without someone paying first and hoping | [X: Aegis Gate](https://x.com/RaphElevator/status/2107193116650254665) | related | done for the proof half; escrow is out of scope |
 | C8 | Point-of-sale: 3 minutes to confirm a shielded payment pushes builders back to transparent | [forum: ROZO](https://forum.zcashcommunity.com/t/rozo-merchant-pos-fast-zcash-payments-for-merchants-irl-grant-application/56374) | no | block time |
 
@@ -97,7 +97,7 @@ stands: **done** (shipped before this pass), **new** (built in this pass), **ope
 | F4 | Zodl forces shielding; can't send out from the transparent address | [r/zec](https://www.reddit.com/r/zec/comments/1s25i00/unshielding_zec_on_zodl_wallet_and_sending_back/) | no | wallet policy |
 | F5 | "Why do KYC exchanges allow ZEC?" — because privacy is optional and most use is transparent; optional privacy seen as a trap that erodes the shielded set | [r/Monero](https://www.reddit.com/r/Monero/comments/1o453e3/why_centralised_kyc_exchanges_allow_zec/), [r/zec](https://www.reddit.com/r/zec/comments/1oyz2bt/is_zcashs_privacy_model_a_trap_how_optional/), [r/zec](https://www.reddit.com/r/zec/comments/1ovs5ad/some_zcash_info_people_really_arent_talking_about/) | related | **new**: gives exchanges a way to accept shielded deposits instead of pushing users transparent |
 | F6 | Monero is adding view keys aimed at getting listed again | [r/Monero](https://www.reddit.com/r/Monero/comments/1v4ecbj/moneros_new_view_keys_will_allow_it_to_become/) | context | competitors move toward disclosure too |
-| F7 | Monero users rely on tx keys / payment proofs for disputes; a gateway (xmr-pay) lets merchants verify tx proofs serverless; wallets like Exodus don't expose them | [r/Monero](https://www.reddit.com/r/Monero/comments/1u3kl74/xmrpay_free_open_source_monero_payment_gateway/), [r/ExodusWallet](https://www.reddit.com/r/ExodusWallet/comments/rov4za/how_do_i_find_payment_proof_of_monero/), [r/monerosupport](https://www.reddit.com/r/monerosupport/comments/1lh38x5/mastering_monero_questions_regarding_proof_of/) | core | done: Receipts is the Zcash equivalent, with sender proof |
+| F7 | Monero users rely on tx keys / payment proofs for disputes; a gateway (xmr-pay) lets merchants verify tx proofs serverless; wallets like Exodus don't expose them | [r/Monero](https://www.reddit.com/r/Monero/comments/1u3kl74/xmrpay_free_open_source_monero_payment_gateway/), [r/ExodusWallet](https://www.reddit.com/r/ExodusWallet/comments/rov4za/how_do_i_find_payment_proof_of_monero/), [r/monerosupport](https://www.reddit.com/r/monerosupport/comments/1lh38x5/mastering_monero_questions_regarding_proof_of/) | core | done: Zceipt is the Zcash equivalent, with sender proof |
 | F8 | "Where one can prove payment was made if there is a dispute" raised against private money | [r/btc](https://www.reddit.com/r/btc/comments/1oexnp9/do_you_want_a_gps_tracker_on_the_cash_you/) | core | done |
 | F9 | Viewing keys pitched as the compliance answer ("hand one to an accountant") | [r/CryptoCurrencyFIRE](https://www.reddit.com/r/CryptoCurrencyFIRE/comments/1vg59ii/building_a_compliancefirst_protocol_for/), [r/zec](https://www.reddit.com/r/zec/comments/9vg294/zec_may_not_list_on_coinbase/) | core | done (a receipt instead of a key) |
 | F10 | The Orchard minting bug: "impossible to prove whether it was exploited" | [r/CryptoCurrency](https://www.reddit.com/r/CryptoCurrency/comments/1tyk1sd/zcash_bug_allowed_unlimited_minting_was_it/) | no | supply auditing, not payments |
@@ -136,7 +136,7 @@ with the Orchard circuit it already has, no list operator, and no waiting period
 
 ## 3. What we built: proofs of where the money came from
 
-`receipts create --prove-source` (and `zcash-devtool wallet receipt --prove-source`) adds, for
+`zceipt create --prove-source` (and `zcash-devtool wallet receipt --prove-source`) adds, for
 each spent note, a proof that it was created by output `k` of an earlier transaction `S`. With
 `--reveal-source-value` the proof also shows the note's exact value. The verifier fetches `S`,
 reads its public transparent inputs, and reports who funded it in the clear.
@@ -147,7 +147,7 @@ created by that shielding transaction, which was funded by that withdrawal, and 
 about the wallet.
 
 ```
-receipts verify @deposit.txt
+zceipt verify @deposit.txt
   source    action 1 spent the note created by tx 5093e033… action 0 (height 530)
             that tx was funded in the clear: 0.30000000 ZEC from tmRyMkJH…
             it moved 0.29985000 ZEC from transparent into the shielded pool
@@ -167,7 +167,7 @@ zero-value output opened, so `v` is exact. No new circuit, no trusted list, no w
 
 | Check | Result |
 |---|---|
-| Unit and adversarial tests (`crates/receipts-core/tests/roundtrip.rs`) | Orchard and Ironwood round trips, hidden and revealed; a wrong source output, an unrelated output, a lie about the value (lower or higher), a hidden proof relabelled as revealed, a proof borrowed from another receipt, a dropped or edited claim: all refused. `a_zero_value_note_cannot_claim_any_source` builds a real forgery that satisfies the circuit and shows the fixed value commitment is what stops it |
+| Unit and adversarial tests (`crates/zceipt-core/tests/roundtrip.rs`) | Orchard and Ironwood round trips, hidden and revealed; a wrong source output, an unrelated output, a lie about the value (lower or higher), a hidden proof relabelled as revealed, a proof borrowed from another receipt, a dropped or edited claim: all refused. `a_zero_value_note_cannot_claim_any_source` builds a real forgery that satisfies the circuit and shows the fixed value commitment is what stops it |
 | Independent verifier (`spec-verifier`, Python, written from the spec) | Decodes v4 and checks everything but the Halo 2 proof; agrees with Rust on 232 signed adversarial cases, including 9 source-proof cases whose public inputs match exactly |
 | Real testnet | Receipts for testnet tx `571de6e4…` prove its note came from `2a2bd721…` action 0 (hidden, and with the value 0.125 TAZ revealed); verified against the chain by the CLI and the browser verifier, offline by the Rust, JS and Python tests ([examples/testnet/source](../examples/testnet/source)) |
 | Private chain end to end (`scripts/e2e-regtest.sh`, every step passing) | Exchange withdraws 0.3 ZEC to a customer's t-address, the customer shields it and pays a merchant; the receipt proves the source and the verifier reports the withdrawal address and amount; with the value revealed it reports the exact note value ([examples/regtest-source](../examples/regtest-source)) |
@@ -176,7 +176,7 @@ zero-value output opened, so `v` is exact. No new circuit, no trusted list, no w
 
 ## 3b. Outputs without their memo
 
-`receipts create --withhold-memo` (and the devtool's `wallet receipt --withhold-memo`) proves
+`zceipt create --withhold-memo` (and the devtool's `wallet receipt --withhold-memo`) proves
 who was paid and how much but keeps the memo private. Memos carry invoice text, names and
 refund addresses that an accountant or a court doesn't need. The receipt opens each output's note
 commitment with `(ψ, rcm)` instead of `rseed`, so nothing in it decrypts the memo
@@ -188,7 +188,7 @@ recomputing each commitment independently (232 corpus cases, 278 conformance vec
 
 ## 3c. Incoming receipts: the recipient proves it was paid
 
-`receipts received -w wallet -i key.age --txid <txid>` gives a merchant, freelancer or charity a
+`zceipt received -w wallet -i key.age --txid <txid>` gives a merchant, freelancer or charity a
 `zrcin1…` link that proves it received chosen payments, for an accountant, a tax office or a
 lender, without an incoming viewing key. The receipt reveals each output's `esk` (which opens that
 output only) and proves, with the same address proof as Sign in with Zcash, that the presenter
@@ -203,9 +203,9 @@ independent Python verifier, which opens the output itself; 278 conformance vect
 
 ## 3d. Signed payment requests
 
-`receipts request --domain shop.example --amount 0.25 --memo "Order 42"` signs a `zreq1…` request
+`zceipt request --domain shop.example --amount 0.25 --memo "Order 42"` signs a `zreq1…` request
 with the payee address's own key; the shop lists its address at
-`https://shop.example/.well-known/zcash-receipts.json`. `receipts pay 'zreq1…'` (and the
+`https://shop.example/.well-known/zceipt.json`. `zceipt pay 'zreq1…'` (and the
 verifier page's link checker) refuses an edited request, an expired one, or one for an address the
 domain doesn't list, then pays and makes a receipt that signs the request code. This is the
 BIP-70-style authentication merchants asked for in zips#611 and #977, with the domain's TLS in place
@@ -219,8 +219,8 @@ by the Python verifier, and the page's link checker.
 
 ## 3e. Multi-hop source of funds
 
-Real wallets move money around before it reaches an exchange. `receipts create --txid <hop>
---txid <payment> --prove-source` makes one batch link; `receipts verify` and the verifier page
+Real wallets move money around before it reaches an exchange. `zceipt create --txid <hop>
+--txid <payment> --prove-source` makes one batch link; `zceipt verify` and the verifier page
 follow the proven links from the payment back to where the money entered the shielded pool in
 the clear:
 
@@ -237,7 +237,7 @@ of 0.45 ZEC, a 0.3 ZEC payment from the moved note; the batch proves every hop;
 
 ## 3f. Proof of funds
 
-`receipts reserve -w wallet -i key.age --at-least 0.05 -m "challenge:<nonce>"` proves the wallet
+`zceipt reserve -w wallet -i key.age --at-least 0.05 -m "challenge:<nonce>"` proves the wallet
 holds at least that much in unspent shielded notes, for an OTC counterparty, an escrow, a lender
 or a treasury report, with no viewing key. Each note is proven against the pool's real tree root
 at a recent block with its exact value; the verifier downloads every nullifier the pool has
@@ -260,7 +260,7 @@ once the holder spends one of its notes.
 
 The point of source-of-funds proofs is that an exchange can switch them on. A request created with
 `"source_of_funds": {"required": true, "blocked_addresses": [...]}` (API, or a checkbox on the
-dashboard) only accepts a receipt that proves where every spent note came from; `receipts pay`
+dashboard) only accepts a receipt that proves where every spent note came from; `zceipt pay`
 adds the proof by itself when the request asks. The desk's server then screens the transparent
 addresses that funded the money into the shielded pool against the exchange's own list:
 
@@ -276,7 +276,7 @@ deposit, and nothing else about the customer's wallet. The customer stays shield
 
 Checked by: the regtest end to end (a trader withdraws to a transparent address and shields; a
 receipt without proof of source is refused with `source_of_funds_required`; with it, the deposit
-is credited and the funding address recorded; against a list holding that address, `receipts pay`
+is credited and the funding address recorded; against a list holding that address, `zceipt pay`
 attaches the proof on its own and the deposit is held; the desk rejects it and the refund goes to
 the trader's signed address; webhook events recorded) and `api.rs::deposit_desk_policy` (policy
 validation, the public view never shows the list, review only for held deposits).

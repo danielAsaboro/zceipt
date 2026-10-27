@@ -18,4 +18,4 @@ Then, by need:
 | Running the payment API | [QUICKSTART.md](QUICKSTART.md), [WEBHOOKS.md](WEBHOOKS.md), [ERRORS.md](ERRORS.md), [SANDBOX.md](SANDBOX.md) |
 | Comparing it with other work | [RELATED-WORK.md](RELATED-WORK.md), [COMPARISON.md](COMPARISON.md) |
 
-The `.html` files here are the pages the payment API serves (`receipts shop serve`).
+The `.html` files here are the pages the payment API serves (`zceipt shop serve`).

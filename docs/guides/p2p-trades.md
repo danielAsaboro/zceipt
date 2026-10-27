@@ -14,7 +14,7 @@ transparent addresses. A receipt lets the arbitrator check the one payment and n
    makes a receipt that signs the trade id too:
 
    ```bash
-   receipts create --seed-stdin --birthday <wallet birthday> --network main \
+   zceipt create --seed-stdin --birthday <wallet birthday> --network main \
      --txid <payment txid> --height <its block> -m "challenge:7f3a9c21e0b4"
    ```
 
@@ -25,7 +25,7 @@ transparent addresses. A receipt lets the arbitrator check the one payment and n
 The arbitrator runs one command:
 
 ```bash
-receipts verify '<link>' --challenge 7f3a9c21e0b4 --memo-contains 7f3a9c21e0b4 \
+zceipt verify '<link>' --challenge 7f3a9c21e0b4 --memo-contains 7f3a9c21e0b4 \
   --expect-address <seller's address> --min <amount>
 ```
 
@@ -44,7 +44,7 @@ A receipt made for another trade, or one forwarded by someone else, fails on the
 To keep a record for the case file:
 
 ```bash
-receipts export '<link>' --records ./case-7f3a9c21e0b4 > trade.csv
+zceipt export '<link>' --records ./case-7f3a9c21e0b4 > trade.csv
 ```
 
 This writes a JSON record holding the receipt, everything it proved, the confirmations, and

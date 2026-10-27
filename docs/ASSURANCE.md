@@ -21,7 +21,7 @@ Every example receipt is for a transaction mined on the public testnet, fetched 
 | `pre-fix/receipt-with-sender-address.txt` | `db7c3c5e…` | | **refused**: made before the address-proof fix |
 
 ```bash
-receipts verify @examples/testnet/receipt.txt
+zceipt verify @examples/testnet/receipt.txt
 ```
 
 ## 2. A second implementation agrees
@@ -65,7 +65,7 @@ the exact limits. A clean full run afterwards (189 mutants, since the new checks
 share one build directory gave unreliable results and is not counted.)
 
 ```bash
-cargo mutants -p receipts-core -f crates/receipts-core/src/lib.rs -f crates/receipts-core/src/encoding.rs -f crates/receipts-core/src/signin.rs
+cargo mutants -p zceipt-core -f crates/zceipt-core/src/lib.rs -f crates/zceipt-core/src/encoding.rs -f crates/zceipt-core/src/signin.rs
 ```
 
 Source proofs (format v4, 2026-10-16): 67 mutants of the new code (`source_*`, `output_cmx`,
@@ -90,7 +90,7 @@ same bytes, so the signed encoding is unique:
 | `decode_text` (`zip311r1`, `zip311b1`, `zsig1`) | 10,092,364 | same |
 
 ```bash
-cd crates/receipts-core && cargo +nightly fuzz run decode_receipt -- -max_total_time=900
+cd crates/zceipt-core && cargo +nightly fuzz run decode_receipt -- -max_total_time=900
 ```
 
 Source proofs (2026-10-16): the receipt decoder, seeded also with the four real v4 receipts
@@ -104,7 +104,7 @@ The decoders, encoders, batch checks and RedPallas signature verification run un
 too slow for Miri and are not covered; the receipts crates contain no `unsafe` code.
 
 ```bash
-cargo +nightly miri test -p receipts-core --test encoding_ub
+cargo +nightly miri test -p zceipt-core --test encoding_ub
 ```
 
 ## 6. What the chain server sees
@@ -117,10 +117,10 @@ the sizes and timing below; this shows the content too. Decoded records are in
 
 | Action | Requests the server received | Bytes sent |
 |---|---|---|
-| `receipts verify @examples/testnet/receipt.txt` | one `GetTransaction` whose only field is the 32-byte txid | 254 |
-| `receipts create --from-chain` (before) | `GetTreeState(4,500,983)`, `GetBlockRange(4,500,984 → 4,500,997)`: the block the spent note was created in | 320 |
-| `receipts create --from-chain` (recorded Oct 16) | `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,997)`: the start is the 1,000-block window, but the end is still the payment's block | 320 |
-| `receipts create --from-chain` (Oct 22 fix) | `GetLatestBlock`, `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,999)`, read to the end: whole windows only (unit test `witness_windows_hide_the_payment_block`) | |
+| `zceipt verify @examples/testnet/receipt.txt` | one `GetTransaction` whose only field is the 32-byte txid | 254 |
+| `zceipt create --from-chain` (before) | `GetTreeState(4,500,983)`, `GetBlockRange(4,500,984 → 4,500,997)`: the block the spent note was created in | 320 |
+| `zceipt create --from-chain` (recorded Oct 16) | `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,997)`: the start is the 1,000-block window, but the end is still the payment's block | 320 |
+| `zceipt create --from-chain` (Oct 22 fix) | `GetLatestBlock`, `GetTreeState(4,499,999)`, `GetBlockRange(4,500,000 → 4,500,999)`, read to the end: whole windows only (unit test `witness_windows_hide_the_payment_block`) | |
 
 So verification reveals which transaction is being checked (the page's `h=` hint narrows that to
 a block), and nothing from the receipt: no message, key, amount or address. The second row was a
@@ -133,7 +133,7 @@ so hanging up early can't reveal it either.
 
 ```bash
 python3 scripts/wire/wire.py proxy 19067 testnet.zec.rocks:443 /tmp/wire &
-receipts verify @examples/testnet/receipt.txt --server 127.0.0.1:19067
+zceipt verify @examples/testnet/receipt.txt --server 127.0.0.1:19067
 python3 scripts/wire/wire.py decode /tmp/wire
 ```
 
@@ -143,13 +143,13 @@ python3 scripts/wire/wire.py decode /tmp/wire
 
 - `python3 -m unittest discover -s spec-verifier/tests`: 14 tests pass, including the zcash-test-vectors
   (copied into the repo) and all real testnet receipts offline;
-- `cargo install --locked --path crates/receipts-cli` built in 1 min 47 s (crates already in the
-  local cargo cache), then `receipts verify @examples/testnet/receipt.txt` and the sender-address
+- `cargo install --locked --path crates/zceipt-cli` built in 1 min 47 s (crates already in the
+  local cargo cache), then `zceipt verify @examples/testnet/receipt.txt` and the sender-address
   receipt verify against testnet, offline verification prints that mining was not checked, and
-  `receipts demo --shop --no-wait` runs the whole tour (exit 0).
+  `zceipt demo --shop --no-wait` runs the whole tour (exit 0).
 
 The full workspace suite (`cargo test --workspace`) passes; so does the npm verifier on the 278
-conformance vectors (`node --test packages/zcash-receipts/test/conformance.test.js`).
+conformance vectors (`node --test packages/zceipt/test/conformance.test.js`).
 
 ## What this found
 
@@ -166,7 +166,7 @@ conformance vectors (`node --test packages/zcash-receipts/test/conformance.test.
 ## 8. Attacks on the testnet proofs (2026-10-25)
 
 Every proof type was made on the Zcash public testnet (`scripts/e2e-testnet.sh`; proofs committed in
-`examples/testnet/proofs`) and then attacked. Offline, `crates/receipts-cli/tests/testnet_adversarial.rs`
+`examples/testnet/proofs`) and then attacked. Offline, `crates/zceipt-cli/tests/testnet_adversarial.rs`
 flips every byte of the real claim (three ways each), payer tag, one-verifier, delegated, income and
 FROST proofs, and runs the proof alone on every edit to a claim's statement (so a claimant who could
 re-sign still can't change floor, anchor, tag or nullifier). It moves tags to other payments,

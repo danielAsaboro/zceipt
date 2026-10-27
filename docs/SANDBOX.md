@@ -24,7 +24,7 @@ like Stripe's test card numbers. They work in `POST /v1/verify` and
 With `POST /v1/verify` they only fail if you ask for that check:
 
 ```bash
-curl -s 127.0.0.1:8723/v1/verify -H "Authorization: Bearer $RECEIPTS_KEY" -H 'content-type: application/json' \
+curl -s 127.0.0.1:8723/v1/verify -H "Authorization: Bearer $ZCEIPT_KEY" -H 'content-type: application/json' \
   -d '{"receipt":"zip311_test_wrong_payee","expect_address":"utest1…your address…"}'      # → 422 wrong_payee
 ```
 
@@ -32,7 +32,7 @@ Submitted to a proof request (`POST /v1/requests/{id}/receipts`), they always fa
 the request supplies the payee, amount and challenge. `GET /v1/sandbox/fixtures` lists them.
 
 For end-to-end tests against real proofs, use the committed receipts in `examples/`:
-- `examples/regtest`: verifies fully offline from the raw transaction, e.g. `receipts verify @examples/regtest/receipt.txt --raw-tx examples/regtest/tx.hex --height 222 --regtest examples/regtest/heights.toml`.
+- `examples/regtest`: verifies fully offline from the raw transaction, e.g. `zceipt verify @examples/regtest/receipt.txt --raw-tx examples/regtest/tx.hex --height 222 --regtest examples/regtest/heights.toml`.
 - `examples/testnet`: verifies against the public testnet.
 
 ## Test clocks
@@ -42,9 +42,9 @@ confirmations. A test clock is a frozen time and block height you move by hand, 
 that becomes due fires immediately.
 
 ```bash
-curl -s -X POST localhost:8723/v1/test_clocks -H "authorization: Bearer $RECEIPTS_KEY" -d '{"height":100}'
+curl -s -X POST localhost:8723/v1/test_clocks -H "authorization: Bearer $ZCEIPT_KEY" -d '{"height":100}'
 # create requests with "test_clock": "clock_…"; sandbox payments on them are mined at the clock's height
-curl -s -X POST localhost:8723/v1/test_clocks/clock_…/advance -H "authorization: Bearer $RECEIPTS_KEY" -d '{"blocks":9}'
+curl -s -X POST localhost:8723/v1/test_clocks/clock_…/advance -H "authorization: Bearer $ZCEIPT_KEY" -d '{"blocks":9}'
 ```
 
 `advance` takes `seconds` and/or `blocks` (each block also moves time 75 s unless `seconds` is

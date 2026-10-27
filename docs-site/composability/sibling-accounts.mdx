@@ -18,9 +18,9 @@ show it: a verifier can merge tags a payer discloses, never find the ones a paye
 ## Use
 
 ```bash
-receipts siblings -w <wallet> -i <identity> --accounts 0,1 --domain round-2026 --out s.txt
-receipts verify @s.txt --domain round-2026
-receipts verify @income.txt --payer-tag @t0.txt --payer-tag @t1.txt --siblings @s.txt --domain round-2026
+zceipt siblings -w <wallet> -i <identity> --accounts 0,1 --domain round-2026 --out s.txt
+zceipt verify @s.txt --domain round-2026
+zceipt verify @income.txt --payer-tag @t0.txt --payer-tag @t1.txt --siblings @s.txt --domain round-2026
 ```
 
 The last line counts the two payer tags as one wallet. On the testnet run, three tags (accounts 0
@@ -59,7 +59,7 @@ derivation equals the `orchard` crate's.
 
 BLAKE2b runs inside the circuit: four compressions, so the circuit is `k = 17` (the gadget's
 16-bit XOR table). Proving takes about 72 seconds on the development machine, far larger than
-an Action proof. The parameters are cached at `~/.cache/receipts/kce-params-17.bin` and checked
+an Action proof. The parameters are cached at `~/.cache/zceipt/kce-params-17.bin` and checked
 by digest.
 
 ## Limits
@@ -68,4 +68,4 @@ by digest.
   wallets.
 - Unaudited gadget and port.
 
-Code: `crates/receipts-kce`. The testnet and regtest end-to-end runs tie a sibling proof to real payer tags. The proof's `coin_type` is not authenticated by the circuit, which is harmless because a tag is only used next to payer tags checked against a chain.
+Code: `crates/zceipt-kce`. The testnet and regtest end-to-end runs tie a sibling proof to real payer tags. The proof's `coin_type` is not authenticated by the circuit, which is harmless because a tag is only used next to payer tags checked against a chain.

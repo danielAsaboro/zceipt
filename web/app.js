@@ -1,4 +1,4 @@
-// Receipts verifier page. The receipt lives in the URL fragment (#zip311r1…), which browsers
+// Zceipt verifier page. The receipt lives in the URL fragment (#zip311r1…), which browsers
 // never send to any server. The page talks to one lightwalletd server of the viewer's choice
 // (the block's transaction list and the transactions themselves), and nothing else.
 
@@ -45,9 +45,9 @@ const warmed = call("warm")
     if (el) el.dataset.state = "ready";
   })
   .catch(() => {});
-import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zcash-receipts/grpc.js";
+import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zceipt/grpc.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT, SAMPLE_SCREENED, SAMPLE_SCREENED_PROOF, SAMPLE_SCREENED_SET } from "./samples.js";
-import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg, verify_same_payer, verify_screened, verify_keyset, verify_policy } from "./zcash-receipts/pkg/receipts_wasm.js";
+import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg, verify_same_payer, verify_screened, verify_keyset, verify_policy } from "./zceipt/pkg/zceipt_wasm.js";
 const local = initLocal();
 // Block-level fetches check each transaction the server sends hashes to the txid asked for.
 const txidOf = (network) => (raw, height) => txid_of(raw, height, network === "mainnet" ? 133 : 1);
@@ -142,7 +142,7 @@ if (new URLSearchParams(location.search).has("regtest")) {
 // expect. The payer's receipt must sign `challenge:<code>`, so a receipt someone else made
 // (or an old one) can't be replayed. Requests are remembered only in this browser, so the
 // checks compare against what *you* asked for, not against whatever the returned link says.
-const REQ_KEY = "receipts.requests.v1";
+const REQ_KEY = "zceipt.requests.v1";
 const loadRequests = () => { try { return JSON.parse(localStorage.getItem(REQ_KEY) || "{}"); } catch { return {}; } };
 const USED_KEY = "receipts.usedPayments";
 const loadUsed = () => { try { return JSON.parse(localStorage.getItem(USED_KEY) || "{}"); } catch { return {}; } };
@@ -175,7 +175,7 @@ const blockRange = (f) => (f.blocks && f.blocks.length > 1 ? `blocks ${f.blocks[
 // such as PAID TO YOU).
 new MutationObserver(() => {
   const stamp = $("#result").hidden ? "" : $("#result .stamp")?.textContent.trim();
-  document.title = stamp ? `${stamp} · Receipts` : "Receipts · prove one Zcash payment";
+  document.title = stamp ? `${stamp} · Zceipt` : "Zceipt · prove one Zcash payment";
 }).observe($("#result"), { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true, characterData: true });
 // The placeholder shows only while there is no result.
 new MutationObserver(() => { $("#empty").hidden = !$("#result").hidden; }).observe($("#result"), { attributes: true, attributeFilter: ["hidden"] });
@@ -1011,7 +1011,7 @@ $("#verifyBtn").onclick = async () => {
     return runBatch(bt);
   }
   const i = t.indexOf("zip311r1");
-  if (i < 0 && /zrsv1|zip311s1/.test(t)) return showError(`That is a ${t.includes("zrsv1") ? "proof of funds" : "screened-set proof"}. This page checks payment receipts; check it with receipts verify.`, "other");
+  if (i < 0 && /zrsv1|zip311s1/.test(t)) return showError(`That is a ${t.includes("zrsv1") ? "proof of funds" : "screened-set proof"}. This page checks payment receipts; check it with zceipt verify.`, "other");
   if (i < 0) return t.includes("zrcpt1eyJ") ? showError(ZRECEIPT_NOTE, "other") : showError("no zip311r1… receipt in what was pasted", "unreadable");
   const r = t.slice(i).replace(/[^A-Za-z0-9_-].*$/s, "");
   const h = heightHint(t);
@@ -1055,7 +1055,7 @@ if (initial) {
 function answerCommand(link, to) {
   // Shell-quoted: a label with an apostrophe must not break the command.
   const quoted = `'${String(link).replace(/'/g, "'\\''")}'`;
-  const cmd = `receipts create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <txid> --request ${quoted} --unsigned r.txt && receipts sign r.txt --seed-stdin`;
+  const cmd = `zceipt create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <txid> --request ${quoted} --unsigned r.txt && zceipt sign r.txt --seed-stdin`;
   const id = `cmd${Math.random().toString(36).slice(2, 8)}`;
   setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = () => navigator.clipboard.writeText(cmd).then(() => { b.textContent = "Copied"; }, () => { b.textContent = "Select and copy the command above"; }); });
   return `<div class="cli">${escapeHtml(cmd)}</div><p class="fine"><button type="button" class="ghost" id="${id}">Copy command</button></p>`;

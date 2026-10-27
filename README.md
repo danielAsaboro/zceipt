@@ -1,8 +1,8 @@
-# Receipts
+# Zceipt
 
 **ZIP 311 for Orchard and Ironwood, extended so payments can be proven in relation to each other.**
 
-Receipts proves one Zcash payment without handing over a viewing key. It then goes further: it
+Zceipt proves one Zcash payment without handing over a viewing key. It then goes further: it
 proves facts about *sets* of payments (one payer, different payers, one wallet's accounts, a
 delegated issuer, a total) without revealing the wallet's history.
 
@@ -11,7 +11,7 @@ delegated issuer, a total) without revealing the wallet's history.
 ## 1. Spend authority
 
 ZIP 311 calls a payment disclosure complete only with a proof that the payer's spend authority
-made the payment. For Orchard it says `TODO`. Receipts fills that in for Orchard and Ironwood:
+made the payment. For Orchard it says `TODO`. Zceipt fills that in for Orchard and Ironwood:
 a fresh Orchard Action proof for the note the payment spent, and a signature by the key that
 spent it. Opening a receipt shows who was paid, how much and the memo, and that the payer made it.
 Change one character and it fails.
@@ -79,8 +79,8 @@ shows **NOT VALID**. Click **Try a claim by someone who only saw it**: the same 
 with another key shows **NOT PROVEN BY THE PAYER**, which is what an output-only disclosure can't
 tell apart. **Make one with your own message** signs a real testnet payment from a public demo
 wallet ([`examples/testnet/demo`](examples/testnet/demo)) for whatever you type, in the browser,
-then verifies it (shown as the demo wallet, since its key is public); `receipts demo -m "…"`
-prints one to check with `receipts verify`. The first check also loads the verifier (3 to 10 seconds).
+then verifies it (shown as the demo wallet, since its key is public); `zceipt demo -m "…"`
+prints one to check with `zceipt verify`. The first check also loads the verifier (3 to 10 seconds).
 
 <p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a real receipt for 0.01 TAZ (testnet), memo Invoice 42: two coffees, checked as PAID TO YOU">
 <img src="docs/img/refused.png" width="420" alt="The same receipt with its signed message edited, shown as NOT VALID: changed after it was made"></p>
@@ -90,7 +90,7 @@ runs a second verifier written from the protocol specification. It checks everyt
 Halo 2 proofs and agrees with ours on all 278 conformance vectors (two are rejected only by the
 Halo 2 check, so it flags those as needing it) and on 232 adversarial receipts.
 
-**With Rust:** `cargo install --locked --path crates/receipts-cli && receipts demo` (about ten
+**With Rust:** `cargo install --locked --path crates/zceipt-cli && zceipt demo` (about ten
 minutes to build the first time).
 
 ## Make a receipt from your wallet
@@ -102,18 +102,18 @@ the prepared receipt for another signer. Nothing leaves the device but block req
 
 **In a wallet:** wallets on the Zcash Android or iOS SDK add the button with two calls from
 the Swift/Kotlin bindings, `prepareReceipt(dbPath, …)` and `signPrepared(…)`
-([crates/receipts-ffi](crates/receipts-ffi), [guide](docs/guides/wallet-integration.md)).
+([crates/zceipt-ffi](crates/zceipt-ffi), [guide](docs/guides/wallet-integration.md)).
 
 **In a terminal**, the CLI finds your notes by scanning the chain from the wallet's birthday:
 
 | You have | Command |
 |---|---|
-| A viewing key (any wallet exports one) | `receipts create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt`: the proofs, with no spending key |
-| Then, on a machine that holds the seed (offline is fine) | `receipts sign r.txt --seed-stdin`: shows everything the receipt reveals and asks before signing |
-| Or the seed phrase on one machine | `receipts create --seed-stdin --network main --birthday <height> --txid <txid>` |
-| A zcash-devtool wallet | `receipts create -w <wallet> -i <key.age> --txid <txid>` |
+| A viewing key (any wallet exports one) | `zceipt create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt`: the proofs, with no spending key |
+| Then, on a machine that holds the seed (offline is fine) | `zceipt sign r.txt --seed-stdin`: shows everything the receipt reveals and asks before signing |
+| Or the seed phrase on one machine | `zceipt create --seed-stdin --network main --birthday <height> --txid <txid>` |
+| A zcash-devtool wallet | `zceipt create -w <wallet> -i <key.age> --txid <txid>` |
 
-The seed phrase is typed (not shown) or piped in, never put on the command line. `receipts export` turns many receipts into a spreadsheet and keeps a
+The seed phrase is typed (not shown) or piped in, never put on the command line. `zceipt export` turns many receipts into a spreadsheet and keeps a
 record of each check for a case file.
 
 ## What a receipt proves
@@ -174,12 +174,12 @@ let shown = verify_transaction(&vk, &receipt, Network::Mainnet.coin_type(), &tx)
   (also in ZIP form: [docs/zip/zip-0311-orchard-draft.rst](docs/zip/zip-0311-orchard-draft.rst)).
 - [OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md): where a reviewer starts, with the public questions
   about spend authority for Orchard answered, each with its test.
-- `./scripts/check-all.sh` runs the checks that need no Rust build, given the prebuilt `receipts` binary for the last three (about two minutes);
+- `./scripts/check-all.sh` runs the checks that need no Rust build, given the prebuilt `zceipt` binary for the last three (about two minutes);
   `./scripts/test-all.sh` runs every suite, including the regtest chain end to end.
 
 ## Optional tooling
 
-A payment API for shops (`receipts shop`), SDKs for TypeScript, Python, Rust and Go, webhooks and a
+A payment API for shops (`zceipt shop`), SDKs for TypeScript, Python, Rust and Go, webhooks and a
 dashboard sit around the same core. They are not part of the contribution; see
 [docs/QUICKSTART.md](docs/QUICKSTART.md) and [docs/FEATURES.md](docs/FEATURES.md). Proof requests,
 batches, incoming receipts, memo-withheld outputs and refunds are in

@@ -10,11 +10,11 @@ What I ran:
 
 | Run | Result |
 |---|---|
-| `cargo test --release -p receipts-core --features "orchard-ext extensions"` | all pass (47 roundtrip tests in 90 s, FROST, parameter-derivation, properties) |
+| `cargo test --release -p zceipt-core --features "orchard-ext extensions"` | all pass (47 roundtrip tests in 90 s, FROST, parameter-derivation, properties) |
 | `scripts/test-vendored-orchard.sh` (claim circuit witness-mutation test) | passes in 37 s; needs the network and re-resolves dependencies (see M-2) |
 | `python3 -m unittest discover -s spec-verifier/tests` | 30 pass; 278 conformance vectors and 232 corpus cases agree |
 | PoC: trailing bytes on real testnet claim and payer-tag proofs | accepted (H-2) |
-| PoC: `receipts verify` on a real list claim with a wrong challenge, address and memo | `VALID`, exit 0 (H-1) |
+| PoC: `zceipt verify` on a real list claim with a wrong challenge, address and memo | `VALID`, exit 0 (H-1) |
 | PoC: certificate signed "under" the identity key | passes `Certificate::check()` (M-1) |
 | `cargo mutants` on the Fiat-Shamir and delegation verifiers | 54 mutants, 6 missed (last section) |
 
@@ -35,7 +35,7 @@ check, `rho = nf` on the throwaway output, the floor of at least 1, the two doma
 personalizations and the one `nk` cell feeding both `CommitIvk` and the tag all hold up when traced
 through the circuit. I read every gate the BLAKE2b gadget uses and found nothing under-constrained.
 
-The weak points are at the seams, not in the mathematics. First, `receipts verify` picks its code
+The weak points are at the seams, not in the mathematics. First, `zceipt verify` picks its code
 path by substring, and the path it picks silently drops flags it doesn't implement: a valid list
 claim, proof of income or sibling proof passes `--expect-address` (list claims and sibling proofs
 also `--challenge` and `--memo-contains`) and verifies with exit code 0 (H-1, reproduced). Second, Halo 2 proofs accept trailing bytes,
@@ -75,9 +75,9 @@ None found. What I tried and why each failed:
 
 ## HIGH
 
-### H-1 `receipts verify` routes by substring and silently ignores flags (reproduced)
+### H-1 `zceipt verify` routes by substring and silently ignores flags (reproduced)
 
-Locations: `crates/receipts-cli/src/main.rs:1854-2245` (the `Cmd::Verify` arms),
+Locations: `crates/zceipt-cli/src/main.rs:1854-2245` (the `Cmd::Verify` arms),
 `main.rs:899-911` (`count_receipts`), `main.rs:1231-1276` (`check_verify_flags`).
 
 `run()` picks a verification arm with `read_arg_text(&receipt)?.contains(PREFIX)`, in this order:
@@ -100,18 +100,18 @@ asked for.
 PoC (real testnet list claim, nothing to do with this address or challenge):
 
 ```
-$ receipts verify @examples/testnet/proofs/listclaim.txt --list examples/testnet/proofs/list.txt \
+$ zceipt verify @examples/testnet/proofs/listclaim.txt --list examples/testnet/proofs/list.txt \
     --domain list-airdrop --min 0.00000001 --expect-address "$(cat examples/testnet/merchant.ua)" \
     --challenge deadbeef --memo-contains "Invoice 42"
 VALID list claim ...
 exit=0
 ```
 
-The income arm behaves the same against the live testnet (`receipts verify
+The income arm behaves the same against the live testnet (`zceipt verify
 @examples/testnet/proofs/income.txt --expect-address "$(cat examples/testnet/merchant.ua)"
 --memo-contains "Invoice 42"` prints `VALID proof of income`; neither flag is consulted).
 
-Exploit: a script that gates on `receipts verify "$input" --expect-address "$ME" --min 5
+Exploit: a script that gates on `zceipt verify "$input" --expect-address "$ME" --min 5
 --challenge "$C"` (exit code, or `--json` `"valid": true`) accepts any valid income proof, list
 claim or sibling proof the payer chooses to send. The API server is not affected (`verify.rs:133`
 accepts three kinds and refuses mixtures).
@@ -123,7 +123,7 @@ Default deny.
 ### H-2 Halo 2 proofs accept trailing bytes, so unsigned proof blobs have many valid encodings (reproduced)
 
 Locations: stock `Proof::verify` in `vendor/orchard/src/circuit.rs` (unchanged),
-`vendor/orchard/src/circuit/claim.rs:152-159`, `crates/receipts-kce/src/lib.rs:368-390`.
+`vendor/orchard/src/circuit/claim.rs:152-159`, `crates/zceipt-kce/src/lib.rs:368-390`.
 
 `plonk::verify_proof` reads what it needs from the transcript and never checks the reader is
 empty. On the real testnet proofs, `claim::__check_proof_only_for_tests` returned `Ok(())` after
@@ -131,7 +131,7 @@ appending four bytes to the claim's proof and one byte to a payer tag's proof.
 
 End to end on the shipped CLI: `examples/testnet/batch-same-payer.txt` is a real aggregated batch
 (9,536-byte aggregate proof). Appending `de ad be ef` to that proof and fixing its length field
-gives a different text that `receipts verify` prints as `VALID batch 34e5eb3407cee395 ... one
+gives a different text that `zceipt verify` prints as `VALID batch 34e5eb3407cee395 ... one
 aggregated proof, 9540 bytes`, with the same three payments and total.
 
 Where it matters: the proof bytes are not under a signature in the aggregate proof of a `zip311b1`
@@ -148,8 +148,8 @@ position). Do it in the vendored `Proof::verify`, in `ClaimKeys::verify` and in 
 
 ### H-3 Policy and key-set results are prover assertions, shown as verified (documented, but the surfaces overstate)
 
-Locations: `policy.rs:166-187`, `keyset.rs:179-209`, `crates/receipts-wasm/src/lib.rs:550-555`,
-`web/app.js:331`, `packages/zcash-receipts/index.js:144`.
+Locations: `policy.rs:166-187`, `keyset.rs:179-209`, `crates/zceipt-wasm/src/lib.rs:550-555`,
+`web/app.js:331`, `packages/zceipt/index.js:144`.
 
 `policy::verify` checks only that `rk = C_0 + [alpha]G` for an `alpha` the prover knows.
 `C_1..C_{t-1}`, `t` and `holders` appear only in the transcript. A single-key payer can publish
@@ -204,7 +204,7 @@ it; add `not_before` and a certificate id; reject identity `rk_c` in `Certificat
   equivalent covers `claim.rs` or `kce`. A constraint change anywhere in the dependency graph
   silently produces a different verifying key, two verifiers can diverge, and reviewers cannot
   pin what they reviewed.
-- `vendor/orchard-0.16.0-receipts.patch` is stale. Applying it to pristine 0.16.0 gives a
+- `vendor/orchard-0.16.0-zceipt.patch` is stale. Applying it to pristine 0.16.0 gives a
   `claim.rs` of 154 lines; the vendored file has 293 (the `__empty_for_tests` helper and the
   whole witness-mutation test were added in `91b5442` and `40db91e` and the patch was not
   regenerated). Circuit code is identical; `vendor/README.md`'s "diff -ru ... shows exactly the
@@ -271,7 +271,7 @@ public. Call it inside.
 
 ### M-8 Claim endpoints do CPU-bound work on the async workers, and two of three paths take no permit
 
-`crates/receipts-server/src/lib.rs:503-573`. The list-claim branch (516-535) rebuilds a Sinsemilla
+`crates/zceipt-server/src/lib.rs:503-573`. The list-claim branch (516-535) rebuilds a Sinsemilla
 Merkle tree from the caller's list (`set_root`, up to 1 MiB of body, about 15,000 leaves, tens of
 thousands of hashes) and verifies a Halo 2 proof inline in the async handler: no
 `spawn_blocking`, no `verify_slots` permit. The payer-tag branch (536-553) is the same. The chain
@@ -339,7 +339,7 @@ The verifier builds every row (`claim.rs:106-116`); the claimant supplies none. 
 honest provers succeed (real testnet claims verify). I found no unconstrained value and no missing
 equality; the project's own detector and the 21-way witness mutation test (re-run, passes) agree.
 
-### BLAKE2b gadget (`receipts-kce/src/blake2b_halo2`)
+### BLAKE2b gadget (`zceipt-kce/src/blake2b_halo2`)
 
 Read in full against RFC 7693 and the ZIP 32 derivation.
 
@@ -456,7 +456,7 @@ core does, M-1) and does not itself reject an over-limit or expired one.
 
 ## TOP 3 FIXES
 
-1. **H-1**: make `receipts verify` fail closed. One artifact, one allowed-flag set, error on any
+1. **H-1**: make `zceipt verify` fail closed. One artifact, one allowed-flag set, error on any
    flag the chosen path doesn't implement. It is the only finding that turns a valid-but-irrelevant
    artifact into an accepted payment check.
 2. **M-2 plus H-2**: pin the circuits and make proofs canonical. VK digests for claim (both
@@ -473,7 +473,7 @@ core does, M-1) and does not itself reject an over-limit or expired one.
 
 Not yet "undisputed winner" material, but close, and the gap is not where a cryptographer would
 look first. A sharp reviewer will read the circuit diff, the claim circuit and the gadget, find
-them tight, and then run `receipts verify` with a flag the arm ignores, or notice that
+them tight, and then run `zceipt verify` with a flag the arm ignores, or notice that
 `vendor/README.md`, `Cargo.toml` and `CRYPTO-REVIEW.md` each describe the fork differently from the
 tree, or point at the "3-of-5 key" line the page prints on the prover's say-so. Those are an hour
 or a day each. The remaining risk is the one the authors name themselves: the claim and sibling
@@ -483,7 +483,7 @@ regenerated patch, and the submission's weakest points become its documented one
 
 ---
 
-## MUTATION RUN (receipts-core tests only: `roundtrip` filtered to same_payer, key_set, designated, delegated, plus `frost`)
+## MUTATION RUN (zceipt-core tests only: `roundtrip` filtered to same_payer, key_set, designated, delegated, plus `frost`)
 
 54 mutants of `link::verify`, the `link`/`policy`/`keyset` challenges, `policy::verify`,
 `keyset::verify`, `check_policy`, `check_authorization`, `Certificate::check`, `check_proofs`:
@@ -496,7 +496,7 @@ regenerated patch, and the submission's weakest points become its documented one
 | `delegated.rs:337` `>` -> `>=` (two operators) | The exact boundary of `max_zats` and `until_height` |
 | `designated.rs:134` `||` -> `&&` | Proof count mismatch / empty spends in a designated receipt |
 
-Scope caveat: only `receipts-core`'s tests were run against each mutant. The CLI crate's
+Scope caveat: only `zceipt-core`'s tests were run against each mutant. The CLI crate's
 `testnet_adversarial.rs` (delegation cases) may kill some of these. A partial earlier run was
 stopped when too slow; this one ran to completion.
 
@@ -506,7 +506,7 @@ stopped when too slow; this one ran to completion.
 
 | Finding | Status |
 |---|---|
-| H-1 | Fixed. `check_verify_flags` refuses any flag the chosen artifact kind ignores; list-claim honors `--challenge`; payer tags refuse it; `count_receipts` counts `a1`, `d1`, `w1`. Tests `verify_refuses_*` in `crates/receipts-cli/tests/cli.rs`. |
+| H-1 | Fixed. `check_verify_flags` refuses any flag the chosen artifact kind ignores; list-claim honors `--challenge`; payer tags refuse it; `count_receipts` counts `a1`, `d1`, `w1`. Tests `verify_refuses_*` in `crates/zceipt-cli/tests/cli.rs`. |
 | H-2 | Fixed in the vendored `Proof::verify`, `ClaimKeys::verify` and both `kce` verifiers (trailing bytes refused). Re-ran the padded aggregated batch: refused; original still `VALID`. Test `a_proof_with_trailing_bytes_is_refused`. |
 | H-3 | Fixed. `policy::verify_pinned`, wasm `verify_policy_pinned`, JS `options.policy`; unpinned results are named `claimed_*` with `pinned: false`; the web page says the split is the prover's claim. `holders` is now pinnable. |
 | M-1 | Identity `rk_c` refused; `check_policy` uses checked sums; boundary tests added. **Not changed:** the certificate still has no `not_before` or revocation (a wire-format change), and the policy still covers only disclosed outputs; both are documented limits. |
@@ -517,5 +517,5 @@ stopped when too slow; this one ran to completion.
 | M-6 | Python: all `C_j` validated, key-set cap 1024 and identity keys allowed, income proof cap 1 MiB. **Not done:** Python decoders for claims, payer tags, siblings, and more conformance vectors. |
 | M-7 | `verify_aggregated` calls `check_batch`. |
 | M-8 | List and payer-tag claim checks take a verify slot; Halo 2 checks run in `spawn_blocking` (also the chain-claim path). |
-| LOW | Detector range now `0..12`. **Not changed:** FROST negative test, `describe_prepared`, unchecked sums over chain-bounded values, text `trim()`. The web build (`web/zcash-receipts`) and wasm `pkg` need `scripts/build-web.sh` to pick up the JS/wasm changes. |
+| LOW | Detector range now `0..12`. **Not changed:** FROST negative test, `describe_prepared`, unchecked sums over chain-bounded values, text `trim()`. The web build (`web/zceipt`) and wasm `pkg` need `scripts/build-web.sh` to pick up the JS/wasm changes. |
 | Mutation misses | Cert identity and `max_zats` / `until_height` boundaries now tested; the `check_authorization` and `check_proofs` condition mutants are still untested individually. |

@@ -17,7 +17,7 @@ if (!chrome) {
   process.exit(0);
 }
 const port = 9300 + Math.floor(Math.random() * 500);
-const proc = spawn(chrome, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "receipts-smoke-"))}`, "about:blank"], { stdio: "ignore" });
+const proc = spawn(chrome, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "zceipt-smoke-"))}`, "about:blank"], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = false;
 const check = (ok, what) => { console.log(`${ok ? "ok  " : "FAIL"} ${what}`); if (!ok) failed = true; };
@@ -84,7 +84,7 @@ try {
   // after it, and with no request in the link at all.
   const stampNow = `(() => { const s = document.querySelector('#result .stamp'); return s ? s.textContent + '|' + s.className : '' })()`;
   const withRequest = async (created) => {
-    await evaluate(`localStorage.clear(); localStorage.setItem('receipts.requests.v1', JSON.stringify({ e1e14a5d182a: { to: new URLSearchParams(location.hash.slice(1)).get('to'), min: 1000000, label: '', created: '${created}' } })); location.reload(); true`);
+    await evaluate(`localStorage.clear(); localStorage.setItem('zceipt.requests.v1', JSON.stringify({ e1e14a5d182a: { to: new URLSearchParams(location.hash.slice(1)).get('to'), min: 1000000, label: '', created: '${created}' } })); location.reload(); true`);
     await sleep(1500);
     return until(`document.querySelector('.reqhead') ? ${stampNow} : ''`, 90);
   };

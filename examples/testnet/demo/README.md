@@ -7,10 +7,10 @@ this. Its Orchard spending key is `orchard-spending-key.hex` and its viewing key
 **Make a receipt** on the verifier page makes this payment's proofs from that viewing key, as a
 wallet's user would.
 
-`prepared.txt` is that payment's receipt with every proof made (`receipts create --unsigned`).
+`prepared.txt` is that payment's receipt with every proof made (`zceipt create --unsigned`).
 The proofs don't cover the message, so anyone can sign it for their own message:
 
-    receipts demo -m "your message"
+    zceipt demo -m "your message"
 
 or **Make one with your own message** on the verifier page, which signs in the browser in
 milliseconds and verifies the result against the chain. `tx.hex` is the transaction, for offline

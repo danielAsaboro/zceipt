@@ -19,13 +19,13 @@ single-use). Nothing else about the wallet is revealed: not its balance, its not
 
 ```bash
 curl -s -X POST localhost:8723/v1/sign_in/challenges \
-  -H "authorization: Bearer $RECEIPTS_KEY" -d '{"domain":"kemis-coffee.test"}'
+  -H "authorization: Bearer $ZCEIPT_KEY" -d '{"domain":"kemis-coffee.test"}'
 ```
 
 The response carries `nonce` and a ready-made `wallet_command`. The user runs:
 
 ```bash
-receipts sign-in -w ./wallet -i ./wallet.age --domain kemis-coffee.test --nonce <nonce>
+zceipt sign-in -w ./wallet -i ./wallet.age --domain kemis-coffee.test --nonce <nonce>
 ```
 
 and pastes the `zsig1…` into your page, which posts it to `POST /v1/sign_in/verify`:
@@ -42,7 +42,7 @@ Errors: `sign_in_malformed`, `sign_in_challenge_not_found`, `sign_in_challenge_u
 The npm package verifies locally, in the browser or Node. You keep the nonce single-use yourself.
 
 ```js
-import { verifySignIn } from "zcash-receipts";
+import { verifySignIn } from "zceipt";
 const { address } = await verifySignIn(zsig, { domain: "kemis-coffee.test", nonce });
 ```
 

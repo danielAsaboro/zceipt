@@ -1,7 +1,7 @@
 # Related work
 
 Other people have started on parts of the same problem during 2026. This page says what each
-proves, what it does not, and what Receipts adds. Dates are from each project's public commit
+proves, what it does not, and what Zceipt adds. Dates are from each project's public commit
 history, read on 2026-10-22.
 
 | Project | Dates | What a check proves | What it does not prove |
@@ -11,7 +11,7 @@ history, read on 2026-10-22.
 | [`zcash_disclosure`](https://github.com/auzum197/librustzcash/pull/1) and [zcash-disclosure](https://github.com/auzum197/zcash-disclosure) (auzum197) | Sep 29 – Oct 9 | Chosen outputs, as Bech32m disclosures proposed as a candidate encoding for ZIP 311. | No signature or spend authority. |
 | Viewing-key processors (BTCPay plugin, CipherPay) | existing products | Everything the key can see. | Nothing is withheld; see [COMPARISON.md](COMPARISON.md). |
 
-All three disclosure projects stop at the part of ZIP 311 that reveals an output. Receipts
+All three disclosure projects stop at the part of ZIP 311 that reveals an output. Zceipt
 implements the part ZIP 311 says makes a disclosure complete: **proof that the payer's spend
 authority made the payment.** Each disclosed spend carries a fresh Orchard action proof (Halo 2)
 for the same anchor and nullifier, and a spend-authorization signature over the disclosure, so a
@@ -35,14 +35,14 @@ On top of that, and not in the projects above:
 ## Prefixes
 
 zreceipt has written its receipts as `zrcpt1` followed by base64url JSON since Oct 7, 2026.
-Receipts' first commit (Oct 14) used the same text prefix for its own binary format. On Oct 22
-Receipts moved to `zip311r1` (and `zip311b1` for batches) so the two incompatible formats can't
+Zceipt' first commit (Oct 14) used the same text prefix for its own binary format. On Oct 22
+Zceipt moved to `zip311r1` (and `zip311b1` for batches) so the two incompatible formats can't
 be confused, and its verifier recognises a zreceipt link (it begins `zrcpt1eyJ`) and says what it
 is instead of failing with a decode error.
 
 ## Spend authority, by date
 
-Receipts' first commit (98e2028, Oct 14) creates and verifies the spend-authority proof (a fresh
+Zceipt' first commit (98e2028, Oct 14) creates and verifies the spend-authority proof (a fresh
 Orchard action proof against the transaction's anchor and nullifier, plus a spend-authorization
 signature over the receipt). zreceipt added a prototype test of a similar construction on Oct 20;
 its product discloses outputs only.

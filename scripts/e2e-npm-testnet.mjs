@@ -1,7 +1,7 @@
 // The npm package checks what the CLI made on the testnet (scripts/e2e-testnet.sh), offline (the
 // raw transaction given): node scripts/e2e-npm-testnet.mjs <dir> <payment A hex> <its block height>
 import { readFile } from "node:fs/promises";
-import { verifyDesignated, verifyDelegated, verifyPayerTag } from "../packages/zcash-receipts/index.js";
+import { verifyDesignated, verifyDelegated, verifyPayerTag } from "../packages/zceipt/index.js";
 
 const [dir, tx, height] = process.argv.slice(2);
 const read = (f) => readFile(`${dir}/${f}`, "utf8");

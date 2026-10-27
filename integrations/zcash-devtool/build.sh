@@ -11,11 +11,11 @@ fi
 cd "$dir"
 git checkout --quiet 5a26ee8
 # The port drops commands this build doesn't need (PCZT, migration, inspect, TUI…), which don't
-# compile against the NU7 librustzcash revision Receipts pins; then applies the changes.
+# compile against the NU7 librustzcash revision Zceipt pins; then applies the changes.
 xargs rm -f < "$here/removed-files.txt"
 git apply --whitespace=nowarn "$here/zcash-devtool-nu7.patch"
-# Point the receipts-wallet dependency and the orchard patch at this checkout.
+# Point the zceipt-wallet dependency and the orchard patch at this checkout.
 repo="$(cd "$here/../.." && pwd)"
-sed -i.bak "s#@RECEIPTS_REPO@#$repo#g" Cargo.toml && rm -f Cargo.toml.bak
+sed -i.bak "s#@ZCEIPT_REPO@#$repo#g" Cargo.toml && rm -f Cargo.toml.bak
 cargo build --release
 echo "built $dir/target/release/zcash-devtool"

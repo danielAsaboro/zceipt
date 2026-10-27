@@ -3,8 +3,8 @@
 - **Run the checks** before sending a change: `cargo test --workspace --release`,
   `cargo clippy --workspace --release -- -D warnings`, `./scripts/check-stock-orchard.sh`,
   `python3 -m unittest discover -s spec-verifier/tests`, and `node --test test/*.test.js` in
-  `packages/zcash-receipts`. `./scripts/e2e-regtest.sh` replays the whole flow on a private chain.
-- **Changing receipts-core** (encoding, creation or verification): update
+  `packages/zceipt`. `./scripts/e2e-regtest.sh` replays the whole flow on a private chain.
+- **Changing zceipt-core** (encoding, creation or verification): update
   [docs/ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md) or [docs/SPEC.md](docs/SPEC.md), the Python
   spec verifier if the rule is one it checks, and regenerate `conformance/vectors.json`
   (`python3 scripts/gen-conformance.py`) and the browser build (`./scripts/build-web.sh`).

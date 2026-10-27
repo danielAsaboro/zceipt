@@ -9,8 +9,8 @@ is a viewing key.
 ## One earlier output
 
 ```bash
-receipts create -w <wallet> -i <identity> --txid <txid> --prove-source
-receipts create ... --prove-source --reveal-source-value   # also fix the spent note's value
+zceipt create -w <wallet> -i <identity> --txid <txid> --prove-source
+zceipt create ... --prove-source --reveal-source-value   # also fix the spent note's value
 ```
 
 For each spent note the receipt names the earlier transaction output that created it, for example
@@ -25,9 +25,9 @@ An exchange publishes the note commitments of outputs it has screened. The payer
 spent note came from the list, without saying which one:
 
 ```bash
-receipts shop screened-list ...                 # the exchange prints the list
-receipts create ... --screened-set list.txt --screened-proof proof.txt
-receipts verify @receipt.txt --screened-set list.txt --screened-proof @proof.txt
+zceipt shop screened-list ...                 # the exchange prints the list
+zceipt create ... --screened-set list.txt --screened-proof proof.txt
+zceipt verify @receipt.txt --screened-set list.txt --screened-proof @proof.txt
 ```
 
 `--screened-amount` additionally shows that at least a given amount came from the list,
@@ -50,5 +50,5 @@ own value commitment, and is refused with every one the verifier allows
 - It covers the spends the receipt proves (the payer's own), not inputs other parties added.
 - A screened-set proof shows only a lower bound on each note's value.
 
-Code: `crates/receipts-core/src/screened.rs`. See `docs/guides/exchange-deposit.md` in the
+Code: `crates/zceipt-core/src/screened.rs`. See `docs/guides/exchange-deposit.md` in the
 repository for the deposit-desk flow.

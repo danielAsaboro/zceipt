@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // A paid API in 40 lines: HTTP 402 until the caller proves a shielded payment with a receipt.
 //
-//   RECEIPTS_KEY=rcpt_test_… SHOP_ADDRESS=utest1… node examples/paid-api/server.mjs
+//   ZCEIPT_KEY=rcpt_test_… SHOP_ADDRESS=utest1… node examples/paid-api/server.mjs
 //   curl -iL -c jar -b jar localhost:4343/report                  # 402 + payment_uri + receipt_link
-//   …pay, then `receipts pay '<hosted_url>'` (sandbox: submit zip311_test_valid)…
+//   …pay, then `zceipt pay '<hosted_url>'` (sandbox: submit zip311_test_valid)…
 //   curl -b jar -H 'Receipt-Request: preq_…' localhost:4343/report  # 200
 //
 // The API never sees the payer's wallet, and a paid request id only works for the caller it
@@ -11,10 +11,10 @@
 // account id). Never bind to something the client sends, like X-Forwarded-For.
 
 import http from "node:http";
-import { Receipts } from "../../packages/zcash-receipts/client.js";
-import { receiptGate, webhookHandler } from "../../packages/zcash-receipts/middleware.js";
+import { Zceipt } from "../../packages/zceipt/client.js";
+import { receiptGate, webhookHandler } from "../../packages/zceipt/middleware.js";
 
-const receipts = new Receipts(process.env.RECEIPTS_KEY, { baseUrl: process.env.RECEIPTS_URL || "http://127.0.0.1:8723" });
+const receipts = new Zceipt(process.env.ZCEIPT_KEY, { baseUrl: process.env.ZCEIPT_URL || "http://127.0.0.1:8723" });
 const session = (req) => /(?:^|;\s*)sid=([0-9a-f]{32})/.exec(req.headers.get("cookie") || "")?.[1];
 const gate = { receipts, payee: process.env.SHOP_ADDRESS, amountZatoshis: 100_000, label: "One report", route: "/report", bindTo: session };
 const PORT = Number(process.env.PORT || 4343);

@@ -11,19 +11,19 @@ by *a* member, not which one.
 Each member prints their key:
 
 ```bash
-receipts key -w <wallet>
+zceipt key -w <wallet>
 ```
 
 The organisation publishes the lines as `keys.txt`. A member makes a receipt over the set:
 
 ```bash
-receipts create -w <wallet> -i <identity> --txid <txid> --key-set keys.txt
+zceipt create -w <wallet> -i <identity> --txid <txid> --key-set keys.txt
 ```
 
 A verifier names the set it expects:
 
 ```bash
-receipts verify "#$(cat link.txt)" --key-set keys.txt
+zceipt verify "#$(cat link.txt)" --key-set keys.txt
 ```
 
 A real testnet example, a four-wallet co-op, is in `examples/testnet/keyset`.
@@ -44,5 +44,5 @@ So the signer holds one of the keys, or knows its relation to one. No circuit.
 - Distinct from [FROST policy](/composability/frost-policy): a key set is *n separate keys*, a
   policy is *one key held by n parties*.
 
-Code: `crates/receipts-core/src/keyset.rs`. Test: `roundtrip.rs::key_set_proof_names_the_set_not_the_key`.
+Code: `crates/zceipt-core/src/keyset.rs`. Test: `roundtrip.rs::key_set_proof_names_the_set_not_the_key`.
 The spec verifier checks `conformance/keyset.json`.

@@ -528,7 +528,7 @@ impl Circuit {
     }
 
     /// The common checks; with `expose_nf` false the nullifier is derived but not made public,
-    /// and the witnessed `nk` is returned (local patch for Receipts' claim tags, `claim.rs`).
+    /// and the witnessed `nk` is returned (local patch for Zceipt' claim tags, `claim.rs`).
     fn synthesize_inner(
         &self,
         config: &Config,
@@ -1124,7 +1124,7 @@ impl VerifyingKey {
     /// **Unchecked:** the caller must have verified the parameters (a digest of the exact bytes) first;
     /// trapdoored parameters would let a prover forge proofs. Builds the verifying key from serialized commitment parameters (as written by
     /// `Params::write`), skipping their derivation, which is most of the cost of `build`
-    /// (local patch for Receipts' in-browser verifier).
+    /// (local patch for Zceipt' in-browser verifier).
     #[cfg(feature = "std")]
     pub fn build_with_unchecked_params(params: &[u8], circuit_version: OrchardCircuitVersion) -> std::io::Result<Self> {
         let params = halo2_proofs::poly::commitment::Params::<vesta::Affine>::read(&mut &params[..])?;
@@ -1416,7 +1416,7 @@ impl Proof {
         let instances: Vec<_> = instances.iter().map(|i| &i[..]).collect();
 
         let strategy = SingleVerifier::new(&vk.params);
-        // Receipts patch: a proof has one encoding, so bytes after what the verifier reads are refused.
+        // Zceipt patch: a proof has one encoding, so bytes after what the verifier reads are refused.
         let mut rest: &[u8] = &self.0[..];
         let mut transcript = Blake2bRead::init(&mut rest);
         plonk::verify_proof(&vk.params, &vk.vk, strategy, &instances, &mut transcript)?;

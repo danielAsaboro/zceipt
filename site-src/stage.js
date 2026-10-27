@@ -166,6 +166,11 @@ const points = new THREE.Points(geo, new THREE.ShaderMaterial({
 points.frustumCulled = false;
 scene.add(points);
 
+// the pool's glowing core
+const core = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: "#5f86b0", transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+core.scale.set(5, 2.4, 1);
+scene.add(core);
+
 // the viewing key's sweep ring
 const ring = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 128),
   new THREE.MeshBasicMaterial({ color: "#f2a93b", transparent: true, opacity: 0, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -270,6 +275,9 @@ function frame(now) {
   face.material.opacity = ss(2.8, 3.0, p);
   slab.visible = slabIn > 0.001;
 
+  core.position.copy(L.center);
+  core.material.opacity = 0.5 * (1 - converge) + reveal * 0.4;
+  core.material.color.set(reveal > 0.05 ? "#c98a3a" : "#5f86b0");
   ring.position.copy(L.center).setY(L.center.y + 0.01);
   ring.scale.setScalar(Math.max(0.01, scan));
   ring.material.opacity = reveal * 0.55;
@@ -290,10 +298,10 @@ function frame(now) {
   trail.material.opacity = 0.45 * Math.min(1, orbVis);
 
   // camera: wide on the pool, overhead for the viewing key, close on the receipt
-  const c0 = v3(0, 2.4, 10.5 + L.camFar), c2 = v3(0.6, 6.8, 12 + L.camFar), c3 = v3(0.4, 1.3, 7.6 + L.camFar);
+  const c0 = v3(0.4, 1.5, 9.2 + L.camFar), c2 = v3(0.6, 6.8, 12 + L.camFar), c3 = v3(0.4, 1.3, 7.6 + L.camFar);
   camPos.copy(c0).lerp(c2, ss(0.6, 1.8, p)).lerp(c3, ss(2.2, 3.0, p));
   camPos.x += smoothMouse.x * 0.6; camPos.y -= smoothMouse.y * 0.35;
-  look.copy(L.center).add(v3(-1.6, 0.9, 0)).lerp(v3(L.center.x - 0.6, L.center.y, L.center.z), ss(0.6, 1.8, p)).lerp(v3(L.slabPos.x - L.lookShift, L.slabPos.y, L.slabPos.z), ss(2.2, 3.0, p));
+  look.copy(L.center).add(v3(L.lookShift ? -2.9 : 0, 0.7, 0)).lerp(v3(L.center.x - 0.6, L.center.y, L.center.z), ss(0.6, 1.8, p)).lerp(v3(L.slabPos.x - L.lookShift, L.slabPos.y, L.slabPos.z), ss(2.2, 3.0, p));
   camera.position.copy(camPos);
   camera.lookAt(look);
 

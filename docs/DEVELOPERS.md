@@ -67,8 +67,14 @@ let v = verify_transaction(&vk, &Receipt::from_text(&link)?, Network::Testnet.co
   crate that depends on zceipt-core gets stock `orchard` and everything else
   ([vendor/README.md](../vendor/README.md), `scripts/check-stock-orchard.sh`).
 
-Sapling is out of scope: wallets now pay from Orchard and Ironwood, and ZIP 311 already
-specifies Sapling.
+Sapling receipts (`zceipt_core::sapling`, text prefix `zip311z1`) follow the ZIP 311 draft's Sapling
+construction: `(index, ock)` per disclosed output, and per spend a fresh Sapling Spend proof against
+the transaction's anchor and nullifier with a fresh `alpha` and `rcv`, signed under `rk` over the
+receipt digest. The verifying key is embedded, cut from the hash-checked `sapling-spend.params`
+(`examples/extract_sapling_vk.rs`); making one needs that file. `zceipt create-sapling` makes one from
+a zcash-devtool wallet; `zceipt verify` checks it against the chain. Tested on Sapling bundles proved
+with the Zcash parameters (`tests/sapling.rs`); not yet run on testnet. The relationship proofs
+(same payer, claims, siblings…) are Orchard and Ironwood only.
 
 ## What a receipt proves, precisely
 

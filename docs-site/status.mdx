@@ -65,7 +65,10 @@ decoders; a 4-minute API soak with no errors.
     [claim](/concepts/what-a-receipt-reveals).
   </Accordion>
   <Accordion title="Sapling and transparent spends">
-    Out of scope. ZIP 311 already covers Sapling.
+    Sapling receipts (`zip311z1`) are implemented as the ZIP 311 draft specifies them: output disclosure
+    by `ock`, and a fresh Sapling Spend proof plus signature per spend. Tested with the Zcash Sapling
+    parameters on locally built bundles; not yet run on testnet. The relationship proofs are Orchard and
+    Ironwood only. Transparent spends are out of scope.
   </Accordion>
 </AccordionGroup>
 

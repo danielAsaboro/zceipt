@@ -59,7 +59,9 @@ The same material as a Mintlify site: [docs-site/](docs-site) (`cd docs-site && 
   key sets, income proofs, screened sets and source proofs. Real proofs: [examples/testnet/proofs](examples/testnet/proofs).
 - Binaries here build on `orchard` 0.16 plus a patch ([vendor/README.md](vendor/README.md)); the base
   receipt builds on stock `orchard`.
-- Sapling and transparent spends are out of scope: ZIP 311 already covers Sapling.
+- Sapling receipts follow the ZIP 311 draft (`zceipt create-sapling`, `zip311z1…`), tested with the Zcash
+  Sapling parameters, not yet on testnet. The relationship proofs are Orchard and Ironwood only.
+  Transparent spends are out of scope.
 
 Per-proof evidence and caveats: [docs-site/status.mdx](docs-site/status.mdx). To report a problem:
 [SECURITY.md](SECURITY.md).

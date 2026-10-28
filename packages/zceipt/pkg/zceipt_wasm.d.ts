@@ -180,6 +180,11 @@ export function verify_screened(receipt: string, raw_tx: Uint8Array, height: num
  */
 export function warm_up_prover(): void;
 /**
+ * The unified full viewing key (Orchard part only) of a seed phrase's ZIP 32 `account`, so a
+ * wallet can be opened with its phrase alone. The phrase and the keys are dropped on return.
+ */
+export function viewing_key_from_phrase(phrase: string, testnet: boolean, account: number): string;
+/**
  * Signs a prepared receipt with the wallet's seed phrase (BIP 39, ZIP 32 `account`), after
  * checking that the phrase's key made its spends. The phrase and the keys derived from it are
  * dropped when this returns; nothing is stored or sent. Returns `zip311r1…`.
@@ -226,6 +231,12 @@ export class ReceiptMaker {
    */
   prepare(message: string): string;
   /**
+   * The transactions the scan has seen spend the wallet's notes, newest first, as JSON
+   * `[{ txid, height, spent_zatoshis }]`: the payments a receipt can be made for. Found on
+   * this device from the compact blocks; nothing is fetched for them.
+   */
+  payments(): string;
+  /**
    * How many of the wallet's notes the scan has found so far.
    */
   readonly notes_found: number;
@@ -260,6 +271,7 @@ export interface InitOutput {
   readonly receiptmaker_network: (a: number) => [number, number];
   readonly receiptmaker_new: (a: number, b: number) => [number, number, number];
   readonly receiptmaker_notes_found: (a: number) => number;
+  readonly receiptmaker_payments: (a: number) => [number, number];
   readonly receiptmaker_prepare: (a: number, b: number, c: number) => [number, number, number, number];
   readonly receiptmaker_scan_block: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly receiptmaker_set_target: (a: number, b: number, c: number) => [number, number];
@@ -287,6 +299,7 @@ export interface InitOutput {
   readonly verify_same_payer: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly verify_screened: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
   readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly viewing_key_from_phrase: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly warm_up_prover: () => void;
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

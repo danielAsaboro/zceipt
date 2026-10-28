@@ -13,7 +13,7 @@ use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkType};
 
 mod maker;
-pub use maker::{sign_with_phrase, warm_up_prover, ReceiptMaker};
+pub use maker::{sign_with_phrase, viewing_key_from_phrase, warm_up_prover, ReceiptMaker};
 
 thread_local! {
     static VK: OnceCell<orchard::circuit::VerifyingKey> = const { OnceCell::new() };

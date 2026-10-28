@@ -184,13 +184,40 @@ const blockId = (h) => [0x0a, ...encodeVarint(encodeVarint(h).length + 1), 0x08,
  * Compact blocks `start..=end` with their Orchard and Ironwood actions packed for the wasm
  * ReceiptMaker (181 bytes each: pool, txid, nf, cmx, epk, ciphertext). Yields `{ height, packed }`.
  */
-export async function* fetchCompactActions(endpoint, start, end, { batch = 200 } = {}) {
-  for (let from = start; from <= end; from += batch) {
+// Public servers drop long-lived connections now and then; a wallet scan is hundreds of batches.
+async function retry(fn, tries = 4) {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 500 * 2 ** i));
+    }
+  }
+}
+
+export async function* fetchCompactActions(endpoint, start, end, { batch = 200, parallel = 6 } = {}) {
+  const get = (from) => {
     const to = Math.min(end, from + batch - 1);
     const range = [...blockId(from)];
     const endId = [0x08, ...encodeVarint(to)];
     const msg = new Uint8Array([...range, 0x12, endId.length, ...endId, 0x1a, 0x02, 0x03, 0x04]); // poolTypes: Orchard, Ironwood
-    for (const block of await grpcStream(endpoint, "GetBlockRange", msg)) {
+    return retry(() => grpcStream(endpoint, "GetBlockRange", msg));
+  };
+  // A few batches in flight, handed out in order: the same requests as one at a time, sooner.
+  const ahead = [];
+  let next = start;
+  const fill = () => {
+    while (ahead.length < parallel && next <= end) {
+      const p = get(next);
+      p.catch(() => {}); // awaited below, in order
+      ahead.push(p);
+      next += batch;
+    }
+  };
+  for (fill(); ahead.length; fill()) {
+    const blocks = await ahead.shift();
+    for (const block of blocks) {
       let height = 0;
       const parts = [];
       for (const [f, v] of parseFields(block)) {

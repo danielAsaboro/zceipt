@@ -72,6 +72,14 @@ pub struct ReceiptMaker {
     tx: Option<(Transaction, u32)>,
     paths: HashMap<(Pool, [u8; 32]), MerklePath>,
     rebuild: Option<Rebuild>,
+    spends: Vec<Spent>,
+}
+
+/// A transaction that spent one of the wallet's notes, seen while scanning.
+struct Spent {
+    txid: [u8; 32],
+    height: u32,
+    zatoshis: u64,
 }
 
 #[wasm_bindgen]
@@ -92,7 +100,7 @@ impl ReceiptMaker {
         let fvk = FullViewingKey::from_bytes(&bytes).ok_or_else(|| err("the viewing key's Orchard part is invalid"))?;
         let coin_type = if nt == NetworkType::Main { zceipt_core::COIN_TYPE_MAINNET } else { zceipt_core::COIN_TYPE_TESTNET };
         let ivks = [PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External)), PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::Internal))];
-        Ok(ReceiptMaker { fvk, nt, coin_type, ivks, target: None, notes: HashMap::new(), tx: None, paths: HashMap::new(), rebuild: None })
+        Ok(ReceiptMaker { fvk, nt, coin_type, ivks, target: None, notes: HashMap::new(), tx: None, paths: HashMap::new(), rebuild: None, spends: vec![] })
     }
 
     /// "mainnet" or "testnet".
@@ -120,7 +128,15 @@ impl ReceiptMaker {
             let pool = pool_of(a[0])?;
             let txid: [u8; 32] = a[1..33].try_into().unwrap();
             here |= Some(txid) == self.target;
-            let nf = Option::from(Nullifier::from_bytes(&a[33..65].try_into().unwrap())).ok_or_else(|| err("bad nullifier"))?;
+            let nf_bytes: [u8; 32] = a[33..65].try_into().unwrap();
+            if let Some(f) = self.notes.get(&(pool, nf_bytes)) {
+                let value = f.note.value().inner();
+                match self.spends.iter_mut().find(|s| s.txid == txid) {
+                    Some(s) => s.zatoshis += value,
+                    None => self.spends.push(Spent { txid, height, zatoshis: value }),
+                }
+            }
+            let nf = Option::from(Nullifier::from_bytes(&nf_bytes)).ok_or_else(|| err("bad nullifier"))?;
             let cmx_bytes: [u8; 32] = a[65..97].try_into().unwrap();
             let Some(cmx) = Option::<ExtractedNoteCommitment>::from(ExtractedNoteCommitment::from_bytes(&cmx_bytes)) else { continue };
             let action = CompactAction::from_parts(nf, cmx, EphemeralKeyBytes(a[97..129].try_into().unwrap()), a[129..181].try_into().unwrap());
@@ -139,6 +155,23 @@ impl ReceiptMaker {
     #[wasm_bindgen(getter)]
     pub fn notes_found(&self) -> usize {
         self.notes.len()
+    }
+
+    /// The transactions the scan has seen spend the wallet's notes, newest first, as JSON
+    /// `[{ txid, height, spent_zatoshis }]`: the payments a receipt can be made for. Found on
+    /// this device from the compact blocks; nothing is fetched for them.
+    pub fn payments(&self) -> String {
+        let list = self
+            .spends
+            .iter()
+            .rev()
+            .map(|s| {
+                let mut t = s.txid;
+                t.reverse();
+                serde_json::json!({ "txid": hex::encode(t), "height": s.height, "spent_zatoshis": s.zatoshis })
+            })
+            .collect::<Vec<_>>();
+        serde_json::Value::Array(list).to_string()
     }
 
     /// Takes the payment (raw bytes, mined at `height`) and returns the wallet's notes it spent
@@ -318,6 +351,20 @@ pub fn warm_up_prover() {
     });
 }
 
+/// The unified full viewing key (Orchard part only) of a seed phrase's ZIP 32 `account`, so a
+/// wallet can be opened with its phrase alone. The phrase and the keys are dropped on return.
+#[wasm_bindgen]
+pub fn viewing_key_from_phrase(phrase: &str, testnet: bool, account: u32) -> Result<String, JsError> {
+    let words = phrase.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Never echo the error: it can quote a word of the phrase.
+    let m = <bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?;
+    let coin_type = if testnet { zceipt_core::COIN_TYPE_TESTNET } else { zceipt_core::COIN_TYPE_MAINNET };
+    let account = zip32::AccountId::try_from(account).map_err(|_| err("bad account index"))?;
+    let sk = SpendingKey::from_zip32_seed(&m.to_seed(""), coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
+    let ufvk = unified::Ufvk::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Fvk::Orchard(FullViewingKey::from(&sk).to_bytes()))]).map_err(err)?;
+    Ok(ufvk.encode(&if testnet { NetworkType::Test } else { NetworkType::Main }))
+}
+
 /// Signs a prepared receipt with the wallet's seed phrase (BIP 39, ZIP 32 `account`), after
 /// checking that the phrase's key made its spends. The phrase and the keys derived from it are
 /// dropped when this returns; nothing is stored or sent. Returns `zip311r1…`.
@@ -334,4 +381,31 @@ pub fn sign_with_phrase(prepared: &str, phrase: &str, account: u32) -> Result<St
     let sigs = zceipt_core::sign_prepared(p.unsigned(), p.alphas(), &asks, rand::rand_core::UnwrapErr(rand::rngs::SysRng))
         .map_err(|_| err("this seed phrase's wallet (account above) didn't make these spends"))?;
     Ok(p.apply_signatures(sigs).map_err(err)?.to_text())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zcash_keys::keys::UnifiedSpendingKey;
+
+    const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    // The key a phrase opens must be the one wallets (zcash_keys) derive, or the scan finds nothing.
+    #[test]
+    fn phrase_opens_the_wallets_own_viewing_key() {
+        for (testnet, net) in [(true, zcash_protocol::consensus::Network::TestNetwork), (false, zcash_protocol::consensus::Network::MainNetwork)] {
+            let ufvk = viewing_key_from_phrase(PHRASE, testnet, 0).unwrap();
+            let (nt, _, decoded) = unified::Ufvk::decode(&ufvk).unwrap();
+            assert_eq!(nt == NetworkType::Test, testnet);
+            let ours = decoded.items().into_iter().find_map(|i| match i {
+                unified::Fvk::Orchard(b) => Some(b),
+                _ => None,
+            });
+            let seed = <bip0039::Mnemonic<bip0039::English>>::from_phrase(PHRASE).unwrap().to_seed("");
+            let usk = UnifiedSpendingKey::from_seed(&net, &seed, zip32::AccountId::ZERO).unwrap();
+            let theirs = usk.to_unified_full_viewing_key().orchard().unwrap().to_bytes();
+            assert_eq!(ours, Some(theirs));
+            assert!(ReceiptMaker::new(&ufvk).is_ok());
+        }
+    }
 }

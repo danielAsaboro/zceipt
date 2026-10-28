@@ -25,7 +25,15 @@
     button:hover { transform: translateY(-1px); }
     button.ghost { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-2) inset; margin-left: 6px; }
     button:disabled { opacity: 0.5; cursor: default; transform: none; }
-    #progress { font: 12.5px/1.6 var(--mono); color: var(--ink-2); margin-top: 14px; white-space: pre-wrap; }
+    #progress { font: 12.5px/1.6 var(--mono); color: var(--ink-2); margin: 14px 4px 0; white-space: pre-wrap; }
+    select { width: 100%; background: rgba(255,255,255,.6); color: var(--ink); border: 1px solid transparent; border-radius: var(--r-input); padding: 12px 14px; font: 13px var(--sans); box-shadow: inset 0 0 0 1px rgba(17,17,20,.06); }
+    #payments { display: grid; gap: 8px; margin-top: 14px; }
+    .pay { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; text-align: left; width: 100%; margin: 0; padding: 14px 16px; border-radius: 16px; background: rgba(255,255,255,.55); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(17,17,20,.06); font: 500 15px var(--sans); }
+    .pay:hover { transform: none; background: var(--surface); }
+    .pay[aria-checked="true"] { background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
+    .pay small { grid-column: 1 / -1; font: 12px var(--mono); color: var(--ink-2); }
+    .pay b { font-weight: 600; font-variant-numeric: tabular-nums; }
+    #payments p { margin: 0; color: var(--ink-2); font-size: 14px; }
     #progress:empty { display: none; }
     #progress .err { color: var(--bad); }
     .done { color: var(--accent); }
@@ -40,29 +48,36 @@
     <a class="btn small ghost" href="./">Verify</a>
   </nav>
   <main>
-    <span class="pill"><i class="dot accent"></i>Proofs made on this device</span>
+    <span class="pill"><i class="dot accent"></i>Keys stay on this device</span>
     <h1>Make a receipt</h1>
-    <div class="island">
 
-    <label for="ufvk">Your wallet's viewing key (uview1… or uviewtest1…)</label>
-    <textarea id="ufvk" spellcheck="false" autocomplete="off"></textarea>
-    <label for="txid">The payment's transaction id</label>
-    <input id="txid" spellcheck="false" autocomplete="off" placeholder="64 hex digits, from your wallet's history">
-    <div class="two">
-      <div><label for="birthday">Wallet birthday (block height)</label><input id="birthday" inputmode="numeric" autocomplete="off"></div>
-      <div><label for="msg">Message</label><input id="msg" autocomplete="off" placeholder="Invoice 42"></div>
-    </div>
-    <button id="proveBtn">Make the proofs</button>
-    <div id="progress" role="status" aria-live="polite"></div>
-    </div>
+    <section class="island" id="openPart">
+      <label for="key">Seed phrase or viewing key</label>
+      <textarea id="key" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+      <div class="two">
+        <div><label for="birthday">Wallet birthday (block)</label><input id="birthday" inputmode="numeric" autocomplete="off"></div>
+        <div id="netBox" hidden><label for="net">Network</label><select id="net"><option value="test">Testnet</option><option value="main">Mainnet</option></select></div>
+      </div>
+      <button id="openBtn">Open wallet</button>
+    </section>
+
+    <section class="island" id="pickPart" hidden>
+      <h2>Which payment?</h2>
+      <div id="payments" role="radiogroup" aria-label="Payments from this wallet"></div>
+      <label for="msg">Message</label>
+      <input id="msg" autocomplete="off" placeholder="Invoice 42">
+      <button id="makeBtn" disabled>Make receipt</button>
+    </section>
 
     <section id="signPart" class="island" hidden>
       <h2>Sign it</h2>
-      <label for="phrase">Your seed phrase (typed here, used once, never stored or sent)</label>
+      <label for="phrase">Seed phrase</label>
       <textarea id="phrase" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
       <button id="signBtn">Sign</button>
-      <button type="button" class="ghost" id="saveBtn">Sign elsewhere instead</button>
+      <button type="button" class="ghost" id="saveBtn">Sign elsewhere</button>
     </section>
+
+    <div id="progress" role="status" aria-live="polite"></div>
   </main>
   <script src="./glass.js" defer></script>
   <script type="module" src="./make.js"></script>

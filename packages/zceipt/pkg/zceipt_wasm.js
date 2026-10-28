@@ -1087,6 +1087,35 @@ export function warm_up_prover() {
 }
 
 /**
+ * The unified full viewing key (Orchard part only) of a seed phrase's ZIP 32 `account`, so a
+ * wallet can be opened with its phrase alone. The phrase and the keys are dropped on return.
+ * @param {string} phrase
+ * @param {boolean} testnet
+ * @param {number} account
+ * @returns {string}
+ */
+export function viewing_key_from_phrase(phrase, testnet, account) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(phrase, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.viewing_key_from_phrase(ptr0, len0, testnet, account);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Signs a prepared receipt with the wallet's seed phrase (BIP 39, ZIP 32 `account`), after
  * checking that the phrase's key made its spends. The phrase and the keys derived from it are
  * dropped when this returns; nothing is stored or sent. Returns `zip311r1…`.
@@ -1302,6 +1331,24 @@ export class ReceiptMaker {
             return getStringFromWasm0(ptr2, len2);
         } finally {
             wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+        }
+    }
+    /**
+     * The transactions the scan has seen spend the wallet's notes, newest first, as JSON
+     * `[{ txid, height, spent_zatoshis }]`: the payments a receipt can be made for. Found on
+     * this device from the compact blocks; nothing is fetched for them.
+     * @returns {string}
+     */
+    payments() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.receiptmaker_payments(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
         }
     }
 }

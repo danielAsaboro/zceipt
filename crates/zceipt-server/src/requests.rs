@@ -734,7 +734,7 @@ pub fn prune_rejections(c: &rusqlite::Connection, cutoff: i64) -> rusqlite::Resu
 pub async fn expiry_sweeper(st: Shared) {
     let mut tick = 0u32;
     loop {
-        if tick % 60 == 0 {
+        if tick.is_multiple_of(60) {
             let _ = prune_rejections(&st.db.0.lock().unwrap(), now() - REJECTION_RETENTION_SECS);
         }
         tick = tick.wrapping_add(1);

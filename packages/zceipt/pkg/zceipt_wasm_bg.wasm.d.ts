@@ -18,6 +18,7 @@ export const qr_svg: (a: number, b: number) => [number, number, number, number];
 export const receiptmaker_network: (a: number) => [number, number];
 export const receiptmaker_new: (a: number, b: number) => [number, number, number];
 export const receiptmaker_notes_found: (a: number) => number;
+export const receiptmaker_payments: (a: number) => [number, number];
 export const receiptmaker_prepare: (a: number, b: number, c: number) => [number, number, number, number];
 export const receiptmaker_scan_block: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const receiptmaker_set_target: (a: number, b: number, c: number) => [number, number];
@@ -45,6 +46,7 @@ export const verify_policy_pinned: (a: number, b: number, c: number, d: number, 
 export const verify_same_payer: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const verify_screened: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
 export const verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const viewing_key_from_phrase: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const warm_up_prover: () => void;
 export const warm_up: () => void;
 export const rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

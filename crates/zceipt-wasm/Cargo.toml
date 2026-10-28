@@ -29,3 +29,6 @@ zcash_note_encryption.workspace = true
 incrementalmerkletree = { version = "0.9", features = ["legacy-api"] }
 bip0039 = "0.12"
 zip32 = "0.3"
+
+[dev-dependencies]
+zcash_keys = { workspace = true, features = ["orchard"] }

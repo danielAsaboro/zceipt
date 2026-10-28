@@ -5427,6 +5427,7 @@ dependencies = [
  "serde_json",
  "wasm-bindgen",
  "zcash_address",
+ "zcash_keys",
  "zcash_note_encryption",
  "zcash_primitives",
  "zcash_protocol",

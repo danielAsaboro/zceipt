@@ -719,9 +719,25 @@ pub async fn campaign_page() -> Html<&'static str> {
     Html(include_str!("../../../docs/campaign.html"))
 }
 
-/// Marks overdue open requests expired and emits `request.expired` once each.
+/// How long a `receipt.rejected` event is kept. Anyone can submit to a campaign, so without a
+/// limit each failed attempt would be a row kept forever.
+pub const REJECTION_RETENTION_SECS: i64 = 7 * 24 * 3600;
+
+/// Deletes `receipt.rejected` events (and their deliveries) created before `cutoff`.
+pub fn prune_rejections(c: &rusqlite::Connection, cutoff: i64) -> rusqlite::Result<usize> {
+    c.execute("DELETE FROM deliveries WHERE event_id IN (SELECT id FROM events WHERE type = 'receipt.rejected' AND created < ?1)", [cutoff])?;
+    c.execute("DELETE FROM events WHERE type = 'receipt.rejected' AND created < ?1", [cutoff])
+}
+
+/// Marks overdue open requests expired and emits `request.expired` once each; once a minute,
+/// drops rejection events past their retention.
 pub async fn expiry_sweeper(st: Shared) {
+    let mut tick = 0u32;
     loop {
+        if tick % 60 == 0 {
+            let _ = prune_rejections(&st.db.0.lock().unwrap(), now() - REJECTION_RETENTION_SECS);
+        }
+        tick = tick.wrapping_add(1);
         let due: Option<Vec<(String, String)>> = {
             let c = st.db.0.lock().unwrap();
             let stmt = c.prepare("SELECT id, mode FROM requests WHERE status = 'open' AND expires_at IS NOT NULL AND expires_at <= ?1 AND expired_notified = 0 AND test_clock IS NULL").ok();

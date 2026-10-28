@@ -393,6 +393,19 @@ async fn campaign_tally_moves_in_steps_of_k() {
     assert_eq!(shown().await["contributions"], 4, "k new contributions publish together");
 }
 
+#[test]
+fn old_rejections_are_pruned() {
+    let path = std::env::temp_dir().join(format!("zceipt-prune-{}-{}.db", std::process::id(), rand_suffix()));
+    let db = zceipt_server::db::Db::open(path.to_str().unwrap()).unwrap();
+    let c = db.0.lock().unwrap();
+    for (id, kind, created) in [("evt_old", "receipt.rejected", 0), ("evt_new", "receipt.rejected", 2_000), ("evt_keep", "request.fulfilled", 0)] {
+        c.execute("INSERT INTO events (id, mode, type, created, body) VALUES (?1, 'test', ?2, ?3, '{}')", rusqlite::params![id, kind, created]).unwrap();
+    }
+    assert_eq!(zceipt_server::requests::prune_rejections(&c, 1_000).unwrap(), 1);
+    let left: Vec<String> = c.prepare("SELECT id FROM events ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+    assert_eq!(left, ["evt_keep", "evt_new"], "only old rejections go; other events are kept");
+}
+
 #[tokio::test]
 async fn expiry_emits_an_event() {
     let (app, test, _) = app().await;

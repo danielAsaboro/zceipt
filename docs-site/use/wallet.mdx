@@ -1,0 +1,65 @@
+---
+title: "How to prove a payment from your wallet"
+description: "Make a receipt in the browser with your seed phrase or viewing key. No terminal."
+---
+
+This guide makes a receipt for one payment you sent, on the page at
+[zceipt.xyz/verify/make.html](https://zceipt.xyz/verify/make.html). Everything runs in the
+browser tab: the key is held in memory on your device and is never sent.
+
+You need your wallet's seed phrase, or the viewing key it exports (`uview1…` on mainnet,
+`uviewtest1…` on testnet), and roughly the block your wallet was created at.
+
+<Steps>
+  <Step title="Open your wallet">
+    Paste the seed phrase or viewing key into **Seed phrase or viewing key**.
+
+    In **Wallet birthday (block)**, enter the height your wallet shows with its seed backup or
+    in its settings. If you don't know it, any block before the wallet first received funds
+    works; an earlier block only means a longer scan. A seed phrase also shows **Network**:
+    pick Testnet or Mainnet.
+
+    Press **Open wallet**. The page reads the chain from that block, showing
+    *Reading your wallet: block … of …*.
+  </Step>
+  <Step title="Pick the payment">
+    Your payments appear under **Which payment?** as they are found. Tap the one you want to
+    prove.
+
+    If the list stays empty, the page says *No payments from this wallet up to block …*: the
+    birthday is after your first deposit. Go back and enter an earlier block.
+  </Step>
+  <Step title="Add a message">
+    Type an invoice or order number in **Message**, such as `Order 1093`. The receipt signs it,
+    so the merchant can match it to the order. Leave it empty if there is none.
+  </Step>
+  <Step title="Make the receipt">
+    Press **Make receipt**. The page fetches the payment's block and makes the zero-knowledge
+    proof, which takes about 20 seconds. When it finishes you see
+    *Proofs made for … Your viewing key stayed on this device.*
+  </Step>
+  <Step title="Sign it">
+    With a seed phrase, the receipt is signed straight away and opens on the verifier, ready to
+    share.
+
+    With a viewing key, the page asks for the seed phrase under **Sign it**:
+
+    - To sign here, type the phrase and press **Sign**.
+    - To sign on another device (a hardware signer or an offline machine), press
+      **Sign elsewhere**. The page saves the unsigned receipt; sign it there with
+      `zceipt sign r.txt --seed-stdin`.
+  </Step>
+  <Step title="Share it">
+    On the verifier, use **Copy link**, **Save as file** or **Print or save as PDF**. The receipt
+    travels in the link's `#fragment`, which browsers never send to a server.
+  </Step>
+</Steps>
+
+## What the merchant sees
+
+The recipient, the amount and the memo of the outputs you sent to others, your message, and
+proof that the key which spent the money signed it. Not your balance, addresses or other
+payments. See [what a receipt reveals](/concepts/what-a-receipt-reveals).
+
+To check a receipt you were sent, see [how to check a receipt](/use/check). For batches,
+claims and the other relationship proofs, use the [terminal](/use/terminal).

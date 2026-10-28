@@ -1,0 +1,74 @@
+---
+title: "How to prove a payment from the terminal"
+description: "Make a receipt with the zceipt CLI, from a zcash-devtool wallet, a seed phrase or a viewing key."
+---
+
+This guide makes a shareable receipt for a payment you sent, with the `zceipt` command. Install
+it first:
+
+```bash
+cargo install --locked --path crates/zceipt-cli
+```
+
+You need the payment's transaction id (your wallet's history shows it, as does any block
+explorer).
+
+## 1. Make the receipt
+
+Pick the line that matches where your key is.
+
+**A zcash-devtool wallet.** Point `create` at the wallet folder and the age identity that
+unlocks it:
+
+```bash
+zceipt create -w sender -i sender.age \
+  --txid ec78e6b2565049e59d02bc7f262976e81454ce29afc9adce69077b35c717b493 \
+  -m "Order 1093" --link-base https://zceipt.xyz/verify/
+```
+
+**Any other wallet's seed phrase** (Zodl, Zingo, YWallet…). The phrase is read from standard
+input, never from the command line, and the wallet's notes are found by scanning from the
+birthday:
+
+```bash
+zceipt create --seed-stdin --network test --birthday <height> --txid <txid> -m "Order 1093"
+```
+
+**A viewing key here, the seed phrase somewhere else.** Make the proofs with the viewing key,
+then sign on the machine that holds the seed (offline is fine):
+
+```bash
+zceipt create --ufvk @key.txt --birthday <height> --txid <txid> -m "Order 1093" --unsigned r.txt
+zceipt sign r.txt --seed-stdin
+```
+
+`sign` lists everything the receipt reveals and asks before it signs.
+
+## 2. Read the output
+
+On the real testnet payment above, `create` finishes in under two seconds:
+
+```text
+Building spend-authority proof(s)
+Receipt for ec78e6b2…c717b493 (Ironwood pool): 1 output(s) disclosed,
+spend authority proven for 1 action(s), 5252 bytes.
+
+Share this link (the receipt stays in the #fragment, never sent to a server;
+`h=` lets verifiers fetch it among up to 64 shielded transactions of its block,
+so the server learns the block, not which one):
+https://zceipt.xyz/verify/#zip311r1WlJD…&h=4550523
+```
+
+## 3. Share it
+
+Send the link, or save it to a file (`receipt.txt`) and send that. Some chat apps cut long
+links; a file always arrives whole.
+
+## Options you'll reach for
+
+- To prove several payments in one link (a payroll, a grant round), repeat `--txid`.
+- To show only some outputs, pass `--output <index>`.
+- To answer a payment request, put its challenge in `-m`.
+
+Every option is in the [CLI reference](/reference/cli). To check a receipt, see
+[how to check a receipt](/use/check).

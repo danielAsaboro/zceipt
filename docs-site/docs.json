@@ -36,6 +36,30 @@
         ]
       },
       {
+        "tab": "Use Zceipt",
+        "groups": [
+          {
+            "group": "Make a receipt",
+            "pages": [
+              "use/wallet",
+              "use/terminal"
+            ]
+          },
+          {
+            "group": "Check a receipt",
+            "pages": [
+              "use/check"
+            ]
+          },
+          {
+            "group": "Choosing",
+            "pages": [
+              "use/wallet-or-terminal"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Composability",
         "groups": [
           {

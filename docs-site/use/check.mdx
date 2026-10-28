@@ -1,0 +1,57 @@
+---
+title: "How to check a receipt you were sent"
+description: "Verify a receipt in the browser or with zceipt verify, and confirm it paid you."
+---
+
+This guide checks a receipt someone sent you and confirms the payment went to your address.
+
+## In the browser
+
+1. Open the link. If you were sent a file or the text itself, open
+   [zceipt.xyz/verify](https://zceipt.xyz/verify/), paste it into **Receipt or link** (or use
+   **Open a file**) and press **Verify receipt**.
+2. Read the card: the amount, the recipient, the memo and the signed message. The stamp says
+   **VERIFIED · RECIPIENT NOT CHECKED** until you check the recipient.
+3. Under **Was it paid to you? Your address**, paste your receiving address and press
+   **Check**. The stamp turns to **PAID TO YOU**, or **VALID · NOT TO YOUR ADDRESS**.
+
+The page fetches the payment's block from a chain server. To fetch nothing, open
+**Server, or offline** and paste the raw transaction and its height instead.
+
+## In the terminal
+
+```bash
+zceipt verify @receipt.txt --expect-address "$(cat merchant.ua)"
+```
+
+On the real testnet receipt from the [terminal guide](/use/terminal):
+
+```text
+(paid 0.01000000 TAZ to the expected address)
+VALID receipt
+  network   testnet
+  tx        ec78e6b2…c717b493 (mined at height 4550523)
+  pool      Ironwood
+  message   Order 1093
+  sender    proved spend authority for action(s) [1]
+  paid      0.01000000 TAZ to utest14te2vs…
+            memo: Order 1093: two coffees
+  nothing else about the sender's wallet is revealed
+  mined     281 confirmations on testnet.zec.rocks:443
+```
+
+Add `--min <ZEC>` to also require an amount, and `--challenge <hex>` if you asked for the
+payment with a request.
+
+## When it doesn't pass
+
+| Stamp | Means | Do |
+|---|---|---|
+| NOT VALID | The receipt was changed after it was made, or wasn't made by the wallet that paid. | Don't rely on it. |
+| NOT PROVEN BY THE PAYER | The payment is on chain, but this receipt came from someone who only saw it. | Don't treat it as proof of who paid. |
+| VERIFIED · NOT FINAL YET | Valid, but the block has few confirmations. | Check again later. |
+| NOT A RECEIPT | The link was cut off, or what was pasted isn't a receipt. | Ask for the whole link, or a file. |
+| COULD NOT CHECK | The chain server couldn't be reached, or doesn't have the transaction yet. | Try again, or pick another server under **Server, or offline**. |
+
+What the verifier learns, and what it doesn't, is on
+[what a receipt reveals](/concepts/what-a-receipt-reveals).

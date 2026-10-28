@@ -5442,6 +5442,7 @@ dependencies = [
  "zcash_protocol",
  "zcash_transparent",
  "zceipt-core",
+ "zeroize",
  "zip32",
 ]
 

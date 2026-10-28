@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Make a receipt · Zceipt</title>
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://zcash-testnet.chainsafe.dev https://zcash-mainnet.chainsafe.dev http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="color-scheme" content="light">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='zb' x1='16' y1='2' x2='16' y2='28' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%232C2C34'/%3E%3Cstop offset='1' stop-color='%230D0D10'/%3E%3C/linearGradient%3E%3ClinearGradient id='zr' x1='22' y1='9' x2='10' y2='21' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%234AA8FF'/%3E%3Cstop offset='1' stop-color='%230066D6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M10.5 3h11a4.5 4.5 0 0 1 4.5 4.5v19.2l-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8V7.5A4.5 4.5 0 0 1 10.5 3z' fill='url(%23zb)' stroke='url(%23zb)' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M10.6 3.6h10.8' stroke='%23fff' stroke-opacity='.22' stroke-width='.8' stroke-linecap='round'/%3E%3Cpath d='M11 9.8h10M11 19.8h10' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M21 9.8l-10 10' stroke='url(%23zr)' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./zceipt.css">
@@ -39,6 +39,23 @@
     .pay small { grid-column: 1 / -1; font: 12px var(--mono); color: var(--ink-2); }
     .pay b { font-weight: 600; font-variant-numeric: tabular-nums; }
     #payments p { margin: 0; color: var(--ink-2); font-size: 14px; }
+    .help { display: block; font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+    .note { font-size: 13.5px; line-height: 1.5; color: var(--ink-2); margin: 16px 0 0; }
+    .note b { font-weight: 600; color: var(--ink); }
+    details.box { margin-top: 14px; color: var(--ink-2); font-size: 13px; }
+    details.box summary { cursor: pointer; font-weight: 500; color: var(--ink); list-style: none; }
+    details.box summary::-webkit-details-marker { display: none; }
+    details.box summary::after { content: " ›"; color: var(--ink-3); }
+    details.box[open] summary::after { content: " ⌄"; }
+    details.box input { margin-top: 8px; }
+    #review { margin-top: 14px; }
+    #outputs { display: grid; gap: 8px; }
+    .out { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 12px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(17,17,20,.06); font: 500 14px var(--sans); color: var(--ink); cursor: pointer; }
+    .out input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--ink); box-shadow: none; grid-row: span 2; }
+    .out .to { font: 12.5px var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .out b { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .out small { grid-column: 2 / -1; font-size: 13px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .out small:empty { display: none; }
     #progress:empty { display: none; }
     #progress .err { color: var(--bad); }
     .done { color: var(--accent); }
@@ -58,26 +75,36 @@
 
     <section class="island" id="unlockPart" hidden>
       <h2 id="savedLabel"></h2>
-      <button id="unlockBtn">Unlock with passkey</button>
+      <button id="unlockBtn" disabled>Unlock with passkey</button>
       <button type="button" class="ghost" id="otherBtn">Forget this wallet</button>
     </section>
 
     <section class="island" id="openPart">
-      <button type="button" id="mmBtn" class="mm">Connect MetaMask</button>
+      <button type="button" id="mmBtn" class="mm" disabled>Connect MetaMask</button>
       <div class="or" id="mmOr"><span>or</span></div>
       <label for="key">Seed phrase or viewing key</label>
       <textarea id="key" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+      <small class="help">A viewing key comes from your wallet's settings (export viewing key); it can't spend.</small>
       <div class="two">
-        <div><label for="birthday">Wallet birthday (block)</label><input id="birthday" inputmode="numeric" autocomplete="off"></div>
-        <div id="netBox" hidden><label for="net">Network</label><select id="net"><option value="test">Testnet</option><option value="main">Mainnet</option></select></div>
+        <div><label for="birthday">Wallet birthday (block)</label><input id="birthday" inputmode="numeric" autocomplete="off"><small class="help">On your seed backup: the block the wallet was created at.</small></div>
+        <div id="netBox"><label for="net">Network</label><select id="net"><option value="" selected disabled>Mainnet or testnet</option><option value="main">Mainnet</option><option value="test">Testnet</option></select></div>
       </div>
-      <label class="check" id="rememberBox" hidden><input type="checkbox" id="remember"> Remember on this device with a passkey</label>
-      <button id="openBtn">Open wallet</button>
+      <details class="box">
+        <summary>Chain server</summary>
+        <input id="endpoint" spellcheck="false" autocomplete="off" aria-label="grpc-web lightwalletd">
+      </details>
+      <label class="check" id="rememberBox" hidden><input type="checkbox" id="remember"> Remember the viewing key on this device with a passkey</label>
+      <p class="note">Reads the chain from <b id="host">zcash-mainnet.chainsafe.dev</b>: it sees your IP, the blocks from your birthday to the payment, and the payment's block among its neighbours, never your keys or which payment.</p>
+      <button id="openBtn" disabled>Open wallet</button>
     </section>
 
     <section class="island" id="pickPart" hidden>
       <h2>Which payment?</h2>
       <div id="payments" role="radiogroup" aria-label="Payments from this wallet"></div>
+      <div id="review" hidden>
+        <div id="outputs"></div>
+        <p class="note" id="reveals"></p>
+      </div>
       <label for="msg">Message</label>
       <input id="msg" autocomplete="off" placeholder="Invoice 42">
       <button id="makeBtn" disabled>Make receipt</button>
@@ -89,6 +116,7 @@
       <textarea id="phrase" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
       <button id="signBtn">Sign</button>
       <button type="button" class="ghost" id="saveBtn">Sign elsewhere</button>
+      <p class="note">This file lets its holder link every receipt this wallet signs; give it only to your signer and delete it after.</p>
     </section>
 
     <div id="progress" role="status" aria-live="polite"></div>

@@ -4,10 +4,10 @@
   "proposedName": "Zceipt",
   "repository": {
     "type": "git",
-    "url": "https://github.com/danielAsaboro/zecathon-receipts.git"
+    "url": "https://github.com/danielAsaboro/zceipt.git"
   },
   "source": {
-    "shasum": "rs0WBSiWTqaCq0PcuN2R6pgSLTlggYs6PrNCTuNujy0=",
+    "shasum": "9g0V6jBm7UF7/vLPv8yQ6KaX7CrXEOSamfD9eTDpdr8=",
     "location": {
       "npm": {
         "filePath": "dist/bundle.js",

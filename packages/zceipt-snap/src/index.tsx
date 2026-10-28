@@ -63,12 +63,14 @@ async function getViewingKey(origin: string, network: Network) {
   wasm();
   let state = await getState();
   const fresh = !state.seed && state.birthday === undefined;
+  // The site picks the network: name it, so a key for the wrong chain is refused here.
+  const chain = network === 'main' ? 'mainnet' : 'testnet';
   const values = await form(
     <Form name="share">
       <Box>
-        <Heading>Share a viewing key</Heading>
+        <Heading>Share a {chain} viewing key</Heading>
         <Text>
-          <Bold>{origin}</Bold> can then find this wallet's payments and make receipt proofs. A viewing key can't spend.
+          <Bold>{origin}</Bold> can then find this wallet's {chain} payments and make receipt proofs. A viewing key can't spend.
         </Text>
         {fresh ? (
           <Box>
@@ -104,8 +106,11 @@ async function signReceipt(origin: string, prepared: string) {
   // What gets revealed is read from the receipt itself, not from the site's description of it.
   const d = JSON.parse(describe_prepared(prepared)) as {
     network: string; txid: string; message: string; outputs_with_memo: number; outputs_without_memo: number; spends: number;
+    opened: { index: number; recipient: string; zatoshis: number }[];
   };
   const outputs = d.outputs_with_memo + d.outputs_without_memo;
+  const unit = d.network === 'mainnet' ? 'ZEC' : 'TAZ';
+  const amount = (z: number) => `${(z / 1e8).toFixed(8).replace(/0+$/u, '').replace(/\.$/u, '')} ${unit}`;
   const ok = await snap.request({
     method: 'snap_dialog',
     params: {
@@ -123,6 +128,12 @@ async function signReceipt(origin: string, prepared: string) {
             {d.outputs_with_memo ? ', with memo' : ''}) and that you spent {String(d.spends)} note{d.spends === 1 ? '' : 's'}. Nothing else about your wallet.
           </Text>
           {d.message ? <Text>Message: {d.message}</Text> : null}
+          {(d.opened ?? []).map((o) => (
+            <Box key={String(o.index)}>
+              <Text>{amount(o.zatoshis)} to</Text>
+              <Copyable value={o.recipient} />
+            </Box>
+          ))}
         </Box>
       ),
     },

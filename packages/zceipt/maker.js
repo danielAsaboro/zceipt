@@ -3,8 +3,11 @@
 // block, never the viewing key, the txid or which note.
 //
 //   const { maker, payments } = await findPayments({ wasm, ufvk, birthday, onProgress });
-//   const prepared = await prepareFromViewingKey({ wasm, maker, txid, height, birthday, message, onProgress });
+//   const prepared = await prepareFromViewingKey({ wasm, maker, txid, height, birthday, message, onProgress, select });
 //   const receipt = sign_with_phrase(prepared, phrase, 0);   // where the seed is, or another signer
+//
+// `select(outputs)` gets what the receipt would reveal (`[{ index, recipient, zatoshis, memo }]`)
+// and answers with the indices to disclose; without it, every output sent to others is disclosed.
 //
 // Takes the wasm module's exports (`ReceiptMaker`, `txid_of`) so it runs in a page, a worker or Node.
 
@@ -27,6 +30,7 @@ export async function findPayments({ wasm, ufvk, birthday, endpoint, onProgress 
   const tip = await fetchTipHeight(endpoint);
   birthday = Math.max(1, Number(birthday) || 1);
   if (birthday > tip) throw new Error(`the birthday ${birthday} is after the chain tip ${tip}`);
+  onProgress({ step: "start", from: birthday, to: tip });
   let seen = 0, last = birthday;
   for await (const b of fetchCompactActions(endpoint, birthday, tip)) {
     maker.scan_block(b.height, b.packed);
@@ -47,11 +51,14 @@ export async function findPayments({ wasm, ufvk, birthday, endpoint, onProgress 
 }
 
 /**
- * `{ wasm, ufvk, txid, birthday, height?, message, endpoint?, onProgress? }` → `zip311u1…`.
+ * `{ wasm, ufvk, txid, birthday, height?, message, endpoint?, onProgress?, select? }` → `zip311u1…`.
  * `birthday`: the wallet's first block (any block before it first received funds). `height`: the
- * payment's block if known (a receipt link's `h=`); else the scan finds it.
+ * payment's block if known (a receipt link's `h=`); else the scan finds it. `select(outputs)`:
+ * asked, once the payment is fetched, which of the outputs it sent to others to disclose
+ * (`async (outputs) => indices`); the Merkle paths are rebuilt meanwhile. It may also answer
+ * `{ selected, message }` to set the message at the same time.
  */
-export async function prepareFromViewingKey({ wasm, ufvk, maker, txid, birthday, height, message = "", endpoint, onProgress = () => {} }) {
+export async function prepareFromViewingKey({ wasm, ufvk, maker, txid, birthday, height, message = "", endpoint, onProgress = () => {}, select = null }) {
   // A `maker` from findPayments has already scanned the wallet: its notes are known.
   const scanned = Boolean(maker);
   maker = maker || new wasm.ReceiptMaker(ufvk);
@@ -63,11 +70,13 @@ export async function prepareFromViewingKey({ wasm, ufvk, maker, txid, birthday,
   if (birthday > tip) throw new Error(`the birthday ${birthday} is after the chain tip ${tip}`);
   if (scanned && !height) throw new Error("give the payment's block height with a scanned maker");
 
-  // 1. Find the wallet's notes, and the payment's block if it wasn't given.
-  const scanEnd = height ? Number(height) - 1 : tip;
+  // 1. Find the wallet's notes, and the payment's block if it wasn't given. With the block known,
+  // the range still runs to the end of its 1,000-block window, so it doesn't point at the block;
+  // the blocks from the payment on are fetched and ignored (its notes all came before it).
+  const scanEnd = height ? Math.min(tip, windowEnd(Number(height))) : tip;
   let found = height ? Number(height) : null;
   if (!scanned) for await (const b of fetchCompactActions(endpoint, birthday, scanEnd)) {
-    if (maker.scan_block(b.height, b.packed) && !found) found = b.height;
+    if (!(height && b.height >= Number(height)) && maker.scan_block(b.height, b.packed) && !found) found = b.height;
     if (b.height % 500 === 0 || b.height === scanEnd) onProgress({ step: "scan", height: b.height, from: birthday, to: scanEnd, notes: maker.notes_found });
     // Found: finish its 1,000-block window (so the range doesn't point at the block) and stop.
     if (found && b.height >= Math.min(scanEnd, windowEnd(found))) break;
@@ -78,6 +87,8 @@ export async function prepareFromViewingKey({ wasm, ufvk, maker, txid, birthday,
   onProgress({ step: "fetch", height: found });
   const tx = await fetchTransactionPrivately(endpoint, txid, found, { txidOf: (raw, h) => wasm.txid_of(raw, h, net === "mainnet" ? 133 : 1) });
   const spent = JSON.parse(maker.spent_notes(tx.raw, tx.height));
+  // What the receipt would reveal is known now: ask while the paths are rebuilt.
+  const choice = select ? Promise.resolve(select(JSON.parse(maker.disclosable()))) : null;
 
   // 3. Each spent note's Merkle path at the payment's anchor, from whole windows of blocks.
   for (const [i, s] of spent.entries()) {
@@ -93,7 +104,16 @@ export async function prepareFromViewingKey({ wasm, ufvk, maker, txid, birthday,
     if (!done) throw new Error("no block's tree matched the payment's anchor");
   }
 
-  // 4. The proofs.
+  // 4. The proofs, disclosing the chosen outputs.
+  let selected = null;
+  if (choice) {
+    const answer = await choice;
+    if (answer && !Array.isArray(answer)) {
+      if (typeof answer.message === "string") message = answer.message;
+      selected = answer.selected;
+    } else selected = answer;
+  }
   onProgress({ step: "prove", spends: spent.length });
-  return { prepared: maker.prepare(message), height: tx.height, network: net };
+  const prepared = selected ? maker.prepare_selected(message, Array.from(selected, Number)) : maker.prepare(message);
+  return { prepared, height: tx.height, network: net };
 }

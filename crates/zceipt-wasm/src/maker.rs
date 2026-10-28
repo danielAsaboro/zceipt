@@ -16,17 +16,21 @@ use orchard::{
     note::{ExtractedNoteCommitment, Nullifier},
     note_encryption::{CompactAction, IronwoodDomain, OrchardDomain},
     tree::{MerkleHashOrchard, MerklePath},
-    Note,
+    Address, Note,
 };
-use zceipt_core::{display_txid, Network as RNet, Pool, PreparedReceipt, ReceiptBuilder, ViewingSpendWitness};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use zcash_address::unified::{self, Container, Encoding};
 use zcash_note_encryption::{try_compact_note_decryption, try_note_decryption, try_output_recovery_with_ovk, EphemeralKeyBytes};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, NetworkType};
+use zceipt_core::{display_txid, Network as RNet, Pool, PreparedReceipt, ReceiptBuilder, ViewingSpendWitness};
+use zeroize::Zeroizing;
 
 const PACKED: usize = 1 + 32 * 4 + 52;
+
+/// One output a receipt can show: action index, the note, its recipient and the memo bytes.
+type Disclosable = (usize, Note, Address, [u8; 512]);
 
 thread_local! {
     static PK: std::cell::OnceCell<orchard::circuit::ProvingKey> = const { std::cell::OnceCell::new() };
@@ -42,6 +46,25 @@ fn pool_of(b: u8) -> Result<Pool, JsError> {
         1 => Ok(Pool::Ironwood),
         _ => Err(err("bad pool byte")),
     }
+}
+
+/// A memo as a review list shows it: text with the trailing zero bytes trimmed, an empty memo
+/// as "", anything else (ZIP 302's 0xF5+ first byte, or not UTF-8) as "<binary>".
+fn memo_display(memo: &[u8; 512]) -> String {
+    let end = memo.iter().rposition(|&b| b != 0).map(|i| i + 1).unwrap_or(0);
+    if end == 0 || (memo[0] == 0xf6 && memo[1..].iter().all(|&b| b == 0)) {
+        return String::new();
+    }
+    if memo[0] > 0xf4 {
+        return "<binary>".into();
+    }
+    std::str::from_utf8(&memo[..end]).map(str::to_string).unwrap_or_else(|_| "<binary>".into())
+}
+
+fn unified_address(raw: &[u8; 43], nt: NetworkType) -> String {
+    unified::Address::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Receiver::Orchard(*raw))])
+        .map(|a| a.encode(&nt))
+        .unwrap_or_default()
 }
 
 struct Found {
@@ -259,24 +282,122 @@ impl ReceiptMaker {
         Ok(false)
     }
 
-    /// Makes the proofs (several seconds; the proving key is built on first use) and returns the
-    /// prepared receipt, `zip311u1…`. Discloses what the wallet sent to others, with memos.
-    pub fn prepare(&self, message: &str) -> Result<String, JsError> {
-        let (tx, _) = self.tx.as_ref().ok_or_else(|| err("give the payment first"))?;
+    /// The pool the payment spent the wallet's notes in: Ironwood if any, else Orchard.
+    fn spend_pool(&self) -> Result<(Pool, &Transaction), JsError> {
+        let (tx, height) = self.tx.as_ref().ok_or_else(|| err("give the payment first"))?;
+        let spent_in = |p: Pool| {
+            let b = match p {
+                Pool::Orchard => tx.orchard_bundle(),
+                Pool::Ironwood => tx.ironwood_bundle(),
+            };
+            b.map(|b| b.actions().iter().any(|a| self.notes.get(&(p, a.nullifier().to_bytes())).is_some_and(|f| f.height < *height))).unwrap_or(false)
+        };
+        if spent_in(Pool::Ironwood) {
+            Ok((Pool::Ironwood, tx))
+        } else if spent_in(Pool::Orchard) {
+            Ok((Pool::Orchard, tx))
+        } else {
+            Err(err("this wallet spent none of its notes in that payment"))
+        }
+    }
+
+    /// Outputs the wallet sent to someone else in pool `p`: recoverable with its outgoing
+    /// viewing key, not decryptable by its own incoming keys (so not change or a self-send).
+    fn sent(&self, tx: &Transaction, p: Pool) -> Vec<(usize, Note, Address, [u8; 512])> {
         let ovk = self.fvk.to_ovk(Scope::External);
-        let bundle_of = |p: Pool| match p {
+        let bundle = match p {
             Pool::Orchard => tx.orchard_bundle(),
             Pool::Ironwood => tx.ironwood_bundle(),
         };
-        let spends_in = |p: Pool| self.paths.keys().any(|(q, _)| *q == p);
-        let pool = if spends_in(Pool::Ironwood) {
-            Pool::Ironwood
-        } else if spends_in(Pool::Orchard) {
-            Pool::Orchard
-        } else {
-            return Err(err("no spent note's path was rebuilt"));
-        };
-        let bundle = bundle_of(pool).ok_or_else(|| err("no bundle"))?;
+        bundle
+            .map(|b| {
+                b.actions()
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, a)| {
+                        let out = &a.encrypted_note().out_ciphertext;
+                        let (recovered, ours) = match p {
+                            Pool::Orchard => (
+                                try_output_recovery_with_ovk(&OrchardDomain::for_action(a), &ovk, a, a.cv_net(), out),
+                                self.ivks.iter().any(|ivk| try_note_decryption(&OrchardDomain::for_action(a), ivk, a).is_some()),
+                            ),
+                            Pool::Ironwood => (
+                                try_output_recovery_with_ovk(&IronwoodDomain::for_action(a), &ovk, a, a.cv_net(), out),
+                                self.ivks.iter().any(|ivk| try_note_decryption(&IronwoodDomain::for_action(a), ivk, a).is_some()),
+                            ),
+                        };
+                        match recovered {
+                            Some((note, addr, memo)) if !ours => Some((i, note, addr, memo)),
+                            _ => None,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The outputs a receipt can disclose, and the pool they are in: the spends' pool, or else
+    /// the other one (an Orchard-to-Ironwood crossing).
+    fn disclosable_outputs(&self) -> Result<(Pool, Vec<Disclosable>), JsError> {
+        let (pool, tx) = self.spend_pool()?;
+        let other = if pool == Pool::Orchard { Pool::Ironwood } else { Pool::Orchard };
+        let same = self.sent(tx, pool);
+        if same.is_empty() {
+            let cross = self.sent(tx, other);
+            if !cross.is_empty() {
+                return Ok((other, cross));
+            }
+        }
+        Ok((pool, same))
+    }
+
+    /// What `prepare` would reveal, for the payer to review before proving: JSON
+    /// `[{ index, pool, recipient, zatoshis, memo }]`, one per output the wallet sent to someone
+    /// else (change and self-sends are never listed). Callable once `spent_notes` has the payment.
+    pub fn disclosable(&self) -> Result<String, JsError> {
+        let (pool, outs) = self.disclosable_outputs()?;
+        let list = outs
+            .iter()
+            .map(|(i, note, addr, memo)| {
+                serde_json::json!({
+                    "index": i,
+                    "pool": if pool == Pool::Orchard { 0 } else { 1 },
+                    "recipient": unified_address(&addr.to_raw_address_bytes(), self.nt),
+                    "zatoshis": note.value().inner(),
+                    "memo": memo_display(memo),
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(serde_json::Value::Array(list).to_string())
+    }
+
+    /// Makes the proofs (several seconds; the proving key is built on first use) and returns the
+    /// prepared receipt, `zip311u1…`. Discloses everything the wallet sent to others, with memos:
+    /// `prepare_selected` picks.
+    pub fn prepare(&self, message: &str) -> Result<String, JsError> {
+        let (_, outs) = self.disclosable_outputs()?;
+        self.prepare_selected(message, outs.iter().map(|(i, ..)| *i as u32).collect())
+    }
+
+    /// Like `prepare`, disclosing only the outputs in `selected` (indices from `disclosable`).
+    /// An empty selection is refused while there is something to disclose: a receipt that shows
+    /// no output proves only spend authority, which is what it should say it does.
+    pub fn prepare_selected(&self, message: &str, selected: Vec<u32>) -> Result<String, JsError> {
+        let (output_pool, outs) = self.disclosable_outputs()?;
+        if selected.is_empty() && !outs.is_empty() {
+            return Err(err("pick at least one output to reveal"));
+        }
+        for i in &selected {
+            if !outs.iter().any(|(j, ..)| *j == *i as usize) {
+                return Err(err(format!("output {i} is not one this wallet sent to someone else")));
+            }
+        }
+        let (pool, tx) = self.spend_pool()?;
+        let bundle = match pool {
+            Pool::Orchard => tx.orchard_bundle(),
+            Pool::Ironwood => tx.ironwood_bundle(),
+        }
+        .ok_or_else(|| err("no bundle"))?;
         let mut spends = vec![];
         for (i, a) in bundle.actions().iter().enumerate() {
             let key = (pool, a.nullifier().to_bytes());
@@ -291,40 +412,14 @@ impl ReceiptMaker {
                 });
             }
         }
-        // Outputs sent to someone else: recoverable with the wallet's OVK, not decryptable by its
-        // own incoming keys (so not change). In the spends' pool, else the other (a crossing).
-        let sent = |p: Pool| -> Vec<usize> {
-            bundle_of(p)
-                .map(|b| {
-                    b.actions()
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, a)| {
-                            let out = &a.encrypted_note().out_ciphertext;
-                            let (recover, ours) = match p {
-                                Pool::Orchard => (
-                                    try_output_recovery_with_ovk(&OrchardDomain::for_action(a), &ovk, *a, a.cv_net(), out).is_some(),
-                                    self.ivks.iter().any(|ivk| try_note_decryption(&OrchardDomain::for_action(a), ivk, *a).is_some()),
-                                ),
-                                Pool::Ironwood => (
-                                    try_output_recovery_with_ovk(&IronwoodDomain::for_action(a), &ovk, *a, a.cv_net(), out).is_some(),
-                                    self.ivks.iter().any(|ivk| try_note_decryption(&IronwoodDomain::for_action(a), ivk, *a).is_some()),
-                                ),
-                            };
-                            recover && !ours
-                        })
-                        .map(|(i, _)| i)
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
-        let other = if pool == Pool::Orchard { Pool::Ironwood } else { Pool::Orchard };
-        let same = sent(pool);
-        let (output_pool, outs) = if same.is_empty() && !sent(other).is_empty() { (other, sent(other)) } else { (pool, same) };
+        if spends.is_empty() {
+            return Err(err("no spent note's path was rebuilt"));
+        }
+        let ovk = self.fvk.to_ovk(Scope::External);
         let network = if self.nt == NetworkType::Main { RNet::Mainnet } else { RNet::Testnet };
         let mut b = ReceiptBuilder::new(network, tx).spends_in(pool).outputs_in(output_pool).message(message.as_bytes());
-        for i in outs {
-            b = b.disclose(i, ovk.clone());
+        for i in selected {
+            b = b.disclose(i as usize, ovk.clone());
         }
         for w in spends {
             b = b.spend(w);
@@ -355,13 +450,17 @@ pub fn warm_up_prover() {
 /// wallet can be opened with its phrase alone. The phrase and the keys are dropped on return.
 #[wasm_bindgen]
 pub fn viewing_key_from_phrase(phrase: &str, testnet: bool, account: u32) -> Result<String, JsError> {
-    let words = phrase.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Wiped on return, not just dropped: the words, the mnemonic and the seed (the spending key
+    // is wiped by its own drop only when orchard's `zeroize` feature is on; it is not here).
+    let words = Zeroizing::new(phrase.split_whitespace().collect::<Vec<_>>().join(" "));
     // Never echo the error: it can quote a word of the phrase.
-    let m = <bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?;
+    let m = Zeroizing::new(<bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?);
+    let seed = Zeroizing::new(m.to_seed(""));
     let coin_type = if testnet { zceipt_core::COIN_TYPE_TESTNET } else { zceipt_core::COIN_TYPE_MAINNET };
     let account = zip32::AccountId::try_from(account).map_err(|_| err("bad account index"))?;
-    let sk = SpendingKey::from_zip32_seed(&m.to_seed(""), coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
-    let ufvk = unified::Ufvk::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Fvk::Orchard(FullViewingKey::from(&sk).to_bytes()))]).map_err(err)?;
+    let sk = SpendingKey::from_zip32_seed(&seed[..], coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
+    let ufvk = unified::Ufvk::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Fvk::Orchard(FullViewingKey::from(&sk).to_bytes()))])
+        .map_err(err)?;
     Ok(ufvk.encode(&if testnet { NetworkType::Test } else { NetworkType::Main }))
 }
 
@@ -371,15 +470,17 @@ pub fn viewing_key_from_phrase(phrase: &str, testnet: bool, account: u32) -> Res
 #[wasm_bindgen]
 pub fn sign_with_phrase(prepared: &str, phrase: &str, account: u32) -> Result<String, JsError> {
     let p = PreparedReceipt::from_text(prepared).map_err(err)?;
-    let words = phrase.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Wiped on return, not just dropped: the words, the mnemonic and the seed (the keys derived
+    // from them are wiped by their own drop only with orchard's `zeroize` feature, off here).
+    let words = Zeroizing::new(phrase.split_whitespace().collect::<Vec<_>>().join(" "));
     // Never echo the error: it can quote a word of the phrase.
-    let m = <bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?;
-    let seed = m.to_seed("");
+    let m = Zeroizing::new(<bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?);
+    let seed = Zeroizing::new(m.to_seed(""));
     let account = zip32::AccountId::try_from(account).map_err(|_| err("bad account index"))?;
-    let sk = SpendingKey::from_zip32_seed(&seed, p.unsigned().coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
+    let sk = SpendingKey::from_zip32_seed(&seed[..], p.unsigned().coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
     let asks = vec![SpendAuthorizingKey::from(&sk); p.unsigned().spends.len()];
     let sigs = zceipt_core::sign_prepared(p.unsigned(), p.alphas(), &asks, rand::rand_core::UnwrapErr(rand::rngs::SysRng))
-        .map_err(|_| err("this seed phrase's wallet (account above) didn't make these spends"))?;
+        .map_err(|_| err("this seed phrase's wallet didn't make these spends (Zceipt uses ZIP 32 account 0)"))?;
     Ok(p.apply_signatures(sigs).map_err(err)?.to_text())
 }
 
@@ -387,8 +488,8 @@ pub fn sign_with_phrase(prepared: &str, phrase: &str, account: u32) -> Result<St
 /// rather than the words, like the MetaMask snap. The error never quotes the phrase.
 #[wasm_bindgen]
 pub fn seed_from_phrase(phrase: &str) -> Result<Vec<u8>, JsError> {
-    let words = phrase.split_whitespace().collect::<Vec<_>>().join(" ");
-    let m = <bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?;
+    let words = Zeroizing::new(phrase.split_whitespace().collect::<Vec<_>>().join(" "));
+    let m = Zeroizing::new(<bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?);
     Ok(m.to_seed("").to_vec())
 }
 
@@ -399,7 +500,8 @@ pub fn viewing_key_from_seed(seed: &[u8], testnet: bool, account: u32) -> Result
     let coin_type = if testnet { zceipt_core::COIN_TYPE_TESTNET } else { zceipt_core::COIN_TYPE_MAINNET };
     let account = zip32::AccountId::try_from(account).map_err(|_| err("bad account index"))?;
     let sk = SpendingKey::from_zip32_seed(seed, coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
-    let ufvk = unified::Ufvk::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Fvk::Orchard(FullViewingKey::from(&sk).to_bytes()))]).map_err(err)?;
+    let ufvk = unified::Ufvk::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Fvk::Orchard(FullViewingKey::from(&sk).to_bytes()))])
+        .map_err(err)?;
     Ok(ufvk.encode(&if testnet { NetworkType::Test } else { NetworkType::Main }))
 }
 
@@ -411,24 +513,29 @@ pub fn sign_with_seed(prepared: &str, seed: &[u8], account: u32) -> Result<Strin
     let sk = SpendingKey::from_zip32_seed(seed, p.unsigned().coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
     let asks = vec![SpendAuthorizingKey::from(&sk); p.unsigned().spends.len()];
     let sigs = zceipt_core::sign_prepared(p.unsigned(), p.alphas(), &asks, rand::rand_core::UnwrapErr(rand::rngs::SysRng))
-        .map_err(|_| err("this wallet (account above) didn't make these spends"))?;
+        .map_err(|_| err("this wallet didn't make these spends (Zceipt uses ZIP 32 account 0)"))?;
     Ok(p.apply_signatures(sigs).map_err(err)?.to_text())
 }
 
 /// What signing a prepared receipt would reveal, read from the receipt itself (not from whoever
 /// handed it over), for a signer to show before it signs. JSON `{ network, txid, message,
-/// outputs_with_memo, outputs_without_memo, spends }`.
+/// outputs_with_memo, outputs_without_memo, spends, opened: [{ index, recipient, zatoshis }] }`.
+/// `opened` lists the outputs disclosed without their memo, whose recipient and amount the
+/// receipt carries in the open; the ones disclosed with a key show only as a count, since
+/// opening them takes the transaction.
 #[wasm_bindgen]
 pub fn describe_prepared(prepared: &str) -> Result<String, JsError> {
     let p = PreparedReceipt::from_text(prepared).map_err(err)?;
     let u = p.unsigned();
+    let nt = if u.coin_type == zceipt_core::COIN_TYPE_MAINNET { NetworkType::Main } else { NetworkType::Test };
     Ok(serde_json::json!({
-        "network": if u.coin_type == zceipt_core::COIN_TYPE_MAINNET { "mainnet" } else { "testnet" },
+        "network": if nt == NetworkType::Main { "mainnet" } else { "testnet" },
         "txid": display_txid(&u.txid),
         "message": String::from_utf8_lossy(&u.msg),
         "outputs_with_memo": u.outputs.len(),
         "outputs_without_memo": u.opened.len(),
         "spends": u.spends.len(),
+        "opened": u.opened.iter().map(|o| serde_json::json!({ "index": o.index, "recipient": unified_address(&o.address, nt), "zatoshis": o.value })).collect::<Vec<_>>(),
     })
     .to_string())
 }

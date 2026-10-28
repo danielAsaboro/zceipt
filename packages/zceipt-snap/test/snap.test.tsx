@@ -26,6 +26,8 @@ describe('Zceipt snap', () => {
     const { request } = await installSnap();
     const r = request({ method: 'getViewingKey', origin: ORIGIN, params: { network: 'test' } });
     const ui = await r.getInterface();
+    // The dialog names the network the site asked for: the user sees which chain's key leaves.
+    expect(JSON.stringify(ui.content)).toContain('testnet');
     await ui.clickElement('shareButton');
     const res = (await r).response as { result: { viewingKey: string; imported: boolean } };
     expect(res.result.viewingKey).toMatch(/^uviewtest1/u);

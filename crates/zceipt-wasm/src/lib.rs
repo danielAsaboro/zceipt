@@ -4,16 +4,18 @@
 //! choice, or pasted hex) and hands it here with the receipt. Verification runs entirely in
 //! the browser: the receipt never leaves the page.
 
-use zceipt_core::{display_txid, Pool, Receipt, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
 use serde::Serialize;
 use std::cell::OnceCell;
 use wasm_bindgen::prelude::*;
 use zcash_address::unified::{self, Encoding};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network, NetworkType};
+use zceipt_core::{display_txid, Pool, Receipt, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
 
 mod maker;
-pub use maker::{describe_prepared, seed_from_phrase, sign_with_phrase, sign_with_seed, viewing_key_from_phrase, viewing_key_from_seed, warm_up_prover, ReceiptMaker};
+pub use maker::{
+    describe_prepared, seed_from_phrase, sign_with_phrase, sign_with_seed, viewing_key_from_phrase, viewing_key_from_seed, warm_up_prover, ReceiptMaker,
+};
 
 thread_local! {
     static VK: OnceCell<orchard::circuit::VerifyingKey> = const { OnceCell::new() };
@@ -224,7 +226,8 @@ pub fn verify_payer_tag(text: &str, domain: &str, raw_tx: &[u8], height: u32) ->
     console_error_panic_hook::set_once();
     let c = zceipt_core::claim::Claim::from_text(text).map_err(|e| JsError::new(&e.to_string()))?;
     let (net, _, _) = net_of(c.coin_type)?;
-    let tx = Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
+    let tx =
+        Transaction::read(raw_tx, BranchId::for_height(&net, BlockHeight::from_u32(height))).map_err(|e| JsError::new(&format!("bad transaction: {e}")))?;
     let txid: [u8; 32] = *tx.txid().as_ref();
     let bundle = match c.pool {
         Pool::Orchard => tx.orchard_bundle(),
@@ -234,7 +237,8 @@ pub fn verify_payer_tag(text: &str, domain: &str, raw_tx: &[u8], height: u32) ->
     let nfs: Vec<[u8; 32]> = bundle.actions().iter().map(|a| a.nullifier().to_bytes()).collect();
     let tag = zceipt_core::claim::verify_payer_tag(&c, domain.as_bytes(), &txid, &bundle.anchor().to_bytes(), &nfs)
         .map_err(|_| JsError::new("the payer tag doesn't hold for this payment and domain"))?;
-    Ok(serde_json::json!({ "valid": true, "kind": "payer_tag", "txid": zceipt_core::display_txid(&txid), "domain": domain, "tag": hex::encode(tag) }).to_string())
+    Ok(serde_json::json!({ "valid": true, "kind": "payer_tag", "txid": zceipt_core::display_txid(&txid), "domain": domain, "tag": hex::encode(tag) })
+        .to_string())
 }
 
 /// What a payer tag names, to fetch before [`verify_payer_tag`]: `{ txid, network, domain }`.
@@ -340,11 +344,17 @@ fn verify_inner(
         .with(|vk| {
             let vk = vk.get_or_init(zceipt_core::verifying_key);
             match (deferred, auth) {
-                (_, Auth::Designated(d)) => zceipt_core::verify_designated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
-                (_, Auth::Delegated(d)) => zceipt_core::verify_delegated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
-                    .and_then(|v| zceipt_core::delegated::check_policy(&d.cert, &v, height).map(|_| v)),
+                (_, Auth::Designated(d)) => {
+                    zceipt_core::verify_designated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+                }
+                (_, Auth::Delegated(d)) => {
+                    zceipt_core::verify_delegated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+                        .and_then(|v| zceipt_core::delegated::check_policy(&d.cert, &v, height).map(|_| v))
+                }
                 (Some(st), Auth::Signed) => zceipt_core::verify_tx_bundles_deferred(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
-                (None, Auth::Signed) => zceipt_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
+                (None, Auth::Signed) => {
+                    zceipt_core::verify_tx_bundles_with_sources(vk, &r, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+                }
             }
         })
         .map_err(|e| match e {
@@ -521,8 +531,7 @@ pub fn verify_screened(receipt: &str, raw_tx: &[u8], height: u32, proofs: &str, 
         let nf = bundle.actions().get(s.index as usize).ok_or_else(|| JsError::new("bad action index"))?.nullifier().to_bytes();
         let p =
             proofs.iter().find(|p| p.index == s.index).ok_or_else(|| JsError::new(&format!("no screened-set proof for the spend in action {}", s.index)))?;
-        VK.with(|vk| zceipt_core::screened::verify(vk.get_or_init(zceipt_core::verifying_key), &r, &nf, p, &set))
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        VK.with(|vk| zceipt_core::screened::verify(vk.get_or_init(zceipt_core::verifying_key), &r, &nf, p, &set)).map_err(|e| JsError::new(&e.to_string()))?;
         covered += p.floor;
     }
     let root = zceipt_core::screened::set_root(&set).map_err(|e| JsError::new(&e.to_string()))?;
@@ -560,7 +569,10 @@ pub fn verify_policy(proof: &str, receipt: &str) -> Result<String, JsError> {
 pub fn verify_policy_pinned(proof: &str, receipt: &str, commitment: &str, holders: u16) -> Result<String, JsError> {
     let p = zceipt_core::policy::PolicyProof::from_text(proof).map_err(|e| JsError::new(&e.to_string()))?;
     let hexes: Vec<String> = serde_json::from_str(commitment).map_err(|_| JsError::new("the commitment is a JSON array of hex points"))?;
-    let c: Vec<[u8; 32]> = hexes.iter().map(|h| hex::decode(h.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| JsError::new("bad commitment point"))).collect::<Result<_, _>>()?;
+    let c: Vec<[u8; 32]> = hexes
+        .iter()
+        .map(|h| hex::decode(h.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| JsError::new("bad commitment point")))
+        .collect::<Result<_, _>>()?;
     let (t, n) = zceipt_core::policy::verify_pinned(&p, &parse(receipt)?, &c, holders).map_err(|e| JsError::new(&e.to_string()))?;
     Ok(serde_json::json!({ "threshold": t, "holders": n, "key": hex::encode(p.commitment[0]), "pinned": true }).to_string())
 }
@@ -604,8 +616,7 @@ pub fn verify_income(proof: &str, txs: &str) -> Result<String, JsError> {
         cmxs.insert((it.txid, it.pool as u8), b.map(|b| b.actions().iter().map(|a| a.cmx().to_bytes()).collect::<Vec<[u8; 32]>>()).unwrap_or_default());
     }
     let lookup = |pool: Pool, txid: &[u8; 32], index: u32| cmxs.get(&(*txid, pool as u8)).and_then(|l| l.get(index as usize)).copied();
-    let total =
-        VK.with(|vk| zceipt_core::income::verify(vk.get_or_init(zceipt_core::verifying_key), &p, &lookup)).map_err(|e| JsError::new(&e.to_string()))?;
+    let total = VK.with(|vk| zceipt_core::income::verify(vk.get_or_init(zceipt_core::verifying_key), &p, &lookup)).map_err(|e| JsError::new(&e.to_string()))?;
     let payments = p.items.iter().map(|i| i.txid).collect::<std::collections::BTreeSet<_>>().len();
     Ok(serde_json::json!({ "at_least_zatoshis": total, "payments": payments, "message": String::from_utf8_lossy(&p.msg) }).to_string())
 }

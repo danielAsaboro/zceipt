@@ -1,0 +1,42 @@
+---
+title: "Privacy audit"
+description: "What each path told a server, a log or a third party, what we fixed and why."
+---
+
+On 2026-10-28 we checked every path for anything sent beyond what the user chose to disclose.
+Every page of the site was loaded in headless Chrome with all requests recorded: the landing page,
+these docs (search and the ask box included), the verifier with each sample, and the browser
+receipt maker. We read the server, SDK and CLI code for logs, URLs, stored data and error text.
+We searched the repository and its full history for keys, seeds and mainnet addresses.
+
+## What we fixed
+
+| Leak | Why it mattered | Fix |
+|---|---|---|
+| The landing page loaded Three.js from cdn.jsdelivr.net | Every visitor's IP address and visit time went to a third party | Three.js is served from this site (`/vendor/three/`) |
+| No site-wide rule stopped a page loading from another host | A later edit, or the docs export, could add a CDN script, font or image and leak the same way | A content security policy on every path: scripts, styles, fonts, images and workers load from this site only |
+| A campaign's public tally refreshed after any new contribution | Reading it before and after one contribution gave that person's amount, to 0.001 ZEC, and tied it to their public note | Once published, the tally moves only in steps of at least `k` contributions |
+| The npm, Python, Go and Rust SDKs sent the pay page's client secret as `?secret=` in the URL | Proxies and access logs keep URLs, so the secret that opens a payer's request ended up in them | The secret goes in the `Zceipt-Client-Secret` header, as the hosted page and CLI already did. The query form still works for older clients and is marked deprecated |
+
+## What we checked and found clean
+
+- **The verifier and the receipt maker.** With a block hint (`&h=`) the chain server sees a run of
+  four blocks and every shielded transaction in the payment's window, in random order, not the
+  txid. Without a hint, and for source-of-funds and TEX second-step fetches, the page says the
+  server saw those ids.
+- **These docs.** No request leaves zceipt.xyz on load, on search or from the ask box.
+- **The API server.** No access log; client IPs are never read or stored. A seed or viewing key
+  pasted by mistake is refused, never echoed or stored. A rejected receipt keeps only the error.
+- **The repository and its history.** No seed, age identity or real mainnet address. The testnet
+  demo wallet's key in `examples/testnet/demo` is public on purpose (never fund it). The
+  mainnet-looking address in the conformance vectors is the testnet merchant re-encoded for a
+  "wrong network" test.
+
+## What any light client reveals
+
+A light client tells its lightwalletd server its IP address and the block ranges it scans. For the
+receipt maker that is the wallet's birthday up to the payment's 1,000-block window, and each spent
+note's window. To keep that to yourself, use your own lightwalletd (Settings on the verifier,
+`--server` on the CLI) or Tor.
+
+The full report is `docs/AUDIT-PRIVACY.md` in the repository.

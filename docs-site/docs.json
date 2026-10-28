@@ -90,7 +90,8 @@
             "pages": [
               "reference/technical-note",
               "reference/forked-circuits",
-              "reference/assurance"
+              "reference/assurance",
+              "reference/privacy-audit"
             ]
           },
           {

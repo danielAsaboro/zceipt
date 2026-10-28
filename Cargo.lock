@@ -5283,6 +5283,7 @@ name = "zceipt-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "bellman",
  "blake2b_simd",
  "bls12_381 0.9.0",
  "ff 0.14.0",

@@ -24,17 +24,19 @@
 
 use bls12_381::Bls12;
 use ff::Field;
-use groth16::Proof;
+use group::Curve;
+use groth16::{PreparedVerifyingKey, Proof};
 use rand_core::CryptoRng;
+use bellman::gadgets::multipack;
 use redjubjub::SpendAuth;
 use sapling_crypto::{
     bundle::{Authorization, GrothProofBytes, OutputDescription},
-    circuit::{PreparedSpendVerifyingKey, SpendParameters},
+    circuit::SpendParameters,
     keys::{OutgoingViewingKey, ProofGenerationKey, SpendAuthorizingKey},
     note_encryption::{prf_ock, Zip212Enforcement},
     prover::SpendProver,
     value::{ValueCommitTrapdoor, ValueCommitment},
-    Bundle, MerklePath, Note, PaymentAddress, SaplingVerificationContext,
+    Bundle, MerklePath, Note, PaymentAddress,
 };
 use zcash_note_encryption::{OutgoingCipherKey, ShieldedOutput};
 
@@ -231,9 +233,9 @@ fn check_indices(u: &SaplingUnsignedReceipt) -> Result<(), SaplingError> {
 
 /// Verifies a Sapling receipt against the transaction it names. `txid` and `bundle` come from
 /// the chain, `expected_coin_type` from the verifier's own network. `pvk` is the Sapling Spend
-/// verifying key.
+/// verifying key ([`spend_verifying_key`] for the Zcash one).
 pub fn verify<A, V>(
-    pvk: &PreparedSpendVerifyingKey,
+    pvk: &PreparedVerifyingKey<Bls12>,
     receipt: &SaplingReceipt,
     expected_coin_type: u32,
     txid: &[u8; 32],
@@ -268,9 +270,7 @@ where
         let rk = redjubjub::VerificationKey::<SpendAuth>::try_from(d.rk).map_err(|_| bad())?;
         let proof = Proof::<Bls12>::read(&d.zkproof[..]).map_err(|_| bad())?;
         let sig = redjubjub::Signature::<SpendAuth>::from(*sig);
-        // A fresh context per spend: the receipt has no binding signature, only spend checks.
-        let mut ctx = SaplingVerificationContext::new();
-        if !ctx.check_spend(&cv, *tx_spend.anchor(), &tx_spend.nullifier().0, rk, &digest, sig, proof, pvk) {
+        if !check_spend(pvk, &cv, *tx_spend.anchor(), &tx_spend.nullifier().0, &rk, &digest, &sig, &proof) {
             return Err(bad());
         }
         spends.push(d.index);
@@ -291,6 +291,97 @@ where
 {
     let domain = sapling_crypto::note_encryption::SaplingDomain::new(Zip212Enforcement::On);
     zcash_note_encryption::try_output_recovery_with_ock(&domain, &OutgoingCipherKey(*ock), o, o.out_ciphertext())
+}
+
+/// The Sapling consensus spend check minus the binding signature, which a receipt has no use
+/// for: `rk` not small order, `spendAuthSig` under `rk` over the receipt digest, and the
+/// Groth16 proof against `(rk, cv, anchor, nf)` (protocol §4.17.2, the public inputs as
+/// sapling-crypto's verifier lays them out).
+#[allow(clippy::too_many_arguments)]
+fn check_spend(
+    pvk: &PreparedVerifyingKey<Bls12>,
+    cv: &ValueCommitment,
+    anchor: bls12_381::Scalar,
+    nf: &[u8; 32],
+    rk: &redjubjub::VerificationKey<SpendAuth>,
+    digest: &[u8; 32],
+    sig: &redjubjub::Signature<SpendAuth>,
+    proof: &Proof<Bls12>,
+) -> bool {
+    let Some(rk_point) = Option::<jubjub::AffinePoint>::from(jubjub::AffinePoint::from_bytes((*rk).into())) else { return false };
+    if bool::from(rk_point.is_small_order()) || rk.verify(digest, sig).is_err() {
+        return false;
+    }
+    let cv_point = cv.as_inner().to_affine();
+    let nf_bits = multipack::bytes_to_bits_le(nf);
+    let nf_packed = multipack::compute_multipacking::<bls12_381::Scalar>(&nf_bits);
+    let mut inputs = vec![rk_point.get_u(), rk_point.get_v(), cv_point.get_u(), cv_point.get_v(), anchor];
+    inputs.extend(nf_packed);
+    groth16::verify_proof(pvk, proof, &inputs).is_ok()
+}
+
+/// SHA-256 of the Zcash `sapling-spend.params` (the Sapling MPC result, as zcashd and
+/// zcash_proofs pin it).
+pub const SAPLING_SPEND_PARAMS_SHA256: &str = "8e48ffd23abb3a5fd9c5589204f32d9c31285a04b78096ba40a79b75677efc13";
+
+/// Where Zcash wallets keep the parameters: `$ZCASH_PARAMS`, else the platform default
+/// (`~/Library/Application Support/ZcashParams` on macOS, `~/.zcash-params` elsewhere).
+pub fn default_params_dir() -> Option<std::path::PathBuf> {
+    if let Some(d) = std::env::var_os("ZCASH_PARAMS") {
+        return Some(d.into());
+    }
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    let mac = home.join("Library/Application Support/ZcashParams");
+    Some(if mac.exists() { mac } else { home.join(".zcash-params") })
+}
+
+/// The Sapling Spend verifying key, read from the front of `sapling-spend.params` (a Groth16
+/// parameter file starts with its verifying key). The whole file is hashed first, so a
+/// tampered key is refused.
+pub fn spend_verifying_key_from(path: &std::path::Path) -> std::io::Result<PreparedVerifyingKey<Bls12>> {
+    use sha2::Digest;
+    let bytes = std::fs::read(path)?;
+    let hash: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    if hash != SAPLING_SPEND_PARAMS_SHA256 {
+        return Err(std::io::Error::other(format!("{} is not the Zcash sapling-spend.params (SHA-256 {hash})", path.display())));
+    }
+    Ok(groth16::prepare_verifying_key(&groth16::VerifyingKey::<Bls12>::read(&bytes[..])?))
+}
+
+/// The Zcash Sapling Spend parameters for making receipts, checked against their hash.
+pub fn spend_parameters_from(path: &std::path::Path) -> std::io::Result<SpendParameters> {
+    use sha2::Digest;
+    let bytes = std::fs::read(path)?;
+    let hash: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+    if hash != SAPLING_SPEND_PARAMS_SHA256 {
+        return Err(std::io::Error::other(format!("{} is not the Zcash sapling-spend.params", path.display())));
+    }
+    SpendParameters::read(&bytes[..], false)
+}
+
+/// The Sapling Spend verifying key of the Zcash parameters, embedded (cut out of the
+/// hash-checked `sapling-spend.params` by `examples/extract_sapling_vk.rs`), so a verifier,
+/// including the browser one, needs no parameter file.
+pub fn spend_verifying_key() -> &'static PreparedVerifyingKey<Bls12> {
+    static K: std::sync::OnceLock<PreparedVerifyingKey<Bls12>> = std::sync::OnceLock::new();
+    K.get_or_init(|| {
+        let vk = groth16::VerifyingKey::<Bls12>::read(&include_bytes!("sapling-spend-vk.bin")[..]).expect("embedded key parses");
+        groth16::prepare_verifying_key(&vk)
+    })
+}
+
+/// Text form: `zip311z1` and the receipt bytes in unpadded URL-safe base64.
+pub const SAPLING_TEXT_PREFIX: &str = "zip311z1";
+
+pub fn to_text(r: &SaplingReceipt) -> String {
+    use base64::Engine;
+    format!("{SAPLING_TEXT_PREFIX}{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(encode(r)))
+}
+
+pub fn from_text(s: &str) -> Result<SaplingReceipt, SaplingError> {
+    use base64::Engine;
+    let body = s.trim().strip_prefix(SAPLING_TEXT_PREFIX).ok_or(SaplingError::Malformed("not a Sapling receipt"))?;
+    decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).map_err(|_| SaplingError::Malformed("bad base64"))?)
 }
 
 // ---- encoding ----

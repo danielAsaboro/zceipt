@@ -12,7 +12,7 @@ use rand::{rand_core::UnwrapErr, rngs::SysRng};
 const OsRng: UnwrapErr<SysRng> = UnwrapErr(SysRng);
 use sapling_crypto::{
     builder::{BundleType, Builder},
-    circuit::{Output, OutputParameters, PreparedSpendVerifyingKey, Spend, SpendParameters},
+    circuit::{Output, OutputParameters, Spend, SpendParameters},
     bundle::Authorized,
     note_encryption::Zip212Enforcement,
     value::NoteValue,
@@ -25,7 +25,7 @@ use zcash_protocol::value::ZatBalance;
 struct Params {
     spend: SpendParameters,
     output: OutputParameters,
-    pvk: PreparedSpendVerifyingKey,
+    pvk: groth16::PreparedVerifyingKey<bls12_381::Bls12>,
 }
 
 fn params() -> &'static Params {
@@ -49,7 +49,7 @@ fn params() -> &'static Params {
         op.write(&mut ob).unwrap();
         let spend = SpendParameters::read(&sb[..], false).unwrap();
         let output = OutputParameters::read(&ob[..], false).unwrap();
-        let pvk = spend.prepared_verifying_key();
+        let pvk = groth16::prepare_verifying_key(&sp.vk);
         Params { spend, output, pvk }
     })
 }
@@ -207,4 +207,48 @@ fn a_receipt_without_a_spend_is_refused() {
     r.unsigned.spends.clear();
     r.sigs.clear();
     assert_eq!(sapling::verify(&params().pvk, &r, 1, &t.txid, Some(&t.bundle)).unwrap_err(), SaplingError::NoSpend);
+}
+
+/// With the real Zcash Sapling parameters (`$ZCASH_PARAMS` or the default directory): the
+/// bundle and the receipt are proved with the ceremony keys, and verified with the verifying
+/// key read from `sapling-spend.params` after its SHA-256 check. Skipped when they're absent.
+#[test]
+fn sapling_receipt_with_the_zcash_parameters() {
+    let Some(dir) = sapling::default_params_dir().filter(|d| d.join("sapling-spend.params").exists()) else {
+        eprintln!("no Zcash Sapling parameters; skipped");
+        return;
+    };
+    let spend = sapling::spend_parameters_from(&dir.join("sapling-spend.params")).unwrap();
+    let output = OutputParameters::read(&std::fs::read(dir.join("sapling-output.params")).unwrap()[..], false).unwrap();
+    let pvk = sapling::spend_verifying_key_from(&dir.join("sapling-spend.params")).unwrap();
+    let mut rng = OsRng;
+    let payer = ExtendedSpendingKey::master(&[9; 32]).unwrap();
+    let dfvk = payer.to_diversifiable_full_viewing_key();
+    let (_, addr) = dfvk.default_address();
+    let note = Note::from_parts(addr, NoteValue::from_raw(70_000), Rseed::AfterZip212([9; 32]));
+    let mut tree = CommitmentTree::empty();
+    tree.append(Node::from_cmu(&note.cmu())).unwrap();
+    let wit = IncrementalWitness::from_tree(tree).unwrap();
+    let path = wit.path().unwrap();
+    let mut b = Builder::new(Zip212Enforcement::On, BundleType::DEFAULT, wit.root().into());
+    b.add_spend(dfvk.fvk().clone(), note.clone(), path.clone()).unwrap();
+    let (_, to) = ExtendedSpendingKey::master(&[8; 32]).unwrap().to_diversifiable_full_viewing_key().default_address();
+    b.add_output(Some(dfvk.fvk().ovk), to, NoteValue::from_raw(60_000), [0; 512]).unwrap();
+    let (unauth, meta) = b.build::<SpendParameters, OutputParameters, _, ZatBalance>(&[payer.clone()], &mut rng).unwrap().unwrap();
+    let bundle = unauth.create_proofs(&spend, &output, &mut rng, ()).apply_signatures(&mut rng, [9; 32], &[payer.expsk().ask().clone()]).unwrap();
+    let w = SaplingSpendWitness {
+        index: meta.spend_index(0).unwrap() as u32,
+        ask: payer.expsk().ask().clone(),
+        proof_generation_key: payer.expsk().proof_generation_key(),
+        note,
+        diversifier: *addr.diversifier(),
+        merkle_path: path,
+    };
+    let oi = meta.output_index(0).unwrap() as u32;
+    let r = sapling::create(&spend, 1, [7; 32], &bundle, &[(oi, dfvk.fvk().ovk)], &[w], b"", OsRng).unwrap();
+    let r = sapling::from_text(&sapling::to_text(&r)).unwrap();
+    let v = sapling::verify(&pvk, &r, 1, &[7; 32], Some(&bundle)).unwrap();
+    assert_eq!(v.outputs[0].value, 60_000);
+    // The embedded key is the same key.
+    assert!(sapling::verify(sapling::spend_verifying_key(), &r, 1, &[7; 32], Some(&bundle)).is_ok());
 }

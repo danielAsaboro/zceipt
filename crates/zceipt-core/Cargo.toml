@@ -42,6 +42,7 @@ serde_json = { version = "1", optional = true }
 # Sapling receipts (src/sapling.rs): the Sapling Spend circuit, Groth16 and RedJubjub.
 sapling-crypto = { version = "0.9", default-features = false, features = ["circuit"] }
 groth16 = { version = "0.2", default-features = false }
+bellman = { version = "0.15", default-features = false }
 bls12_381 = { version = "0.9", default-features = false }
 jubjub = { version = "0.11", default-features = false }
 redjubjub = { version = "0.9", default-features = false }

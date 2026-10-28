@@ -1,4 +1,4 @@
-# Hostile audit of zecathon-receipts
+# Hostile audit of Zceipt
 
 Audited 2026-10-26 at `d845ac5` (branch main). Nothing pushed or committed; no tracked file
 changed, this report is the only addition (build output went to the ignored `target/`).

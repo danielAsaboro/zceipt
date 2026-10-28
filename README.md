@@ -192,7 +192,8 @@ verifier running.
 **In the browser:** [zceipt.xyz/verify/make](https://zceipt.xyz/verify/make). Open your wallet
 with its seed phrase or its viewing key and its birthday. The page reads the chain the way a light
 wallet syncs, lists the payments the wallet sent as it finds them, and you tap one. It makes the
-proofs in your browser (about half a minute) and signs; with a viewing key it asks for the seed
+proofs in your browser (about half a minute), shows the outputs it will reveal and lets you untick
+any before proving, then signs; with a viewing key it asks for the seed
 phrase at the end, or saves the prepared receipt for another signer. The phrase and the key stay
 in the page's memory; nothing leaves the device but block requests. The page can remember the
 wallet on that device behind a passkey (WebAuthn PRF).
@@ -201,7 +202,7 @@ wallet on that device behind a passkey (WebAuthn PRF).
 
 **With MetaMask:** the [`zceipt-snap`](https://www.npmjs.com/package/zceipt-snap) snap
 ([source](packages/zceipt-snap)) holds the wallet inside MetaMask, gives the make page a viewing
-key, and signs each receipt after showing what it reveals, so the page never sees a seed. On the
+key, and signs each receipt the page has made, so the page never sees a seed. On the
 make page choose **Connect MetaMask**. It needs [MetaMask Flask](https://docs.metamask.io/snaps/get-started/install-flask/),
 since the snap is not on MetaMask's allowlist, and it only answers zceipt.xyz and localhost.
 
@@ -214,7 +215,7 @@ the Swift/Kotlin bindings, `prepareReceipt(dbPath, …)` and `signPrepared(…)`
 | You have | Command |
 |---|---|
 | A viewing key (any wallet exports one) | `zceipt create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt`: the proofs, with no spending key |
-| Then, on a machine that holds the seed (offline is fine) | `zceipt sign r.txt --seed-stdin`: shows everything the receipt reveals and asks before signing |
+| Then, on a machine that holds the seed (offline is fine) | `zceipt sign r.txt --seed-stdin`: lists the spends it signs, by action index, and asks before signing |
 | Or the seed phrase on one machine | `zceipt create --seed-stdin --network main --birthday <height> --txid <txid>` |
 | A zcash-devtool wallet | `zceipt create -w <wallet> -i <key.age> --txid <txid>` |
 | A Sapling payment from a zcash-devtool wallet | `zceipt create-sapling -w <wallet> -i <key.age> --txid <txid>` |
@@ -265,7 +266,9 @@ Full reference: [CLI](https://zceipt.xyz/docs/reference/cli), formats:
 | Rust, in process | [crates/zceipt-core](crates/zceipt-core) | `zceipt_core::verify`, `ReceiptBuilder` | |
 | Swift / Kotlin | [crates/zceipt-ffi](crates/zceipt-ffi) | `prepareReceipt`, `signPrepared` | |
 
-The SDKs install from this repository; only the snap is on npm. The API clients share typed
+The SDKs install from this repository; only the snap is on npm. The `<zcash-receipt>` component
+and `verifyReceipt` must be served from your own origin (copy `web/zceipt/` next to your page):
+they start a worker, and browsers refuse a worker script from another origin. The API clients share typed
 errors with `code` and `param`, an automatic `Idempotency-Key` on every POST, retries on network
 errors, 429 and 5xx, and cursor pagination. They talk to the payment API (`zceipt serve`,
 [OpenAPI](docs/openapi.yaml)), which with webhooks and a dashboard sits around the same core but
@@ -294,7 +297,7 @@ limits: [CLAIM.md](docs/CLAIM.md).
 |---|---|---|
 | Whoever you give the receipt to | the shown outputs, your message, that you paid | your address (unless you choose to prove it), balance, other payments |
 | The chain server, when someone verifies (by default ChainSafe's for the page, zec.rocks for the CLI, or yours) | the payment's block (or, if it is quiet, its run of 4 blocks) and up to 64 transactions in each; the verifier's IP | which of those transactions, or anything in the receipt |
-| The chain server, when you make a receipt | the block range it scans | which note, payment or transaction |
+| The chain server, when you make a receipt | the block range it scans from the wallet's birthday; then, as when someone verifies, the payment's run of 4 blocks and up to 64 transactions in each; one 1,000-block window per spent note, so how many notes the payment spent; from the make page, `Origin: https://zceipt.xyz` on every request, so that a Zceipt page (not a wallet app) is syncing | which note, payment or transaction |
 
 In a quiet block the server can narrow it down, and the page and CLI say so. Full analysis:
 [THREAT-MODEL.md](docs/THREAT-MODEL.md).
@@ -350,8 +353,8 @@ The git history tells it in order. Every step below is a commit you can read.
   `eryxcoop/blake2b_halo2` from `midnight-proofs` to Zcash's `halo2_proofs` 0.4, which puts the
   circuit at `k = 17` and 32 seconds to prove.
 - **A browser that must prove and verify.** Verifier warm-up was 7.7 s; precomputed parameters
-  brought it to 2.9 s, and the WASM went from 2.4 MB to 2.2 MB. The make page does the proofs in a
-  worker in about half a minute.
+  brought it to 2.9 s, and the verifier's WASM went from 2.4 MB to 2.2 MB (4.0 MB today, with the maker in the
+  same module). The make page does the proofs in a worker in about half a minute.
 - **Keeping the site honest about privacy.** The privacy audit found the landing page loading
   Three.js from a CDN (every visitor's IP to a third party) and an SDK putting a client secret in a
   URL. Three.js is now vendored, a strict CSP covers every path, and the secret moved to a header.
@@ -422,6 +425,7 @@ What to review first, and why: [forked circuits](https://zceipt.xyz/docs/referen
 | [AUDIT-HOSTILE.md](docs/AUDIT-HOSTILE.md) (2026-10-26) | code read against comments, vendored Orchard diffed against crates.io, proofs of concept on real testnet proofs | no critical; 3 highs, fixed before the rerun |
 | [AUDIT-RERUN.md](docs/AUDIT-RERUN.md) (2026-10-27) | eight parallel hunters with Trail of Bits method files, `cargo audit` | no break of circuits, gadget, Schnorr proofs or decoders; every finding fixed |
 | [AUDIT-PRIVACY.md](docs/AUDIT-PRIVACY.md) (2026-10-28) | every request the site, SDKs and CLI make, logs, stored columns, git history | four leaks found and fixed |
+| [AUDIT-E2E.md](docs/AUDIT-E2E.md) (2026-10-29) | the live site walked as a first-time user, every browser sink, the API server, the privacy of making and verifying, the CLI and docs | no forgery; two highs (Sapling receipts skipped the `verify` check flags; `--height` ended the scan at the payment's block), fixed in the commits that follow the report |
 | [ASSURANCE.md](docs/ASSURANCE.md) | checks whose verdict isn't ours, listed below | |
 
 The checks in [ASSURANCE.md](docs/ASSURANCE.md), each with the command to re-run it:
@@ -475,6 +479,13 @@ python3 -m unittest discover -s spec-verifier/tests   # no Rust needed, about a 
 ./scripts/check-all.sh                                # checks that need no Rust build, given a prebuilt zceipt
 ./scripts/test-all.sh                                 # Rust workspace and clippy, spec verifier, npm, Python and Go SDKs, regtest end to end
 ```
+
+CI (`.github/workflows/ci.yml`) runs, on every push: `cargo fmt --check`, the Rust workspace tests
+and clippy, the stock-Orchard check and `check-all.sh`; the vendored-circuit checks; the spec
+verifier; the npm, Python and Go SDK tests; and five minutes of each fuzz target. The regtest and
+testnet end-to-end scripts run by hand. Read the latest run before trusting a claim here: the
+end-to-end audit found the `rust` job failing at `cargo fmt` because the pinned toolchain lacked
+`rustfmt`, and one core test failing at `HEAD` (both in [AUDIT-E2E.md](docs/AUDIT-E2E.md), S-7).
 
 ## Status
 

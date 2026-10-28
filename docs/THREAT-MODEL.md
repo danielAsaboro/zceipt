@@ -29,6 +29,9 @@ network traffic is fetching public chain data.
 | The proof re-randomizes `rk`, `cv_net` and the dummy output, so the disclosure can't be matched to the on-chain action's keys, and two receipts for the same spend share nothing | `roundtrip.rs::disclosures_are_unlinkable_to_the_action_and_to_each_other`; `zceipt-core/src/lib.rs` (`create_cross`: fresh `alpha`, `rcv`, dummy note) |
 | Rebuilding a pruned Merkle path uses only public data (tree state and compact blocks), never the wallet's keys | `zceipt-chain/src/chain.rs::rebuild_witness` |
 | lightwalletd sees the wallet fetching blocks and, without the `h=` hint, one transaction id. `zceipt pay` waits for its payment to be mined by syncing the wallet (whole blocks), not by asking for the txid, and hands the shop the receipt with its block hint | `zceipt-chain/src/chain.rs::fetch_mined_tx`; `zceipt-wallet::mined_height_in_wallet` |
+| lightwalletd learns how many notes the payment spent: each spent note's Merkle path is rebuilt from one 1,000-block window, requested one window per note, in order. Since 2026-10-29 the CLI asks for both pools in every window, so a window request no longer says which pool the note is in | `zceipt-chain/src/chain.rs::rebuild_witness`; `AUDIT-E2E.md` P-5 |
+| With `--seed-stdin` or `--ufvk` and `--height`, the scan runs to the end of that block's 1,000-block window, not to the block before it; otherwise the end of the range would have named the payment's block (it did before 2026-10-29) | `zceipt-wallet/src/lib.rs`; `AUDIT-E2E.md` P-1 |
+| From the make page, every request to the chain server carries `Origin: https://zceipt.xyz` (a browser sends it; the page cannot suppress it), so the server knows a Zceipt page, not a wallet app, is syncing from that IP at that time | `AUDIT-E2E.md` P-2 |
 
 ## 2. What the receipt itself reveals
 
@@ -52,6 +55,7 @@ The receipt sits in the URL `#fragment`, which browsers never send to a server.
 | The page's host | Nothing about the receipt (the fragment isn't in the HTTP request), and nothing about a proof request: its code, payee, minimum and label are in the fragment too (`#request=…`; links made before Oct 22 used the query string, which the host's logs see) | `web/app.js` (reads `location.hash` only); `zceipt-wallet::parse_request_link` tests (fragment form) |
 | Referrer leaks | None: pages send `Referrer-Policy: no-referrer` | `zceipt-server/tests/api.rs::hardening_public_limits_headers_and_live_webhook_hosts` |
 | Onlooker | Nothing; receipts never touch the chain | (no transaction is made) |
+| Browser history and history sync | The exception to "never sent": the browser keeps the full URL, fragment included, in its history, and Chrome Sync, Safari iCloud and Firefox Sync upload history with fragments to the vendor's servers. The verifier therefore removes the receipt from the address bar once it has read it (`history.replaceState`), so its own history entry carries no receipt; the link you paste into a chat or a browser you do not control is kept by that app | `web/app.js` (replaces the URL after reading `location.hash`); `AUDIT-E2E.md` P-3 |
 
 ## 4. Verifying in the browser (or with the npm package)
 
@@ -79,7 +83,7 @@ The shop sends the receipt to its own Zceipt server (`POST /v1/verify`, a proof 
 | Party | Learns | Backed by |
 |---|---|---|
 | Anyone without the client secret | Nothing about a request | `api.rs::hosted_pay_page_needs_the_client_secret` |
-| Visitors to a campaign page | Only the contribution count and a rounded total, after at least *k* contributions, refreshed in batches; opted-in public notes | `api.rs::campaigns_publish_aggregates_only`, `::campaign_numbers_update_in_batches` |
+| Visitors to a campaign page | Only the contribution count and a total published in coarse buckets, after at least *k* contributions, refreshed in batches; opted-in public notes. This *k*-anonymity holds against a passive reader, and against a single active contributor (who adds *k*−1 contributions of a known amount, forces a refresh and subtracts them) only to within one bucket: the bucket is what such a contributor learns about another contribution | `api.rs::campaigns_publish_aggregates_only`, `::campaign_numbers_update_in_batches`; `AUDIT-E2E.md` S-5 |
 | Onlooker timing payments against page updates | Can't match a contribution to a transaction by watching the total change (batched, rounded) | same |
 
 ## 7. Refunds
@@ -149,6 +153,7 @@ The shop sends the receipt to its own Zceipt server (`POST /v1/verify`, a proof 
 | Someone who edits the request in transit (clipboard malware, a chat, an invoice) | Can't change the address, amount, memo, code, domain or expiry without the payee's key | `roundtrip.rs::signed_payment_requests`; `scripts/e2e-regtest.sh` ("an edited request is refused") |
 | An attacker who signs its own request for the shop's domain | Refused: the domain's `/.well-known/zceipt.json` doesn't list its address | same; e2e "a request for an address the domain doesn't list is refused" |
 | The shop's domain | Learns that a wallet fetched its payee list (no wallet data is sent) | `zceipt-cli/src/main.rs::domain_lists` |
+| The request's domain, when a signed request is pasted into the verifier page | Nothing on paste. The page contacts the domain only when the user clicks **Check the domain's payee list**; the domain then learns the verifier's IP, the time and `Origin: https://zceipt.xyz`. Anyone can sign a request naming any domain, which is why the fetch waits for the click | `web/app.js`; `AUDIT-E2E.md` P-6 |
 
 ## 11e. Proof of funds (`zceipt reserve`)
 

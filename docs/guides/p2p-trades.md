@@ -18,7 +18,10 @@ transparent addresses. A receipt lets the arbitrator check the one payment and n
      --txid <payment txid> --height <its block> -m "challenge:7f3a9c21e0b4"
    ```
 
-   The buyer posts the link it prints in the trade chat. Nothing is published anywhere else.
+   `--height` has the wallet find the payment among that block's transactions instead of asking
+   the chain server for the txid; the scan then runs to the end of that block's 1,000-block
+   window, so the server does not learn the block either. The buyer posts the link it prints in
+   the trade chat. Nothing is published anywhere else.
 
 ## The dispute
 

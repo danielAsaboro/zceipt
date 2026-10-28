@@ -3,36 +3,47 @@ title: "Quickstart"
 description: "Verify a real testnet receipt, and watch an edited copy fail."
 ---
 
-## Without Rust
+## In the browser
 
-The verifier page runs in the browser. Open it from a checkout:
+Open [zceipt.xyz/verify](https://zceipt.xyz/verify/). Nothing to install: the proofs are checked
+by WebAssembly in the tab. Use its three buttons:
 
-```bash
-./scripts/serve-verifier.sh
-```
-
-Then use its three examples:
-
-| Example | Result |
+| Button | Result |
 |---|---|
 | Try a real testnet receipt | PAID TO YOU, when opened as the merchant it paid |
 | Try an edited copy | NOT VALID: the signed message changed from "Order #42" to "Order #43" |
 | Try a claim by someone who only saw it | NOT PROVEN BY THE PAYER |
 
-The second verifier needs no Rust either. It checks everything except the Halo 2 proofs:
+To make a receipt for a payment you sent, open
+[zceipt.xyz/verify/make](https://zceipt.xyz/verify/make) with your wallet's seed phrase or
+viewing key; [how to prove a payment from your wallet](/use/wallet) walks through it.
+
+## In the terminal
+
+Needs Rust ([rustup](https://rustup.rs)). The first build takes about ten minutes.
 
 ```bash
-python3 -m unittest discover -s spec-verifier/tests
-```
-
-## With Rust
-
-```bash
+git clone https://github.com/danielAsaboro/zceipt && cd zceipt
 cargo install --locked --path crates/zceipt-cli
 zceipt demo
 ```
 
-The first build takes about ten minutes.
+`demo` is offline and takes about a second. It begins:
+
+```text
+Zceipt demo: prove one shielded Zcash payment without handing over a viewing key.
+
+1. A real receipt from the Zcash testnet, checked against the transaction's bytes
+   tx 571de6e4cc96… block 4500997: 0.01 TAZ paid, memo “Invoice 42: two coffees”
+   Halo 2 spend proof and signature valid in 472 ms; the sender's address, balance and other payments stay private
+   the same receipt with its signed message changed to “Order #43 at Kemi's Coffee”: refused (the signature for action 0 is invalid: the receipt was changed after it was made, or not made by the wallet that paid)
+```
+
+The second verifier needs no Rust. It checks everything except the Halo 2 proofs:
+
+```bash
+python3 -m unittest discover -s spec-verifier/tests
+```
 
 ## Make a receipt
 
@@ -43,8 +54,9 @@ zceipt create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt
 zceipt sign r.txt --seed-stdin
 ```
 
-`create` makes the proofs with no spending key. `sign` shows everything the receipt reveals and
-asks before signing. The seed phrase is typed or piped in, never put on the command line.
+`create` makes the proofs with no spending key. `sign` lists the spends it will sign, by action
+index, and asks before signing. The seed phrase is typed or piped in, never put on the command
+line.
 
 ## Verify
 
@@ -55,7 +67,10 @@ zceipt verify @examples/testnet/receipt-link.txt \
 
 ## Compose
 
-A batch of payments proves they were signed by one key:
+A zcash-devtool wallet is a wallet kept in a folder by
+[zcash-devtool](https://github.com/zcash/zcash-devtool), unlocked with an age identity file;
+[the terminal guide](/use/terminal) shows the seed-phrase and viewing-key forms of every command
+too. A batch of payments proves they were signed by one key:
 
 ```bash
 zceipt create -w <wallet> -i <identity> --txid <txid1> --txid <txid2>

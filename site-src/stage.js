@@ -192,7 +192,7 @@ function shadowTexture(THREE) {
 }
 
 async function build() {
-  const THREE = await import("three");
+  const THREE = await import("/vendor/three/three.module.min.js");
   const { RoundedBoxGeometry } = await import("/vendor/three/RoundedBoxGeometry.js");
   const { RoomEnvironment } = await import("/vendor/three/RoomEnvironment.js");
 

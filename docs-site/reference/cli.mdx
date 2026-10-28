@@ -1,21 +1,47 @@
 ---
 title: "CLI"
-description: "The receipts commands, grouped by what they prove."
+description: "The zceipt commands, grouped by what they prove."
 ---
 
-Install with `cargo install --locked --path crates/zceipt-cli`. Run `zceipt <command> --help`
-for every option.
+Install with `git clone https://github.com/danielAsaboro/zceipt && cd zceipt`, then
+`cargo install --locked --path crates/zceipt-cli`. Run `zceipt <command> --help` for every option.
 
 ## Spend authority
 
 | Command | Does |
 |---|---|
 | `create` | Make a receipt for a payment you sent, from a seed phrase (`--seed-stdin`), a viewing key (`--ufvk`) or a zcash-devtool wallet (`-w`, `-i`). `--unsigned` makes the proofs only. |
-| `sign` | Sign a prepared receipt on the machine that holds the key. Shows what it signs and asks first. |
+| `create-sapling` | The same for a payment sent from the Sapling pool (`zip311z1`), from a zcash-devtool wallet. Needs the Sapling spend parameters. `--output` picks the outputs to disclose; by default every output the key opens. |
+| `sign` | Sign a prepared receipt on the machine that holds the key. Lists the spends it signs, by action index, and asks first. |
 | `verify` | Verify a receipt, batch, claim or proof against the chain. |
 | `inspect` | Decode a receipt with no network. |
 | `export` | Verify many receipts into a spreadsheet, with a record per receipt. |
-| `demo` | A real testnet receipt verified and an edited copy refused. |
+| `demo` | A real testnet receipt verified and an edited copy refused, offline. `-m <text>` signs a receipt for your message with the public demo wallet and prints it; `--out <file>` writes it to a file; `--shop` goes on to run the payment API in the sandbox. |
+| `doctor` | Check chain servers, the API and its key, the clock, a wallet (`-w`) and how fast this machine proves; prints what to fix. |
+
+## Create options
+
+| Option | Does |
+|---|---|
+| `--birthday <height>` | With `--seed-stdin` or `--ufvk`: the block to scan from. Any block before the wallet first received funds works; earlier only means a longer scan |
+| `--network main\|test` | With `--seed-stdin`: which chain. A viewing key says it itself |
+| `--height <block>` | With `--seed-stdin` or `--ufvk`: the payment's block, so the transaction is found among the block's transactions instead of fetched by txid. The scan runs to the end of that block's 1,000-block window, so the server does not learn the block |
+| `--txid <id>` (repeat) | Several payments make one batch link |
+| `-m <text>` | A message to sign into the receipt: an invoice number, or `challenge:<hex>` |
+| `--request '<link>'` | Answer a proof request from the verifier page: signs its challenge and checks the payee and amount before proving |
+| `--output <index>` (repeat) | Which outputs to disclose. Default: every output sent to someone else |
+| `--withhold-memo` | Disclose recipient and amount, not the memo |
+| `--pool orchard\|ironwood` | Which pool's bundle to disclose when the transaction has both |
+| `--prove-address <ua>` | Also prove the wallet controls this address, so the verifier learns who paid |
+| `--prove-source`, `--reveal-source-value` | Also prove which earlier output funded each spent note; optionally its value |
+| `--screened-set <file>`, `--screened-proof <file>`, `--screened-amount <zec>` | Prove every spent note came from a published list, and where to write that proof |
+| `--key-set <file>` | Prove the signing key is one of a published set, without saying which |
+| `--refund-to fresh\|<ua>` | Sign a refund address into the receipt |
+| `--public-note <text>` | For campaigns: a note shown publicly |
+| `--tex-deposit <tex>`, `--second-tx <txid>` | Exchange deposits (ZIP 320): the two steps of one deposit |
+| `--no-aggregate` | A batch with one proof per receipt instead of one aggregated proof |
+| `--from-chain`, `-s <host:port>` | Rebuild Merkle paths from public chain data, and the server to ask |
+| `--link-base <url>`, `--out <file>` | The verifier the link points at; a file to write the receipt to as well |
 
 ## Relationships
 
@@ -32,27 +58,42 @@ for every option.
 | `verifier-key`, `sign --for` | A receipt a single verifier can check but not pass on | |
 | `received`, `reserve` | The recipient's side; proof of funds | |
 
-## Verify options that state a relationship
+## Verify options
+
+What the receipt must satisfy. Each one fails the check when it does not hold:
 
 | Option | Requires |
 |---|---|
+| `--expect-address <ua>`, `--min <zec>` | A disclosed output paid this address at least this much (for a proof of funds, this much is held) |
+| `--challenge <hex>` | The receipt signs this challenge (your request's code, or a trade id) |
+| `--memo-contains <text>` | A disclosed output's memo contains this text, so an older payment can't answer a new request |
+| `--network main\|test` | Refuse artifacts of the other network |
 | `--key-set <file>` | A key-set proof over this set (refused if the receipt carries none) |
 | `--policy-commitment <file>` | A FROST policy proof over this published commitment (refused if none) |
 | `--list <file>` | A list-mode claim against this published list of note commitments; needs `--domain` and `--min` |
-| `--network main\|test` | Refuse artifacts of the other network |
 | `--siblings <proof>` | With `--payer-tag`: count the accounts it proves one wallet's once |
 | `--domain <name>` | A claim or payer tag for this domain |
 | `--height <n>` | A claim's snapshot block, or the height of `--raw-tx`; a claim also needs `--min`, the least floor you accept |
 | `--payer-tag <tag>`, `--min-payers <k>` | An income proof whose payments came from at least k wallets |
 | `--min-payments <n>` | At least n separate payments |
-| `--verifier-key <file>` | A receipt made for this verifier alone |
-| `--challenge <hex>` | The receipt signs this challenge |
-| `--expect-address`, `--min` | A disclosed output paid this address at least this much |
+| `--verifier-key <file>` | A receipt made for this verifier alone (the secret half `zceipt verifier-key` kept) |
+| `--screened-set <file>`, `--screened-proof <proof>`, `--screened-min <zec>` | Every spent note came from this list, and at least this much of the spent value |
+
+Where and how to check:
+
+| Option | Does |
+|---|---|
+| `-s <host:port>` | The lightwalletd server to ask (default zec.rocks for the receipt's network) |
 | `--cross-check <host:port>` | A second server confirms the block (it learns the txid) |
-| `--raw-tx <file>` | Offline verification |
+| `--raw-tx <file>`, `--height <n>` | Offline verification against the raw transaction |
+| `--second-raw-tx <file>`, `--second-height <n>`, `--source-raw-tx HEIGHT:FILE` | Offline: the second step of an exchange deposit, and the source transactions a source proof names |
+| `--regtest <heights>` | A local regtest chain |
+| `--json` | The result as JSON |
 
 ## Payment API
 
 `zceipt shop` is the REST API, webhooks, SDK-facing commands and an MCP server for shops
-and exchanges. It is optional tooling around the same core; see `docs/QUICKSTART.md` in the
-repository.
+and exchanges (`zceipt serve` is the same as `zceipt shop serve`). It is optional tooling around
+the same core; start from the [Quickstart](/quickstart), and for the API itself
+[docs/QUICKSTART.md](https://github.com/danielAsaboro/zceipt/blob/main/docs/QUICKSTART.md) in
+the repository.

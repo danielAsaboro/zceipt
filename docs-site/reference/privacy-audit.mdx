@@ -15,7 +15,7 @@ We searched the repository and its full history for keys, seeds and mainnet addr
 |---|---|---|
 | The landing page loaded Three.js from cdn.jsdelivr.net | Every visitor's IP address and visit time went to a third party | Three.js is served from this site (`/vendor/three/`) |
 | No site-wide rule stopped a page loading from another host | A later edit, or the docs export, could add a CDN script, font or image and leak the same way | A content security policy on every path: scripts, styles, fonts, images and workers load from this site only |
-| A campaign's public tally refreshed after any new contribution | Reading it before and after one contribution gave that person's amount, to 0.001 ZEC, and tied it to their public note | Once published, the tally moves only in steps of at least `k` contributions |
+| A campaign's public tally refreshed after any new contribution | Reading it before and after one contribution gave that person's amount, to 0.001 ZEC, and tied it to their public note | Once published, the tally moves only in steps of at least `k` contributions, and the total is a coarse bucket. Against a passive reader that hides each contribution; a single active contributor who adds `k`−1 known contributions learns another contribution only to within one bucket |
 | The npm, Python, Go and Rust SDKs sent the pay page's client secret as `?secret=` in the URL | Proxies and access logs keep URLs, so the secret that opens a payer's request ended up in them | The secret goes in the `Zceipt-Client-Secret` header, as the hosted page and CLI already did. The query form still works for older clients and is marked deprecated |
 
 ## What we checked and found clean

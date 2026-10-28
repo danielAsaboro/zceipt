@@ -48,18 +48,25 @@ cfg = {
     "headers": [],
 }
 # Nothing on the site may load from another host: a script, font or image from a CDN would hand
-# every visitor's IP to it. Chain servers are reached with fetch (connect-src), any https host
-# because the verifier lets you pick your own lightwalletd. The Mintlify docs evaluate page
-# frontmatter with `new Function`, so /docs alone also allows 'unsafe-eval' (still self-hosted only).
-def csp(extra):
-    return ("default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'" + extra + "; "
+# every visitor's IP to it. No inline scripts outside /docs: an injected <script> on any page would
+# reach localStorage (the sealed wallet, the request ledger) for the whole origin. Chain servers are
+# reached with fetch (connect-src), any https host because the verifier lets you pick your own
+# lightwalletd. The Mintlify docs evaluate page frontmatter with `new Function` and inline their
+# runtime, so /docs alone allows 'unsafe-inline' and 'unsafe-eval' (still self-hosted only), and
+# its connect-src is 'self': the docs contact no chain server and no third party.
+def csp(docs):
+    if docs:
+        script, connect, base = "'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval'", "'self'", "'self'"
+    else:
+        script, connect, base = "'self' 'wasm-unsafe-eval'", "'self' https: http://127.0.0.1:* http://localhost:*", "'none'"
+    return ("default-src 'self'; script-src " + script + "; "
             "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; "
-            "connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'self'")
-for source, extra in [("/((?!docs).*)", ""), ("/docs", " 'unsafe-eval'"), ("/docs/(.*)", " 'unsafe-eval'")]:
+            "connect-src " + connect + "; object-src 'none'; base-uri " + base + "; frame-ancestors 'self'")
+for source, docs in [("/((?!docs).*)", False), ("/docs", True), ("/docs/(.*)", True)]:
     cfg["headers"].append({"source": source, "headers": [
         {"key": "x-content-type-options", "value": "nosniff"},
         {"key": "referrer-policy", "value": "no-referrer"},
-        {"key": "content-security-policy", "value": csp(extra)},
+        {"key": "content-security-policy", "value": csp(docs)},
     ]})
 if api:
     cfg["rewrites"] = [{"source": p, "destination": api + p} for p in

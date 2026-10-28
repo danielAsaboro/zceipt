@@ -19,7 +19,7 @@ zceipt create --ufvk @viewing-key.txt --birthday <wallet birthday> --txid <depos
 zceipt sign deposit.prepared --seed-stdin
 ```
 
-`sign` shows everything the receipt reveals and asks before signing. If the desk gave you a request
+`sign` lists the spends it signs, by action index, and asks before signing. If the desk gave you a request
 link, add `--request '<link>'` so the receipt answers that request and can't be reused.
 
 | Option | The desk learns | Leave out if |

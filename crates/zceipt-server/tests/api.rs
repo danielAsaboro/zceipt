@@ -371,6 +371,29 @@ async fn campaign_numbers_update_in_batches() {
 }
 
 #[tokio::test]
+async fn campaign_tally_moves_in_steps_of_k() {
+    let mut cfg = zceipt_server::Config::new(Net::Test, "http://verifier.test/");
+    cfg.campaign_snapshot_secs = 0; // every read may refresh: only the step rule holds it back
+    let (app, test, _) = app_with(cfg).await;
+    let (_, r, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign", "public_min_contributions": 2 })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let submit = format!("/v1/public/requests/{id}/receipts");
+    let tally = format!("/v1/public/campaigns/{id}");
+    let pay = || call(&app, "POST", &submit, None, Some(json!({ "receipt": "zip311_test_valid" })), None);
+    let shown = || async { call(&app, "GET", &tally, None, None, None).await.1["tally"].clone() };
+    pay().await;
+    pay().await;
+    let a = shown().await;
+    assert_eq!(a["contributions"], 2);
+    pay().await;
+    let b = shown().await;
+    assert_eq!(b, a, "one new contribution never shows on its own: its amount would be the difference");
+    pay().await;
+    assert_eq!(shown().await["contributions"], 4, "k new contributions publish together");
+}
+
+#[tokio::test]
 async fn expiry_emits_an_event() {
     let (app, test, _) = app().await;
     call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "expires_in": 1 })), None).await;

@@ -193,8 +193,8 @@ function shadowTexture(THREE) {
 
 async function build() {
   const THREE = await import("three");
-  const { RoundedBoxGeometry } = await import("three/addons/geometries/RoundedBoxGeometry.js");
-  const { RoomEnvironment } = await import("three/addons/environments/RoomEnvironment.js");
+  const { RoundedBoxGeometry } = await import("/vendor/three/RoundedBoxGeometry.js");
+  const { RoomEnvironment } = await import("/vendor/three/RoomEnvironment.js");
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));

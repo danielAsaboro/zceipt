@@ -27,6 +27,7 @@ EOF
 
 cp site-src/*.js site-src/style.html "$OUT/"
 mkdir -p "$OUT/brand" && cp site-src/brand/*.svg "$OUT/brand/"
+mkdir -p "$OUT/vendor/three" && cp site-src/vendor/three/* "$OUT/vendor/three/"
 cp web/*.html web/*.js web/*.css "$OUT/verify/"
 cp -R web/zceipt "$OUT/verify/"
 cp docs/llms.txt docs/openapi.yaml "$OUT/"
@@ -47,6 +48,12 @@ cfg = {
     "headers": [{"source": "/(.*)", "headers": [
         {"key": "x-content-type-options", "value": "nosniff"},
         {"key": "referrer-policy", "value": "no-referrer"},
+        # Nothing on the site may load from another host: a script, font or image from a CDN
+        # would hand every visitor's IP to it. Chain servers are reached with fetch (connect-src),
+        # any https host because the verifier lets you pick your own lightwalletd.
+        {"key": "content-security-policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; "
+            "connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"},
     ]}],
 }
 if api:

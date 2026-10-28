@@ -657,7 +657,14 @@ pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> 
         c.query_row("SELECT snapshot, snapshot_at, public_k FROM requests WHERE id = ?1", [&id], |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)))?
     };
     let fresh = snapshot_at.is_some_and(|t| now() - t < st.config.campaign_snapshot_secs);
-    let snap: Value = match (fresh, snapshot.as_deref().and_then(|s| serde_json::from_str(s).ok())) {
+    let prior: Option<Value> = snapshot.as_deref().and_then(|s| serde_json::from_str(s).ok());
+    // Once published, the tally moves only in steps of at least k new contributions: a refresh
+    // that added one contribution would show its amount (and its note) to anyone diffing two reads.
+    let held = prior.as_ref().and_then(|p| p["contributions"].as_i64()).filter(|&shown| {
+        let count: i64 = st.db.0.lock().unwrap().query_row("SELECT COUNT(*) FROM request_payments WHERE request_id = ?1", [&id], |x| x.get(0)).unwrap_or(shown);
+        count > shown && count - shown < k
+    });
+    let snap: Value = match (fresh || held.is_some(), prior) {
         (true, Some(s)) => s,
         _ => {
             let (count, total, mut notes): (i64, i64, Vec<String>) = {

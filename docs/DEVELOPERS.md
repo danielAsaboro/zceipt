@@ -73,7 +73,8 @@ the transaction's anchor and nullifier with a fresh `alpha` and `rcv`, signed un
 receipt digest. The verifying key is embedded, cut from the hash-checked `sapling-spend.params`
 (`examples/extract_sapling_vk.rs`); making one needs that file. `zceipt create-sapling` makes one from
 a zcash-devtool wallet; `zceipt verify` checks it against the chain. Tested on Sapling bundles proved
-with the Zcash parameters (`tests/sapling.rs`); not yet run on testnet. The relationship proofs
+with the Zcash parameters (`tests/sapling.rs`) and verified on the public testnet
+(`examples/testnet-sapling`). The relationship proofs
 (same payer, claims, siblings…) are Orchard and Ironwood only.
 
 ## What a receipt proves, precisely

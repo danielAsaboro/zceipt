@@ -1,0 +1,7 @@
+VERIFIED: a Sapling payment, proven by the payer
+  network      test
+  transaction  cbbdb8e071de55a9538c20c52a43a15cade18d41b14f1eb1ea122d64c264d627 (block 4552325)
+  spends       1 proven (the signer holds the spend key of each)
+  output 0     0.00500000 TAZ to ztestsapling1v99fx63vu4xeewvfuhvpcmde5rakr858h49qaq75y6df4sr0m8wv0t65eaq32fsw9ma4c5pnc58
+    memo       Sapling invoice 311
+  message      zecathon sapling demo

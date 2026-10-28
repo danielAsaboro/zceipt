@@ -8,7 +8,7 @@
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const HEX = "0123456789abcdef";
   const PLAIN = ["RENT −4.20", "CLINIC −1.35", "MUM −2.00", "SALARY +12.50", "BAL 48.2130", "DONATION −0.50", "WITHDRAW +20.00"];
-  const PROVED = "KEMI'S COFFEE −0.01";
+  const PROVED = canvas.dataset.proved || "KEMI'S COFFEE −0.01";
   const STEP = 22, LINE = 17;
   let cols = [], dpr = 1, w = 0, h = 0;
   const rnd = (n) => Math.floor(Math.random() * n);
@@ -23,6 +23,10 @@
     }));
   }
   addEventListener("resize", resize); resize();
+  // on the verifier, a verified receipt lets one gold line through
+  const result = document.getElementById("result");
+  if (result) new MutationObserver(() => { document.body.dataset.phase = result.querySelector(".stamp.good") ? "proved" : "sealed"; })
+    .observe(result, { childList: true, subtree: true });
   let last = performance.now(), acc = 0;
   function tick(now) {
     const dt = Math.min(0.1, (now - last) / 1000); last = now; acc += dt;

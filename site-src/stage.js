@@ -63,7 +63,7 @@ requestAnimationFrame(loop);
 // ---------------------------------------------------------------- the deck
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif';
 const MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
-const INK = "#111114", INK2 = "#6B6B74", INK3 = "#A3A3AD", SEAL = "#1B1B21", SEAL_TEXT = "#3A3A45";
+const INK = "#111114", INK2 = "#6B6B74", INK3 = "#A3A3AD";
 const ACCENT = "#0071E3", FLARE = "#FF4D2E";
 
 const CARDS = [
@@ -90,9 +90,6 @@ function drawFace(card, rev, accent, glow, sealOn) {
   g.save();
   g.beginPath(); g.roundRect(0, 0, W, H, 46); g.fillStyle = "#fff"; g.fill();
   // receipt notches
-  g.globalCompositeOperation = "destination-out";
-  for (const x of [0, W]) { g.beginPath(); g.arc(x, 318, 20, 0, Math.PI * 2); g.fill(); }
-  g.globalCompositeOperation = "source-over";
   if (glow > 0.01) {
     g.globalAlpha = glow * 0.75; g.lineWidth = 6; g.strokeStyle = accent;
     g.beginPath(); g.roundRect(5, 5, W - 10, H - 10, 42); g.stroke(); g.globalAlpha = 1;
@@ -135,12 +132,23 @@ function field(g, text, x, y, size, weight, rev, seed, color, family = FONT) {
   g.font = `${weight} ${size}px ${family}`;
   const tw = g.measureText(text).width, bw = Math.max(tw, size * 2.4) + 16;
   if (rev > 0) { g.save(); g.beginPath(); g.rect(x - 8, y - size, bw * rev, size * 1.4); g.clip(); g.fillStyle = color; g.fillText(text, x, y); g.restore(); }
-  const bx = x - 8 + bw * rev, w = bw * (1 - rev), h = size * 1.08, top = y - size * 0.86;
+  const bx = x - 8 + bw * rev, w = bw * (1 - rev), h = size * 1.12, top = y - size * 0.88;
   if (w > 0.5) {
+    // sealed: ciphertext seen through frosted glass
     g.save();
-    g.beginPath(); g.roundRect(bx, top, w, h, Math.min(14, h / 3)); g.fillStyle = SEAL; g.fill(); g.clip();
-    g.fillStyle = SEAL_TEXT; const fs = Math.max(13, Math.round(h * 0.42)); g.font = `500 ${fs}px ${MONO}`;
-    g.fillText(hex(seed, 60), x, top + h / 2 + fs * 0.36);
+    g.beginPath(); g.roundRect(bx, top, w, h, Math.min(16, h / 2.6)); g.clip();
+    g.fillStyle = "#EEF0F5"; g.fillRect(bx, top, w, h);
+    try { g.filter = `blur(${Math.max(3, size * 0.16)}px)`; } catch {}
+    g.fillStyle = "#5E6372"; g.font = `600 ${size}px ${family}`;
+    g.fillText(hex(seed, Math.ceil(bw / (size * 0.5))), x, y);
+    try { g.filter = "none"; } catch {}
+    const sheen = g.createLinearGradient(0, top, 0, top + h);
+    sheen.addColorStop(0, "rgba(255,255,255,.75)"); sheen.addColorStop(0.45, "rgba(255,255,255,.28)"); sheen.addColorStop(1, "rgba(255,255,255,.5)");
+    g.fillStyle = sheen; g.fillRect(bx, top, w, h);
+    g.restore();
+    g.save();
+    g.beginPath(); g.roundRect(bx + 0.75, top + 0.75, w - 1.5, h - 1.5, Math.min(16, h / 2.6));
+    g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = 1.5; g.stroke();
     g.restore();
   }
   return tw;
@@ -191,9 +199,9 @@ async function build() {
   const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(-4, 6, 8); scene.add(key);
 
   const world = new THREE.Group(); scene.add(world);
-  const bodyGeo = new RoundedBoxGeometry(2.2, 3.0, 0.045, 4, 0.16);
+  const bodyGeo = new RoundedBoxGeometry(2.18, 2.98, 0.04, 4, 0.15);
   const faceGeo = new THREE.PlaneGeometry(2.2, 3.0);
-  const bodyMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.4, clearcoat: 0.8, clearcoatRoughness: 0.2 });
+  const bodyMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.2, emissive: 0xffffff, emissiveIntensity: 0.55 });
   const cards = CARDS.map((data, i) => {
     const c = document.createElement("canvas"); c.width = W; c.height = H;
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;

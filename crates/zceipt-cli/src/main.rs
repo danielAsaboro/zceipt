@@ -35,6 +35,27 @@ struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Cmd {
+    /// Create a Sapling receipt (`zip311z1…`) for a payment you sent from your Sapling pool.
+    ///
+    /// A fresh Sapling Spend proof and signature for each of your notes the transaction spent,
+    /// and the outputs your key can open. Needs the Zcash `sapling-spend.params`.
+    #[command(display_order = 2)]
+    CreateSapling {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
+        #[arg(short, long)]
+        wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
+        #[arg(short, long)]
+        identity: PathBuf,
+        /// The transaction id (hex, as explorers show it).
+        txid: String,
+        /// A message to bind, such as a verifier's challenge.
+        #[arg(long, default_value = "")]
+        msg: String,
+        /// Sapling output indices to disclose (default: every output your key opens).
+        #[arg(long = "output")]
+        outputs: Vec<u32>,
+    },
     /// Create a receipt for a payment you sent.
     ///
     /// Create a receipt for a transaction you sent, from a seed phrase or viewing key (any
@@ -1924,6 +1945,23 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("\nShare this link (the receipt stays in the #fragment, never sent to a server;");
             eprintln!("`h=` lets verifiers fetch it among up to 64 shielded transactions of its block, so the server learns the block, not which one):");
             println!("{}", answer_link(&link_base, &text, &mined_height.to_string()));
+        }
+        Cmd::CreateSapling { wallet, identity, txid, msg, outputs } => {
+            let (r, mined) = wallet::create_sapling_receipt(&wallet, &identity, parse_txid(&txid)?, msg.as_bytes(), &outputs)?;
+            eprintln!("Sapling receipt for a payment mined at block {mined}:");
+            println!("{}", zceipt_core::sapling::to_text(&r));
+        }
+        Cmd::Verify { receipt, server, regtest, json, .. } if read_arg_text(&receipt)?.contains(zceipt_core::sapling::SAPLING_TEXT_PREFIX) => {
+            let text = read_arg_text(&receipt)?;
+            let start = text.find(zceipt_core::sapling::SAPLING_TEXT_PREFIX).expect("checked");
+            let body: String = text[start..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+            let r = zceipt_core::sapling::from_text(&body).map_err(|e| anyhow!("{e}"))?;
+            let rep = chain::verify_sapling_against_chain(&r, server.as_deref(), regtest.as_deref()).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&rep)?);
+            } else {
+                rep.print();
+            }
         }
         // One receipt per input, of any kind: an input holding two can't be routed past a check.
         Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {

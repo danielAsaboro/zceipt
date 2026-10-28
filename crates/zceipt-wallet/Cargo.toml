@@ -29,6 +29,10 @@ zcash_primitives.workspace = true
 zcash_protocol = { workspace = true, features = ["local-consensus"] }
 zip32 = "0.3"
 zcash_note_encryption.workspace = true
+sapling-crypto = { version = "0.9", default-features = false, features = ["circuit"] }
+jubjub = { version = "0.11", default-features = false }
+bls12_381 = { version = "0.9", default-features = false }
+ff.workspace = true
 
 [dev-dependencies]
 # examples/frost_policy.rs: a 2-of-3 FROST treasury signs a receipt of a testnet payment.

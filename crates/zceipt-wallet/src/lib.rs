@@ -1514,3 +1514,98 @@ pub fn __orchard_spending_key_for_tests(wallet: &Path, identity: &Path) -> anyho
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     Ok(*usk.orchard().to_bytes())
 }
+
+/// Makes a Sapling receipt (`zip311z1…`) for a payment this wallet sent from its Sapling pool:
+/// a fresh Spend proof and signature for every Sapling note of ours the transaction spent, and
+/// the disclosure of `outputs` (Sapling output indices; all outputs our key can open when empty).
+/// Needs the Zcash `sapling-spend.params` (`$ZCASH_PARAMS` or the default directory).
+pub fn create_sapling_receipt(
+    wallet: &Path,
+    identity: &Path,
+    txid: [u8; 32],
+    msg: &[u8],
+    outputs: &[u32],
+) -> anyhow::Result<(zceipt_core::sapling::SaplingReceipt, u32)> {
+    use sapling_crypto::{note_encryption::try_sapling_output_recovery, Diversifier, Note as SNote, Rseed};
+    use zceipt_core::sapling;
+    use zip32::Scope as SScope;
+    let (net, seed) = decrypt_seed(wallet, identity)?;
+    let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
+    let external = usk.sapling().clone();
+    #[allow(deprecated)]
+    let internal = external.derive_internal().ok_or_else(|| anyhow!("deriving the internal Sapling key"))?;
+    let dfvk = external.to_diversifiable_full_viewing_key();
+    let db_path = wallet.join("data.sqlite");
+    let mut db = WalletDb::for_path(&db_path, net, SystemClock, OsRng)?;
+    let tx = db.get_transaction(TxId::from_bytes(txid))?.ok_or_else(|| anyhow!("this wallet has no record of that transaction; sync it first"))?;
+    let bundle = tx.sapling_bundle().ok_or_else(|| anyhow!("that transaction has no Sapling part; use `zceipt create` for Orchard and Ironwood"))?;
+    let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mined: Option<u32> = conn.query_row("SELECT mined_height FROM transactions WHERE txid = ?1", [txid.as_slice()], |r| r.get(0))?;
+    let mined = mined.ok_or_else(|| anyhow!("transaction is not mined yet; wait and sync"))?;
+
+    let mut witnesses = vec![];
+    for (i, spend) in bundle.shielded_spends().iter().enumerate() {
+        let row = conn.query_row(
+            "SELECT diversifier, value, rcm, commitment_tree_position, recipient_key_scope FROM sapling_received_notes WHERE nf = ?1",
+            [spend.nullifier().0.as_slice()],
+            |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?, r.get::<_, Vec<u8>>(2)?, r.get::<_, Option<i64>>(3)?, r.get::<_, Option<i64>>(4)?)),
+        );
+        let (d, value, rcm, position, scope) = match row {
+            Ok(r) => r,
+            Err(rusqlite::Error::QueryReturnedNoRows) => continue,
+            Err(e) => return Err(e.into()),
+        };
+        let xsk = if scope == Some(1) { &internal } else { &external };
+        let d = Diversifier(d.try_into().map_err(|_| anyhow!("bad stored diversifier"))?);
+        let rcm = Option::<jubjub::Fr>::from(<jubjub::Fr as ff::PrimeField>::from_repr(rcm.try_into().map_err(|_| anyhow!("bad stored rcm"))?))
+            .ok_or_else(|| anyhow!("bad stored rcm"))?;
+        let pgk = xsk.expsk().proof_generation_key();
+        let addr = pgk.to_viewing_key().to_payment_address(d).ok_or_else(|| anyhow!("bad stored diversifier"))?;
+        let note = SNote::from_parts(addr, sapling_crypto::value::NoteValue::from_raw(value as u64), Rseed::BeforeZip212(rcm));
+        let position = position.ok_or_else(|| anyhow!("note has no tree position yet; sync the wallet"))? as u64;
+        let anchor = *spend.anchor();
+        type E = ShardTreeError<zcash_client_sqlite::wallet::commitment_tree::Error>;
+        let path = db.with_sapling_tree_mut::<_, _, E>(|t| {
+            let mut h = mined;
+            while h > mined.saturating_sub(200) {
+                let id = BlockHeight::from_u32(h);
+                if let Some(root) = t.root_at_checkpoint_id(&id)? {
+                    if root.to_bytes() == anchor.to_bytes() {
+                        return t.witness_at_checkpoint_id_caching(Position::from(position), &id);
+                    }
+                }
+                h -= 1;
+            }
+            Ok(None)
+        })?;
+        let path = path.ok_or_else(|| anyhow!("the wallet no longer has a checkpoint at this transaction's Sapling anchor; create receipts within ~100 blocks of sending, or rescan"))?;
+        witnesses.push(sapling::SaplingSpendWitness {
+            index: i as u32,
+            ask: xsk.expsk().ask().clone(),
+            proof_generation_key: pgk,
+            note,
+            diversifier: d,
+            merkle_path: path,
+        });
+    }
+    if witnesses.is_empty() {
+        bail!("this wallet spent no Sapling note in that transaction, so it can't prove it paid");
+    }
+    let ovks = [dfvk.to_ovk(SScope::External), dfvk.to_ovk(SScope::Internal)];
+    let mut disclose = vec![];
+    for (j, o) in bundle.shielded_outputs().iter().enumerate() {
+        if !outputs.is_empty() && !outputs.contains(&(j as u32)) {
+            continue;
+        }
+        if let Some(ovk) = ovks.iter().find(|k| try_sapling_output_recovery(k, o, sapling_crypto::note_encryption::Zip212Enforcement::On).is_some()) {
+            disclose.push((j as u32, *ovk));
+        } else if !outputs.is_empty() {
+            bail!("Sapling output {j} doesn't open with this wallet's outgoing viewing key");
+        }
+    }
+    let dir = zceipt_core::sapling::default_params_dir().ok_or_else(|| anyhow!("set ZCASH_PARAMS to the directory holding sapling-spend.params"))?;
+    let params = sapling::spend_parameters_from(&dir.join("sapling-spend.params")).with_context(|| format!("reading {}/sapling-spend.params", dir.display()))?;
+    eprintln!("Proving {} Sapling spend(s)…", witnesses.len());
+    let r = sapling::create(&params, net.coin_type(), txid, bundle, &disclose, &witnesses, msg, OsRng)?;
+    Ok((r, mined))
+}

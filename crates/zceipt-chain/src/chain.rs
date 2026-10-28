@@ -1537,3 +1537,81 @@ pub async fn verify_payer_tag_against_chain(
         .map_err(|e| anyhow!("{e}"))?
         .map_err(|_| anyhow!("the payer tag doesn't hold for this payment and domain"))
 }
+
+/// What a verified Sapling receipt shows.
+#[derive(Debug, serde::Serialize)]
+pub struct SaplingReport {
+    pub network: &'static str,
+    pub txid: String,
+    pub height: u32,
+    pub message: String,
+    /// Spend indices whose spend authority the payer proved.
+    pub spends_proven: Vec<u32>,
+    pub outputs: Vec<SaplingOutputReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct SaplingOutputReport {
+    pub index: u32,
+    pub address: String,
+    pub zatoshis: u64,
+    pub zec: String,
+    pub memo: String,
+}
+
+impl SaplingReport {
+    pub fn print(&self) {
+        println!("VERIFIED: a Sapling payment, proven by the payer");
+        println!("  network      {}", self.network);
+        println!("  transaction  {} (block {})", self.txid, self.height);
+        println!("  spends       {} proven (the signer holds the spend key of each)", self.spends_proven.len());
+        for o in &self.outputs {
+            println!("  output {}     {} {} to {}", o.index, o.zec, if self.network == "main" { "ZEC" } else { "TAZ" }, o.address);
+            if !o.memo.is_empty() {
+                println!("    memo       {}", o.memo);
+            }
+        }
+        if !self.message.is_empty() {
+            println!("  message      {}", self.message);
+        }
+    }
+}
+
+/// Verifies a Sapling receipt (`zip311z1…`) against the transaction fetched from the chain.
+pub async fn verify_sapling_against_chain(
+    receipt: &zceipt_core::sapling::SaplingReceipt,
+    server: Option<&str>,
+    regtest: Option<&std::path::Path>,
+) -> anyhow::Result<SaplingReport> {
+    let u = &receipt.unsigned;
+    let net = net::for_receipt(u.coin_type, regtest)?;
+    let (tx, height) = fetch_mined_tx(net, server, u.txid).await?;
+    sapling_report(receipt, net, &tx, height)
+}
+
+pub fn sapling_report(receipt: &zceipt_core::sapling::SaplingReceipt, net: Net, tx: &Transaction, height: u32) -> anyhow::Result<SaplingReport> {
+    let txid: [u8; 32] = *tx.txid().as_ref();
+    let v = zceipt_core::sapling::verify(zceipt_core::sapling::spend_verifying_key(), receipt, net.coin_type(), &txid, tx.sapling_bundle())
+        .map_err(|e| anyhow!("NOT VERIFIED: {e}"))?;
+    let nt = net.network_type();
+    let outputs = v
+        .outputs
+        .iter()
+        .map(|o| SaplingOutputReport {
+            index: o.index,
+            address: <zcash_address::ZcashAddress as zcash_address::ToAddress>::from_sapling(nt, o.recipient.to_bytes()).encode(),
+            zatoshis: o.value,
+            zec: zec(o.value),
+            memo: memo_text(&o.memo).unwrap_or_default(),
+        })
+        .collect();
+    Ok(SaplingReport {
+        network: if net.coin_type() == zceipt_core::COIN_TYPE_MAINNET { "main" } else { "test" },
+        txid: display_txid(&txid),
+        height,
+        message: String::from_utf8_lossy(&v.msg).into_owned(),
+        spends_proven: v.spends,
+        outputs,
+    })
+}
+

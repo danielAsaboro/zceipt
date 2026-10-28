@@ -3,10 +3,16 @@
   "theme": "mint",
   "name": "Zceipt",
   "colors": {
-    "primary": "#B8860B",
-    "light": "#E8B923",
-    "dark": "#8A6508"
+    "primary": "#0071E3",
+    "light": "#4AA8FF",
+    "dark": "#0058B8"
   },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "/"
+  },
+  "favicon": "/favicon.svg",
   "navigation": {
     "tabs": [
       {

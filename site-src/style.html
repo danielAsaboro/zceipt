@@ -6,7 +6,7 @@
 <title>Zceipt · style guide</title>
 <meta name="color-scheme" content="light">
 <meta name="robots" content="noindex">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23111114'/><path d='M10.5 10.5h11l-11 11h11' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/><circle cx='24' cy='8' r='3.2' fill='%230071E3'/></svg>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='zb' x1='16' y1='2' x2='16' y2='28' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%232C2C34'/%3E%3Cstop offset='1' stop-color='%230D0D10'/%3E%3C/linearGradient%3E%3ClinearGradient id='zr' x1='22' y1='9' x2='10' y2='21' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%234AA8FF'/%3E%3Cstop offset='1' stop-color='%230066D6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M10.5 3h11a4.5 4.5 0 0 1 4.5 4.5v19.2l-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8V7.5A4.5 4.5 0 0 1 10.5 3z' fill='url(%23zb)' stroke='url(%23zb)' stroke-width='1.2' stroke-linejoin='round'/%3E%3Cpath d='M10.6 3.6h10.8' stroke='%23fff' stroke-opacity='.22' stroke-width='.8' stroke-linecap='round'/%3E%3Cpath d='M11 9.8h10M11 19.8h10' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M21 9.8l-10 10' stroke='url(%23zr)' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/verify/zceipt.css">
 <style>
   main { max-width: 1200px; margin: 0 auto; padding: 120px 32px 80px; }
@@ -51,8 +51,8 @@
 <body>
 <div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
 <nav class="island-nav" data-lens="14">
-  <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#111114"/><path d="M10.5 10.5h11l-11 11h11" stroke="#fff" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="8" r="3.2" fill="#0071E3"/></svg>Zceipt</a>
-  <div class="links"><a href="#glass">Glass</a><a class="hide-sm" href="#colour">Colour</a><a class="hide-sm" href="#type">Type</a><a class="hide-sm" href="#parts">Parts</a></div>
+  <a class="logo" href="/"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><defs><linearGradient id="zlb" x1="16" y1="2" x2="16" y2="28" gradientUnits="userSpaceOnUse"><stop stop-color="#2C2C34"/><stop offset="1" stop-color="#0D0D10"/></linearGradient><linearGradient id="zlr" x1="22" y1="9" x2="10" y2="21" gradientUnits="userSpaceOnUse"><stop stop-color="#4AA8FF"/><stop offset="1" stop-color="#0066D6"/></linearGradient></defs><path d="M10.5 3h11a4.5 4.5 0 0 1 4.5 4.5v19.2l-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8V7.5A4.5 4.5 0 0 1 10.5 3z" fill="url(#zlb)" stroke="url(#zlb)" stroke-width="1.2" stroke-linejoin="round"/><path d="M10.6 3.6h10.8" stroke="#fff" stroke-opacity=".22" stroke-width=".8" stroke-linecap="round"/><path d="M11 9.8h10M11 19.8h10" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><path d="M21 9.8l-10 10" stroke="url(#zlr)" stroke-width="2.6" stroke-linecap="round"/></svg>Zceipt</a>
+  <div class="links"><a href="#mark">Mark</a><a href="#glass">Glass</a><a class="hide-sm" href="#colour">Colour</a><a class="hide-sm" href="#type">Type</a><a class="hide-sm" href="#parts">Parts</a></div>
   <a class="btn small" href="/">Home</a>
 </nav>
 <main>
@@ -64,6 +64,19 @@
     <div class="stage" id="stage">
       <div class="print" aria-hidden="true" id="print"></div>
       <div class="lensbox glass sheen" id="lens" data-lens="40" data-lens-blur="0.6"><span>Drag the glass</span></div>
+    </div>
+  </section>
+
+  <section id="mark">
+    <h2>Mark</h2>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">
+      <div class="comp glass" style="place-content:center;justify-items:center;min-height:220px"><img src="/brand/mark.svg" width="120" alt="Zceipt mark"></div>
+      <div class="comp glass dark" style="place-content:center;justify-items:center;min-height:220px"><img src="/brand/mark-light.svg" width="120" alt="Zceipt mark on dark"></div>
+      <div class="comp glass" style="place-content:center;justify-items:center;min-height:220px"><img src="/brand/lockup.svg" width="220" alt="Zceipt"></div>
+      <div class="comp glass dark" style="place-content:center;justify-items:center;min-height:220px"><img src="/brand/lockup-dark.svg" width="220" alt="Zceipt on dark"></div>
+    </div>
+    <div class="glass rules" style="border-radius:28px;margin-top:16px">
+      <div><b>A receipt whose lines make the Z.</b> The two white rows stay as they are; the diagonal, the one line that crosses, is the proven one and the only blue.</div>
     </div>
   </section>
 

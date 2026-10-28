@@ -98,10 +98,7 @@ function drawFace(card, rev, accent, glow, sealOn) {
   try { g.letterSpacing = "3px"; } catch {}
   g.fillText("ZCASH · SHIELDED", PAD, 86);
   try { g.letterSpacing = "0px"; } catch {}
-  // mark
-  g.fillStyle = INK; g.beginPath(); g.roundRect(W - PAD - 34, 60, 34, 34, 10); g.fill();
-  g.strokeStyle = "#fff"; g.lineWidth = 3.4; g.lineJoin = "round";
-  g.beginPath(); g.moveTo(W - PAD - 25, 70); g.lineTo(W - PAD - 9, 70); g.lineTo(W - PAD - 25, 84); g.lineTo(W - PAD - 9, 84); g.stroke();
+  drawMark(g, W - PAD - 40, 54, 40);
 
   field(g, c.title, PAD, 176, 48, 600, rev[0], card.i * 7 + 1, INK);
   const amtW = field(g, c.amount, PAD, 280, 96, 600, rev[1], card.i * 7 + 2, INK);
@@ -125,6 +122,19 @@ function drawFace(card, rev, accent, glow, sealOn) {
   g.fillText(c.block || `BLOCK 4,49${card.i}…`, PAD, H - 50);
   g.restore();
   card.tex.needsUpdate = true;
+}
+
+// The Zceipt mark: a receipt whose lines make the Z, the diagonal in blue.
+const RECEIPT = new Path2D("M10.5 3h11a4.5 4.5 0 0 1 4.5 4.5v19.2l-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8-2.6-1.8-2.6 1.8V7.5A4.5 4.5 0 0 1 10.5 3z");
+function drawMark(g, x, y, size) {
+  g.save(); g.translate(x, y); g.scale(size / 32, size / 32);
+  const body = g.createLinearGradient(0, 2, 0, 28); body.addColorStop(0, "#2C2C34"); body.addColorStop(1, "#0D0D10");
+  g.fillStyle = body; g.strokeStyle = body; g.lineWidth = 1.2; g.lineJoin = "round"; g.fill(RECEIPT); g.stroke(RECEIPT);
+  g.lineCap = "round"; g.lineWidth = 2.6; g.strokeStyle = "#fff";
+  g.beginPath(); g.moveTo(11, 9.8); g.lineTo(21, 9.8); g.moveTo(11, 19.8); g.lineTo(21, 19.8); g.stroke();
+  const z = g.createLinearGradient(22, 9, 10, 21); z.addColorStop(0, "#4AA8FF"); z.addColorStop(1, "#0066D6");
+  g.strokeStyle = z; g.beginPath(); g.moveTo(21, 9.8); g.lineTo(11, 19.8); g.stroke();
+  g.restore();
 }
 
 // Draws text, then a graphite redaction bar over the part not yet revealed. Returns the text width.

@@ -227,7 +227,8 @@ class _Claims(_Resource):
 class _Public(_Resource):
     """What hosted pay and campaign pages use: no API key, a per-request client secret."""
     def get_request(self, id: str, secret: str) -> Dict[str, Any]:
-        return self._c._request("GET", f"/v1/public/requests/{urllib.parse.quote(id, safe="")}?secret={urllib.parse.quote(secret, safe="")}")
+        # The secret goes in a header: in a URL it would land in proxy and access logs.
+        return self._c._request("GET", f"/v1/public/requests/{urllib.parse.quote(id, safe="")}", headers={"Zceipt-Client-Secret": secret})
 
     def submit_receipt(self, id: str, *, receipt: str, client_secret: Optional[str] = None) -> Dict[str, Any]:
         body = {"receipt": receipt, **({"client_secret": client_secret} if client_secret else {})}
@@ -311,8 +312,8 @@ class Zceipt:
             raise _error_for(e.code, json.loads(text) if text.startswith("{") else {"error": {"message": text}}) from None
 
     def _request(self, method: str, path: str, body: Optional[Dict[str, Any]] = None,
-                 idempotency_key: Optional[str] = None) -> Dict[str, Any]:
-        headers = {"Authorization": f"Bearer {self.api_key}", "User-Agent": f"zceipt-python/{__version__}"}
+                 idempotency_key: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        headers = {"Authorization": f"Bearer {self.api_key}", "User-Agent": f"zceipt-python/{__version__}", **(headers or {})}
         data = None
         if method == "POST":
             headers["Content-Type"] = "application/json"

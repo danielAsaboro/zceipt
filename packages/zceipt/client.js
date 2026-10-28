@@ -91,7 +91,8 @@ export class Zceipt {
     };
     /** What hosted pay and campaign pages use: no API key, a per-request client secret. */
     this.public = {
-      getRequest: (id, secret) => r._request("GET", `/v1/public/requests/${encodeURIComponent(id)}?secret=${encodeURIComponent(secret)}`),
+      // The secret goes in a header: in a URL it would land in proxy and access logs.
+      getRequest: (id, secret) => r._request("GET", `/v1/public/requests/${encodeURIComponent(id)}`, undefined, { headers: { "zceipt-client-secret": secret } }),
       submitReceipt: (id, params) => r._request("POST", `/v1/public/requests/${encodeURIComponent(id)}/receipts`, params),
       campaign: (id) => r._request("GET", `/v1/public/campaigns/${encodeURIComponent(id)}`),
     };
@@ -164,7 +165,7 @@ export class Zceipt {
   }
 
   async _request(method, path, body, opts = {}) {
-    const headers = { authorization: `Bearer ${this.apiKey}`, "user-agent": "zceipt-js/0.1" };
+    const headers = { authorization: `Bearer ${this.apiKey}`, "user-agent": "zceipt-js/0.1", ...opts.headers };
     let payload;
     if (method === "POST") {
       headers["content-type"] = "application/json";

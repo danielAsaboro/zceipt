@@ -460,7 +460,7 @@ paths:
       operationId: publicGetRequest
       summary: Payer view of a request (no API key; needs the client secret)
       security: []
-      parameters: [{ $ref: "#/components/parameters/Id" }, { name: secret, in: query, required: true, schema: { type: string } }]
+      parameters: [{ $ref: "#/components/parameters/Id" }, { name: Zceipt-Client-Secret, in: header, required: true, schema: { type: string } }, { name: secret, in: query, deprecated: true, description: "Older clients only: a secret in the URL ends up in access logs.", schema: { type: string } }]
       responses: { "200": { description: "Status, amounts, payment URI. Never metadata." }, "404": { $ref: "#/components/responses/Error" } }
   /v1/public/requests/{id}/receipts:
     post:
@@ -672,7 +672,7 @@ components:
         remaining_zatoshis: { type: [integer, "null"] }
         payments: { type: array, items: { type: object, properties: { txid: { type: string }, zatoshis: { type: integer }, mined_height: { type: integer }, memo: { type: [string, "null"] } } } }
         client_secret: { type: string, description: "Lets a payer open the hosted page and submit a receipt without your API key" }
-        hosted_url: { type: string, description: "Hosted pay page: /pay/{id}?secret=…" }
+        hosted_url: { type: string, description: "Hosted pay page: /pay/{id}#secret=… (the secret stays in the fragment, out of server logs)" }
         public_url: { type: [string, "null"], description: "Campaigns only: public tally page /c/{id}" }
         payment_uri: { type: string, description: "ZIP-321 URI: zcash:<payee>?amount=…&memo=… (asks for the remaining amount)" }
         receipt_link: { type: string, description: "Verifier page link; pass it to `zceipt create --request`" }

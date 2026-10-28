@@ -111,6 +111,10 @@ impl Client {
     }
 
     async fn call(&self, method: reqwest::Method, path: &str, body: Option<Value>, idem: Option<&str>) -> Result<Value, Error> {
+        self.call_with(method, path, body, idem, None).await
+    }
+
+    async fn call_with(&self, method: reqwest::Method, path: &str, body: Option<Value>, idem: Option<&str>, header: Option<(&str, &str)>) -> Result<Value, Error> {
         let idem = match (&method, idem) {
             (&reqwest::Method::POST, Some(k)) => Some(k.to_string()),
             (&reqwest::Method::POST, None) => Some(random_key()),
@@ -135,6 +139,9 @@ impl Client {
                 self.http.request(method.clone(), format!("{}{path}", self.base)).bearer_auth(&self.key).header("user-agent", "zceipt-rust/0.1");
             if let Some(k) = &idem {
                 rb = rb.header("idempotency-key", k);
+            }
+            if let Some((name, value)) = header {
+                rb = rb.header(name, value);
             }
             if let Some(b) = &body {
                 rb = rb.json(b);
@@ -329,7 +336,8 @@ impl Client {
     }
     /// Hosted pages' endpoints (no API key needed; a per-request client secret).
     pub async fn public_get_request(&self, id: &str, secret: &str) -> Result<Value, Error> {
-        self.call(reqwest::Method::GET, &format!("/v1/public/requests/{id}?secret={secret}"), None, None).await
+        // The secret goes in a header: in a URL it would land in proxy and access logs.
+        self.call_with(reqwest::Method::GET, &format!("/v1/public/requests/{id}"), None, None, Some(("zceipt-client-secret", secret))).await
     }
     pub async fn public_submit_receipt(&self, id: &str, receipt: &str, client_secret: Option<&str>) -> Result<Value, Error> {
         let mut b = json!({ "receipt": receipt });

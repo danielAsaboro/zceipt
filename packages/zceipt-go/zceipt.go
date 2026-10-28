@@ -78,6 +78,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (M, erro
 	return out, nil
 }
 
+// clientSecretKey carries a hosted page's client secret to raw, which sends it as a header.
+type clientSecretKey struct{}
+
 func (c *Client) raw(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var payload []byte
 	idem := ""
@@ -115,6 +118,9 @@ func (c *Client) raw(ctx context.Context, method, path string, body any) ([]byte
 		}
 		req.Header.Set("Authorization", "Bearer "+c.Key)
 		req.Header.Set("User-Agent", "zceipt-go/0.1")
+		if s, ok := ctx.Value(clientSecretKey{}).(string); ok {
+			req.Header.Set("Zceipt-Client-Secret", s)
+		}
 		if idem != "" {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Idempotency-Key", idem)
@@ -212,7 +218,8 @@ func (c *Client) RequestQR(ctx context.Context, id string) (string, error) {
 
 // Hosted pages (no API key needed; a per-request client secret)
 func (c *Client) PublicGetRequest(ctx context.Context, id, secret string) (M, error) {
-	return c.do(ctx, "GET", "/v1/public/requests/"+esc(id)+"?secret="+url.QueryEscape(secret), nil)
+	// The secret goes in a header: in a URL it would land in proxy and access logs.
+	return c.do(context.WithValue(ctx, clientSecretKey{}, secret), "GET", "/v1/public/requests/"+esc(id), nil)
 }
 func (c *Client) PublicSubmitReceipt(ctx context.Context, id, receipt, clientSecret string) (M, error) {
 	return c.do(ctx, "POST", "/v1/public/requests/"+esc(id)+"/receipts", M{"receipt": receipt, "client_secret": clientSecret})

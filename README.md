@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/brand/lockup-dark.svg">
+  <img src="site/brand/lockup.svg" height="48" alt="Zceipt">
+</picture>
+
 # Zceipt
 
 **ZIP 311 for Orchard and Ironwood, extended so payments can be proven in relation to each other.**
@@ -8,6 +13,7 @@ delegated issuer, a total) without revealing the wallet's history.
 
 | | |
 |---|---|
+| Demo video | [youtube.com/watch?v=UuaMckKC1rg](https://www.youtube.com/watch?v=UuaMckKC1rg) |
 | Website | [zceipt.xyz](https://zceipt.xyz) |
 | Docs | [zceipt.xyz/docs](https://zceipt.xyz/docs/) |
 | Check a receipt | [zceipt.xyz/verify](https://zceipt.xyz/verify/) |
@@ -15,11 +21,17 @@ delegated issuer, a total) without revealing the wallet's history.
 | MetaMask snap | [`zceipt-snap`](https://www.npmjs.com/package/zceipt-snap) on npm |
 | Status and caveats | [zceipt.xyz/docs/status](https://zceipt.xyz/docs/status) |
 
-<img src="docs/img/key-vs-receipt.svg" width="640" alt="A viewing key shows every payment, past and future; a receipt shows one payment and that you made it">
+## Demo
+
+[![Zceipt demo on YouTube](https://img.youtube.com/vi/UuaMckKC1rg/maxresdefault.jpg)](https://www.youtube.com/watch?v=UuaMckKC1rg)
+
+<img src="docs/img/landing.png" width="860" alt="zceipt.xyz: Prove one payment. Reveal nothing else.">
 
 ## Contents
 
-- [Spend authority](#spend-authority)
+- [Demo](#demo)
+- [The problem](#the-problem)
+- [The solution](#the-solution)
 - [The eight relationship proofs](#the-eight-relationship-proofs)
 - [Supported pools](#supported-pools)
 - [Try it](#try-it)
@@ -28,6 +40,9 @@ delegated issuer, a total) without revealing the wallet's history.
 - [SDKs](#sdks)
 - [What a receipt proves](#what-a-receipt-proves)
 - [Who learns what](#who-learns-what)
+- [How we built it](#how-we-built-it)
+- [Challenges we faced](#challenges-we-faced)
+- [The forked circuits](#the-forked-circuits)
 - [Audits and tests](#audits-and-tests)
 - [Status](#status)
 - [Who needs it](#who-needs-it)
@@ -35,7 +50,50 @@ delegated issuer, a total) without revealing the wallet's history.
 - [Repository layout](#repository-layout)
 - [Related work](#related-work)
 
-## Spend authority
+## The problem
+
+A shielded Zcash payment hides the sender, the recipient and the amount. That is the point, and
+it is also why nobody can prove a payment afterwards without giving up far more than the payment.
+
+- **The only tool is the viewing key, and it shows everything.** Asked to prove one payment, a
+  user hands over a key that opens every payment the wallet ever made or will make.
+- **There is no standard receipt.** The Sprout-era payment disclosure was deprecated and nothing
+  replaced it ([zcash#2036](https://github.com/zcash/zcash/issues/2036),
+  [zips#387](https://github.com/zcash/zips/issues/387)). ZIP 311 specifies one for Sapling, and
+  for Orchard it says `TODO`.
+- **Showing a payment isn't proving you made it.** An output disclosure can be produced by anyone
+  who saw the payment, such as the recipient or anyone they forwarded it to
+  ([zcash#737](https://github.com/zcash/zcash/issues/737)). It proves the money moved, not who
+  moved it.
+- **Real money gets stuck.** In July 2026 a user's $589K from a shielded ZEC swap was held for
+  50+ days. They offered to "sign a verification message", and there was no
+  Zcash-native way to do it ([forum](https://forum.zcashcommunity.com/t/my-experience-exiting-shielded-zec-from-zodl-to-near-intents-589k-usdt-still-held-50-days-despite-a-written-compliance-clearance/57497)).
+  Binance's threatened delisting over shielded deposits, the largest forum thread we found, was
+  about the same gap ([forum](https://forum.zcashcommunity.com/t/important-potential-binance-delisting/45954)).
+- **One payment is rarely the question.** A grant round wants to know that 40 donors are 40
+  wallets, not one wallet 40 times. An auditor wants to know that one key made all of these
+  payments, or that a treasury's 2-of-3 policy signed this one. A lender wants a total, not a
+  ledger. Today each of those means a viewing key.
+
+We read the forum (83 posts), 92 GitHub issues across 15 Zcash repositories, X, Hacker News and
+how seven other chains handle the same problems; the full list, each pain with its source and what Zceipt
+does about it, is [PAIN-POINTS.md](docs/PAIN-POINTS.md).
+
+## The solution
+
+Zceipt is a receipt the payer makes for one payment, and a family of proofs about how payments
+relate to each other. Each one reveals exactly what it states.
+
+| | Proves | Can be made by |
+|---|---|---|
+| A viewing key | Every payment, past and future | Anyone holding it |
+| Output disclosure (zreceipt, the ZIP 311 output draft) | Who was paid and how much | Anyone who saw the payment |
+| **A Zceipt receipt** | Who was paid, how much, the memo, **and that the payer's key made the payment** | Only the payer |
+| **Zceipt relationship proofs** | One key made all of these; these are different wallets; these accounts are one wallet; an agent issued this within a policy; at least X was received | Only the parties involved |
+
+<img src="docs/img/key-vs-receipt.svg" width="640" alt="A viewing key shows every payment, past and future; a receipt shows one payment and that you made it">
+
+### Spend authority
 
 ZIP 311 calls a payment disclosure complete only with a proof that the payer's spend authority
 made the payment. For Orchard it says `TODO`. Zceipt fills that in for Orchard and Ironwood:
@@ -49,6 +107,22 @@ the same payment claimed with another key reads **NOT PROVEN BY THE PAYER**.
 
 More: [spend authority](https://zceipt.xyz/docs/concepts/spend-authority),
 [what a receipt reveals](https://zceipt.xyz/docs/concepts/what-a-receipt-reveals).
+
+### How a receipt is made
+
+1. The wallet finds the payment's transaction and the note it spent, by scanning from its
+   birthday the way a light wallet syncs.
+2. For each output to show, it includes the output's `ock`, which opens that output and no other.
+3. For the spent note, it makes a fresh Orchard Action proof: same note, same anchor, same
+   nullifier as on chain, under a fresh randomized key `rk`.
+4. It signs the whole receipt (outputs, message, proofs) with `rk`. Only the holder of the
+   spending key can, and with `create --unsigned` the proofs are made from the viewing key on one
+   machine and signed on another.
+5. A verifier fetches the transaction by txid, opens the shown outputs, checks the proof against
+   the chain's anchor and nullifier, and checks the signature. One changed byte and it fails.
+
+The wire format is in [SPEC.md](docs/SPEC.md); every gap in ZIP 311 and the protocol spec that
+this had to resolve is in [SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md).
 
 ## The eight relationship proofs
 
@@ -93,12 +167,14 @@ opens as the merchant it paid and shows **PAID TO YOU**; opened without your add
 shows **VERIFIED · RECIPIENT NOT CHECKED**. **Try an edited copy** shows the same receipt with its
 signed message changed from "Order #42" to "Order #43": **NOT VALID**. **Try a claim by someone
 who only saw it** shows **NOT PROVEN BY THE PAYER**, which is what an output-only disclosure can't
-tell apart. **Make one with your own message** signs a real testnet payment from a public demo
+tell apart. Type a message and **Sign it with the demo wallet**: it signs a real testnet payment from a public demo
 wallet ([`examples/testnet/demo`](examples/testnet/demo)) for whatever you type, in the browser,
 then verifies it. The first check loads the verifier (3 to 10 seconds).
 
-<p><img src="docs/img/verified.png" width="420" alt="The verifier page showing a real receipt for 0.01 TAZ (testnet), memo Invoice 42: two coffees, checked as PAID TO YOU">
-<img src="docs/img/refused.png" width="420" alt="The same receipt with its signed message edited, shown as NOT VALID: changed after it was made"></p>
+<img src="docs/img/verified.png" width="860" alt="zceipt.xyz/verify showing a real receipt for 0.01 TAZ on testnet, memo Invoice 42: two coffees, checked as PAID TO YOU">
+
+<p><img src="docs/img/refused.png" width="420" alt="The same receipt with its signed message edited, shown as NOT VALID">
+<img src="docs/img/observer.png" width="420" alt="The same payment claimed by someone who only saw it, shown as NOT PROVEN BY THE PAYER"></p>
 
 **The same page locally:**
 
@@ -120,6 +196,8 @@ proofs in your browser (about half a minute) and signs; with a viewing key it as
 phrase at the end, or saves the prepared receipt for another signer. The phrase and the key stay
 in the page's memory; nothing leaves the device but block requests. The page can remember the
 wallet on that device behind a passkey (WebAuthn PRF).
+
+<img src="docs/img/make.png" width="640" alt="zceipt.xyz/verify/make: Connect MetaMask, or open a wallet with its seed phrase or viewing key and birthday">
 
 **With MetaMask:** the [`zceipt-snap`](https://www.npmjs.com/package/zceipt-snap) snap
 ([source](packages/zceipt-snap)) holds the wallet inside MetaMask, gives the make page a viewing
@@ -221,6 +299,119 @@ limits: [CLAIM.md](docs/CLAIM.md).
 In a quiet block the server can narrow it down, and the page and CLI say so. Full analysis:
 [THREAT-MODEL.md](docs/THREAT-MODEL.md).
 
+## How we built it
+
+The git history tells it in order. Every step below is a commit you can read.
+
+| Dates (2026) | What happened |
+|---|---|
+| Oct 14 | The core crate: ZIP 311 disclosures for Orchard and Ironwood. A CLI that makes receipts from a zcash-devtool wallet and verifies against lightwalletd. A browser verifier (Rust to WASM, gRPC-web to lightwalletd). Regtest end to end. Moved to librustzcash `main` for NU7 (Ironwood), then the first real testnet payment, receipt, and CLI and browser verification the same day. |
+| Oct 15 | Wrote the spec verifier and the crypto review, which found the address-proof forgery (below). Exchange deposits across the ZIP 320 TEX two-step. Reorg handling, rate limits, batches verified in parallel (1.0 s for three testnet receipts), a smaller WASM. `doctor`. |
+| Oct 16 | Source of funds (format v4), outputs without their memo (v5), incoming receipts, signed payment requests, proof of funds. Mutation testing and fuzzing of each new format. |
+| Oct 21 to 23 | Deposit desks for exchanges. A judging pass: batches refuse an output counted twice, `--cross-check` against a second server, the `zip311r1` prefix so receipts can't be confused with other projects' links. Receipts from any wallet's seed or viewing key, watch-only receipts, `export`, screened-set proofs. Proved the base receipt builds on stock `orchard`. |
+| Oct 24 | The composability day: same-payer proofs, FROST 2-of-3 treasury receipts, income and policy proofs, key sets, claim and payer tags on a forked Action circuit, one-verifier receipts, sibling-account proofs in a new Halo 2 circuit with a ported BLAKE2b gadget, delegation. |
+| Oct 25 | Every proof type run on the public testnet (`scripts/e2e-testnet.sh`) and attacked there and offline; five weaknesses found and fixed. An audit tool for unconstrained circuit cells. A known-exploit pass. |
+| Oct 26 to 27 | The hostile audit and its rerun, and every finding fixed. Renamed from Receipts to Zceipt and built zceipt.xyz. |
+| Oct 28 | The privacy audit and its four fixes. The landing page, dashboard and verifier redesign. The browser make page, passkey unlock and the MetaMask snap. Sapling receipts, verified on a real testnet payment. |
+
+## Challenges we faced
+
+- **ZIP 311 leaves Orchard as `TODO`.** There was no spec to follow, so we wrote one: an Orchard
+  spend disclosure is an Action proof spending the same note at the same anchor, with a
+  zero-value dummy output, plus a `SpendAuthSig` by the fresh `rk`. The proposed ZIP text is
+  [ZIP311-ORCHARD.md](docs/ZIP311-ORCHARD.md).
+- **Our own forgery.** ZIP 304's trick for address proofs (spend a fake 1-zatoshi note) relies on
+  the circuit enforcing the anchor only for non-zero values. Our first Orchard address proof took
+  the value commitment from the prover, so a zero-value note skipped the anchor check and anyone
+  could claim any address. Found on Oct 15 by reading ZIP 304's rationale against the Action
+  circuit's `v_old · (root − anchor)` gate; the verifier now computes `ValueCommit_0(1)` itself, a
+  receipt made before the fix is kept in the repo and refused, and tests check the attack.
+- **Ironwood isn't released.** NU6.3 (NU7 in librustzcash) runs on testnet but isn't in a
+  librustzcash release, so eight crates are pinned to a git revision.
+- **The protocol spec can't open Ironwood outputs as written.** §4.20.3, which ZIP 311 cites,
+  derives `rcm` the pre-Ironwood way; followed literally, every Ironwood output fails to open. The
+  Python spec verifier found it, and both verifiers use `Derive_rcm` (A9 in
+  [SPEC-AMBIGUITIES.md](docs/SPEC-AMBIGUITIES.md)).
+- **The chain server learns things.** Recording the bytes sent to lightwalletd showed that
+  rebuilding a witness told the server which block the spent note came from, and later that the
+  scan range still ended at the payment's block. Both fixed: the wallet asks for whole
+  1,000-block windows and reads to the end
+  ([ASSURANCE.md §6](docs/ASSURANCE.md#6-what-the-chain-server-sees)).
+- **`orchard` doesn't expose what we needed.** No way to load precomputed parameters, to reach
+  a note's `esk` or commitment opening, or to reuse the Action constraints in another circuit.
+  Rather than copy the circuit, we patched the published crate in the smallest way that works
+  (next section) and kept the base receipt buildable on stock `orchard`.
+- **Counting wallets without identifying them.** A tag per key and domain lets an organiser
+  count distinct payers, but our first version gave one key the same tag in an airdrop and a
+  donor round with the same name, linking claimants to donors. Found by attacking the testnet
+  proofs; the domain is now hashed under a personalization per kind.
+- **One wallet's accounts counted as different payers.** Proving that two tags come from one
+  wallet needed BLAKE2b in a circuit (ZIP 32 derivation). We ported
+  `eryxcoop/blake2b_halo2` from `midnight-proofs` to Zcash's `halo2_proofs` 0.4, which puts the
+  circuit at `k = 17` and 32 seconds to prove.
+- **A browser that must prove and verify.** Verifier warm-up was 7.7 s; precomputed parameters
+  brought it to 2.9 s, and the WASM went from 2.4 MB to 2.2 MB. The make page does the proofs in a
+  worker in about half a minute.
+- **Keeping the site honest about privacy.** The privacy audit found the landing page loading
+  Three.js from a CDN (every visitor's IP to a third party) and an SDK putting a client secret in a
+  URL. Three.js is now vendored, a strict CSP covers every path, and the secret moved to a header.
+  The Mintlify docs then needed `'unsafe-eval'` on `/docs` only.
+
+## The forked circuits
+
+The base receipt uses the **stock** Orchard Action circuit and keys, unchanged:
+`params_match_derivation` and every testnet receipt check this. Two proofs need circuit code
+written here. Everything is in the open and diffable against the published crates.
+
+### The `orchard` patch
+
+[vendor/orchard](vendor/orchard) is `orchard` 0.16.0 from crates.io, unchanged except for
+[orchard-0.16.0-zceipt.patch](vendor/orchard-0.16.0-zceipt.patch), wired in through
+`[patch.crates-io]` and used only by `zceipt-core`'s `orchard-ext` feature:
+
+| Change | File | Why |
+|---|---|---|
+| `VerifyingKey::build_with_unchecked_params`, `params_bytes` | `src/circuit.rs` | load precomputed k=11 parameters (warm-up 7.7 s to 2.9 s); a test checks they equal the derived ones |
+| `Address::pk_d`, `EphemeralSecretKey::from_bytes`, `Note::esk_bytes` | `src/address.rs`, `src/keys.rs`, `src/note.rs` | incoming receipts: the recipient reveals one output's ephemeral secret |
+| `Note::commitment_opening`, `extracted_commitment_from_opening` | `src/note.rs` | format v5: show recipient and amount while the memo stays encrypted |
+| `Circuit::synthesize_inner` | `src/circuit.rs` | the Action synthesis with the nullifier's public input optional and `nk`'s cell returned, so the claim circuit reuses the Action constraints as they are |
+| `circuit::claim` (new) | `src/circuit/claim.rs` | claims and payer tags (`zip311t1`) |
+
+### 1. The claim circuit
+
+The Action statement, plus two public inputs: `domain` and `tag = Poseidon(nk, domain)`. The
+Poseidon hash is fed by the same `nk` cell that feeds `CommitIvk`, so the tag is tied to the key
+that owns the note, and it is the same for every claim one wallet makes in one domain. Two
+modes: the nullifier public (claims against a chain snapshot) or private (published lists). Its
+verifying keys are pinned by `claim::tests::verifying_keys_are_pinned`, and a test mutates every
+private witness and requires each to be refused.
+
+### 2. The sibling-account circuit
+
+[crates/zceipt-kce](crates/zceipt-kce): a new Halo 2 circuit proving that two payer tags come
+from two hardened ZIP 32 children of one hidden coin-level key, without saying which wallet or
+which accounts. BLAKE2b runs inside it, from
+[eryxcoop/blake2b_halo2](https://github.com/eryxcoop/blake2b_halo2) at `6ed2fa2` (Apache-2.0,
+licence kept beside it), ported to `halo2_proofs` 0.4: import paths, the lookup and gate API, and
+a personalization option for the initial state. A test checks the derivation against `orchard`.
+
+### Blast radius
+
+| If this is wrong | Affected | Not affected |
+|---|---|---|
+| Claim circuit unsound | claims, payer tags | base receipts, batches, key sets, delegation, income, source proofs |
+| BLAKE2b gadget unsound | sibling-account proofs | everything else |
+
+Check the fork yourself (`scripts/check-vendor-patch.sh` does the same):
+
+```bash
+curl -sL https://static.crates.io/crates/orchard/orchard-0.16.0.crate | tar xz -C /tmp
+diff -ru /tmp/orchard-0.16.0/src vendor/orchard/src     # shows exactly the patch
+./scripts/check-stock-orchard.sh                        # the base receipt on unpatched orchard
+```
+
+What to review first, and why: [forked circuits](https://zceipt.xyz/docs/reference/forked-circuits).
+
 ## Audits and tests
 
 **No external audit.** Every review below was done by the author or by tools the author ran.
@@ -241,14 +432,41 @@ The checks in [ASSURANCE.md](docs/ASSURANCE.md), each with the command to re-run
   specification, checks everything but the Halo 2 proofs. It passes the Zcash test vectors it
   covers and agrees with the Rust verifier on all 278 conformance vectors
   ([conformance](conformance)) and 232 signed adversarial receipts.
-- **Mutation testing:** `cargo mutants` on the core, the source proofs, the claim circuit and the
-  delegation verifiers, with the misses listed.
-- **Fuzzing:** `cargo fuzz` on every decoder, 8 to 12 million executions each, asserting that
-  whatever decodes re-encodes to the same bytes.
+- **Mutation testing:** `cargo mutants` on the core, the source proofs, the claim changes and the
+  delegation verifiers, with every miss listed and closed.
+- **Fuzzing:** `cargo fuzz` on every decoder, asserting that whatever decodes re-encodes to the
+  same bytes (table below).
 - **Miri:** the decoders, encoders, batch checks and RedPallas verification, with no undefined
   behaviour reported. The receipt crates contain no `unsafe` code.
 - **Stock Orchard:** `scripts/check-stock-orchard.sh` checks that a wallet depending on
   `zceipt-core` without the `orchard-ext` feature builds on unpatched `orchard`.
+
+The suites:
+
+| Suite | Where | What it checks |
+|---|---|---|
+| Round trips | `crates/zceipt-core/tests/roundtrip.rs` | every proof made and verified, and refused when the wrong key, note, address or domain is used |
+| Properties | `tests/properties.rs` | thousands of random receipts: the encoding is a bijection, the signature covers every field |
+| Encoding and Miri | `tests/encoding_ub.rs` | exact length limits, batch positions, no undefined behaviour |
+| FROST, Sapling, stock Orchard, audit fixes | `tests/frost.rs`, `sapling.rs`, `stock_orchard.rs`, `audit_fixes.rs` | the Zcash Foundation's FROST, the real Sapling parameters, unpatched `orchard`, one test per audit finding |
+| CLI and conformance | `crates/zceipt-cli/tests` | the CLI against 278 conformance vectors and a regtest fixture |
+| Testnet attacks | `crates/zceipt-cli/tests/testnet_adversarial.rs` | every byte of the real testnet claim, payer-tag, one-verifier, delegated, income and FROST proofs flipped; tags moved, swapped and substituted |
+| Fuzz targets | `crates/zceipt-core/fuzz` | seven targets over every decoder and proof blob |
+| Spec verifier | `spec-verifier/tests` | Zcash test vectors, conformance vectors, 232 adversarial receipts, real testnet transactions |
+| SDKs | `packages/*/test`, `packages/zceipt-go` | npm, Python and Go live against a local API; SDK parity |
+| Snap | `packages/zceipt-snap/test` | refuses sites not on its list, shares nothing when the window is closed |
+| End to end | `scripts/e2e-regtest.sh`, `scripts/e2e-testnet.sh` | a private regtest chain, and real payments on the public testnet |
+
+Mutation testing found 20 missed mutants in the core on the first run, every one a missing test;
+after adding them, a clean run of 189 mutants had **157 caught, 32 unviable, 0 missed**. Fuzzing
+ran each decoder for 15 minutes:
+
+| Target | Executions | Result |
+|---|---|---|
+| `decode_receipt` | 11,359,725 | no crash, no non-canonical decode |
+| `decode_batch` | 8,761,198 | same |
+| `decode_sign_in` | 12,374,327 | same |
+| `decode_text` | 10,092,364 | same |
 
 Run them:
 

@@ -29,10 +29,10 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
 scene.environmentIntensity = 0.9;
 
-const key = new THREE.DirectionalLight("#e8fff4", 2.2); key.position.set(3, 4, 6); scene.add(key);
-const sweep = new THREE.PointLight("#9dffd2", 2.5, 8, 2); scene.add(sweep);
+const key = new THREE.DirectionalLight("#ffffff", 2.2); key.position.set(3, 4, 6); scene.add(key);
+const sweep = new THREE.PointLight("#ffe7c2", 2.5, 8, 2); scene.add(sweep);
 
-// ---------- backdrop: a deep green aurora that burns amber when the wallet is exposed ----------
+// ---------- backdrop: ink black and graphite; a viewing key floods it with flat light, a proof warms it ----------
 const sky = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
   depthWrite: false, depthTest: false,
   uniforms: { uTime: { value: 0 }, uWarn: { value: 0 }, uProof: { value: 0 }, uRes: { value: new THREE.Vector2(1, 1) } },
@@ -44,15 +44,15 @@ const sky = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMateri
     void main() {
       float ar = uRes.x / uRes.y, t = uTime * 0.05;
       vec2 p = vUv; p.x *= ar;
-      vec3 col = vec3(0.002, 0.005, 0.004);
-      vec3 castleton = vec3(0.0, 0.10, 0.045), go = vec3(0.0, 0.32, 0.14), teal = vec3(0.0, 0.08, 0.09), ink = vec3(0.012, 0.014, 0.05);
-      vec3 ember = vec3(0.30, 0.08, 0.01), rose = vec3(0.20, 0.02, 0.025);
-      col += mix(castleton, ember, uWarn) * blob(p, vec2(ar * (0.78 + 0.08 * sin(t * 3.0)), 0.78 + 0.05 * cos(t * 2.0)), 0.55) * 0.9;
-      col += mix(teal, rose, uWarn) * blob(p, vec2(ar * (0.18 + 0.06 * cos(t * 2.5)), 0.28 + 0.06 * sin(t * 3.1)), 0.5) * 0.7;
-      col += ink * blob(p, vec2(ar * 0.45, 1.05), 0.6) * 0.8;
-      col += go * blob(p, vec2(ar * (0.64 + 0.05 * sin(t * 4.0)), 0.45), 0.32) * (0.15 + 0.5 * uProof) * (1.0 - uWarn);
-      col *= 1.0 - 0.35 * smoothstep(0.4, 1.3, length(vUv - vec2(0.5, 0.55)) * 1.4);
-      col += (hash(vUv * uRes + fract(uTime)) - 0.5) * 0.006;
+      vec3 col = vec3(0.0);
+      vec3 graphite = vec3(0.055, 0.055, 0.06), prussian = vec3(0.012, 0.022, 0.05), flash = vec3(0.42, 0.42, 0.43), gold = vec3(0.35, 0.16, 0.0);
+      col += graphite * blob(p, vec2(ar * (0.66 + 0.04 * sin(t * 3.0)), 0.62 + 0.04 * cos(t * 2.0)), 0.5);
+      col += prussian * blob(p, vec2(ar * (0.16 + 0.05 * cos(t * 2.5)), 0.22), 0.55);
+      col += graphite * 0.6 * blob(p, vec2(ar * 0.5, 1.1), 0.5);
+      col = mix(col, flash * (0.35 + 0.65 * blob(p, vec2(ar * 0.66, 0.55), 0.6)), uWarn * 0.5);
+      col += gold * blob(p, vec2(ar * (0.66 + 0.03 * sin(t * 4.0)), 0.5), 0.3) * uProof * 0.6;
+      col *= 1.0 - 0.45 * smoothstep(0.35, 1.25, length(vUv - vec2(0.5, 0.52)) * 1.4);
+      col += (hash(vUv * uRes + fract(uTime)) - 0.5) * 0.01;
       gl_FragColor = vec4(col, 1.0);
     }`,
 }));
@@ -66,20 +66,20 @@ const ledger = document.createElement("canvas"); ledger.width = W; ledger.height
 const ledgerTex = new THREE.CanvasTexture(ledger);
 ledgerTex.colorSpace = THREE.SRGBColorSpace; ledgerTex.anisotropy = 8;
 const ROWS = [
-  ["SL", "Salary", "Lagos Labs · October", "+12.50", "Oct 01", "#6aa2ff"],
-  ["AH", "Rent", "Ade Homes · flat 3B", "−4.20", "Oct 03", "#c48cff"],
-  ["KC", "Kemi's Coffee", "Invoice 42: two coffees", "−0.01", "Oct 14", "#01b763"],
-  ["FC", "Fertility clinic", "Consultation, second visit", "−1.35", "Oct 16", "#ff8a80"],
-  ["MU", "Mum", "For the hospital bills", "−2.00", "Oct 19", "#ffc35c"],
-  ["BX", "Exchange withdrawal", "Binance → shielded", "+20.00", "Oct 21", "#7fd6ff"],
-  ["DN", "Donation", "Independent press fund", "−0.50", "Oct 24", "#9be7a9"],
+  ["SL", "Salary", "Lagos Labs · October", "+12.50", "Oct 01", "#d9d9de"],
+  ["AH", "Rent", "Ade Homes · flat 3B", "−4.20", "Oct 03", "#d9d9de"],
+  ["KC", "Kemi's Coffee", "Invoice 42: two coffees", "−0.01", "Oct 14", "#d9d9de"],
+  ["FC", "Fertility clinic", "Consultation, second visit", "−1.35", "Oct 16", "#d9d9de"],
+  ["MU", "Mum", "For the hospital bills", "−2.00", "Oct 19", "#d9d9de"],
+  ["BX", "Exchange withdrawal", "Binance → shielded", "+20.00", "Oct 21", "#d9d9de"],
+  ["DN", "Donation", "Independent press fund", "−0.50", "Oct 24", "#d9d9de"],
 ];
 let WIN = [0.05, 0.5, 0.95, 0.6]; // the proved row, in uv (x0, y0, x1, y1)
 function drawLedger() {
   const g = ledger.getContext("2d"), pad = 76;
   const sans = "'General Sans', ui-sans-serif, sans-serif", mono = "'JetBrains Mono', ui-monospace, monospace";
   const bg = g.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, "#16251f"); bg.addColorStop(1, "#0a1210");
+  bg.addColorStop(0, "#1c1c1f"); bg.addColorStop(1, "#0b0b0c");
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
   g.textBaseline = "alphabetic"; g.textAlign = "left";
   g.fillStyle = "rgba(255,255,255,.55)"; g.font = `500 30px ${sans}`; g.fillText("Shielded wallet · Orchard", pad, 120);
@@ -97,7 +97,7 @@ function drawLedger() {
     g.fillStyle = "#fff"; g.font = `500 38px ${sans}`; g.fillText(name, pad + 104, y + 58);
     g.fillStyle = "rgba(255,255,255,.55)"; g.font = `400 28px ${sans}`; g.fillText(memo, pad + 104, y + 100);
     g.textAlign = "right";
-    g.fillStyle = amt.startsWith("+") ? "#5fe3a1" : "#fff"; g.font = `500 38px ${sans}`; g.fillText(amt + " ZEC", W - pad, y + 58);
+    g.fillStyle = "#fff"; g.font = `500 38px ${sans}`; g.fillText(amt + " ZEC", W - pad, y + 58);
     g.fillStyle = "rgba(255,255,255,.4)"; g.font = `400 26px ${mono}`; g.fillText(day, W - pad, y + 100);
     g.textAlign = "left";
     if (i < ROWS.length - 1) { g.fillStyle = "rgba(255,255,255,.07)"; g.fillRect(pad + 104, y + h, W - 2 * pad - 104, 2); }
@@ -163,10 +163,10 @@ function drawGlassMaps(open) {
 drawGlassMaps(0);
 
 const glassMat = new THREE.MeshPhysicalMaterial({
-  color: "#f2fff8", metalness: 0, roughness: 1, roughnessMap: roughTex, normalMap: normalTex, normalScale: new THREE.Vector2(0.4, 0.4),
-  transmission: 1, thickness: 0.45, ior: 1.5, attenuationColor: "#c9f5dd", attenuationDistance: 3.5,
+  color: "#ffffff", metalness: 0, roughness: 1, roughnessMap: roughTex, normalMap: normalTex, normalScale: new THREE.Vector2(0.4, 0.4),
+  transmission: 1, thickness: 0.45, ior: 1.5, attenuationColor: "#d8d8de", attenuationDistance: 4,
   clearcoat: 0.6, clearcoatRoughness: 0.08, specularIntensity: 0.8, envMapIntensity: 0.55,
-  emissive: "#2bff9a", emissiveMap: emitTex, emissiveIntensity: 2.4,
+  emissive: "#fca311", emissiveMap: emitTex, emissiveIntensity: 2.6,
 });
 
 function slabGeometry(poly) {
@@ -224,7 +224,7 @@ seeds.forEach((s, i) => {
 });
 
 // the viewing key's scan line, running down the exposed wallet
-const scan = new THREE.Mesh(new THREE.PlaneGeometry(CW * 0.98, 0.012), new THREE.MeshBasicMaterial({ color: "#ffb054", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, toneMapped: false }));
+const scan = new THREE.Mesh(new THREE.PlaneGeometry(CW * 0.98, 0.012), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0, blending: THREE.AdditiveBlending, toneMapped: false }));
 scan.position.z = -0.2;
 pane.add(scan);
 
@@ -234,12 +234,12 @@ const sealTex = new THREE.CanvasTexture(sealCanvas); sealTex.colorSpace = THREE.
 function drawSeal() {
   const g = sealCanvas.getContext("2d"), c = 256;
   const fill = g.createRadialGradient(180, 160, 20, 256, 256, 280);
-  fill.addColorStop(0, "#5dffb4"); fill.addColorStop(0.55, "#01b763"); fill.addColorStop(1, "#005b31");
+  fill.addColorStop(0, "#ffe2a8"); fill.addColorStop(0.55, "#fca311"); fill.addColorStop(1, "#8a5200");
   g.fillStyle = fill; g.fillRect(0, 0, 512, 512);
-  g.strokeStyle = "rgba(255,255,255,.5)"; g.lineWidth = 4; g.beginPath(); g.arc(c, c, 176, 0, Math.PI * 2); g.stroke();
-  g.strokeStyle = "#fff"; g.lineWidth = 30; g.lineCap = "round"; g.lineJoin = "round";
+  g.strokeStyle = "rgba(17,17,17,.35)"; g.lineWidth = 4; g.beginPath(); g.arc(c, c, 176, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = "#111"; g.lineWidth = 30; g.lineCap = "round"; g.lineJoin = "round";
   g.beginPath(); g.moveTo(c - 74, c + 4); g.lineTo(c - 20, c + 58); g.lineTo(c + 82, c - 54); g.stroke();
-  g.fillStyle = "rgba(255,255,255,.92)"; g.font = "600 30px 'General Sans', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = "rgba(17,17,17,.85)"; g.font = "600 30px 'General Sans', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
   const text = "PROVED · ZIP 311 · HALO 2 · ";
   for (let i = 0; i < text.length * 2; i++) {
     const a = (i / (text.length * 2)) * Math.PI * 2 - Math.PI / 2;
@@ -247,8 +247,8 @@ function drawSeal() {
   }
   sealTex.needsUpdate = true;
 }
-const faceMat = new THREE.MeshPhysicalMaterial({ map: sealTex, metalness: 0.35, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.05, emissive: "#01b763", emissiveMap: sealTex, emissiveIntensity: 0.08 });
-const rimMat = new THREE.MeshPhysicalMaterial({ color: "#0d8f53", metalness: 0.8, roughness: 0.25, clearcoat: 1 });
+const faceMat = new THREE.MeshPhysicalMaterial({ map: sealTex, metalness: 0.35, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.05, emissive: "#fca311", emissiveMap: sealTex, emissiveIntensity: 0.06 });
+const rimMat = new THREE.MeshPhysicalMaterial({ color: "#c98a1c", metalness: 0.9, roughness: 0.22, clearcoat: 1 });
 const seal = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.07, 72), [rimMat, faceMat, faceMat]);
 seal.geometry.rotateX(Math.PI / 2);
 seal.geometry.rotateZ(Math.PI / 2);
@@ -320,7 +320,7 @@ const mouse = new THREE.Vector2(), sm = new THREE.Vector2();
 addEventListener("pointermove", (e) => mouse.set(e.clientX / innerWidth - 0.5, e.clientY / innerHeight - 0.5), { passive: true });
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
-const WHITE = new THREE.Color("#ffffff"), WARM = new THREE.Color("#ffd2a6");
+const WHITE = new THREE.Color("#ffffff"), WARM = new THREE.Color("#f4f6ff");
 let lastT = performance.now(), time = 0;
 
 function frame(now) {
@@ -334,6 +334,7 @@ function frame(now) {
   const open = ss(2.5, 2.85, p);
   const stamp = ss(2.7, 2.92, p);
 
+  document.body.dataset.phase = expose > 0.5 ? "exposed" : open > 0.5 ? "proved" : "sealed";
   sky.material.uniforms.uTime.value = time;
   sky.material.uniforms.uWarn.value = expose;
   sky.material.uniforms.uProof.value = open;

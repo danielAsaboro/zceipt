@@ -7,8 +7,8 @@
 <meta name="description" content="Prove one shielded Zcash payment and keep everything else sealed. ZIP 311 for Orchard and Ironwood.">
 <meta property="og:title" content="Zceipt · prove one Zcash payment">
 <meta property="og:description" content="Prove one shielded Zcash payment and keep everything else sealed.">
-<meta name="theme-color" content="#030605">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2301B763'/><path d='M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z' fill='%23fff'/><path d='M12.5 11.5h7l-7 7h7' stroke='%2301B763' stroke-width='2' fill='none' stroke-linejoin='round'/></svg>">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23000'/><path d='M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z' fill='%23fff'/><path d='M12.5 11.5h7l-7 7h7' stroke='%23FCA311' stroke-width='2' fill='none' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://api.fontshare.com">
 <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,12 +18,12 @@
 <style>
   :root {
     color-scheme: dark;
-    --ink: #030605; --ink-2: #0a1210; --ink-3: #111c19;
-    --text: #f2f6f4; --text-2: #a2b2ac; --text-3: #63736d;
-    --green: #01b763; --mint: #7cf2bd; --castleton: #005b31; --choc: #1b1811;
-    --amber: #ffb054; --rose: #ff7a6b;
+    --ink: #000000; --ink-2: #0b0b0c; --ink-3: #141416;
+    --text: #ffffff; --text-2: #a3a3a8; --text-3: #5e5e64; --alabaster: #e5e5e5; --prussian: #14213d;
+    --gold: #fca311; --gold-2: #ffc35a; --gold-3: #b86f00;
+    
     --hair: rgba(255,255,255,.08);
-    --edge: linear-gradient(150deg, rgba(255,255,255,.22), rgba(255,255,255,.04) 38%, rgba(255,255,255,.02) 62%, rgba(1,183,99,.4));
+    --edge: linear-gradient(150deg, rgba(255,255,255,.22), rgba(255,255,255,.04) 38%, rgba(255,255,255,.02) 62%, rgba(255,255,255,.16));
     --sans: "General Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
@@ -35,10 +35,26 @@
   @media (max-width: 600px) { .wrap { padding: 0 20px; } }
 
   #stage { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block;
-           background: radial-gradient(80% 60% at 75% 25%, #0b3a24 0%, transparent 60%), radial-gradient(60% 50% at 15% 80%, #06302f 0%, transparent 60%), var(--ink); }
+           background: radial-gradient(80% 60% at 70% 30%, #1a1a1d 0%, transparent 60%), radial-gradient(60% 50% at 15% 80%, #0c1220 0%, transparent 60%), var(--ink); }
   main, nav.top, footer { position: relative; z-index: 2; }
 
-  .grad { background: linear-gradient(100deg, #d9fff0 0%, #7cf2bd 35%, #01b763 70%, #0a8f7f 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  /* What the chain sees: ciphertext drifting at the edges, a ledger grid, film grain */
+  .texture { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+  .texture::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 88px 88px; background-position: center top;
+                     -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, #000 90%); mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, #000 90%); }
+  .texture::after { content: ""; position: absolute; inset: -50%; opacity: .07; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); animation: grain 1.2s steps(6) infinite; }
+  @keyframes grain { 0% { transform: translate(0,0); } 20% { transform: translate(-3%,2%); } 40% { transform: translate(2%,-3%); } 60% { transform: translate(-2%,-1%); } 80% { transform: translate(3%,3%); } 100% { transform: translate(0,0); } }
+  #cipher { position: absolute; inset: 0; width: 100%; height: 100%; -webkit-mask-image: radial-gradient(ellipse 60% 70% at 50% 50%, transparent 30%, #000 85%); mask-image: radial-gradient(ellipse 60% 70% at 50% 50%, transparent 30%, #000 85%); }
+  body.past-story #cipher { opacity: .45; transition: opacity 1s; }
+
+  /* a receipt's tear-off perforation between sections */
+  .perf { height: 28px; margin: 0 auto; max-width: 1180px; position: relative; background: radial-gradient(circle, rgba(255,255,255,.2) 1.4px, transparent 1.9px) 0 50% / 13px 13px repeat-x; }
+  .perf::before, .perf::after { content: ""; position: absolute; top: 50%; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); transform: translateY(-50%); }
+  .perf::before { left: -11px; } .perf::after { right: -11px; }
+
+  .gold { background: linear-gradient(100deg, #ffe2a8 0%, #fca311 55%, #c97a00 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .rib { background: repeating-linear-gradient(90deg, #f2f2f2 0 3px, #8d8d93 3px 4px, #d4d4d8 4px 7px); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .grad { background: linear-gradient(100deg, #ffffff 0%, #d6d6da 45%, #7d7d84 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .gradw { background: linear-gradient(180deg, #ffffff 30%, #b6c7c0); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
   nav.top { position: fixed; top: 0; left: 0; right: 0; z-index: 10; transition: background .3s, border-color .3s; border-bottom: 1px solid transparent; }
@@ -49,16 +65,16 @@
   .links { display: flex; gap: 30px; align-items: center; font-size: 14.5px; color: var(--text-2); font-weight: 500; }
   .links a:hover { color: var(--text); }
   .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 15px var(--sans); padding: 13px 24px; border-radius: 999px; background: #f2f6f4; color: #06110c; transition: transform .2s, box-shadow .2s, background .2s; }
-  .btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px -12px rgba(124,242,189,.55); background: #fff; }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px -12px rgba(255,255,255,.45); background: #fff; }
   .btn.small { padding: 8px 16px; font-size: 13.5px; }
-  .more { color: var(--mint); font-weight: 500; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
+  .more { color: var(--alabaster); font-weight: 500; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
   .more:hover { text-decoration: underline; text-underline-offset: 4px; }
   @media (max-width: 760px) { .links .hide-sm { display: none; } .links { gap: 18px; } }
 
   /* Hero */
   .hero { min-height: 100vh; min-height: 100svh; padding: 128px 0 40px; text-align: center; }
   h1 { font: 500 clamp(44px, 6.6vw, 100px)/.98 var(--sans); letter-spacing: -.045em; margin: 0 auto 30px; }
-  h1 span { display: block; padding-bottom: .06em; }
+  h1 > span { display: block; padding-bottom: .06em; }
   .hero .cta { display: flex; gap: 26px; align-items: center; justify-content: center; flex-wrap: wrap; }
 
   /* Story rail */
@@ -68,8 +84,9 @@
   .rail li { display: flex; align-items: center; gap: 12px; color: var(--text-3); cursor: pointer; font-size: 13px; font-weight: 500; transition: color .3s; }
   .rail li i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; transition: all .35s; }
   .rail li.on { color: var(--text); }
-  .rail li.on i { width: 22px; border-radius: 3px; background: var(--mint); box-shadow: 0 0 12px var(--green); }
-  .rail li[data-c="2"].on i { background: var(--amber); box-shadow: 0 0 12px var(--amber); }
+  .rail li.on i { width: 22px; border-radius: 3px; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
+  .rail li[data-c="2"].on i { background: #fff; box-shadow: 0 0 14px #fff; }
+  .rail li[data-c="0"].on i, .rail li[data-c="1"].on i { background: var(--text-2); box-shadow: none; }
   @media (max-width: 1180px) { .rail { display: none; } }
 
   /* Story chapters: type on the left, the glass on the right */
@@ -81,22 +98,23 @@
   .chapter p { margin: 0; color: var(--text-2); font-size: 19px; line-height: 1.55; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
   .chip { font: 500 14px var(--sans); padding: 8px 14px; border-radius: 99px; display: inline-flex; gap: 8px; align-items: center; }
-  .chip.open { background: rgba(255,176,84,.12); color: #ffd3a0; box-shadow: inset 0 0 0 1px rgba(255,176,84,.35), 0 0 24px -8px rgba(255,176,84,.6); }
-  .chip.proved { background: rgba(1,183,99,.14); color: var(--mint); box-shadow: inset 0 0 0 1px rgba(124,242,189,.35); }
+  .chip.open { background: #fff; color: #000; box-shadow: 0 0 30px -6px rgba(255,255,255,.7); }
+  .chip.proved { background: rgba(252,163,17,.1); color: var(--gold-2); box-shadow: inset 0 0 0 1px rgba(252,163,17,.4); }
   .chip.sealed { color: var(--text-2); background: repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 2px, rgba(255,255,255,.02) 2px 5px); box-shadow: inset 0 0 0 1px var(--hair); backdrop-filter: blur(6px); }
   .chip svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
   @media (max-width: 1180px) { .chapter .copy { margin-left: 0; } }
   @media (max-width: 860px) { .chapter { height: 160vh; } .chapter .copy { top: 56vh; padding: 22px; border-radius: 24px; background: rgba(6,14,12,.55); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); } .chapter h2 { font-size: 32px; } .chapter p { font-size: 16px; } .chips { margin-top: 18px; } }
 
   /* After the story */
-  .solid { background: linear-gradient(180deg, rgba(3,6,5,0) 0, rgba(3,6,5,.9) 200px, var(--ink) 360px); }
+  .solid { background: linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,.78) 220px, rgba(0,0,0,.84) 100%); }
+  body[data-phase="exposed"] .chapter p { color: #f2f2f2; transition: color .6s; }
   section { padding: 150px 0; position: relative; }
   .head { text-align: center; max-width: 780px; margin: 0 auto 72px; }
   h2.big { font: 500 clamp(38px, 5vw, 72px)/1.02 var(--sans); letter-spacing: -.045em; margin: 0 0 22px; }
   .sub { font-size: 20px; color: var(--text-2); margin: 0 auto; max-width: 34em; }
   @media (max-width: 760px) { section { padding: 96px 0; } .head { margin-bottom: 48px; } }
 
-  .panel { border: 1px solid transparent; border-radius: 30px; background: linear-gradient(180deg, rgba(17,28,25,.92), rgba(8,14,12,.92)) padding-box, var(--edge) border-box; box-shadow: 0 40px 120px -40px rgba(1,183,99,.25), inset 0 1px 0 rgba(255,255,255,.04); }
+  .panel { border: 1px solid transparent; border-radius: 30px; background: linear-gradient(180deg, rgba(22,22,24,.92), rgba(10,10,11,.92)) padding-box, var(--edge) border-box; box-shadow: 0 40px 120px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04); }
 
   .live { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; }
   .live > div { padding: 48px; }
@@ -105,17 +123,18 @@
   .live .facts li span:last-child { color: var(--text); font-family: var(--mono); font-size: 13.5px; text-align: right; }
   .live h3 { font: 500 30px/1.15 var(--sans); letter-spacing: -.03em; margin: 0 0 12px; }
   .live p { color: var(--text-2); margin: 0; }
-  .live .till { background: radial-gradient(120% 90% at 50% 0%, rgba(1,183,99,.18), transparent 60%), #f4f1ea; color: var(--choc); display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+  .live .till { background: #f5f5f4; color: #111; border-top: 3px solid var(--gold); display: flex; flex-direction: column; justify-content: center; gap: 18px; }
   .live .order { font: 500 12.5px var(--mono); color: #6b6455; display: flex; justify-content: space-between; letter-spacing: .06em; }
   @media (max-width: 920px) { .live { grid-template-columns: 1fr; } .live > div { padding: 30px 24px; } }
 
   .proofs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .proofs a { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 28px 26px 30px; border-radius: 24px; min-height: 196px; overflow: hidden;
-              border: 1px solid transparent; background: linear-gradient(180deg, rgba(17,28,25,.9), rgba(8,13,12,.9)) padding-box, var(--edge) border-box; transition: transform .3s cubic-bezier(.2,.8,.2,1), box-shadow .3s; }
-  .proofs a::before { content: ""; position: absolute; inset: -40% -20% auto; height: 200px; background: radial-gradient(closest-side, rgba(1,183,99,.22), transparent); opacity: .5; transition: opacity .3s; pointer-events: none; }
-  .proofs a:hover { transform: translateY(-4px); box-shadow: 0 30px 80px -30px rgba(1,183,99,.45); }
+              border: 1px solid transparent; background: linear-gradient(180deg, rgba(22,22,24,.9), rgba(9,9,10,.9)) padding-box, var(--edge) border-box; transition: transform .3s cubic-bezier(.2,.8,.2,1), box-shadow .3s; }
+  .proofs a::before { content: ""; position: absolute; inset: -40% -20% auto; height: 200px; background: radial-gradient(closest-side, rgba(255,255,255,.08), transparent); opacity: .5; transition: opacity .3s; pointer-events: none; }
+  .proofs a:hover { transform: translateY(-4px); box-shadow: 0 30px 80px -30px rgba(252,163,17,.35); }
+  .proofs a:hover .prefix { color: var(--gold); }
   .proofs a:hover::before { opacity: 1; }
-  .proofs .prefix { font: 500 12px var(--mono); color: var(--mint); letter-spacing: .02em; }
+  .proofs .prefix { font: 500 12px var(--mono); color: var(--text-3); transition: color .3s; letter-spacing: .02em; }
   .proofs .name { font-size: 23px; font-weight: 500; letter-spacing: -.025em; }
   .proofs .what { color: var(--text-2); font-size: 15.5px; }
   @media (max-width: 920px) { .proofs { grid-template-columns: 1fr 1fr; } }
@@ -131,10 +150,10 @@
   .tabs button[aria-selected="true"] { color: var(--text); background: rgba(255,255,255,.08); }
   .code pre { margin: 0; padding: 30px; font: 13.5px/1.8 var(--mono); color: var(--text); overflow-x: auto; min-height: 270px; }
   .code pre[hidden] { display: none; }
-  .c { color: var(--text-3); } .s { color: var(--mint); } .kw { color: #a9c4ff; }
+  .c { color: var(--text-3); } .s { color: var(--gold-2); } .kw { color: #c9c9ce; }
   @media (max-width: 920px) { .dev { grid-template-columns: 1fr; gap: 44px; } }
 
-  .close { text-align: center; padding: 180px 0 170px; background: radial-gradient(60% 60% at 50% 60%, rgba(1,183,99,.16), transparent 70%); }
+  .close { text-align: center; padding: 180px 0 170px; background: radial-gradient(50% 50% at 50% 60%, rgba(252,163,17,.09), transparent 70%); }
   .close h2.big { margin: 0 auto 40px; max-width: 12em; }
   .close .cta { display: flex; gap: 26px; justify-content: center; align-items: center; flex-wrap: wrap; }
   footer { background: var(--ink); border-top: 1px solid var(--hair); padding: 36px 0 48px; color: var(--text-3); font-size: 14px; }
@@ -145,7 +164,7 @@
   .reveal { opacity: 0; transform: translateY(28px); filter: blur(14px); transition: opacity 1.1s cubic-bezier(.2,.8,.2,1), transform 1.1s cubic-bezier(.2,.8,.2,1), filter 1.1s cubic-bezier(.2,.8,.2,1); }
   .frost { filter: blur(16px); opacity: .25; transition: filter 1s cubic-bezier(.2,.8,.2,1), opacity 1s; }
   .frost.in { filter: none; opacity: 1; }
-  h1 span { animation: unfrost 1.6s cubic-bezier(.2,.8,.2,1) both; } h1 span + span { animation-delay: .35s; }
+  h1 > span { animation: unfrost 1.6s cubic-bezier(.2,.8,.2,1) both; } h1 > span + span { animation-delay: .35s; }
   .hero .cta { animation: unfrost 1.4s .7s cubic-bezier(.2,.8,.2,1) both; }
   @keyframes unfrost { from { filter: blur(18px); opacity: 0; transform: translateY(10px); } to { filter: none; opacity: 1; transform: none; } }
   .reveal.in { opacity: 1; transform: none; filter: none; }
@@ -154,11 +173,12 @@
 </head>
 <body>
 <canvas id="stage" aria-hidden="true"></canvas>
+<div class="texture" aria-hidden="true"><canvas id="cipher"></canvas></div>
 <ol class="rail" aria-label="Story"><li data-c="0"><i></i>Sealed</li><li data-c="1"><i></i>Private by default</li><li data-c="2"><i></i>Exposed</li><li data-c="3"><i></i>One window</li></ol>
 
 <nav class="top" id="nav">
   <div class="wrap">
-    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#01B763"/><path d="M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z" fill="#fff"/><path d="M12.5 11.5h7l-7 7h7" stroke="#01B763" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Zceipt</a>
+    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z" fill="#000"/><path d="M12.5 11.5h7l-7 7h7" stroke="#FCA311" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Zceipt</a>
     <div class="links">
       <a class="hide-sm" href="#story">Story</a>
       <a class="hide-sm" href="#proofs">Proofs</a>
@@ -172,7 +192,7 @@
 <main>
   <header class="hero">
     <div class="wrap">
-      <h1><span class="gradw">Prove a payment.</span><span class="grad">Keep the rest sealed.</span></h1>
+      <h1><span class="gradw">Prove a payment.</span><span class="grad">Keep the rest <span class="rib">sealed.</span></span></h1>
       <div class="cta">
         <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
         <a class="more" href="/docs/quickstart">Quickstart ›</a>
@@ -183,14 +203,14 @@
   <div id="story">
     <div class="chapter" data-ch="1">
       <div class="wrap"><div class="copy frost">
-        <div class="kicker grad">Private by default</div>
+        <div class="kicker" style="color:var(--text-3)">Private by default</div>
         <h2 class="gradw">Your wallet is behind frosted glass.</h2>
         <p>Every shielded payment is sealed on chain: who you paid, how much, the memo, your balance. Nobody can read it. That's the point of Zcash.</p>
       </div></div>
     </div>
     <div class="chapter" data-ch="2">
       <div class="wrap"><div class="copy frost">
-        <div class="kicker" style="color:var(--amber)">Then someone asks for proof</div>
+        <div class="kicker" style="color:#fff">Then someone asks for proof</div>
         <h2 class="gradw">A viewing key shatters all of it.</h2>
         <p>The shop, the exchange, the auditor. Today the only answer is a viewing key, and it doesn't open one payment. It opens all of them, including the ones you haven't made yet.</p>
         <div class="chips">
@@ -200,7 +220,7 @@
     </div>
     <div class="chapter" data-ch="3">
       <div class="wrap"><div class="copy frost">
-        <div class="kicker grad">Zceipt</div>
+        <div class="kicker gold">Zceipt</div>
         <h2 class="gradw">Open one window. Nothing more.</h2>
         <p>Your wallet makes a fresh zero-knowledge proof for one payment and signs it. Anyone can check it, offline, forever. The glass stays on everything else.</p>
         <div class="chips">
@@ -235,6 +255,7 @@
       </div>
     </section>
 
+    <div class="perf" aria-hidden="true"></div>
     <section id="proofs">
       <div class="wrap">
         <div class="head reveal">
@@ -255,6 +276,7 @@
       </div>
     </section>
 
+    <div class="perf" aria-hidden="true"></div>
     <section id="developers">
       <div class="wrap dev">
         <div class="reveal">
@@ -312,9 +334,10 @@ zceipt demo</pre>
       </div>
     </section>
 
+    <div class="perf" aria-hidden="true"></div>
     <section class="close">
       <div class="wrap reveal">
-        <h2 class="big"><span class="gradw">Stop handing over </span><span class="grad">everything.</span></h2>
+        <h2 class="big"><span class="gradw">Stop handing over </span><span class="gold">everything.</span></h2>
         <div class="cta">
           <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
           <a class="more" href="/docs/">Read the docs ›</a>
@@ -355,6 +378,7 @@ zceipt demo</pre>
     document.querySelectorAll(".code pre").forEach((p) => (p.hidden = p.dataset.p !== b.dataset.t));
   }));
 </script>
+<script src="/cipher.js" defer></script>
 <script type="module" src="/stage.js"></script>
 </body>
 </html>

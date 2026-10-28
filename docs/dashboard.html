@@ -53,8 +53,44 @@
   main { padding:0 6px 48px; flex:1; }
   section[hidden] { display:none; }
 
+  /* overview: islands, graphics first */
+  .islands { display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); gap:14px; margin-bottom:22px; }
+  .islands .hero { grid-column:span 5; } .islands .ring { grid-column:span 3; } .islands .chart { grid-column:span 4; }
+  .islands .disclosure { grid-column:span 9; } .islands .minis { grid-column:span 3; }
+  .island { border-radius:26px; padding:20px 22px; background:var(--card); border:1px solid var(--line); min-width:0; }
+  .ihead { display:flex; justify-content:space-between; align-items:baseline; gap:10px; color:var(--dim); font-size:13px; margin-bottom:12px; }
+  .ihead b { color:var(--text); font:500 22px var(--sans); letter-spacing:-.02em; }
+  .chart svg { width:100%; height:110px; display:block; }
+  .legend { display:flex; align-items:center; gap:6px; } .legend i { width:12px; height:12px; border-radius:4px; display:inline-block; margin-left:8px; }
+  .legend i.g { background:var(--gold); } .legend i.f { background:repeating-linear-gradient(90deg, rgba(255,255,255,.22) 0 2px, rgba(255,255,255,.05) 2px 4px); }
+  .map { display:grid; grid-template-columns:120px minmax(0,1fr) 48px; gap:9px 14px; align-items:center; font-size:13px; }
+  .map .f { color:var(--dim); } .map .n { color:var(--faint); font:12px var(--mono); text-align:right; }
+  .cells { display:flex; gap:4px; flex-wrap:wrap; }
+  .cells i { width:22px; height:22px; border-radius:7px; display:block; }
+  .cells i.on { background:linear-gradient(160deg, #ffd27a, #fca311 60%, #c97a00); box-shadow:0 0 14px -4px rgba(252,163,17,.7); }
+  .cells i.off { background:repeating-linear-gradient(90deg, rgba(255,255,255,.18) 0 2px, rgba(255,255,255,.04) 2px 5px); box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); }
+  .map .none { color:var(--faint); font-size:12.5px; grid-column:1/-1; }
+  @media (max-width:1100px){ .islands .hero, .islands .disclosure { grid-column:span 12; } .islands .ring, .islands .chart, .islands .minis { grid-column:span 4; } }
+  @media (max-width:700px){ .islands > * { grid-column:span 12 !important; } }
+  /* requests as receipt tiles */
+  .list { min-width:0; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
+  .tile { position:relative; text-align:left; border-radius:24px; padding:18px 18px 16px; background:var(--card); border:1px solid var(--line); cursor:pointer; color:inherit; font:inherit; display:flex; flex-direction:column; gap:12px; transition:transform .15s, border-color .15s, box-shadow .2s; }
+  .tile:hover { transform:translateY(-2px); border-color:var(--line-2); }
+  .tile.sel { border-color:rgba(252,163,17,.6); box-shadow:0 0 0 1px rgba(252,163,17,.35), 0 20px 50px -20px rgba(252,163,17,.35); }
+  .tile .top { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; color:var(--dim); }
+  .tile .top b { color:var(--text); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dot { width:9px; height:9px; border-radius:50%; flex:none; background:#55555c; }
+  .dot.fulfilled { background:var(--gold); box-shadow:0 0 10px var(--gold); } .dot.held_for_review { background:#8ea6dc; } .dot.rejected, .dot.expired { background:var(--bad); }
+  .tile .amt { font:500 28px/1 var(--sans); letter-spacing:-.04em; }
+  .tile .amt small { font-size:13px; color:var(--dim); margin-left:4px; letter-spacing:0; }
+  .tile .strip { display:flex; gap:3px; }
+  .tile .strip i { flex:1; height:6px; border-radius:3px; background:rgba(255,255,255,.07); }
+  .tile .strip i.on { background:var(--gold); } .tile .strip i.off { background:repeating-linear-gradient(90deg, rgba(255,255,255,.25) 0 2px, rgba(255,255,255,.05) 2px 4px); }
+  .tile .meta { display:flex; justify-content:space-between; color:var(--faint); font-size:12px; }
+  .tiles .empty { grid-column:1/-1; }
+
   /* overview: one hero card, a ring, two small cards */
-  .stats { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr); gap:14px; margin-bottom:14px; }
   .hero { position:relative; overflow:hidden; border-radius:26px; padding:24px 26px; min-height:196px; background:radial-gradient(120% 120% at 100% 0%, #262629 0%, #121214 45%, #0a0a0b 100%); border:1px solid var(--line); display:flex; flex-direction:column; justify-content:space-between; }
   .hero .lbl { color:var(--dim); font-size:13px; }
   .hero b { display:block; font:500 46px/1 var(--sans); letter-spacing:-.04em; margin-top:8px; }
@@ -75,8 +111,6 @@
   .stat i svg { width:19px; height:19px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
   .stat b { display:block; font:500 24px/1.1 var(--sans); letter-spacing:-.02em; }
   .stat span { color:var(--dim); font-size:13px; }
-  @media (max-width:1100px){ .stats { grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .hero { grid-column:1/-1; } }
-  @media (max-width:600px){ .stats { grid-template-columns:minmax(0,1fr); } .glass { width:150px; height:150px; right:-30px; } }
   .sealed { display:inline-flex; align-items:center; gap:6px; font:500 12px var(--sans); color:var(--dim); padding:3px 10px; border-radius:99px; background:repeating-linear-gradient(90deg, rgba(255,255,255,.09) 0 2px, rgba(255,255,255,.03) 2px 5px); box-shadow:inset 0 0 0 1px var(--line-2); }
   .sealed svg { width:12px; height:12px; stroke:currentColor; fill:none; stroke-width:2; }
 
@@ -187,24 +221,29 @@
 </header>
 <main>
   <section id="requests">
-    <div class="stats">
+    <div class="islands">
       <div class="hero"><div class="glass" aria-hidden="true"></div>
         <div><span class="lbl">Received</span><b id="st-zec">–</b></div>
         <div class="foot"><span class="sealed"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>payers' wallets sealed</span></div>
       </div>
       <div class="ring"><div class="donut" id="st-ring"><b id="st-pct">–</b></div><span>Proved</span></div>
+      <div class="island chart"><div class="ihead"><span>Last 14 days</span><b id="st-days">–</b></div><svg id="st-bars" viewBox="0 0 280 96" preserveAspectRatio="none" aria-label="ZEC received per day"></svg></div>
+      <div class="island disclosure">
+        <div class="ihead"><span>What payers revealed</span><span class="legend"><i class="g"></i>proven<i class="f"></i>sealed</span></div>
+        <div id="st-map" class="map"></div>
+      </div>
       <div class="minis">
         <div class="stat"><i><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></i><div><b id="st-open">–</b><span>Open</span></div></div>
-        <div class="stat"><i><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/><path d="M12 9v4M12 16h.01"/></svg></i><div><b id="st-held">–</b><span>Held for review</span></div></div>
+        <div class="stat"><i><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/><path d="M12 9v4M12 16h.01"/></svg></i><div><b id="st-held">–</b><span>Held</span></div></div>
       </div>
     </div>
     <div class="split">
-      <div class="card">
+      <div class="list">
         <div class="card-head">
           <div class="chips" id="rq-filter"><button aria-pressed="true" data-f="">All</button><button aria-pressed="false" data-f="open">Open</button><button aria-pressed="false" data-f="fulfilled">Fulfilled</button><button aria-pressed="false" data-f="held_for_review">Held</button></div>
           <button class="small" id="rq-refresh">Refresh</button>
         </div>
-        <table><thead><tr><th>Request</th><th>Status</th><th>Amount</th><th>Created</th></tr></thead><tbody id="rq-list"></tbody></table>
+        <div class="tiles" id="rq-list"></div>
       </div>
       <div class="card panel">
         <div class="panel-tabs" role="tablist"><button data-p="detail" aria-selected="true">Request</button><button data-p="new" aria-selected="false">New</button></div>
@@ -353,16 +392,51 @@ document.querySelectorAll("#rq-filter button").forEach((b) => b.onclick = () => 
   document.querySelectorAll("#rq-filter button").forEach((x) => x.setAttribute("aria-pressed", x === b));
   renderRequests();
 });
+// What a receipt revealed, field by field. Balance and history are never in a receipt.
+const FIELDS = [
+  ["Recipient", (v) => !!v?.outputs?.length],
+  ["Amount", (v) => v?.outputs?.some((o) => o.zatoshis != null)],
+  ["Memo", (v) => v?.outputs?.some((o) => o.memo)],
+  ["Key spent it", (v) => v?.checks?.spend_authority?.level === "proven"],
+  ["Sender", (v) => !!v?.checks && v.checks.sender_address !== "not_disclosed"],
+  ["Balance", () => false],
+  ["History", () => false],
+];
+const reveals = (r) => { const v = r.fulfillment?.verification; return v ? FIELDS.map(([, f]) => !!f(v)) : null; };
+function renderOverview() {
+  const proved = requests.filter((r) => r.fulfillment?.verification);
+  $("#st-map").innerHTML = proved.length ? FIELDS.map(([name], i) => {
+    const hits = proved.map((r) => reveals(r)[i]);
+    return `<span class="f">${name}</span><span class="cells">${hits.map((h) => `<i class="${h ? "on" : "off"}"></i>`).join("")}</span><span class="n">${hits.filter(Boolean).length}/${hits.length}</span>`;
+  }).join("") : `<span class="none">No receipts yet</span>`;
+  const DAY = 86400, today = Math.floor(Date.now() / 1000 / DAY);
+  const days = Array.from({ length: 14 }, () => 0);
+  for (const r of requests) {
+    const t = r.fulfillment?.fulfilled_at; if (!t) continue;
+    const d = today - Math.floor(t / DAY); if (d >= 0 && d < 14) days[13 - d] += r.received_zatoshis || 0;
+  }
+  const max = Math.max(...days, 1), w = 280 / 14;
+  $("#st-bars").innerHTML = `<defs><linearGradient id="gb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd27a"/><stop offset="1" stop-color="#c97a00"/></linearGradient></defs>` +
+    days.map((z, i) => { const h = z ? Math.max(6, (z / max) * 88) : 3; return `<rect x="${i * w + 3}" y="${96 - h}" width="${w - 6}" height="${h}" rx="4" fill="${z ? "url(#gb)" : "rgba(255,255,255,.08)"}"><title>${zec(z)}</title></rect>`; }).join("");
+  $("#st-days").textContent = zec(days.reduce((a, b) => a + b, 0));
+}
 function renderRequests() {
   const rows = requests.filter((r) => !filter || r.status === filter);
-  $("#rq-list").innerHTML = rows.map((r) => `<tr data-id="${esc(r.id)}"${r.id === selected ? ' class="sel"' : ""}>
-    <td><div style="font-weight:600">${esc(r.label || "Untitled")}</div><div class="muted mono">${esc(short(r.id, 10))}</div></td>
-    <td><span class="pill ${r.status}">${label(r.status)}</span>${r.final ? ` <span class="pill final">final</span>` : ""}${r.kind !== "single" ? ` <span class="muted">${esc(r.kind)}</span>` : ""}</td><td style="font-weight:600">${zec(r.amount_zatoshis)}</td><td class="muted">${ago(r.created)}</td></tr>`).join("")
-    || `<tr><td colspan="4" class="empty">${requests.length ? "None match" : "No requests yet"}</td></tr>`;
-  document.querySelectorAll("#rq-list tr[data-id]").forEach((tr) => tr.onclick = () => { selected = tr.dataset.id; renderRequests(); showPanel("detail"); showRequest(tr.dataset.id); });
+  $("#rq-list").innerHTML = rows.map((r) => {
+    const rv = reveals(r);
+    const strip = FIELDS.map((_, i) => `<i class="${rv ? (rv[i] ? "on" : "off") : ""}"></i>`).join("");
+    const z = r.amount_zatoshis ?? r.received_zatoshis;
+    return `<button class="tile${r.id === selected ? " sel" : ""}" data-id="${esc(r.id)}">
+      <span class="top"><b>${esc(r.label || "Untitled")}</b><span class="dot ${r.status}" title="${label(r.status)}"></span></span>
+      <span class="amt">${z == null ? "–" : esc((z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, ""))}<small>ZEC</small></span>
+      <span class="strip" title="What the payer revealed">${strip}</span>
+      <span class="meta"><span>${label(r.status)}${r.final ? " · final" : ""}${r.kind !== "single" ? ` · ${esc(r.kind)}` : ""}</span><span>${ago(r.created)}</span></span>
+    </button>`;
+  }).join("") || `<div class="empty">${requests.length ? "None match" : "No requests yet"}</div>`;
+  document.querySelectorAll("#rq-list .tile").forEach((t) => t.onclick = () => { selected = t.dataset.id; renderRequests(); showPanel("detail"); showRequest(t.dataset.id); });
 }
 async function loadRequests() {
-  if (!key) { $("#rq-list").innerHTML = `<tr><td colspan="4" class="empty">Paste an API key above</td></tr>`; return; }
+  if (!key) { $("#rq-list").innerHTML = `<div class="empty">Paste an API key above</div>`; return; }
   try {
     const page = await api("GET", "/v1/requests?limit=100");
     requests = page.data;
@@ -374,8 +448,10 @@ async function loadRequests() {
     const pct = requests.length ? Math.round((100 * n("fulfilled")) / requests.length) : 0;
     $("#st-ring").style.setProperty("--p", pct);
     $("#st-pct").textContent = requests.length ? `${pct}%` : "–";
+    renderOverview();
+    if (!selected) { const first = requests.find((r) => r.fulfillment) || requests[0]; if (first) { selected = first.id; showRequest(first.id); } }
     renderRequests();
-  } catch (e) { $("#rq-list").innerHTML = `<tr><td colspan="4" class="err">${esc(errText(e))}</td></tr>`; }
+  } catch (e) { $("#rq-list").innerHTML = `<div class="err">${esc(errText(e))}</div>`; }
 }
 async function qrFor(id) {
   try { const r = await fetch(`/v1/requests/${id}/qr.svg`, { headers: { authorization: `Bearer ${key}` } }); return r.ok ? await r.text() : ""; } catch { return ""; }

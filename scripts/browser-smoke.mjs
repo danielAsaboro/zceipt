@@ -117,8 +117,12 @@ try {
   // "Make a receipt": the demo wallet's viewing key and txid, proofs made in this browser.
   const ufvk = readFileSync(new URL("../examples/testnet/demo/viewing-key.txt", import.meta.url), "utf8").trim();
   await send("Page.navigate", { url: url.replace(/#.*$/, "").replace(/\/?$/, "/") + "make.html" });
-  await until(`!!document.querySelector('#proveBtn')`, 30);
-  await evaluate(`document.querySelector('#ufvk').value = ${JSON.stringify(ufvk)}; document.querySelector('#txid').value = 'd2d4c90445cb714e0ca8da14d881be4fb606cdcd9bd6b658ec3da76fb44252f4'; document.querySelector('#birthday').value = '4532853'; document.querySelector('#proveBtn').click(); true`);
+  await until(`!!document.querySelector('#openBtn')`, 30);
+  await evaluate(`document.querySelector('#key').value = ${JSON.stringify(ufvk)}; document.querySelector('#birthday').value = '4532853'; document.querySelector('#openBtn').click(); true`);
+  // The scan lists the wallet's payments as it meets them; pick the demo payment.
+  const listed = await until(`[...document.querySelectorAll('.pay small')].some((s) => s.textContent.startsWith('d2d4c90445cb714e')) ? 'yes' : ''`, 300);
+  check(listed === "yes" && !(await evaluate(`document.querySelector('#key').value`)), "opening the wallet lists its payment, and the key field keeps nothing");
+  await evaluate(`[...document.querySelectorAll('.pay')].find((b) => b.innerText.includes('d2d4c90445cb714e')).click(); document.querySelector('#makeBtn').click(); true`);
   const made = await until(`(() => { const t = document.querySelector('#progress').innerText; return /Proofs made|err/.test(document.querySelector('#progress').innerHTML) ? t : '' })()`, 300);
   check(/Proofs made/.test(made || "") && !(await evaluate(`document.querySelector('#signPart').hidden`)), `a viewing key makes the proofs in the browser (${(made || "timed out").slice(0, 60)})`);
   await send("Page.navigate", { url: url.replace(/#.*$/, "") });

@@ -95,10 +95,12 @@ minutes to build the first time).
 
 ## Make a receipt from your wallet
 
-**No terminal:** the verifier's **Make a receipt** page (`make.html`) takes your wallet's
-viewing key, the payment's txid and the wallet's birthday, finds the note and makes the proofs
-in your browser (about a minute), then signs with your seed phrase on the same device or saves
-the prepared receipt for another signer. Nothing leaves the device but block requests.
+**No terminal:** open your wallet on the verifier's **Make a receipt** page (`make.html`) with
+its seed phrase or its viewing key and its birthday. The page reads the chain the way a light
+wallet syncs, lists the payments the wallet sent as it finds them, and you tap one. It makes the
+proofs in your browser (about half a minute) and signs; with a viewing key it asks for the seed
+phrase at the end, or saves the prepared receipt for another signer. The phrase and the key stay
+in the page's memory; nothing leaves the device but block requests.
 
 **In a wallet:** wallets on the Zcash Android or iOS SDK add the button with two calls from
 the Swift/Kotlin bindings, `prepareReceipt(dbPath, …)` and `signPrepared(…)`

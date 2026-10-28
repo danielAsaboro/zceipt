@@ -45,17 +45,22 @@ out, api = sys.argv[1], sys.argv[2]
 cfg = {
     "cleanUrls": True,
     "redirects": [{"source": "/verify", "destination": "/verify/", "permanent": True}],
-    "headers": [{"source": "/(.*)", "headers": [
+    "headers": [],
+}
+# Nothing on the site may load from another host: a script, font or image from a CDN would hand
+# every visitor's IP to it. Chain servers are reached with fetch (connect-src), any https host
+# because the verifier lets you pick your own lightwalletd. The Mintlify docs evaluate page
+# frontmatter with `new Function`, so /docs alone also allows 'unsafe-eval' (still self-hosted only).
+def csp(extra):
+    return ("default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'" + extra + "; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; "
+            "connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'self'")
+for source, extra in [("/((?!docs).*)", ""), ("/docs", " 'unsafe-eval'"), ("/docs/(.*)", " 'unsafe-eval'")]:
+    cfg["headers"].append({"source": source, "headers": [
         {"key": "x-content-type-options", "value": "nosniff"},
         {"key": "referrer-policy", "value": "no-referrer"},
-        # Nothing on the site may load from another host: a script, font or image from a CDN
-        # would hand every visitor's IP to it. Chain servers are reached with fetch (connect-src),
-        # any https host because the verifier lets you pick your own lightwalletd.
-        {"key": "content-security-policy", "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; "
-            "connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"},
-    ]}],
-}
+        {"key": "content-security-policy", "value": csp(extra)},
+    ]})
 if api:
     cfg["rewrites"] = [{"source": p, "destination": api + p} for p in
                        ["/v1/:path*", "/dashboard", "/pay/:path*", "/c/:path*", "/.well-known/jwks.json"]]

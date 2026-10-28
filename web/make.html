@@ -27,6 +27,9 @@
     button:disabled { opacity: 0.5; cursor: default; transform: none; }
     #progress { font: 12.5px/1.6 var(--mono); color: var(--ink-2); margin: 14px 4px 0; white-space: pre-wrap; }
     select { width: 100%; background: rgba(255,255,255,.6); color: var(--ink); border: 1px solid transparent; border-radius: var(--r-input); padding: 12px 14px; font: 13px var(--sans); box-shadow: inset 0 0 0 1px rgba(17,17,20,.06); }
+    button.mm { width: 100%; margin: 0; }
+    .or { display: flex; align-items: center; gap: 12px; color: var(--ink-2); font-size: 13px; margin: 18px 0 2px; }
+    .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
     label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); margin-top: 16px; cursor: pointer; }
     label.check input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--ink); box-shadow: none; }
     #payments { display: grid; gap: 8px; margin-top: 14px; }
@@ -60,6 +63,8 @@
     </section>
 
     <section class="island" id="openPart">
+      <button type="button" id="mmBtn" class="mm">Connect MetaMask</button>
+      <div class="or" id="mmOr"><span>or</span></div>
       <label for="key">Seed phrase or viewing key</label>
       <textarea id="key" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
       <div class="two">

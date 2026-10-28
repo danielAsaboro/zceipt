@@ -1,0 +1,41 @@
+{
+  "version": "0.1.0",
+  "description": "Sign Zcash payment receipts (ZIP 311). Sites get a viewing key and signed receipts, never your seed.",
+  "proposedName": "Zceipt",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielAsaboro/zecathon-receipts.git"
+  },
+  "source": {
+    "shasum": "rs0WBSiWTqaCq0PcuN2R6pgSLTlggYs6PrNCTuNujy0=",
+    "location": {
+      "npm": {
+        "filePath": "dist/bundle.js",
+        "iconPath": "images/icon.svg",
+        "packageName": "zceipt-snap",
+        "registry": "https://registry.npmjs.org/"
+      }
+    }
+  },
+  "initialPermissions": {
+    "endowment:rpc": {
+      "allowedOrigins": [
+        "https://zceipt.xyz",
+        "https://www.zceipt.xyz",
+        "http://localhost:5320",
+        "http://127.0.0.1:5320",
+        "http://127.0.0.1:8731"
+      ]
+    },
+    "endowment:webassembly": {},
+    "snap_dialog": {},
+    "snap_manageState": {},
+    "snap_getBip44Entropy": [
+      {
+        "coinType": 133
+      }
+    ]
+  },
+  "platformVersion": "6.24.0",
+  "manifestVersion": "0.1"
+}

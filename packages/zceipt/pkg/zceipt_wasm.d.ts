@@ -191,6 +191,26 @@ export function viewing_key_from_phrase(phrase: string, testnet: boolean, accoun
  */
 export function sign_with_phrase(prepared: string, phrase: string, account: number): string;
 /**
+ * What signing a prepared receipt would reveal, read from the receipt itself (not from whoever
+ * handed it over), for a signer to show before it signs. JSON `{ network, txid, message,
+ * outputs_with_memo, outputs_without_memo, spends }`.
+ */
+export function describe_prepared(prepared: string): string;
+/**
+ * [`viewing_key_from_phrase`] from a raw seed (32 to 252 bytes): for a wallet that holds a seed
+ * rather than a phrase, such as a MetaMask snap's BIP 44 entropy.
+ */
+export function viewing_key_from_seed(seed: Uint8Array, testnet: boolean, account: number): string;
+/**
+ * [`sign_with_phrase`] from a raw seed (32 to 252 bytes).
+ */
+export function sign_with_seed(prepared: string, seed: Uint8Array, account: number): string;
+/**
+ * The BIP 39 seed of a phrase (no passphrase), checksum checked: for a signer that keeps the seed
+ * rather than the words, like the MetaMask snap. The error never quotes the phrase.
+ */
+export function seed_from_phrase(phrase: string): Uint8Array;
+/**
  * One receipt being made from a viewing key. Feed it chain data in order; see the module docs.
  */
 export class ReceiptMaker {
@@ -259,6 +279,7 @@ export interface InitOutput {
   readonly check_payment_uri: (a: number, b: number, c: number, d: number) => [number, number];
   readonly check_tex_deposit: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
   readonly claimed_outputs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+  readonly describe_prepared: (a: number, b: number) => [number, number, number, number];
   readonly inner_receipt: (a: number, b: number) => [number, number, number, number];
   readonly inspect: (a: number, b: number) => [number, number, number, number];
   readonly inspect_income: (a: number, b: number) => [number, number, number, number];
@@ -280,8 +301,10 @@ export interface InitOutput {
   readonly receiptmaker_witness_block: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly receiptmaker_witness_start: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
   readonly secret_kind: (a: number, b: number) => [number, number];
+  readonly seed_from_phrase: (a: number, b: number) => [number, number, number, number];
   readonly sign_prepared_text: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly sign_with_phrase: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+  readonly sign_with_seed: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
   readonly source_txids: (a: number, b: number) => [number, number, number, number];
   readonly transparent_output: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly txid_of: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -300,6 +323,7 @@ export interface InitOutput {
   readonly verify_screened: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
   readonly verify_sign_in: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly viewing_key_from_phrase: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+  readonly viewing_key_from_seed: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly warm_up_prover: () => void;
   readonly warm_up: () => void;
   readonly rustsecp256k1_v0_14_default_error_callback_fn: (a: number, b: number) => void;

@@ -383,6 +383,56 @@ pub fn sign_with_phrase(prepared: &str, phrase: &str, account: u32) -> Result<St
     Ok(p.apply_signatures(sigs).map_err(err)?.to_text())
 }
 
+/// The BIP 39 seed of a phrase (no passphrase), checksum checked: for a signer that keeps the seed
+/// rather than the words, like the MetaMask snap. The error never quotes the phrase.
+#[wasm_bindgen]
+pub fn seed_from_phrase(phrase: &str) -> Result<Vec<u8>, JsError> {
+    let words = phrase.split_whitespace().collect::<Vec<_>>().join(" ");
+    let m = <bip0039::Mnemonic<bip0039::English>>::from_phrase(words.as_str()).map_err(|_| err("that doesn't decode as a BIP 39 seed phrase"))?;
+    Ok(m.to_seed("").to_vec())
+}
+
+/// [`viewing_key_from_phrase`] from a raw seed (32 to 252 bytes): for a wallet that holds a seed
+/// rather than a phrase, such as a MetaMask snap's BIP 44 entropy.
+#[wasm_bindgen]
+pub fn viewing_key_from_seed(seed: &[u8], testnet: bool, account: u32) -> Result<String, JsError> {
+    let coin_type = if testnet { zceipt_core::COIN_TYPE_TESTNET } else { zceipt_core::COIN_TYPE_MAINNET };
+    let account = zip32::AccountId::try_from(account).map_err(|_| err("bad account index"))?;
+    let sk = SpendingKey::from_zip32_seed(seed, coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
+    let ufvk = unified::Ufvk::try_from_items(unified::Revision::R0, vec![unified::Uitem::Data(unified::Fvk::Orchard(FullViewingKey::from(&sk).to_bytes()))]).map_err(err)?;
+    Ok(ufvk.encode(&if testnet { NetworkType::Test } else { NetworkType::Main }))
+}
+
+/// [`sign_with_phrase`] from a raw seed (32 to 252 bytes).
+#[wasm_bindgen]
+pub fn sign_with_seed(prepared: &str, seed: &[u8], account: u32) -> Result<String, JsError> {
+    let p = PreparedReceipt::from_text(prepared).map_err(err)?;
+    let account = zip32::AccountId::try_from(account).map_err(|_| err("bad account index"))?;
+    let sk = SpendingKey::from_zip32_seed(seed, p.unsigned().coin_type, account).map_err(|_| err("couldn't derive the spending key"))?;
+    let asks = vec![SpendAuthorizingKey::from(&sk); p.unsigned().spends.len()];
+    let sigs = zceipt_core::sign_prepared(p.unsigned(), p.alphas(), &asks, rand::rand_core::UnwrapErr(rand::rngs::SysRng))
+        .map_err(|_| err("this wallet (account above) didn't make these spends"))?;
+    Ok(p.apply_signatures(sigs).map_err(err)?.to_text())
+}
+
+/// What signing a prepared receipt would reveal, read from the receipt itself (not from whoever
+/// handed it over), for a signer to show before it signs. JSON `{ network, txid, message,
+/// outputs_with_memo, outputs_without_memo, spends }`.
+#[wasm_bindgen]
+pub fn describe_prepared(prepared: &str) -> Result<String, JsError> {
+    let p = PreparedReceipt::from_text(prepared).map_err(err)?;
+    let u = p.unsigned();
+    Ok(serde_json::json!({
+        "network": if u.coin_type == zceipt_core::COIN_TYPE_MAINNET { "mainnet" } else { "testnet" },
+        "txid": display_txid(&u.txid),
+        "message": String::from_utf8_lossy(&u.msg),
+        "outputs_with_memo": u.outputs.len(),
+        "outputs_without_memo": u.opened.len(),
+        "spends": u.spends.len(),
+    })
+    .to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

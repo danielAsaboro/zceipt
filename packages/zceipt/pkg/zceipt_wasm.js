@@ -1147,6 +1147,111 @@ export function sign_with_phrase(prepared, phrase, account) {
     }
 }
 
+/**
+ * What signing a prepared receipt would reveal, read from the receipt itself (not from whoever
+ * handed it over), for a signer to show before it signs. JSON `{ network, txid, message,
+ * outputs_with_memo, outputs_without_memo, spends }`.
+ * @param {string} prepared
+ * @returns {string}
+ */
+export function describe_prepared(prepared) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(prepared, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.describe_prepared(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * [`viewing_key_from_phrase`] from a raw seed (32 to 252 bytes): for a wallet that holds a seed
+ * rather than a phrase, such as a MetaMask snap's BIP 44 entropy.
+ * @param {Uint8Array} seed
+ * @param {boolean} testnet
+ * @param {number} account
+ * @returns {string}
+ */
+export function viewing_key_from_seed(seed, testnet, account) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.viewing_key_from_seed(ptr0, len0, testnet, account);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * [`sign_with_phrase`] from a raw seed (32 to 252 bytes).
+ * @param {string} prepared
+ * @param {Uint8Array} seed
+ * @param {number} account
+ * @returns {string}
+ */
+export function sign_with_seed(prepared, seed, account) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(prepared, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.sign_with_seed(ptr0, len0, ptr1, len1, account);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * The BIP 39 seed of a phrase (no passphrase), checksum checked: for a signer that keeps the seed
+ * rather than the words, like the MetaMask snap. The error never quotes the phrase.
+ * @param {string} phrase
+ * @returns {Uint8Array}
+ */
+export function seed_from_phrase(phrase) {
+    const ptr0 = passStringToWasm0(phrase, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.seed_from_phrase(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
 const ReceiptMakerFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_receiptmaker_free(ptr >>> 0, 1));

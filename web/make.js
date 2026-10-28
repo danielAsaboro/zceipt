@@ -3,11 +3,13 @@
 // the viewing key; a seed phrase stays in this page's memory until it signs, then is dropped.
 import init, { sign_with_phrase, viewing_key_from_phrase } from "./zceipt/pkg/zceipt_wasm.js";
 import * as passkey from "./passkey.js";
+import * as metamask from "./metamask.js";
 
 const $ = (s) => document.querySelector(s);
 const local = init();
 let worker = null;
 let phrase = null; // only when the wallet was opened with its seed phrase
+let viaMetaMask = false; // the Zceipt snap holds the keys and signs
 let network = "testnet";
 let picked = null; // { txid, height }
 let made = null;
@@ -84,12 +86,14 @@ $("#openBtn").onclick = async () => {
       say(`Not remembered: ${e.message || e}`, "err");
     }
   }
+  viaMetaMask = false;
   openWallet({ key, birthday, net });
 };
 
 $("#unlockBtn").onclick = async () => {
   $("#unlockBtn").disabled = true;
   try {
+    viaMetaMask = false;
     openWallet(await passkey.unlock());
   } catch (e) {
     say(e.name === "NotAllowedError" ? "Unlock cancelled." : String(e.message || e), "err");
@@ -182,11 +186,45 @@ function proved(result) {
   delete $("#makeBtn").dataset.busy;
   $("#openBtn").disabled = false;
   made = { ...result, txid: picked.txid };
+  if (viaMetaMask) return signInMetaMask();
   if (phrase) return sign(phrase);
   say(`Proofs made for ${picked.txid.slice(0, 12)}… Your viewing key stayed on this device.`, "done");
   $("#makeBtn").disabled = false;
   $("#signPart").hidden = false;
   $("#phrase").focus();
+}
+
+$("#mmBtn").onclick = async () => {
+  $("#mmBtn").disabled = true;
+  try {
+    say("Approve in MetaMask");
+    const { viewingKey, birthday } = await metamask.connect($("#net").value === "main" ? "main" : "test");
+    const b = birthday ?? Number($("#birthday").value.trim());
+    if (!Number.isInteger(b) || b < 1) { say(""); return need("#birthday", "The block your wallet was created at (any block before it first received funds)."); }
+    viaMetaMask = true;
+    openWallet({ key: viewingKey, birthday: b });
+  } catch (e) {
+    say(String(e.message || e), "err");
+  } finally {
+    $("#mmBtn").disabled = false;
+  }
+};
+
+async function signInMetaMask() {
+  say("Approve the receipt in MetaMask");
+  try {
+    const receipt = await metamask.sign(made.prepared);
+    done(receipt);
+  } catch (e) {
+    $("#makeBtn").disabled = false;
+    say(String(e.message || e), "err");
+  }
+}
+
+// To the verifier, with the request it answers when there is one, so it is checked there.
+function done(receipt) {
+  const req = request ? `${["request", "to", "min", "label"].filter((k) => request.get(k)).map((k) => `${k}=${encodeURIComponent(request.get(k))}`).join("&")}&` : "";
+  location.href = `./#${req}${receipt}&h=${made.height}`;
 }
 
 async function sign(words) {
@@ -199,9 +237,7 @@ async function sign(words) {
   } finally {
     forget();
   }
-  // To the verifier, with the request it answers when there is one, so it is checked there.
-  const req = request ? `${["request", "to", "min", "label"].filter((k) => request.get(k)).map((k) => `${k}=${encodeURIComponent(request.get(k))}`).join("&")}&` : "";
-  location.href = `./#${req}${receipt}&h=${made.height}`;
+  done(receipt);
 }
 
 $("#signBtn").onclick = () => {

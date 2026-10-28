@@ -2,6 +2,7 @@
 // the scan finds, and the proofs and signature are made on this device. The worker only ever gets
 // the viewing key; a seed phrase stays in this page's memory until it signs, then is dropped.
 import init, { sign_with_phrase, viewing_key_from_phrase } from "./zceipt/pkg/zceipt_wasm.js";
+import * as passkey from "./passkey.js";
 
 const $ = (s) => document.querySelector(s);
 const local = init();
@@ -72,21 +73,51 @@ $("#openBtn").onclick = async () => {
   const key = $("#key").value.trim(), birthday = Number($("#birthday").value.trim());
   if (!key) return need("#key", "Your wallet's seed phrase, or the viewing key it exports (uview1…).");
   if (!Number.isInteger(birthday) || birthday < 1) return need("#birthday", "The block your wallet was created at (any block before it first received funds).");
+  const net = $("#net").value;
+  // Out of the form as soon as it's read: the field keeps nothing.
+  $("#key").value = "";
+  $("#netBox").hidden = true;
+  if ($("#remember").checked) {
+    try {
+      await passkey.save({ key, birthday, net }, "Your Zcash wallet");
+    } catch (e) {
+      say(`Not remembered: ${e.message || e}`, "err");
+    }
+  }
+  openWallet({ key, birthday, net });
+};
+
+$("#unlockBtn").onclick = async () => {
+  $("#unlockBtn").disabled = true;
+  try {
+    openWallet(await passkey.unlock());
+  } catch (e) {
+    say(e.name === "NotAllowedError" ? "Unlock cancelled." : String(e.message || e), "err");
+  } finally {
+    $("#unlockBtn").disabled = false;
+  }
+};
+
+$("#otherBtn").onclick = () => {
+  passkey.forget();
+  $("#unlockPart").hidden = true;
+  $("#openPart").hidden = false;
+  $("#key").focus();
+};
+
+async function openWallet({ key, birthday, net }) {
   let ufvk = key;
   if (!isViewingKey(key)) {
     await local;
     try {
-      ufvk = viewing_key_from_phrase(key, $("#net").value === "test", 0);
+      ufvk = viewing_key_from_phrase(key, net !== "main", 0);
     } catch (e) {
-      return need("#key", String(e.message || e));
+      return say(String(e.message || e), "err");
     }
     phrase = key;
   } else {
     phrase = null;
   }
-  // Out of the form as soon as it's read: the field keeps nothing.
-  $("#key").value = "";
-  $("#netBox").hidden = true;
   network = ufvk.startsWith("uviewtest1") ? "testnet" : "mainnet";
   made = null;
   picked = null;
@@ -101,7 +132,15 @@ $("#openBtn").onclick = async () => {
   worker.onmessage = onWorker;
   scanning = true;
   worker.postMessage({ find: { ufvk, birthday } });
-};
+}
+
+// A wallet remembered here opens with the passkey alone.
+if (passkey.saved()) {
+  $("#savedLabel").textContent = passkey.saved();
+  $("#unlockPart").hidden = false;
+  $("#openPart").hidden = true;
+}
+passkey.supported().then((ok) => { $("#rememberBox").hidden = !ok; });
 
 function noPayments(tip) {
   const p = document.createElement("p");

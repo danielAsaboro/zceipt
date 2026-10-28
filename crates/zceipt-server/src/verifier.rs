@@ -26,6 +26,7 @@ const FILES: &[(&str, &str, &[u8])] = &[
     ("worker.js", "text/javascript", file!("web/worker.js")),
     ("make.html", "text/html; charset=utf-8", file!("web/make.html")),
     ("make.js", "text/javascript", file!("web/make.js")),
+    ("passkey.js", "text/javascript", file!("web/passkey.js")),
     ("make-worker.js", "text/javascript", file!("web/make-worker.js")),
     ("zceipt/maker.js", "text/javascript", file!("packages/zceipt/maker.js")),
     ("zceipt/index.js", "text/javascript", file!("packages/zceipt/index.js")),

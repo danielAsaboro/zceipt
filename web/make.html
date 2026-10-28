@@ -27,6 +27,8 @@
     button:disabled { opacity: 0.5; cursor: default; transform: none; }
     #progress { font: 12.5px/1.6 var(--mono); color: var(--ink-2); margin: 14px 4px 0; white-space: pre-wrap; }
     select { width: 100%; background: rgba(255,255,255,.6); color: var(--ink); border: 1px solid transparent; border-radius: var(--r-input); padding: 12px 14px; font: 13px var(--sans); box-shadow: inset 0 0 0 1px rgba(17,17,20,.06); }
+    label.check { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); margin-top: 16px; cursor: pointer; }
+    label.check input { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--ink); box-shadow: none; }
     #payments { display: grid; gap: 8px; margin-top: 14px; }
     .pay { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; text-align: left; width: 100%; margin: 0; padding: 14px 16px; border-radius: 16px; background: rgba(255,255,255,.55); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(17,17,20,.06); font: 500 15px var(--sans); }
     .pay:hover { transform: none; background: var(--surface); }
@@ -51,6 +53,12 @@
     <span class="pill"><i class="dot accent"></i>Keys stay on this device</span>
     <h1>Make a receipt</h1>
 
+    <section class="island" id="unlockPart" hidden>
+      <h2 id="savedLabel"></h2>
+      <button id="unlockBtn">Unlock with passkey</button>
+      <button type="button" class="ghost" id="otherBtn">Forget this wallet</button>
+    </section>
+
     <section class="island" id="openPart">
       <label for="key">Seed phrase or viewing key</label>
       <textarea id="key" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
@@ -58,6 +66,7 @@
         <div><label for="birthday">Wallet birthday (block)</label><input id="birthday" inputmode="numeric" autocomplete="off"></div>
         <div id="netBox" hidden><label for="net">Network</label><select id="net"><option value="test">Testnet</option><option value="main">Mainnet</option></select></div>
       </div>
+      <label class="check" id="rememberBox" hidden><input type="checkbox" id="remember"> Remember on this device with a passkey</label>
       <button id="openBtn">Open wallet</button>
     </section>
 

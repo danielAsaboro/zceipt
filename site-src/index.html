@@ -9,7 +9,7 @@
 <meta property="og:description" content="Prove one shielded Zcash payment and keep everything else sealed.">
 <meta name="theme-color" content="#F4F4F6">
 <meta name="color-scheme" content="light">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23111114'/><path d='M10.5 10.5h11l-11 11h11' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/><circle cx='24' cy='8' r='3.2' fill='%235B3DF5'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23111114'/><path d='M10.5 10.5h11l-11 11h11' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/><circle cx='24' cy='8' r='3.2' fill='%230071E3'/></svg>">
 <link rel="stylesheet" href="/verify/zceipt.css">
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
 <style>
@@ -31,28 +31,29 @@
   .hero-copy > :nth-child(2) { animation-delay: .1s; } .hero-copy > :nth-child(3) { animation-delay: .22s; }
   @keyframes rise { from { opacity: 0; transform: translateY(18px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
 
-  .beat { position: absolute; left: max(32px, calc((100vw - 1200px) / 2 + 32px)); top: 50%; width: min(460px, 36vw);
+  .beat { position: absolute; left: max(24px, calc((100vw - 1200px) / 2 + 24px)); top: 50%; width: min(440px, 34vw); padding: 30px 30px 32px; border-radius: 30px;
           transform: translateY(-40%); opacity: 0; filter: blur(10px); transition: opacity .55s var(--out), transform .7s var(--out), filter .55s var(--out); pointer-events: none; }
   .beat.on { opacity: 1; transform: translateY(-50%); filter: none; pointer-events: auto; }
   .beat .num { font: 600 13px var(--mono); color: var(--ink-3); display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
   .beat .num::before { content: ""; width: 26px; height: 2px; border-radius: 2px; background: currentColor; }
-  .beat[data-tone="flare"] .num { color: var(--flare); } .beat[data-tone="iris"] .num { color: var(--iris); }
-  .beat h2 { font-size: clamp(34px, 3.8vw, 54px); margin: 0 0 16px; }
+  .beat[data-tone="flare"] .num { color: var(--flare); } .beat[data-tone="accent"] .num { color: var(--accent); }
+  .beat h2 { font-size: clamp(30px, 3.2vw, 46px); margin: 0 0 14px; }
   .beat p { margin: 0; color: var(--ink-2); font-size: 18px; max-width: 26em; }
   .beat .chips { margin-top: 24px; }
 
   .story-dots { position: absolute; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; transition: opacity .4s, transform .5s var(--out);
-                display: flex; gap: 4px; padding: 5px; border-radius: 999px; background: rgba(255,255,255,.7); backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6); box-shadow: var(--lift); border: 1px solid var(--line); }
+                display: flex; gap: 4px; padding: 5px; border-radius: 999px; }
   body.in-story .story-dots { opacity: 1; transform: translate(-50%, 0); }
   .story-dots button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font: 500 13px var(--sans); color: var(--ink-2); transition: background .3s, color .3s; }
   .story-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); transition: background .3s, box-shadow .3s; }
-  .story-dots button:has(i.on) { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(17,17,20,.1); }
+  .story-dots button:has(i.on) { background: rgba(255,255,255,.85); color: var(--ink); box-shadow: inset 0 1px 0 #fff, 0 2px 8px -2px rgba(17,17,20,.18); }
+  .story-dots button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .story-dots button:nth-child(1):has(i.on) i { background: var(--ink); }
   .story-dots button:nth-child(2):has(i.on) i { background: var(--flare); box-shadow: 0 0 10px var(--flare); }
-  .story-dots button:nth-child(n+3):has(i.on) i { background: var(--iris); box-shadow: 0 0 10px var(--iris); }
+  .story-dots button:nth-child(n+3):has(i.on) i { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 
   @media (max-width: 860px) {
-    .beat { left: 16px; right: 16px; width: auto; top: auto; bottom: 86px; transform: translateY(20px); padding: 22px; border-radius: 24px; background: rgba(255,255,255,.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: var(--lift); border: 1px solid var(--line); }
+    .beat { left: 12px; right: 12px; width: auto; top: auto; bottom: 80px; transform: translateY(20px); padding: 22px; border-radius: 26px; }
     .beat.on { transform: none; }
     .beat h2 { font-size: 28px; margin-bottom: 8px; } .beat p { font-size: 15px; } .beat .chips { margin-top: 14px; } .beat .num { margin-bottom: 10px; }
     .story-dots button span { display: none; } .story-dots button { padding: 10px; }
@@ -61,12 +62,14 @@
   /* ---------- try ---------- */
   .try { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 20px; }
   .till { padding: 40px; display: grid; place-items: center; min-height: 440px; position: relative; overflow: hidden;
-          background: radial-gradient(70% 60% at 50% 40%, #fff, #EEEEF2); }
+          }
   .till .order { position: absolute; top: 24px; left: 28px; right: 28px; display: flex; justify-content: space-between; font: 600 12px var(--mono); color: var(--ink-3); letter-spacing: .08em; }
-  .till zcash-receipt { width: 100%; max-width: 400px; }
+  .till zcash-receipt { width: 100%; max-width: 400px; --zr-bg: #fff; --zr-radius: 26px; --zr-pad: 26px 26px 24px; --zr-shadow: 0 40px 80px -40px rgba(17,17,20,.4), 0 12px 24px -16px rgba(17,17,20,.16);
+    --zr-ink: #111114; --zr-ink-2: #3A3A42; --zr-muted: #8A8A94; --zr-ok: #fff; --zr-ok-bg: #0071E3; --zr-bad: #E5484D; --zr-stamp-border: 0; --zr-stamp-radius: 999px; --zr-stamp-pad: 5px 11px;
+    --zr-amount-font: var(--sans); --zr-amount-size: 34px; --zr-amount-track: -.04em; }
   .facts { display: grid; gap: 20px; grid-template-rows: repeat(3, minmax(0, 1fr)); }
   .fact { padding: 26px 28px; display: flex; gap: 18px; align-items: center; }
-  .fact .ico { flex: none; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--bg); color: var(--ink); }
+  .fact .ico { flex: none; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: rgba(255,255,255,.7); box-shadow: inset 0 1px 0 #fff, 0 6px 14px -8px rgba(17,17,20,.25); color: var(--ink); }
   .fact .ico svg { width: 24px; height: 24px; }
   .fact b { display: block; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
   .fact span { color: var(--ink-2); font-size: 15px; }
@@ -76,28 +79,28 @@
   .builder { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 20px; align-items: stretch; }
   .toggles { padding: 14px; display: grid; align-content: start; }
   .tg { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-radius: 18px; font-size: 17px; font-weight: 500; }
-  .tg + .tg { border-top: 1px solid var(--line); border-radius: 0; }
+  .tg + .tg { box-shadow: inset 0 1px 0 rgba(17,17,20,.06); border-radius: 0; }
   .tg .lock { font: 500 13px var(--sans); color: var(--ink-3); display: flex; gap: 6px; align-items: center; }
   .tg .lock svg { width: 14px; height: 14px; }
   .switch { position: relative; width: 52px; height: 32px; flex: none; }
   .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
-  .switch i { position: absolute; inset: 0; border-radius: 99px; background: #E3E3E8; transition: background .3s var(--out); }
+  .switch i { position: absolute; inset: 0; border-radius: 99px; background: rgba(120,120,128,.18); transition: background .3s var(--out); }
   .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.18); transition: transform .35s var(--out); }
-  .switch input:checked + i { background: var(--iris); }
+  .switch input:checked + i { background: var(--accent); }
   .switch input:checked + i::after { transform: translateX(20px); }
-  .switch input:focus-visible + i { outline: 2px solid var(--iris); outline-offset: 3px; }
-  .preview { display: grid; place-items: center; padding: 44px 24px; background: radial-gradient(60% 60% at 50% 40%, rgba(91,61,245,.10), transparent 70%), var(--surface); }
+  .switch input:focus-visible + i { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .preview { display: grid; place-items: center; padding: 44px 24px; }
   .meter { margin-top: 22px; display: flex; align-items: center; gap: 12px; font: 500 14px var(--sans); color: var(--ink-2); }
   .meter .bar { display: flex; gap: 4px; }
   .meter .bar i { width: 22px; height: 8px; border-radius: 4px; background: var(--seal); transition: background .4s var(--out); }
-  .meter .bar i.on { background: var(--iris); }
+  .meter .bar i.on { background: var(--accent); }
   @media (max-width: 920px) { .builder { grid-template-columns: 1fr; } }
 
   /* ---------- proofs bento ---------- */
   .bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
   .bento a { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; padding: 24px; min-height: 236px; transition: transform .4s var(--out), box-shadow .4s var(--out); }
-  .bento a:hover { transform: translateY(-4px); box-shadow: 0 30px 60px -30px rgba(91,61,245,.35), var(--lift); }
-  .bento a.lead { grid-column: span 2; grid-row: span 2; background: var(--ink); color: #fff; border-color: transparent; }
+  .bento a:hover { transform: translateY(-4px); box-shadow: var(--rim), 0 34px 60px -30px rgba(17,17,20,.35); }
+  .bento a.lead { grid-column: span 2; grid-row: span 2; }
   .bento a.lead .what { color: #A3A3AD; } .bento a.lead .prefix { color: #6B6B74; }
   .bento svg.g { width: 100%; height: 96px; color: var(--ink-4); }
   .bento a.lead svg.g { height: 100%; min-height: 240px; color: #3A3A45; }
@@ -105,7 +108,7 @@
   .bento .name { display: block; font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin: 4px 0 4px; }
   .bento a.lead .name { font-size: 30px; }
   .bento .what { color: var(--ink-2); font-size: 14.5px; line-height: 1.45; }
-  .g .k { fill: var(--iris); } .g .ks { stroke: var(--iris); } .g .card { fill: var(--surface); stroke: var(--ink-4); }
+  .g .k { fill: var(--accent); } .g .ks { stroke: var(--accent); } .g .card { fill: rgba(255,255,255,.8); stroke: var(--ink-4); }
   @media (max-width: 1020px) { .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) { .bento { grid-template-columns: 1fr; } .bento a.lead { grid-column: auto; grid-row: auto; } .bento a.lead svg.g { min-height: 180px; } }
 
@@ -115,14 +118,14 @@
   .dev ul { list-style: none; padding: 0; margin: 32px 0 0; display: grid; gap: 10px; }
   .dev li { display: flex; gap: 14px; align-items: baseline; color: var(--ink-2); font-size: 16px; }
   .dev li b { color: var(--ink); font-weight: 600; min-width: 92px; }
-  .code { background: #0E0E12; color: #E9E9EE; border-radius: var(--r-island); overflow: hidden; box-shadow: 0 40px 80px -40px rgba(17,17,20,.55); }
+  .code { color: #E9E9EE; border-radius: var(--r-island); overflow: hidden; }
   .tabs { display: flex; gap: 2px; padding: 10px; border-bottom: 1px solid rgba(255,255,255,.07); overflow-x: auto; }
   .tabs button { all: unset; cursor: pointer; font: 500 13px var(--sans); color: #8A8A94; padding: 8px 14px; border-radius: 99px; white-space: nowrap; transition: color .2s, background .2s; }
   .tabs button[aria-selected="true"] { color: #fff; background: rgba(255,255,255,.09); }
-  .tabs button:focus-visible { outline: 2px solid var(--iris); }
+  .tabs button:focus-visible { outline: 2px solid var(--accent); }
   .code pre { margin: 0; padding: 28px 30px; font: 13.5px/1.8 var(--mono); overflow-x: auto; min-height: 270px; }
   .code pre[hidden] { display: none; }
-  .c { color: #6B6B74; } .s { color: #B3A4FF; } .kw { color: #7CC4FF; }
+  .c { color: #7A7A84; } .s { color: #FFB38A; } .kw { color: #7CC4FF; }
   @media (max-width: 920px) { .dev { grid-template-columns: 1fr; gap: 36px; } }
 
   .close { text-align: center; padding: 160px 0 150px; }
@@ -132,10 +135,10 @@
 </style>
 </head>
 <body class="top-of-story">
-<div class="bg" aria-hidden="true"><i></i><i></i></div>
+<div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
 
-<nav class="island-nav" id="nav">
-  <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#111114"/><path d="M10.5 10.5h11l-11 11h11" stroke="#fff" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="8" r="3.2" fill="#5B3DF5"/></svg>Zceipt</a>
+<nav class="island-nav" id="nav" data-lens="14">
+  <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#111114"/><path d="M10.5 10.5h11l-11 11h11" stroke="#fff" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="8" r="3.2" fill="#0071E3"/></svg>Zceipt</a>
   <div class="links">
     <a class="hide-sm" href="#try">Try it</a>
     <a class="hide-sm" href="#proofs">Proofs</a>
@@ -153,40 +156,40 @@
       <canvas id="stage" aria-hidden="true"></canvas>
 
       <header class="hero-copy">
-        <span class="pill"><i class="dot iris"></i>ZIP 311 · Orchard · testnet</span>
+        <span class="pill" data-lens="10"><i class="dot accent"></i>ZIP 311 · Orchard · testnet</span>
         <h1>Prove one payment. <span>Reveal nothing else.</span></h1>
         <div class="row">
           <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
-          <a class="btn ghost" href="/docs/quickstart">Quickstart</a>
+          <a class="btn ghost" href="/docs/quickstart" data-lens="12">Quickstart</a>
         </div>
       </header>
 
-      <div class="beat" aria-hidden="true"></div>
-      <article class="beat">
+      <div class="beat-0" aria-hidden="true"></div>
+      <article class="beat glass sheen" data-lens="20">
         <div class="num">01 · Sealed</div>
         <h2>Every payment, sealed.</h2>
         <p>Shielded Zcash hides who you paid, how much and why. Even from the chain.</p>
       </article>
-      <article class="beat" data-tone="flare">
+      <article class="beat glass sheen" data-lens="20" data-tone="flare">
         <div class="num">02 · Exposed</div>
         <h2>A viewing key opens all of it.</h2>
         <p>Asked for proof, you hand over every payment, your balance, and the ones you haven't made yet.</p>
         <div class="chips"><span class="chip flare">Balance</span><span class="chip flare">Rent</span><span class="chip flare">Clinic</span><span class="chip flare">Salary</span><span class="chip flare">Future payments</span></div>
       </article>
-      <article class="beat" data-tone="iris">
+      <article class="beat glass sheen" data-lens="20" data-tone="accent">
         <div class="num">03 · One payment</div>
         <h2>Zceipt opens one card.</h2>
         <p>Recipient, amount and memo from a single payment. The rest of the wallet stays shut.</p>
         <div class="chips"><span class="chip on">Recipient</span><span class="chip on">Amount</span><span class="chip on">Memo</span><span class="chip sealed">Sender</span><span class="chip sealed">Balance</span><span class="chip sealed">History</span></div>
       </article>
-      <article class="beat" data-tone="iris">
+      <article class="beat glass sheen" data-lens="20" data-tone="accent">
         <div class="num">04 · Proven</div>
         <h2>Signed by the key that spent it.</h2>
         <p>A fresh zero-knowledge proof, checked in any browser. Someone who only saw the payment can't make one.</p>
         <div class="row" style="margin-top:26px"><a class="btn" href="/verify/#{{SAMPLE_LINK}}">Check this receipt</a></div>
       </article>
 
-      <nav class="story-dots" aria-label="Story">
+      <nav class="story-dots glass" aria-label="Story" data-lens="12">
         <button data-go="0.2"><i></i><span>Sealed</span></button>
         <button data-go="0.45"><i></i><span>Exposed</span></button>
         <button data-go="0.72"><i></i><span>One payment</span></button>
@@ -258,15 +261,15 @@
         <p>Facts about many payments, without the history behind them.</p>
       </div>
       <div class="bento reveal">
-        <a class="island lead" href="/docs/concepts/spend-authority">
+        <a class="island glass dark lead" href="/docs/concepts/spend-authority">
           <svg class="g" viewBox="0 0 320 220" fill="none" stroke-width="2" aria-hidden="true">
             <g stroke="currentColor"><rect x="30" y="40" width="96" height="132" rx="14" opacity=".5"/><rect x="46" y="30" width="96" height="132" rx="14" opacity=".7"/></g>
             <rect x="150" y="18" width="120" height="164" rx="16" fill="#fff"/>
             <rect x="166" y="40" width="58" height="10" rx="5" fill="#111114"/><rect x="166" y="62" width="40" height="18" rx="6" fill="#111114"/>
-            <g fill="#5B3DF5"><circle cx="170" cy="104" r="4"/><circle cx="170" cy="124" r="4"/></g>
+            <g fill="#0071E3"><circle cx="170" cy="104" r="4"/><circle cx="170" cy="124" r="4"/></g>
             <g fill="#D6D6DE"><rect x="182" y="99" width="70" height="10" rx="5"/><rect x="182" y="119" width="54" height="10" rx="5"/></g>
             <g fill="#1B1B21"><rect x="166" y="142" width="86" height="10" rx="5"/><rect x="166" y="160" width="62" height="10" rx="5"/></g>
-            <circle cx="262" cy="170" r="26" fill="#5B3DF5"/><path d="M251 170l8 8 15-16" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="262" cy="170" r="26" fill="#0071E3"/><path d="M251 170l8 8 15-16" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <div><span class="prefix">zip311r1</span><span class="name">One payment</span><span class="what">Who was paid, how much, the memo, and that your key spent the money.</span></div>
         </a>
@@ -317,7 +320,7 @@
           <li><b>Wallets</b>Swift and Kotlin bindings</li>
         </ul>
       </div>
-      <div class="code reveal">
+      <div class="code glass dark reveal">
         <div class="tabs" role="tablist">
           <button role="tab" aria-selected="true" data-t="browser">Browser</button>
           <button role="tab" aria-selected="false" data-t="node">Node</button>
@@ -423,6 +426,7 @@ zceipt demo</pre>
   document.querySelectorAll("#toggles input").forEach((i) => i.addEventListener("change", paint));
   paint();
 </script>
+<script src="/verify/glass.js" defer></script>
 <script type="module" src="/stage.js"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
 
 const story = document.getElementById("story");
 const canvas = document.getElementById("stage");
-const beats = [...document.querySelectorAll(".beat")];
+const beats = [document.querySelector(".beat-0"), ...document.querySelectorAll(".beat")];
 const dots = [...document.querySelectorAll(".story-dots i")];
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -64,7 +64,7 @@ requestAnimationFrame(loop);
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif';
 const MONO = 'ui-monospace, "SF Mono", Menlo, monospace';
 const INK = "#111114", INK2 = "#6B6B74", INK3 = "#A3A3AD", SEAL = "#1B1B21", SEAL_TEXT = "#3A3A45";
-const IRIS = "#5B3DF5", FLARE = "#FF4D2E";
+const ACCENT = "#0071E3", FLARE = "#FF4D2E";
 
 const CARDS = [
   { title: "Rent", amount: "−4.20", to: "utest1q8w…m3xk7", memo: "October rent", from: "utest1zr4…8hkd2", balance: "48.2130 ZEC" },
@@ -94,7 +94,7 @@ function drawFace(card, rev, accent, glow, sealOn) {
   for (const x of [0, W]) { g.beginPath(); g.arc(x, 318, 20, 0, Math.PI * 2); g.fill(); }
   g.globalCompositeOperation = "source-over";
   if (glow > 0.01) {
-    g.globalAlpha = glow; g.lineWidth = 10; g.strokeStyle = accent;
+    g.globalAlpha = glow * 0.75; g.lineWidth = 6; g.strokeStyle = accent;
     g.beginPath(); g.roundRect(5, 5, W - 10, H - 10, 42); g.stroke(); g.globalAlpha = 1;
   }
   g.fillStyle = INK3; g.font = `600 19px ${FONT}`;
@@ -150,7 +150,7 @@ function sealTexture(THREE) {
   const c = document.createElement("canvas"); c.width = c.height = 512;
   const g = c.getContext("2d");
   const grad = g.createLinearGradient(0, 0, 512, 512);
-  grad.addColorStop(0, "#7B5CFF"); grad.addColorStop(0.55, IRIS); grad.addColorStop(1, "#2FA8FF");
+  grad.addColorStop(0, "#2B8CFF"); grad.addColorStop(0.55, ACCENT); grad.addColorStop(1, "#0A5BD6");
   g.fillStyle = grad; g.beginPath(); g.arc(256, 256, 250, 0, Math.PI * 2); g.fill();
   g.strokeStyle = "rgba(255,255,255,.55)"; g.lineWidth = 4; g.beginPath(); g.arc(256, 256, 196, 0, Math.PI * 2); g.stroke();
   g.strokeStyle = "#fff"; g.lineWidth = 30; g.lineCap = "round"; g.lineJoin = "round";
@@ -218,7 +218,7 @@ async function build() {
     vw = 2 * 14 * Math.tan((15 * Math.PI) / 180) * aspect;
     narrow = aspect < 1.05;
     // the fan lives right of the captions on wide screens
-    const beat = document.querySelector(".beat:not(:empty)"), edge = narrow || !beat ? 0 : (beat.offsetLeft + beat.offsetWidth + 24) / w;
+    const beat = document.querySelector(".beat"), edge = narrow || !beat ? 0 : (beat.offsetLeft + beat.offsetWidth + 24) / w;
     region = vw * (1 - edge) - 0.4;
     side = narrow ? 0 : vw * (edge - 0.5) + 0.2 + region / 2;
   }
@@ -251,11 +251,14 @@ async function build() {
   }
   function fan(i) {
     if (narrow) { // a small grid on phones, so every exposed card can be seen
-      const row = Math.floor(i / 3), col = i % 3, x = row === 2 ? 0 : (col - 1) * 1.12;
-      return { x, y: (1 - row) * 1.5 - 0.3, z: i * 0.02, rx: 0, ry: 0, rz: (col - 1) * -0.02, s: 0.47 };
+      const row = Math.floor(i / 3), col = i % 3, x = row === 2 ? 0 : (col - 1) * 1.0;
+      return { x, y: 0.33 + (1 - row) * 1.3, z: i * 0.02, rx: 0, ry: 0, rz: 0, s: 0.4 };
     }
-    const k = i - (N - 1) / 2, sp = Math.min(1.22, (region - 2.2) / (N - 1));
-    return { x: k * sp, y: -Math.abs(k) * 0.1 + 0.05, z: i * 0.07, rx: 0, ry: 0, rz: -k * 0.035, s: narrow ? 0.82 : 0.92 };
+    // two tidy rows (4 + 3) so every card can be read and none overlaps another
+    const row = i < 4 ? 0 : 1, cnt = row ? 3 : 4, col = row ? i - 4 : i;
+    const sc = Math.min(0.66, (region - 0.6) / (4 * 2.2 + 3 * 0.25));
+    const gx = 2.2 * sc + 0.24, gy = 3 * sc + 0.3;
+    return { x: (col - (cnt - 1) / 2) * gx, y: row ? -gy / 2 : gy / 2, z: 0, rx: 0, ry: 0, rz: 0, s: sc };
   }
   function chosen() { return { x: 0.25, y: 0, z: 2.6, rx: 0.02, ry: -0.2, rz: 0.015, s: 1.02 }; }
   const mix = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t), rx: lerp(a.rx, b.rx, t), ry: lerp(a.ry, b.ry, t), rz: lerp(a.rz, b.rz, t), s: lerp(a.s, b.s, t) });
@@ -288,9 +291,9 @@ async function build() {
       let rev = [0, 0, 0, 0, 0, 0], accent = FLARE, glow = 0;
       if (exposed > 0) { const r = stagger(exposed, i); rev = rev.map(() => r); glow = r * 0.9; }
       if (i === CHOSEN && choose > 0) {
-        accent = IRIS;
+        accent = ACCENT;
         rev = [0, 1, 2, 3].map((j) => clamp(choose * 1.7 - j * 0.22)).concat([0, 0]);
-        glow = stamp * 0.9;
+        glow = 0;
       }
       const k = rev.map((r) => r.toFixed(2)).join() + accent + glow.toFixed(2);
       if (k !== c.key) { c.key = k; drawFace(c, rev, accent, glow); }
@@ -304,7 +307,7 @@ async function build() {
 
     shadow.position.set(world.position.x, world.position.y - 2.3 * (narrow ? 0.8 : 1), lerp(0, 1.4, gather));
     shadow.scale.set(lerp(4.2, 9, fanT * (1 - gather)), 1.6, 1);
-    shadow.material.opacity = narrow ? 0 : 0.7;
+    shadow.material.opacity = narrow ? 0 : 0.7 * Math.max(1 - fanT, gather);
 
     renderer.render(scene, camera);
   }

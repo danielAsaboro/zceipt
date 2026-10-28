@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zceipt · style guide</title>
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23111114'/><path d='M10.5 10.5h11l-11 11h11' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/><circle cx='24' cy='8' r='3.2' fill='%230071E3'/></svg>">
+<link rel="stylesheet" href="/verify/zceipt.css">
+<style>
+  main { max-width: 1200px; margin: 0 auto; padding: 120px 32px 80px; }
+  h1 { font-size: clamp(44px, 6vw, 80px); margin: 18px 0 64px; }
+  h1 span { color: var(--ink-3); }
+  section { margin-bottom: 96px; }
+  section > h2 { font-size: 13px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 22px; font-weight: 600; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+
+  /* the lens demo: busy content under a glass you can drag */
+  .stage { position: relative; height: 460px; border-radius: 36px; overflow: hidden; background: #fff; box-shadow: var(--drop); touch-action: none; }
+  .stage .print { position: absolute; inset: -20px; padding: 40px; columns: 4 220px; column-gap: 28px; font: 500 15px/1.75 var(--mono); color: #2A2A33; user-select: none; }
+  .stage .print b { color: var(--accent); font-weight: 600; } .stage .print i { font-style: normal; color: var(--flare); }
+  .stage .print s { text-decoration: none; background: var(--seal); color: var(--seal-text); border-radius: 5px; padding: 0 4px; }
+  .lensbox { position: absolute; left: calc(50% - 180px); top: calc(50% - 110px); width: 360px; height: 220px; border-radius: 48px; cursor: grab; display: grid; place-items: center; color: var(--ink); background: linear-gradient(155deg, rgba(255,255,255,.28), rgba(255,255,255,.04) 50%, rgba(255,255,255,.18)); }
+  .lensbox:active { cursor: grabbing; }
+  .lensbox span { font: 600 15px var(--sans); letter-spacing: -.01em; padding: 8px 14px; border-radius: 99px; background: rgba(255,255,255,.55); box-shadow: inset 0 1px 0 #fff; }
+
+  .sw { border-radius: 24px; overflow: hidden; }
+  .sw i { display: block; height: 96px; }
+  .sw div { padding: 14px 16px 16px; font-size: 14px; }
+  .sw b { display: block; font-weight: 600; } .sw code { font: 12.5px var(--mono); color: var(--ink-2); }
+  .sw p { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; line-height: 1.45; }
+
+  .type > div { display: grid; grid-template-columns: 140px 1fr; gap: 20px; align-items: baseline; padding: 18px 0; box-shadow: inset 0 -1px 0 rgba(17,17,20,.06); }
+  .type code { font: 12.5px var(--mono); color: var(--ink-3); }
+
+  .comp { padding: 28px; display: grid; gap: 18px; align-content: start; }
+  .comp > b { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+  .bar { height: 18px; border-radius: 7px; background: var(--seal); color: var(--seal-text); font: 500 10px/18px var(--mono); padding-left: 8px; overflow: hidden; white-space: nowrap; }
+  .stampx { display: inline-flex; align-items: center; gap: 9px; padding: 11px 18px 11px 13px; border-radius: 999px; font: 700 13.5px var(--sans); letter-spacing: .08em; color: #fff; background: var(--grad); box-shadow: 0 12px 30px -12px rgba(0,113,227,.6); width: max-content; }
+  .stampx svg { width: 18px; height: 18px; }
+  .switch { position: relative; width: 52px; height: 32px; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .switch i { position: absolute; inset: 0; border-radius: 99px; background: rgba(120,120,128,.18); transition: background .3s var(--out); }
+  .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.18); transition: transform .35s var(--out); }
+  .switch input:checked + i { background: var(--accent); } .switch input:checked + i::after { transform: translateX(20px); }
+  .rules { display: grid; gap: 10px; padding: 28px; font-size: 15px; color: var(--ink-2); }
+  .rules b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><i></i><i></i><i></i></div>
+<nav class="island-nav" data-lens="14">
+  <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#111114"/><path d="M10.5 10.5h11l-11 11h11" stroke="#fff" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="8" r="3.2" fill="#0071E3"/></svg>Zceipt</a>
+  <div class="links"><a href="#glass">Glass</a><a class="hide-sm" href="#colour">Colour</a><a class="hide-sm" href="#type">Type</a><a class="hide-sm" href="#parts">Parts</a></div>
+  <a class="btn small" href="/">Home</a>
+</nav>
+<main>
+  <span class="pill" data-lens="10"><i class="dot accent"></i>Style guide</span>
+  <h1>Glass shows. <span>Graphite seals.</span></h1>
+
+  <section id="glass">
+    <h2>Liquid glass</h2>
+    <div class="stage" id="stage">
+      <div class="print" aria-hidden="true" id="print"></div>
+      <div class="lensbox glass sheen" id="lens" data-lens="40" data-lens-blur="0.6"><span>Drag the glass</span></div>
+    </div>
+  </section>
+
+  <section id="colour">
+    <h2>Colour</h2>
+    <div class="grid">
+      <div class="sw glass"><i style="background:#F4F4F6"></i><div><b>Canvas</b><code>#F4F4F6</code></div></div>
+      <div class="sw glass"><i style="background:#111114"></i><div><b>Ink</b><code>#111114</code><p>Text and the one solid button.</p></div></div>
+      <div class="sw glass"><i style="background:#1B1B21"></i><div><b>Seal</b><code>#1B1B21</code><p>Anything the payer did not show.</p></div></div>
+      <div class="sw glass"><i style="background:linear-gradient(120deg,#2B8CFF,#0071E3 45%,#0A5BD6)"></i><div><b>Proven</b><code>#0071E3</code><p>Only what was shown or proven.</p></div></div>
+      <div class="sw glass"><i style="background:#FF4D2E"></i><div><b>Exposed</b><code>#FF4D2E</code><p>Only what a viewing key gives away.</p></div></div>
+      <div class="sw glass"><i style="background:linear-gradient(120deg,rgba(110,180,255,.6),rgba(255,190,150,.6),rgba(140,225,205,.6))"></i><div><b>Field</b><code>sky · peach · mint</code><p>Behind the glass, never on it.</p></div></div>
+    </div>
+  </section>
+
+  <section id="type">
+    <h2>Type</h2>
+    <div class="glass type" style="border-radius:28px;padding:8px 28px">
+      <div><code>Display 600</code><span style="font-size:56px;font-weight:600;letter-spacing:-.045em;line-height:1">Prove one payment.</span></div>
+      <div><code>Title 600</code><span style="font-size:30px;font-weight:600;letter-spacing:-.03em">Signed by the key that spent it.</span></div>
+      <div><code>Body 400</code><span style="font-size:17px;color:var(--ink-2)">Recipient, amount and memo from a single payment.</span></div>
+      <div><code>Mono</code><span class="mono" style="font-size:14px">utest14te2vs…g4rg0zndfa · block 4,500,997</span></div>
+    </div>
+  </section>
+
+  <section id="parts">
+    <h2>Parts</h2>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+      <div class="comp glass"><b>Buttons</b><div class="row"><a class="btn" href="#parts">Verify a receipt</a><a class="btn ghost" href="#parts" data-lens="12">Quickstart</a></div></div>
+      <div class="comp glass"><b>Fields</b><div class="chips"><span class="chip on">Recipient</span><span class="chip on">Amount</span><span class="chip flare">Rent</span><span class="chip sealed">Balance</span></div></div>
+      <div class="comp glass"><b>Sealed value</b><div class="bar" style="width:80%">c7f1 9ae0 4b2d 81f3 0e6a 5c92 d4b7 2a08</div><div class="bar" style="width:55%">e76a f367 5c92 d4b7</div></div>
+      <div class="comp glass"><b>Proof stamp</b><span class="stampx"><svg viewBox="0 0 24 24" fill="#fff"><path d="M12 1a11 11 0 110 22 11 11 0 010-22zm5.2 7.3a1 1 0 00-1.4 0L10.5 13.6 8.2 11.3a1 1 0 10-1.4 1.4l3 3a1 1 0 001.4 0l6-6a1 1 0 000-1.4z"/></svg>PAID TO YOU</span></div>
+      <div class="comp glass"><b>Switch</b><label class="switch"><input type="checkbox" checked aria-label="Memo"><i></i></label></div>
+      <div class="comp glass dark"><b style="color:#8A8A94">Dark glass</b><span style="font:13px var(--mono);color:#D4D4DC">zceipt verify 'zip311r1…'</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rules</h2>
+    <div class="glass rules" style="border-radius:28px">
+      <div><b>Glass is for chrome and cards.</b> The receipt itself is paper: opaque white, so its numbers never swim.</div>
+      <div><b>Blue means proven.</b> Never a decoration, never a general button.</div>
+      <div><b>Red means exposed.</b> It appears in one place: the viewing-key beat.</div>
+      <div><b>No outlines.</b> Edges come from light (a bright rim on top) and shadow, not from strokes.</div>
+    </div>
+  </section>
+</main>
+<footer class="foot"><div class="wrap"><span>Zceipt · style guide</span><nav><a href="/">Home</a><a href="/verify/">Verifier</a></nav></div></footer>
+<script>
+  // receipt lines to look at through the glass
+  const lines = ["KEMI'S COFFEE", "<b>0.01 ZEC</b>", "Invoice 42: two coffees", "utest14te2vs…0zndfa", "<s>c7f1 9ae0 4b2d</s>", "RENT <i>−4.20</i>", "CLINIC <i>−1.35</i>", "<s>81f3 0e6a 5c92</s>", "block 4,500,997", "<b>PROVEN BY THE PAYER</b>", "SALARY +12.50", "<s>d4b7 2a08 e76a</s>"];
+  document.getElementById("print").innerHTML = Array.from({ length: 96 }, (_, i) => lines[(i * 7) % lines.length]).join("<br>");
+  const lens = document.getElementById("lens"), stage = document.getElementById("stage");
+  let drag = null;
+  lens.addEventListener("pointerdown", (e) => { drag = { x: e.clientX - lens.offsetLeft, y: e.clientY - lens.offsetTop }; lens.setPointerCapture(e.pointerId); });
+  lens.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const r = stage.getBoundingClientRect();
+    lens.style.left = Math.max(-100, Math.min(r.width + 100, e.clientX - drag.x)) + "px";
+    lens.style.top = Math.max(-60, Math.min(r.height + 60, e.clientY - drag.y)) + "px";
+  });
+  lens.addEventListener("pointerup", () => { drag = null; });
+</script>
+<script src="/verify/glass.js" defer></script>
+</body>
+</html>

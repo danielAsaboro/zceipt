@@ -12,17 +12,18 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 const short = (s, n = 10) => (s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
 
+// Pages can restyle the card through these custom properties; the defaults are the paper look.
 const STYLE = `
-  :host { display: block; font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #161513; max-width: 420px; }
-  .card { background: #f3efe4; border-radius: 10px; padding: 16px 18px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-  .top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; letter-spacing: .18em; color: #5c574d; }
-  .stamp { font-weight: 900; letter-spacing: .2em; border: 2px solid currentColor; border-radius: 5px; padding: 1px 7px; }
-  .ok { color: #1d6b45; } .bad { color: #a3271f; } .wait { color: #5c574d; }
-  .amount { font-size: 24px; font-weight: 800; margin: 10px 0 2px; }
-  .row { font-size: 12.5px; color: #2f2c27; margin: 3px 0; word-break: break-all; }
-  .k { color: #5c574d; display: inline-block; width: 52px; }
+  :host { display: block; font-family: var(--zr-font, ui-monospace, "SF Mono", Menlo, monospace); color: var(--zr-ink, #161513); max-width: 420px; }
+  .card { background: var(--zr-bg, #f3efe4); border-radius: var(--zr-radius, 10px); padding: var(--zr-pad, 16px 18px); box-shadow: var(--zr-shadow, 0 6px 18px rgba(0,0,0,.18)); }
+  .top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; letter-spacing: .18em; color: var(--zr-muted, #5c574d); }
+  .stamp { font-weight: 900; letter-spacing: .2em; border: var(--zr-stamp-border, 2px solid currentColor); border-radius: var(--zr-stamp-radius, 5px); padding: var(--zr-stamp-pad, 1px 7px); }
+  .ok { color: var(--zr-ok, #1d6b45); background: var(--zr-ok-bg, none); } .bad { color: var(--zr-bad, #a3271f); } .wait { color: var(--zr-muted, #5c574d); }
+  .amount { font-size: var(--zr-amount-size, 24px); font-weight: 800; margin: 10px 0 2px; font-family: var(--zr-amount-font, inherit); letter-spacing: var(--zr-amount-track, normal); }
+  .row { font-size: 12.5px; color: var(--zr-ink-2, #2f2c27); margin: 3px 0; word-break: break-all; }
+  .k { color: var(--zr-muted, #5c574d); display: inline-block; width: 52px; }
   .memo { font-family: ui-sans-serif, system-ui, sans-serif; font-style: italic; }
-  .fine { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11.5px; color: #5c574d; margin-top: 8px; }
+  .fine { font-family: ui-sans-serif, system-ui, sans-serif; font-size: 11.5px; color: var(--zr-muted, #5c574d); margin-top: 8px; }
 `;
 
 class ZcashReceipt extends HTMLElement {

@@ -17,7 +17,11 @@ After the story: a real receipt verified in the tab, a disclosure builder, the p
 as a bento of small diagrams, the developer code, the close.
 
 ## Visual language
-Light, porcelain, Apple-calm. Paper is the metaphor (a receipt), so the canvas is light and the
+Liquid glass over a soft colour field (sky, peach, mint), Apple-calm. Glass is the chrome: the
+island nav, cards, buttons, story captions, dashboard sidebar. It blurs, saturates and, in
+Chromium, bends what is behind it at the rim (`web/glass.js`, an SVG displacement map per
+element on `[data-lens]`); edges come from a bright top rim and shadow, never from strokes.
+The live reference is `/style.html`. Paper is the metaphor (a receipt), so the canvas is light and the
 sealed parts are dark graphite: you can see what is hidden.
 
 | Token | Value | Use |
@@ -28,12 +32,12 @@ sealed parts are dark graphite: you can see what is hidden.
 | `--ink-2` | `#6B6B74` | secondary text |
 | `--ink-3` | `#A3A3AD` | tertiary |
 | `--line` | `rgba(17,17,20,.08)` | hairlines |
-| `--iris` | `#5B3DF5` | revealed by choice, verified. Never a general CTA colour |
-| `--azure` | `#2FA8FF` | second stop of the iris gradient only |
+| `--accent` | `#0071E3` (Apple blue) | revealed by choice, verified. Never a general CTA colour |
+| `--glass` | white 70% → 32% → 52% | every glass surface; `.glass.dark` for code and the hero total |
 | `--flare` | `#FF4D2E` | exposed against your will (viewing key) only |
 | `--bad` | `#E5484D` | invalid receipts |
 
-Discipline: about 80% neutral, 15% ink, 5% iris. CTAs are ink (black pill). Iris appears only
+Discipline: about 80% neutral, 15% ink, 5% accent. CTAs are ink (black pill). Accent appears only
 where something is proven or chosen to be shown. Flare appears only in the viewing-key beat.
 
 Type: the system stack (SF Pro on Apple), so the verifier's CSP needs no font host.
@@ -45,13 +49,13 @@ Motion: 600–900 ms, `cubic-bezier(.2,.8,.2,1)`; scroll scenes scrub, never aut
 `prefers-reduced-motion` jumps to end states.
 
 ## Components
-- **Island nav:** floating pill, centred, frosted white, 56 px, logo left, links, ink CTA.
+- **Island nav:** floating liquid-glass pill, centred, 58 px, logo left, links, ink CTA.
 - **Redaction bar:** graphite rounded bar with faint ciphertext; the sealed state of any field.
-- **Field chip:** iris dot + label = shown; graphite bar = sealed.
-- **Proof seal:** iris ring with a check, stamped once.
-- **Island card:** white, radius 28, hairline, soft shadow.
+- **Field chip:** accent dot + label = shown; graphite bar = sealed.
+- **Proof seal:** accent ring with a check, stamped once.
+- **Island card:** liquid glass, radius 28, light rim, soft shadow. The receipt itself stays opaque paper.
 
 ## Dashboard
 A floating sidebar island and a top island on the grey canvas. The request list is a grid of
-receipt cards with a disclosure strip (iris dots for what was shown, graphite for sealed).
+receipt cards with a disclosure strip (accent dots for what was shown, graphite for sealed).
 Overview islands: money received (ink card), proved ring, 14-day bars, disclosure matrix.

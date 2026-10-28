@@ -5,23 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>Zceipt · Dashboard</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2301B763'/><path d='M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z' fill='%23fff'/><path d='M12.5 11.5h7l-7 7h7' stroke='%2301B763' stroke-width='2' fill='none' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23000'/><path d='M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z' fill='%23fff'/><path d='M12.5 11.5h7l-7 7h7' stroke='%23FCA311' stroke-width='2' fill='none' stroke-linejoin='round'/></svg>">
 <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
 <style>
   :root { color-scheme: light;
-    --green:#01b763; --green-2:#019a54; --green-soft:#e3f7ec; --castleton:#005b31; --choc:#1b1811; --choc-2:#262219; --choc-3:#36312a;
-    --bg:#f4f5f1; --card:#fff; --line:#e6e8e2; --line-2:#d6d9d1; --text:#1b1811; --dim:#6f6c63; --faint:#a3a097;
-    --amber:#b7791f; --amber-soft:#fdf3e1; --bad:#c2412d; --bad-soft:#fdecea; --blue:#2f6fb0; --blue-soft:#e8f0fa;
+    --green:#111113; --green-2:#2c2c30; --green-soft:#fff3d9; --castleton:#8a5200; --gold:#fca311; --choc:#000000; --choc-2:#1b1b1e; --choc-3:#2c2c30; --prussian:#14213d;
+    --bg:#f4f4f5; --card:#fff; --line:#e7e7ea; --line-2:#d5d5da; --text:#0b0b0c; --dim:#6b6b72; --faint:#a3a3a8;
+    --amber:#55555b; --amber-soft:#efeff1; --bad:#c2412d; --bad-soft:#fdecea; --blue:#14213d; --blue-soft:#e6e9f1;
     --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace; --sans: "General Sans", ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
   * { box-sizing:border-box; }
-  body { margin:0; background:#eceee9; color:var(--text); font:14px/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
+  body { margin:0; background:#e9e9eb; color:var(--text); font:14px/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
   .app { display:grid; grid-template-columns:92px minmax(0,1fr); min-height:100vh; padding:14px; gap:0; }
   .shell { background:var(--card); border-radius:26px; overflow:hidden; display:flex; flex-direction:column; min-width:0; box-shadow:0 1px 0 var(--line); }
   :focus-visible { outline:2px solid var(--green); outline-offset:2px; }
-  a { color:var(--castleton); }
+  a { color:var(--text); text-underline-offset:3px; }
 
   /* sidebar */
-  aside { background:var(--choc); color:#e9e5da; display:flex; flex-direction:column; align-items:center; padding:22px 0; position:sticky; top:14px; height:calc(100vh - 28px); border-radius:26px 0 0 26px; }
+  aside { background:var(--choc); color:#e5e5e5; display:flex; flex-direction:column; align-items:center; padding:22px 0; position:sticky; top:14px; height:calc(100vh - 28px); border-radius:26px 0 0 26px; }
   .brand { display:flex; margin:0 0 34px; }
   .brand span { display:none; }
   .brand svg { width:40px; height:40px; flex:none; }
@@ -31,7 +31,7 @@
   nav button:hover span, nav button:focus-visible span { opacity:1; }
   nav button svg { width:21px; height:21px; flex:none; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
   nav button:hover { background:var(--choc-2); color:#fff; }
-  nav button[aria-selected=true] { background:var(--green); color:#fff; }
+  nav button[aria-selected=true] { background:#fff; color:#000; }
   .side-foot { margin-top:auto; display:grid; gap:8px; justify-items:center; }
   .side-foot #health, .side-foot a { display:none; }
   .mode { font:600 10px var(--mono); padding:3px 7px; border-radius:99px; background:#3a3020; color:#f2c46b; letter-spacing:.04em; writing-mode:vertical-rl; transform:rotate(180deg); }
@@ -49,7 +49,7 @@
   .keybox input { border:0; background:none; padding:10px 0; width:100%; }
   .keybox input:focus { outline:none; }
   .keybox:focus-within { border-color:var(--green); }
-  main { padding:24px 28px 48px; background:#fbfbf9; flex:1; }
+  main { padding:24px 28px 48px; background:#fafafa; flex:1; }
   section[hidden] { display:none; }
 
   /* stats */
@@ -58,7 +58,7 @@
   .stat i { width:42px; height:42px; border-radius:12px; display:grid; place-items:center; flex:none; background:var(--green-soft); color:var(--castleton); }
   .stat i svg { width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
   .stat.amber i { background:var(--amber-soft); color:var(--amber); } .stat.blue i { background:var(--blue-soft); color:var(--blue); } .stat.dark i { background:var(--choc); color:#fff; }
-  .stat.dark { background:linear-gradient(135deg, var(--castleton), var(--choc) 75%); border-color:transparent; color:#fff; } .stat.dark span { color:#a8d8bf; } .stat.dark i { background:rgba(255,255,255,.12); }
+  .stat.dark { background:linear-gradient(135deg, var(--prussian), var(--choc) 80%); border-color:transparent; color:#fff; } .stat.dark span { color:#a3a3a8; } .stat.dark i { color:var(--gold) !important; } .stat.dark i { background:rgba(255,255,255,.12); }
   .sealed { display:inline-flex; align-items:center; gap:6px; font:500 12px var(--sans); color:var(--dim); padding:2px 10px; border-radius:99px; background:repeating-linear-gradient(90deg, #eef0eb 0 2px, #f8f9f6 2px 5px); box-shadow:inset 0 0 0 1px var(--line); }
   .sealed svg { width:12px; height:12px; stroke:currentColor; fill:none; stroke-width:2; }
   .stat b { display:block; font:600 24px/1.1 var(--sans); letter-spacing:-.02em; }
@@ -99,7 +99,7 @@
   tbody tr:last-child td { border-bottom:0; }
   tr[data-id] { cursor:pointer; transition:background .12s; }
   tr[data-id]:hover { background:#fafbf8; }
-  tr[data-id].sel { background:var(--green-soft); }
+  tr[data-id].sel { background:#f1f1f3; box-shadow:inset 3px 0 0 var(--gold); }
   td.mono, .mono { font-family:var(--mono); font-size:12.5px; word-break:break-all; }
   td .muted { font-size:13px; }
   .pill { display:inline-block; font:600 11.5px var(--sans); padding:3px 10px; border-radius:99px; background:var(--bg); color:var(--dim); text-transform:capitalize; white-space:nowrap; }
@@ -112,7 +112,7 @@
   details.act { margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
   details.act summary { cursor:pointer; font-weight:600; }
   .find-error { color:var(--bad); } .find-warning { color:var(--amber); }
-  pre { background:var(--choc); color:#e9e5da; border-radius:14px; padding:14px 16px; overflow:auto; font:12.5px/1.6 var(--mono); max-height:440px; margin:10px 0 0; }
+  pre { background:var(--choc); color:#e5e5e5; border-radius:14px; padding:14px 16px; overflow:auto; font:12.5px/1.6 var(--mono); max-height:440px; margin:10px 0 0; }
   .qr { background:#fff; border:1px solid var(--line); border-radius:14px; padding:8px; width:168px; flex:none; }
   .qr svg { width:100%; height:auto; display:block; }
   .tabs { display:flex; gap:4px; margin-top:18px; background:var(--bg); padding:4px; border-radius:12px; width:max-content; max-width:100%; overflow-x:auto; }
@@ -147,7 +147,7 @@
 <body>
 <div class="app">
 <aside>
-  <a class="brand" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#01B763"/><path d="M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z" fill="#fff"/><path d="M12.5 11.5h7l-7 7h7" stroke="#01B763" stroke-width="2" fill="none" stroke-linejoin="round"/></svg><span>Zceipt</span></a>
+  <a class="brand" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z" fill="#000"/><path d="M12.5 11.5h7l-7 7h7" stroke="#FCA311" stroke-width="2" fill="none" stroke-linejoin="round"/></svg><span>Zceipt</span></a>
   <nav role="tablist">
     <button data-tab="requests" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M6 3h12v18l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4L6 21z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg><span>Proof requests</span></button>
     <button data-tab="playground"><svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><span>Verify</span></button>

@@ -7,229 +7,232 @@
   <meta name="description" content="Prove one shielded Zcash payment to one person without handing over a viewing key. ZIP 311 payment disclosures for Orchard and Ironwood, verified in your browser.">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <meta name="color-scheme" content="dark">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23fff'/><path d='M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z' fill='%23000'/><path d='M12.5 11.5h7l-7 7h7' stroke='%23FCA311' stroke-width='2' fill='none' stroke-linejoin='round'/></svg>">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#F4F4F6">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23111114'/><path d='M10.5 10.5h11l-11 11h11' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/><circle cx='24' cy='8' r='3.2' fill='%235B3DF5'/></svg>">
+  <link rel="stylesheet" href="./zceipt.css">
   <style>
-    :root {
-      color-scheme: dark;
-      --desk: #000000;
-      --desk-2: #111113;
-      --desk-3: #1c1c1f;
-      --line: rgba(255,255,255,.09);
-      --paper: #f5f5f4;
-      --ink: #0b0b0c;
-      --ink-2: #5e5e64;
-      --rule: #d5d5da;
-      --good: #a86400;
-      --gold: #fca311;
-      --bad: #c2412d;
-      --text: #ffffff;
-      --text-2: #a3a3a8;
-      --text-3: #5e5e64;
-      --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-      --sans: "General Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--desk); color: var(--text); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
-    body { min-height: 100vh; background: radial-gradient(70% 50% at 75% 20%, #19191c, transparent 70%), radial-gradient(50% 40% at 10% 90%, #0c1220, transparent 70%), #000; background-attachment: fixed; }
-    main, footer, nav.top { position: relative; z-index: 2; }
-    .texture { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
-    .texture::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 88px 88px;
-                       -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, #000 90%); mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, #000 90%); }
-    .texture::after { content: ""; position: absolute; inset: 0; opacity: .06; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-    #cipher { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .8; -webkit-mask-image: linear-gradient(90deg, #000 0, transparent 22%, transparent 78%, #000 100%); mask-image: linear-gradient(90deg, #000 0, transparent 22%, transparent 78%, #000 100%); }
-    nav.top { max-width: 1080px; margin: 0 auto; padding: 0 20px; height: 68px; display: flex; align-items: center; justify-content: space-between; }
-    nav.top .logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 19px; letter-spacing: -.02em; text-decoration: none; }
-    nav.top .logo svg { width: 26px; height: 26px; }
-    nav.top .links { display: flex; gap: 26px; font-size: 14.5px; font-weight: 500; color: var(--text-2); }
-    nav.top .links a { text-decoration: none; } nav.top .links a:hover { color: var(--text); }
-    a { color: inherit; }
-    main { max-width: 1080px; margin: 0 auto; padding: 40px 20px 100px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: 56px; align-items: start; }
-    @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); gap: 32px; padding-top: 28px; } body.has-result #right { order: -1; } }
-    h1 { font-size: clamp(36px, 4.8vw, 60px); line-height: 1.0; letter-spacing: -0.045em; margin: 0 0 20px; font-weight: 500; background: linear-gradient(180deg, #fff 35%, #b9b9be); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    h1 em { font-style: normal; background: linear-gradient(100deg, #ffe2a8, #fca311 60%, #c97a00); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    .lede { color: var(--text-2); font-size: 17px; line-height: 1.55; margin: 0 0 28px; max-width: 34em; }
-    .eyebrow { font: 600 12px var(--sans); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-3); margin-bottom: 18px; }
-    textarea, input { width: 100%; background: rgba(20,20,22,.75); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; backdrop-filter: blur(10px); font-family: var(--mono); font-size: 13px; }
-    textarea { min-height: 96px; resize: vertical; }
-    textarea:focus, input:focus { outline: none; border-color: rgba(252,163,17,.55); box-shadow: 0 0 0 4px rgba(252,163,17,.12); }
-    input[type="checkbox"] { width: auto; padding: 0; margin: 0 6px 0 0; vertical-align: -2px; }
-    button { font: 600 15px var(--sans); border: 0; border-radius: 999px; padding: 12px 22px; cursor: pointer; background: #fff; color: #000; transition: transform .15s, box-shadow .2s; }
-    button:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -10px rgba(255,255,255,.4); }
-    .actions { display: flex; gap: 12px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
-    .hint { color: var(--text-2); font-size: 13px; }
-    #progress { margin-top: 28px; }
-    .step { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 14px; }
-    .step .dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; border: 2px solid #34343a; }
-    .step[data-state="busy"] .dot { border-color: #fff; border-right-color: transparent; animation: spin 0.8s linear infinite; }
-    .step[data-state="done"] .dot { background: var(--gold); border-color: var(--gold); box-shadow: 0 0 10px rgba(252,163,17,.6); }
-    .step[data-state="fail"] .dot { background: #d2483d; border-color: #d2483d; }
-    .step .detail { display: block; color: var(--text-2); font-family: var(--mono); font-size: 12px; margin-top: 2px; word-break: break-word; }
+    body { min-height: 100vh; }
+    body[data-phase="proved"] .bg i:nth-child(1) { opacity: .9; transition: opacity 1.2s; }
+    main { max-width: 1200px; margin: 0 auto; padding: 116px 32px 80px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 28px; align-items: start; }
+    @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 100px 16px 60px; gap: 20px; } body.has-result #right { order: -1; } }
+
+    .intro h1 { font-size: clamp(36px, 4.6vw, 60px); margin: 18px 0 26px; }
+    .intro h1 span { color: var(--ink-3); }
+    .panel { padding: 22px; }
+    .panel + .panel, .panel + details, details + details { margin-top: 14px; }
+    label.hint, .hint { color: var(--ink-2); font-size: 13px; font-weight: 500; }
+    textarea, input { width: 100%; background: var(--sunk); color: var(--ink); border: 1px solid transparent; border-radius: var(--r-input); padding: 13px 15px; font: 13px/1.5 var(--mono); transition: border-color .2s, box-shadow .2s, background .2s; }
+    textarea { min-height: 112px; resize: vertical; }
+    textarea:focus, input:focus { outline: none; background: var(--surface); border-color: rgba(91,61,245,.45); box-shadow: 0 0 0 4px rgba(91,61,245,.12); }
+    input[type="checkbox"] { width: auto; padding: 0; margin: 0 6px 0 0; vertical-align: -2px; accent-color: var(--iris); }
+    button { font: 600 15px var(--sans); border: 0; border-radius: 999px; padding: 12px 22px; cursor: pointer; background: var(--ink); color: #fff; transition: transform .2s var(--out), box-shadow .2s var(--out); }
+    button:hover { transform: translateY(-1px); box-shadow: 0 12px 26px -14px rgba(17,17,20,.6); }
+    button[disabled] { opacity: .55; transform: none; cursor: default; }
+    button.ghost { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-2) inset; padding: 9px 15px; font-size: 13.5px; font-weight: 500; }
+    button.ghost:hover { box-shadow: 0 0 0 1px var(--ink-3) inset, 0 8px 18px -12px rgba(17,17,20,.3); }
+    .actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+    .actions .make { margin-left: auto; font-size: 14px; font-weight: 500; color: var(--iris); }
+    .samples { margin-top: 0; }
+    .samples h2, .panel h2 { font: 600 13px var(--sans); color: var(--ink-2); margin: 0 0 12px; letter-spacing: 0; }
+    .samples details.more { width: 100%; }
+    .samples details.more summary { cursor: pointer; color: var(--ink-2); font-size: 13.5px; padding: 4px 0; list-style: none; }
+    .samples details.more summary::-webkit-details-marker { display: none; }
+    .samples details.more[open] { display: flex; flex-wrap: wrap; gap: 8px; }
+    .samples details.more[open] summary { width: 100%; }
+    #makeOwn { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    #makeOwn input { flex: 1 1 200px; padding: 10px 14px; }
+    .warm { margin-top: 12px; font: 12px var(--mono); color: var(--ink-3); display: flex; align-items: center; gap: 8px; }
+    .warm::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
+    .warm[data-state="ready"] { color: var(--iris); } .warm[data-state="ready"]::before { background: var(--iris); }
+
+    /* the check, as three stations on a line */
+    #progress { margin-top: 14px; padding: 18px 22px; display: grid; gap: 0; }
+    .step { display: grid; grid-template-columns: 26px 1fr; gap: 12px; padding: 10px 0; font-size: 14.5px; font-weight: 500; position: relative; }
+    .step + .step::before { content: ""; position: absolute; left: 10px; top: -10px; height: 20px; width: 2px; background: var(--line-2); border-radius: 2px; }
+    .step .dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--ink-4); background: var(--surface); display: grid; place-items: center; }
+    .step[data-state="busy"] .dot { border-color: var(--iris); border-right-color: transparent; animation: spin .8s linear infinite; }
+    .step[data-state="done"] .dot { background: var(--iris); border-color: var(--iris); box-shadow: 0 0 0 4px rgba(91,61,245,.14); }
+    .step[data-state="done"] .dot::after { content: ""; width: 8px; height: 4px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); }
+    .step[data-state="fail"] .dot { background: var(--bad); border-color: var(--bad); }
+    .step .detail { display: block; color: var(--ink-2); font: 12px/1.5 var(--mono); margin-top: 3px; word-break: break-word; font-weight: 400; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    details { margin-top: 22px; color: var(--text-2); font-size: 14px; }
-    details summary { cursor: pointer; padding: 10px 0; min-height: 24px; }
-    :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-    #result:focus { outline: none; }
-    details .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 10px; }
-    .how { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 24px; }
-    .how h2 { font-size: 15px; margin: 0 0 10px; }
-    .how ol { margin: 0; padding-left: 20px; color: var(--text-2); line-height: 1.65; font-size: 14px; }
-    .how code, .cli code { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
-    .cli { margin-top: 18px; background: rgba(17,17,19,.85); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    details.box { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 4px 20px; box-shadow: var(--lift); color: var(--ink-2); font-size: 14px; }
+    details.box summary { cursor: pointer; padding: 14px 0; color: var(--ink); font-weight: 600; font-size: 15px; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+    details.box summary::-webkit-details-marker { display: none; }
+    details.box summary::after { content: ""; width: 8px; height: 8px; border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3); transform: rotate(45deg) translateY(-3px); transition: transform .3s var(--out); }
+    details.box[open] summary::after { transform: rotate(225deg); }
+    details.box[open] { padding-bottom: 18px; }
+    details .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 4px; }
+    .request code { font-family: var(--mono); color: var(--ink); }
+    #linkOut ul { margin: 6px 0 0; padding-left: 18px; }
+    #linkOut li[data-level="error"] { color: var(--bad); }
+    #linkOut li[data-level="warning"] { color: var(--warn); }
+    #linkOut .verdict { font-weight: 600; color: var(--ink); }
+    .qr { width: 200px; margin: 10px 0; background: #fff; border-radius: 14px; padding: 8px; box-shadow: 0 0 0 1px var(--line); }
+    .qr svg { width: 100%; height: auto; display: block; }
+    a.paybtn { display: inline-block; font: 600 15px var(--sans); border-radius: 999px; padding: 12px 22px; background: var(--ink); color: #fff; }
+
+    .how { margin-top: 44px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .how div { padding: 18px; border-radius: 20px; background: rgba(255,255,255,.55); border: 1px solid var(--line); font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+    .how b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+    .how i { font: 600 12px var(--mono); font-style: normal; color: var(--iris); display: block; margin-bottom: 10px; }
+    .cli { margin-top: 12px; background: #0E0E12; color: #C9C9D1; border-radius: 20px; padding: 18px 20px; font: 12.5px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+    @media (max-width: 700px) { .how { grid-template-columns: 1fr; } }
+
+    /* right column */
+    #right { position: sticky; top: 96px; }
+    @media (max-width: 900px) { #right { position: static; } }
+    .placeholder { padding: 28px; display: grid; place-items: center; min-height: 520px; background: radial-gradient(60% 50% at 50% 40%, rgba(91,61,245,.07), transparent 70%), var(--surface); }
+    .ghost-paper { width: 260px; border-radius: 22px; background: #fff; padding: 22px; box-shadow: 0 0 0 1px var(--line), 0 30px 60px -36px rgba(17,17,20,.35); transform: rotate(-3deg); }
+    .ghost-paper i { display: block; height: 12px; border-radius: 6px; background: var(--seal); margin: 10px 0; }
+    .ghost-paper i:nth-child(1) { width: 40%; height: 8px; background: var(--ink-4); }
+    .ghost-paper i:nth-child(2) { width: 70%; } .ghost-paper i:nth-child(3) { width: 55%; height: 26px; border-radius: 8px; }
+    .ghost-paper i:nth-child(4) { width: 100%; height: 2px; background: none; border-top: 2px dashed #E4E4EA; margin: 18px 0; }
+    .ghost-paper i:nth-child(5) { width: 86%; } .ghost-paper i:nth-child(6) { width: 64%; } .ghost-paper i:nth-child(7) { width: 78%; }
+    .placeholder p { margin: 26px 0 0; color: var(--ink-3); font-size: 14px; font-weight: 500; text-align: center; }
 
     /* the paper receipt */
-    .ticket { position: relative; background: var(--paper); color: var(--ink); padding: 34px 26px 36px; font-family: var(--mono); font-size: 14px;
-      box-shadow: 0 50px 100px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.06), 0 30px 80px -40px rgba(252,163,17,.35); border-top: 3px solid var(--gold); animation: print 0.7s cubic-bezier(.2,.7,.2,1); }
-    .ticket::before, .ticket::after { content: ""; position: absolute; left: 0; right: 0; height: 10px;
-      background: radial-gradient(circle at 9px 0, var(--desk) 6px, transparent 6.5px) 0 0 / 18px 10px repeat-x; }
-    .ticket::before { top: 0; }
-    .ticket::after { bottom: 0; transform: rotate(180deg); }
-    @keyframes print { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
-    .ticket .head { text-align: center; }
-    .ticket .brand { font: 600 22px var(--sans); letter-spacing: -0.02em; }
-    .ticket .sub { color: var(--ink-2); font-size: 12px; margin-top: 4px; }
-    .dash { border-top: 2px dashed var(--rule); margin: 16px 0; }
-    .line { display: grid; grid-template-columns: 70px 1fr; gap: 10px; padding: 4px 0; align-items: baseline; }
-    .line .k { color: var(--ink-2); font-size: 12px; letter-spacing: 0.1em; }
+    .ticket { position: relative; background: #fff; color: var(--ink); padding: 28px 26px 26px; border-radius: 28px; font-size: 14px;
+      box-shadow: 0 0 0 1px var(--line), 0 50px 90px -46px rgba(17,17,20,.45), 0 14px 30px -20px rgba(17,17,20,.2); animation: print .8s var(--out); }
+    .ticket.invalid { box-shadow: 0 0 0 1px rgba(229,72,77,.35), 0 50px 90px -46px rgba(229,72,77,.4); }
+    @keyframes print { from { transform: translateY(18px) scale(.98); opacity: 0; filter: blur(6px); } to { transform: none; opacity: 1; filter: none; } }
+    .ticket .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+    .ticket .brand { font: 600 11px var(--sans); letter-spacing: .2em; color: var(--ink-3); }
+    .ticket .sub { color: var(--ink-3); font-size: 12px; }
+    .dash { border-top: 2px dashed #E4E4EA; margin: 16px -26px; position: relative; }
+    .line { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; padding: 6px 0; align-items: baseline; }
+    .line .k { font: 600 10.5px var(--sans); letter-spacing: .16em; color: var(--ink-3); display: flex; align-items: center; gap: 7px; }
+    .line .k:not(:empty)::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--iris); flex: none; }
     .line .v { overflow-wrap: break-word; }
-    .line .v.mono { word-break: break-all; }
-    .line .v.mono small { word-break: normal; overflow-wrap: break-word; }
+    .line .v.mono { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+    .line .v.mono small, .line .v small { color: var(--ink-3); font-family: var(--sans); word-break: normal; overflow-wrap: break-word; }
     .line .v.memo, .line .v.text { word-break: normal; overflow-wrap: anywhere; }
-    .line .amount { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
-    .line .amount small { font-size: 13px; font-weight: 600; }
-    .line .memo { font-family: var(--sans); font-style: italic; }
-    .stamp { display: inline-block; border: 3px solid currentColor; border-radius: 6px; padding: 4px 12px; font-weight: 900; letter-spacing: 0.24em; transform: rotate(-4deg); font-size: 18px; }
-    .stamp.good { color: var(--good); }
-    .stamp.bad { color: var(--bad); }
-    .stamp.warn { color: #5e5e64; }
-    .facts { margin: 16px 0 0; padding-left: 18px; font-family: var(--sans); font-size: 13px; line-height: 1.5; color: #2f2c27; }
-    .facts li { margin: 4px 0; }
-    .local { margin: 14px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--good) 40%, transparent); border-radius: 8px; font-family: var(--sans); font-size: 12.5px; line-height: 1.5; color: #2f2c27; background: color-mix(in srgb, var(--good) 7%, transparent); }
-    .local[data-mode="txid"], .local[data-mode="batch-txids"] { border-color: #c9b98f; background: #fbf6e8; }
-    .local strong { color: var(--good); }
+    .line.paid { padding-top: 2px; }
+    .line .amount { font-size: 40px; font-weight: 600; letter-spacing: -.045em; line-height: 1.05; }
+    .line .amount small { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--ink-2); }
+    .stamp { display: inline-flex; align-items: center; gap: 10px; padding: 12px 20px 12px 14px; border-radius: 999px; font: 700 14px var(--sans); letter-spacing: .08em; }
+    .stamp::before { content: ""; width: 18px; height: 18px; border-radius: 50%; flex: none; background: currentColor; -webkit-mask: radial-gradient(circle, #000 60%, transparent 62%); mask: radial-gradient(circle, #000 60%, transparent 62%); }
+    .stamp.good { background: var(--grad); color: #fff; box-shadow: 0 12px 30px -12px rgba(91,61,245,.6); animation: land .6s .2s var(--out) both; }
+    .stamp.good::before { background: #fff; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1a11 11 0 110 22 11 11 0 010-22zm5.2 7.3a1 1 0 00-1.4 0L10.5 13.6 8.2 11.3a1 1 0 10-1.4 1.4l3 3a1 1 0 001.4 0l6-6a1 1 0 000-1.4z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1a11 11 0 110 22 11 11 0 010-22zm5.2 7.3a1 1 0 00-1.4 0L10.5 13.6 8.2 11.3a1 1 0 10-1.4 1.4l3 3a1 1 0 001.4 0l6-6a1 1 0 000-1.4z'/%3E%3C/svg%3E") center / contain no-repeat; }
+    .stamp.bad { background: rgba(229,72,77,.1); color: var(--bad); box-shadow: inset 0 0 0 1.5px rgba(229,72,77,.4); }
+    .stamp.warn { background: var(--sunk); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-2); }
+    .stamp.warn::before { background: var(--ink-3); }
+    @keyframes land { from { transform: scale(1.25); opacity: 0; } to { transform: none; opacity: 1; } }
+    .facts { margin: 16px 0 0; padding: 0; list-style: none; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); display: grid; gap: 8px; }
+    .facts li { padding-left: 22px; position: relative; }
+    .facts li::before { content: ""; position: absolute; left: 4px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
+    .facts li strong { color: var(--ink); font-weight: 600; }
+    .local { margin: 14px 0 0; padding: 11px 14px; border-radius: 14px; font-size: 13px; line-height: 1.5; color: var(--ink-2); background: var(--iris-soft); }
+    .local[data-mode="txid"], .local[data-mode="batch-txids"] { background: rgba(180,105,14,.08); }
+    .local strong { color: var(--iris); }
+    .local[data-mode="txid"] strong, .local[data-mode="batch-txids"] strong { color: var(--warn); }
     .local code { font-family: var(--mono); font-size: 12px; }
-    .why { font-family: var(--sans); margin: 16px 0 6px; font-size: 15px; }
-    .fine { font-family: var(--sans); color: var(--ink-2); font-size: 12.5px; margin: 8px 0 0; }
-    .fine[data-ok="true"] { color: var(--good); font-weight: 600; }
+    .why { margin: 16px 0 6px; font-size: 15px; }
+    .fine { color: var(--ink-2); font-size: 13px; margin: 8px 0 0; }
+    .fine[data-ok="true"] { color: var(--iris); font-weight: 600; }
     .fine[data-ok="false"] { color: var(--bad); font-weight: 600; }
-    .check { margin-top: 18px; font-family: var(--sans); }
-    .check label { font-size: 12.5px; color: var(--ink-2); }
-    .check .row { display: flex; gap: 8px; margin-top: 6px; }
-    .check input { background: #fff; color: var(--ink); border-color: var(--rule); }
-    .check button { background: var(--ink); color: var(--paper); padding: 10px 14px; }
-    .samples { margin-top: 8px; flex-wrap: wrap; }
-    .samples details.more { width: 100%; }
-    .samples details.more summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 6px 0; }
-    .samples details.more[open] { display: flex; flex-wrap: wrap; gap: 8px; }
-    .qr { width: 200px; margin: 10px 0; background: #fff; border-radius: 10px; padding: 6px; }
-    .qr svg { width: 100%; height: auto; display: block; }
-    a.paybtn { display: inline-block; font: 600 15px var(--sans); border-radius: 999px; padding: 12px 22px; background: #fff; color: #000; text-decoration: none; }
-    details.screened { margin-top: 10px; color: var(--ink-2); font-size: 13px; }
-    details.screened textarea { min-height: 60px; background: #fff; color: var(--ink); border-color: var(--rule); }
+    .check { margin-top: 16px; padding: 14px; border-radius: 18px; background: var(--sunk); }
+    .check label { font-size: 12.5px; color: var(--ink-2); font-weight: 500; }
+    .check .row { display: flex; gap: 8px; margin-top: 6px; flex-wrap: nowrap; }
+    .check input { background: var(--surface); }
+    .check button { padding: 10px 16px; }
+    details.screened { margin-top: 12px; color: var(--ink-2); font-size: 13px; }
+    details.screened summary { cursor: pointer; font-weight: 500; }
+    details.screened textarea { min-height: 60px; }
     details.screened label { display: block; margin: 8px 0 4px; }
-    #makeOwn { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
-    #makeOwn input { flex: 1 1 200px; }
-    button.ghost { background: rgba(255,255,255,.04); color: inherit; border: 1px solid rgba(255,255,255,.16); padding: 8px 14px; font-size: 13px; font-weight: 500; backdrop-filter: blur(8px); }
-    button.ghost:hover { border-color: rgba(255,255,255,.4); box-shadow: none; }
-    .ticket button.ghost, .check button.ghost { border-color: var(--rule); }
-    .placeholder { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; padding: 120px 26px; color: var(--text-2); text-align: center; font-size: 14px; line-height: 1.6;
-      background: repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 2px, rgba(255,255,255,.015) 2px 9px), rgba(17,17,19,.6); backdrop-filter: blur(14px); }
-    .placeholder .big { font: 600 12px var(--sans); color: var(--text); letter-spacing: 0.24em; margin-bottom: 10px; }
-    .reqbox { margin-top: 16px; border: 2px solid var(--good); border-radius: 8px; padding: 10px 12px; font-family: var(--sans); font-size: 13px; }
-    .reqbox[data-ok="false"] { border-color: var(--bad); }
-    .reqbox .reqhead { font-family: var(--mono); font-weight: 800; letter-spacing: .14em; font-size: 12px; color: var(--good); }
+    .reqbox { margin-top: 16px; border-radius: 16px; padding: 12px 14px; font-size: 13px; background: var(--iris-soft); box-shadow: inset 0 0 0 1px rgba(91,61,245,.25); }
+    .reqbox[data-ok="false"] { background: rgba(229,72,77,.07); box-shadow: inset 0 0 0 1px rgba(229,72,77,.3); }
+    .reqbox[data-ok="info"] { background: var(--sunk); box-shadow: inset 0 0 0 1px var(--line); }
+    .reqbox .reqhead { font: 700 11.5px var(--sans); letter-spacing: .14em; color: var(--iris); }
     .reqbox[data-ok="false"] .reqhead { color: var(--bad); }
+    .reqbox[data-ok="info"] .reqhead, .reqbox li[data-ok="info"] { color: var(--ink-2); }
     .reqbox ul { margin: 6px 0 0; padding-left: 0; list-style: none; line-height: 1.55; }
     .reqbox li[data-ok="false"] { color: var(--bad); }
-    .reqbox[data-ok="info"] { border-color: #5e5e64; }
-    .reqbox[data-ok="info"] .reqhead, .reqbox li[data-ok="info"] { color: #5e5e64; }
-    @media print { body > *:not(main), #left, section:first-child, .samples, .check, .actions, #progress { display: none !important; } main { display: block; padding: 0; } }
-    .request { margin-top: 22px; color: var(--text-2); font-size: 14px; }
-    .request summary { cursor: pointer; color: var(--text); font-weight: 600; }
-    .request .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 10px; }
-    .request code { font-family: var(--mono); color: var(--text); }
-    #linkOut ul { margin: 6px 0 0; padding-left: 18px; }
-    #linkOut li[data-level="error"] { color: #e0796f; }
-    #linkOut li[data-level="warning"] { color: var(--gold); }
-    #linkOut .verdict { font-weight: 600; color: var(--text); }
-    .warm { margin-top: 10px; font-family: var(--mono); font-size: 12px; color: var(--text-2); }
-    .warm[data-state="ready"] { color: var(--gold); }
-    footer { max-width: 1080px; margin: 0 auto; padding: 28px 20px 44px; color: var(--text-3); font-size: 12.5px; border-top: 1px solid var(--line); }
+    @media print { body > *:not(main), #left, section:first-child, .samples, .check, .actions, #progress, .bg { display: none !important; } main { display: block; padding: 0; } .ticket { box-shadow: none; } }
   </style>
-
 </head>
 <body>
-  <div class="texture" aria-hidden="true"><canvas id="cipher" data-proved="VERIFIED · ZIP 311"></canvas></div>
-  <nav class="top">
-    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z" fill="#000"/><path d="M12.5 11.5h7l-7 7h7" stroke="#FCA311" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Zceipt</a>
-    <div class="links"><a href="/docs/">Docs</a><a href="/">Home</a></div>
+  <div class="bg" aria-hidden="true"><i></i><i></i></div>
+  <nav class="island-nav">
+    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#111114"/><path d="M10.5 10.5h11l-11 11h11" stroke="#fff" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="8" r="3.2" fill="#5B3DF5"/></svg>Zceipt</a>
+    <div class="links"><a class="hide-sm" href="./make.html">Make a receipt</a><a href="/docs/">Docs</a></div>
+    <a class="btn small ghost" href="/">Home</a>
   </nav>
   <main>
-    <section>
-      <div class="eyebrow">Zceipt · ZIP 311 for Orchard &amp; Ironwood</div>
-      <h1>Prove one Zcash payment. <em>Keep your viewing key.</em></h1>
-      <p class="lede">A receipt shows who was paid, how much and the memo for a single shielded transaction, and proves it was signed by the key that spent the money. No viewing key changes hands. The proof is checked in this browser; only public chain data is fetched.</p>
-
-      <label class="hint" for="paste">Receipt or link</label>
-      <textarea id="paste" placeholder="zip311r1… (paste a link, or open a saved file)" spellcheck="false"></textarea>
-      <div class="actions">
-        <button id="verifyBtn">Verify receipt</button>
-        <button type="button" class="ghost" id="openFile">Open a file</button>
-        <input type="file" id="fileIn" accept=".txt,text/plain" hidden>
+    <section id="left">
+      <div class="intro">
+        <span class="pill"><i class="dot iris"></i>Checked in this browser</span>
+        <h1>Verify a receipt. <span>Keep your viewing key.</span></h1>
       </div>
-      <p class="fine"><a href="./make.html">Make a receipt from your wallet's viewing key</a></p>
-      <div class="actions samples">
-        <button type="button" class="ghost" id="sampleReal">Try a real testnet receipt</button>
-        <button type="button" class="ghost" id="sampleEdited">Try an edited copy</button>
-        <button type="button" class="ghost" id="sampleObserver">Try a claim by someone who only saw it</button>
-        <div class="row" id="makeOwn">
-          <input id="ownMsg" placeholder="Your own message" maxlength="500" autocomplete="off" aria-label="Your own message">
-          <button type="button" class="ghost" id="ownBtn">Sign it with the demo wallet</button>
+
+      <div class="island panel">
+        <label class="hint" for="paste">Receipt or link</label>
+        <textarea id="paste" placeholder="zip311r1…" spellcheck="false" style="margin-top:8px"></textarea>
+        <div class="actions">
+          <button id="verifyBtn">Verify receipt</button>
+          <button type="button" class="ghost" id="openFile">Open a file</button>
+          <input type="file" id="fileIn" accept=".txt,text/plain" hidden>
+          <a class="make" href="./make.html">Make one →</a>
         </div>
-        <details class="more"><summary>More examples</summary>
-          <button type="button" class="ghost" id="sampleBatch">Try a batch of payouts</button>
-          <button type="button" class="ghost" id="sampleSource">Try a deposit with its source</button>
-          <button type="button" class="ghost" id="sampleScreened">Try a deposit from a screened list</button>
-        </details>
+        <div id="warm" class="warm" data-state="busy" hidden></div>
       </div>
-      <div id="warm" class="warm" data-state="busy" hidden></div>
 
-      <div id="progress" role="status" aria-live="polite" hidden>
+      <div class="island panel">
+        <div class="actions samples">
+          <h2 style="width:100%;margin:0">Try one</h2>
+          <button type="button" class="ghost" id="sampleReal">Real testnet receipt</button>
+          <button type="button" class="ghost" id="sampleEdited">Edited copy</button>
+          <button type="button" class="ghost" id="sampleObserver">Claim by someone who only saw it</button>
+          <div class="row" id="makeOwn">
+            <input id="ownMsg" placeholder="Your own message" maxlength="500" autocomplete="off" aria-label="Your own message">
+            <button type="button" class="ghost" id="ownBtn">Sign it with the demo wallet</button>
+          </div>
+          <details class="more"><summary>More examples ›</summary>
+            <button type="button" class="ghost" id="sampleBatch">Batch of payouts</button>
+            <button type="button" class="ghost" id="sampleSource">Deposit with its source</button>
+            <button type="button" class="ghost" id="sampleScreened">Deposit from a screened list</button>
+          </details>
+        </div>
+      </div>
+
+      <div id="progress" class="island" role="status" aria-live="polite" hidden>
         <div class="step" data-step="decode"><span class="dot"></span><span>Read the receipt<span class="detail"></span></span></div>
         <div class="step" data-step="fetch"><span class="dot"></span><span>Get the transaction<span class="detail"></span></span></div>
         <div class="step" data-step="verify"><span class="dot"></span><span>Check the proof and open the payment<span class="detail"></span></span></div>
       </div>
 
-      <details>
-        <summary>Settings: server, or offline</summary>
+      <details class="box" style="margin-top:14px">
+        <summary>Server, or offline</summary>
         <div class="grid">
-          <label class="hint" for="endpoint">grpc-web lightwalletd (default for mainnet: zcash-mainnet.chainsafe.dev)</label>
+          <label class="hint" for="endpoint">grpc-web lightwalletd</label>
           <input id="endpoint" placeholder="https://zcash-mainnet.chainsafe.dev" spellcheck="false">
-          <label class="hint" id="regtestRow" hidden><input type="checkbox" id="regtest" style="width:auto;margin-right:6px">Local regtest chain (served by scripts/dev-server.mjs)</label>
-          <label class="hint" for="rawTx">Or paste the raw transaction hex and its block height, and nothing is fetched at all</label>
+          <label class="hint" id="regtestRow" hidden><input type="checkbox" id="regtest">Local regtest chain (scripts/dev-server.mjs)</label>
+          <label class="hint" for="rawTx">Or paste the raw transaction and its height: nothing is fetched</label>
           <textarea id="rawTx" placeholder="raw transaction hex" spellcheck="false"></textarea>
           <input id="rawHeight" placeholder="block height" inputmode="numeric" aria-label="Block height of the pasted transaction">
         </div>
       </details>
 
-      <details class="request" id="requestPanel">
+      <details class="box request" id="requestPanel">
         <summary>Ask someone to prove they paid you</summary>
         <div class="grid">
-          <label class="hint" for="reqTo">Your address (the payee)</label>
+          <label class="hint" for="reqTo">Your address</label>
           <input id="reqTo" placeholder="u1… / utest1…" spellcheck="false" autocomplete="off">
-          <label class="hint" for="reqAmount">Amount you expect (ZEC, optional)</label>
+          <label class="hint" for="reqAmount">Amount (ZEC, optional)</label>
           <input id="reqAmount" placeholder="0.01" inputmode="decimal">
-          <label class="hint" for="reqLabel">Label (optional, stays in your browser and the link)</label>
+          <label class="hint" for="reqLabel">Label (optional)</label>
           <input id="reqLabel" placeholder="Order #42">
           <div class="actions"><button id="reqBtn">Create request</button></div>
           <div id="reqOut"></div>
         </div>
       </details>
 
-      <details class="request" id="linkPanel">
+      <details class="box request" id="linkPanel">
         <summary>Check a payment link</summary>
         <div class="grid">
-          <label class="hint" for="linkIn">A <code>zcash:</code> link, as you'd put in an invoice or QR code, or a signed request (<code>zreq1…</code>) to check before paying</label>
+          <label class="hint" for="linkIn">A <code>zcash:</code> link or a signed request (<code>zreq1…</code>)</label>
           <input id="linkIn" placeholder="zcash:u1…?amount=0.01&amp;memo=…" spellcheck="false" autocomplete="off">
           <div class="actions"><button id="linkBtn">Check link</button></div>
           <div id="linkOut"></div>
@@ -237,27 +240,26 @@
       </details>
 
       <div class="how">
-        <h2>How it works</h2>
-        <ol>
-          <li>Each disclosed output comes with the one key that opens only that output. Your browser opens it from the transaction on chain and checks the two match.</li>
-          <li>The payer's wallet proves, with a fresh zero-knowledge proof, that it holds the key that spent the money in this transaction, and signs the whole receipt with that key. Someone who only saw the payment can't.</li>
-          <li>A signed message, such as an invoice number or your request's code, ties the receipt to one purpose.</li>
-        </ol>
-        <div class="cli">zceipt create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt
+        <div><i>01</i><b>Opens one output</b>Each shown output comes with the one key that opens only it, matched against the chain.</div>
+        <div><i>02</i><b>Proves the spender</b>A fresh zero-knowledge proof and signature by the key that spent the money.</div>
+        <div><i>03</i><b>Ties it to a purpose</b>A signed message, such as an invoice number or your request's code.</div>
+      </div>
+      <div class="cli">zceipt create --ufvk @key.txt --birthday &lt;height&gt; --txid &lt;txid&gt; -m "Invoice 42" --unsigned r.txt
 zceipt sign r.txt --seed-stdin
 zceipt verify 'https://…#zip311r1…'</div>
-      </div>
     </section>
 
     <section id="right">
       <div id="result" tabindex="-1" aria-live="polite" hidden></div>
-      <div class="placeholder" id="empty">
-        <div class="big">RECEIPT</div>
-        Open a receipt link, or paste one.<br>The verified payment prints here.
+      <div class="island placeholder" id="empty">
+        <div>
+          <div class="ghost-paper" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <p>The verified payment prints here.</p>
+        </div>
       </div>
     </section>
   </main>
-  <footer>Open source · ZIP 311 (Draft) with a proposed Orchard/Ironwood instantiation · Built for ZECATHON 2026</footer>
+  <footer class="foot"><div class="wrap"><span>Zceipt · ZIP 311 (Draft) for Orchard and Ironwood · unaudited</span><nav><a href="/docs/">Docs</a><a href="/docs/status">Status</a></nav></div></footer>
   <script src="./cipher.js" defer></script>
   <script type="module" src="./app.js"></script>
 </body>

@@ -16,7 +16,7 @@ problems += [f"sdk-parity.json lists {o}, which openapi.yaml doesn't have" for o
 
 rust = (root / "crates/zceipt-client/src/lib.rs").read_text()
 problems += [f"Rust SDK lacks {m['rust']} ({o})" for o, m in table.items() if not re.search(rf"pub async fn {m['rust']}\b", rust)]
-go = (root / "packages/zceipt-go/receipts.go").read_text()
+go = (root / "packages/zceipt-go/zceipt.go").read_text()
 problems += [f"Go SDK lacks {m.get('go')} ({o})" for o, m in table.items() if not m.get("go") or not re.search(rf"func \(c \*Client\) {m['go']}\(", go)]
 
 sys.path.insert(0, str(root / "packages/zceipt-python"))

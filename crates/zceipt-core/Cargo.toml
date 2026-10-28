@@ -1,7 +1,7 @@
 [package]
 name = "zceipt-core"
 version = "0.1.0"
-description = "ZIP 311 payment disclosures (receipts) for Zcash Orchard and Ironwood"
+description = "ZIP 311 payment disclosures (receipts) for Zcash Orchard, Ironwood and Sapling"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -39,6 +39,12 @@ zcash_address = { workspace = true, optional = true }
 zcash_protocol.workspace = true
 qrcode = { version = "0.14", default-features = false, optional = true }
 serde_json = { version = "1", optional = true }
+# Sapling receipts (src/sapling.rs): the Sapling Spend circuit, Groth16 and RedJubjub.
+sapling-crypto = { version = "0.9", default-features = false, features = ["circuit"] }
+groth16 = { version = "0.2", default-features = false }
+bls12_381 = { version = "0.9", default-features = false }
+jubjub = { version = "0.11", default-features = false }
+redjubjub = { version = "0.9", default-features = false }
 
 [dev-dependencies]
 zceipt-core = { path = ".", features = ["orchard-ext", "extensions"] }

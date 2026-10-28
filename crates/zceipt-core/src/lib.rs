@@ -37,6 +37,7 @@ use rand_core::CryptoRng;
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 pub mod builder;
+pub mod sapling;
 #[cfg(feature = "extensions")]
 pub mod deposit;
 mod encoding;

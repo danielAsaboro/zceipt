@@ -7,297 +7,328 @@
 <meta name="description" content="Prove one shielded Zcash payment and keep everything else sealed. ZIP 311 for Orchard and Ironwood.">
 <meta property="og:title" content="Zceipt · prove one Zcash payment">
 <meta property="og:description" content="Prove one shielded Zcash payment and keep everything else sealed.">
-<meta name="theme-color" content="#000000">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23000'/><path d='M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z' fill='%23fff'/><path d='M12.5 11.5h7l-7 7h7' stroke='%23FCA311' stroke-width='2' fill='none' stroke-linejoin='round'/></svg>">
-<link rel="preconnect" href="https://api.fontshare.com">
-<link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap" rel="stylesheet">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/", "d3-delaunay": "https://cdn.jsdelivr.net/npm/d3-delaunay@6.0.4/+esm" } }</script>
+<meta name="theme-color" content="#F4F4F6">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23111114'/><path d='M10.5 10.5h11l-11 11h11' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linejoin='round' stroke-linecap='round'/><circle cx='24' cy='8' r='3.2' fill='%235B3DF5'/></svg>">
+<link rel="stylesheet" href="/verify/zceipt.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
 <style>
-  :root {
-    color-scheme: dark;
-    --ink: #000000; --ink-2: #0b0b0c; --ink-3: #141416;
-    --text: #ffffff; --text-2: #a3a3a8; --text-3: #5e5e64; --alabaster: #e5e5e5; --prussian: #14213d;
-    --gold: #fca311; --gold-2: #ffc35a; --gold-3: #b86f00;
-    
-    --hair: rgba(255,255,255,.08);
-    --edge: linear-gradient(150deg, rgba(255,255,255,.22), rgba(255,255,255,.04) 38%, rgba(255,255,255,.02) 62%, rgba(255,255,255,.16));
-    --sans: "General Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* ---------- story ---------- */
+  #story { height: 640vh; position: relative; }
+  .sticky { position: sticky; top: 0; height: 100vh; height: 100svh; overflow: hidden; }
+  #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .wash { position: absolute; inset: 0; pointer-events: none; opacity: var(--exposed, 0); transition: opacity .2s;
+           background: radial-gradient(50% 45% at 62% 52%, rgba(255,77,46,.16), transparent 70%); }
+
+  .hero-copy { position: absolute; left: 0; right: 0; top: clamp(108px, 15vh, 150px); text-align: center; padding: 0 20px;
+               opacity: var(--hero, 1); transform: translateY(calc((1 - var(--hero, 1)) * -40px)); pointer-events: none; }
+  .hero-copy > * { pointer-events: auto; }
+  body:not(.top-of-story) .hero-copy { pointer-events: none; }
+  .hero-copy h1 { font-size: clamp(42px, 7vw, 96px); margin: 18px auto 26px; max-width: 11em; }
+  .hero-copy h1 span { color: var(--ink-3); }
+  .hero-copy .row { justify-content: center; }
+  .hero-copy > * { animation: rise 1.1s var(--out) both; }
+  .hero-copy > :nth-child(2) { animation-delay: .1s; } .hero-copy > :nth-child(3) { animation-delay: .22s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+  .cue { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); width: 26px; height: 40px; border-radius: 14px; border: 1.5px solid var(--ink-3); opacity: calc(var(--hero, 1) * .8); }
+  .cue::after { content: ""; position: absolute; left: 50%; top: 8px; width: 3px; height: 8px; margin-left: -1.5px; border-radius: 2px; background: var(--ink-2); animation: cue 1.8s var(--out) infinite; }
+  @keyframes cue { 0% { transform: translateY(0); opacity: 1; } 70% { transform: translateY(12px); opacity: 0; } 100% { opacity: 0; } }
+
+  .beat { position: absolute; left: max(32px, calc((100vw - 1200px) / 2 + 32px)); top: 50%; width: min(460px, 36vw);
+          transform: translateY(-40%); opacity: 0; filter: blur(10px); transition: opacity .55s var(--out), transform .7s var(--out), filter .55s var(--out); pointer-events: none; }
+  .beat.on { opacity: 1; transform: translateY(-50%); filter: none; pointer-events: auto; }
+  .beat .num { font: 600 13px var(--mono); color: var(--ink-3); display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .beat .num::before { content: ""; width: 26px; height: 2px; border-radius: 2px; background: currentColor; }
+  .beat[data-tone="flare"] .num { color: var(--flare); } .beat[data-tone="iris"] .num { color: var(--iris); }
+  .beat h2 { font-size: clamp(34px, 3.8vw, 54px); margin: 0 0 16px; }
+  .beat p { margin: 0; color: var(--ink-2); font-size: 18px; max-width: 26em; }
+  .beat .chips { margin-top: 24px; }
+
+  .story-dots { position: absolute; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; transition: opacity .4s, transform .5s var(--out);
+                display: flex; gap: 4px; padding: 5px; border-radius: 999px; background: rgba(255,255,255,.7); backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6); box-shadow: var(--lift); border: 1px solid var(--line); }
+  body.in-story .story-dots { opacity: 1; transform: translate(-50%, 0); }
+  .story-dots button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font: 500 13px var(--sans); color: var(--ink-2); transition: background .3s, color .3s; }
+  .story-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); transition: background .3s, box-shadow .3s; }
+  .story-dots button:has(i.on) { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(17,17,20,.1); }
+  .story-dots button:nth-child(1):has(i.on) i { background: var(--ink); }
+  .story-dots button:nth-child(2):has(i.on) i { background: var(--flare); box-shadow: 0 0 10px var(--flare); }
+  .story-dots button:nth-child(n+3):has(i.on) i { background: var(--iris); box-shadow: 0 0 10px var(--iris); }
+
+  @media (max-width: 860px) {
+    .beat { left: 16px; right: 16px; width: auto; top: auto; bottom: 86px; transform: translateY(20px); padding: 22px; border-radius: 24px; background: rgba(255,255,255,.82); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: var(--lift); border: 1px solid var(--line); }
+    .beat.on { transform: none; }
+    .beat h2 { font-size: 28px; margin-bottom: 8px; } .beat p { font-size: 15px; } .beat .chips { margin-top: 14px; } .beat .num { margin-bottom: 10px; }
+    .story-dots button span { display: none; } .story-dots button { padding: 10px; }
   }
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--ink); color: var(--text); font: 17px/1.55 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-  a { color: inherit; text-decoration: none; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
-  @media (max-width: 600px) { .wrap { padding: 0 20px; } }
 
-  #stage { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block;
-           background: radial-gradient(80% 60% at 70% 30%, #1a1a1d 0%, transparent 60%), radial-gradient(60% 50% at 15% 80%, #0c1220 0%, transparent 60%), var(--ink); }
-  main, nav.top, footer { position: relative; z-index: 2; }
+  /* ---------- try ---------- */
+  .try { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 20px; }
+  .till { padding: 40px; display: grid; place-items: center; min-height: 440px; position: relative; overflow: hidden;
+          background: radial-gradient(70% 60% at 50% 40%, #fff, #EEEEF2); }
+  .till .order { position: absolute; top: 24px; left: 28px; right: 28px; display: flex; justify-content: space-between; font: 600 12px var(--mono); color: var(--ink-3); letter-spacing: .08em; }
+  .till zcash-receipt { width: 100%; max-width: 400px; }
+  .facts { display: grid; gap: 20px; grid-template-rows: repeat(3, minmax(0, 1fr)); }
+  .fact { padding: 26px 28px; display: flex; gap: 18px; align-items: center; }
+  .fact .ico { flex: none; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--bg); color: var(--ink); }
+  .fact .ico svg { width: 24px; height: 24px; }
+  .fact b { display: block; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
+  .fact span { color: var(--ink-2); font-size: 15px; }
+  @media (max-width: 920px) { .try { grid-template-columns: 1fr; } .till { min-height: 360px; padding: 64px 18px 28px; } }
 
-  /* What the chain sees: ciphertext drifting at the edges, a ledger grid, film grain */
-  .texture { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
-  .texture::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 88px 88px; background-position: center top;
-                     -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, #000 90%); mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, #000 90%); }
-  .texture::after { content: ""; position: absolute; inset: -50%; opacity: .07; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); animation: grain 1.2s steps(6) infinite; }
-  @keyframes grain { 0% { transform: translate(0,0); } 20% { transform: translate(-3%,2%); } 40% { transform: translate(2%,-3%); } 60% { transform: translate(-2%,-1%); } 80% { transform: translate(3%,3%); } 100% { transform: translate(0,0); } }
-  #cipher { position: absolute; inset: 0; width: 100%; height: 100%; -webkit-mask-image: radial-gradient(ellipse 60% 70% at 50% 50%, transparent 30%, #000 85%); mask-image: radial-gradient(ellipse 60% 70% at 50% 50%, transparent 30%, #000 85%); }
-  #stage { transition: opacity .9s; }
-  body.past-story #stage { opacity: .12; }
-  body.past-story #cipher { opacity: .6; transition: opacity 1s; }
+  /* ---------- builder ---------- */
+  .builder { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 20px; align-items: stretch; }
+  .toggles { padding: 14px; display: grid; align-content: start; }
+  .tg { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 18px; border-radius: 18px; font-size: 17px; font-weight: 500; }
+  .tg + .tg { border-top: 1px solid var(--line); border-radius: 0; }
+  .tg .lock { font: 500 13px var(--sans); color: var(--ink-3); display: flex; gap: 6px; align-items: center; }
+  .tg .lock svg { width: 14px; height: 14px; }
+  .switch { position: relative; width: 52px; height: 32px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .switch i { position: absolute; inset: 0; border-radius: 99px; background: #E3E3E8; transition: background .3s var(--out); }
+  .switch i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.18); transition: transform .35s var(--out); }
+  .switch input:checked + i { background: var(--iris); }
+  .switch input:checked + i::after { transform: translateX(20px); }
+  .switch input:focus-visible + i { outline: 2px solid var(--iris); outline-offset: 3px; }
+  .preview { display: grid; place-items: center; padding: 44px 24px; background: radial-gradient(60% 60% at 50% 40%, rgba(91,61,245,.10), transparent 70%), var(--surface); }
+  .meter { margin-top: 22px; display: flex; align-items: center; gap: 12px; font: 500 14px var(--sans); color: var(--ink-2); }
+  .meter .bar { display: flex; gap: 4px; }
+  .meter .bar i { width: 22px; height: 8px; border-radius: 4px; background: var(--seal); transition: background .4s var(--out); }
+  .meter .bar i.on { background: var(--iris); }
+  @media (max-width: 920px) { .builder { grid-template-columns: 1fr; } }
 
-  /* a receipt's tear-off perforation between sections */
-  .perf { height: 28px; margin: 0 auto; max-width: 1180px; position: relative; background: radial-gradient(circle, rgba(255,255,255,.2) 1.4px, transparent 1.9px) 0 50% / 13px 13px repeat-x; }
-  .perf::before, .perf::after { content: ""; position: absolute; top: 50%; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); transform: translateY(-50%); }
-  .perf::before { left: -11px; } .perf::after { right: -11px; }
+  /* ---------- proofs bento ---------- */
+  .bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .bento a { display: flex; flex-direction: column; justify-content: space-between; gap: 18px; padding: 24px; min-height: 236px; transition: transform .4s var(--out), box-shadow .4s var(--out); }
+  .bento a:hover { transform: translateY(-4px); box-shadow: 0 30px 60px -30px rgba(91,61,245,.35), var(--lift); }
+  .bento a.lead { grid-column: span 2; grid-row: span 2; background: var(--ink); color: #fff; border-color: transparent; }
+  .bento a.lead .what { color: #A3A3AD; } .bento a.lead .prefix { color: #6B6B74; }
+  .bento svg.g { width: 100%; height: 96px; color: var(--ink-4); }
+  .bento a.lead svg.g { height: 100%; min-height: 240px; color: #3A3A45; }
+  .bento .prefix { font: 500 12px var(--mono); color: var(--ink-3); }
+  .bento .name { display: block; font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin: 4px 0 4px; }
+  .bento a.lead .name { font-size: 30px; }
+  .bento .what { color: var(--ink-2); font-size: 14.5px; line-height: 1.45; }
+  .g .k { fill: var(--iris); } .g .ks { stroke: var(--iris); } .g .card { fill: var(--surface); stroke: var(--ink-4); }
+  @media (max-width: 1020px) { .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .bento { grid-template-columns: 1fr; } .bento a.lead { grid-column: auto; grid-row: auto; } .bento a.lead svg.g { min-height: 180px; } }
 
-  .gold { background: linear-gradient(100deg, #ffe2a8 0%, #fca311 55%, #c97a00 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .rib { background: repeating-linear-gradient(90deg, #f2f2f2 0 3px, #8d8d93 3px 4px, #d4d4d8 4px 7px); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .grad { background: linear-gradient(100deg, #ffffff 0%, #d6d6da 45%, #7d7d84 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .gradw { background: linear-gradient(180deg, #ffffff 30%, #b6c7c0); -webkit-background-clip: text; background-clip: text; color: transparent; }
-
-  nav.top { position: fixed; top: 0; left: 0; right: 0; z-index: 10; transition: background .3s, border-color .3s; border-bottom: 1px solid transparent; }
-  nav.top.scrolled { background: rgba(6,12,10,.6); backdrop-filter: saturate(1.6) blur(20px); -webkit-backdrop-filter: saturate(1.6) blur(20px); border-bottom-color: var(--hair); }
-  nav.top .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
-  .logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 19px; letter-spacing: -.02em; }
-  .logo svg { width: 26px; height: 26px; }
-  .links { display: flex; gap: 30px; align-items: center; font-size: 14.5px; color: var(--text-2); font-weight: 500; }
-  .links a:hover { color: var(--text); }
-  .btn { display: inline-flex; align-items: center; gap: 8px; font: 600 15px var(--sans); padding: 13px 24px; border-radius: 999px; background: #f2f6f4; color: #06110c; transition: transform .2s, box-shadow .2s, background .2s; }
-  .btn:hover { transform: translateY(-1px); box-shadow: 0 12px 40px -12px rgba(255,255,255,.45); background: #fff; }
-  .btn.small { padding: 8px 16px; font-size: 13.5px; }
-  .more { color: var(--alabaster); font-weight: 500; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
-  .more:hover { text-decoration: underline; text-underline-offset: 4px; }
-  @media (max-width: 760px) { .links .hide-sm { display: none; } .links { gap: 18px; } }
-
-  /* Hero */
-  .hero { min-height: 100vh; min-height: 100svh; padding: 128px 0 40px; text-align: center; }
-  h1 { font: 500 clamp(44px, 6.6vw, 100px)/.98 var(--sans); letter-spacing: -.045em; margin: 0 auto 30px; }
-  h1 > span { display: block; padding-bottom: .06em; }
-  .hero .cta { display: flex; gap: 26px; align-items: center; justify-content: center; flex-wrap: wrap; }
-
-  /* Story rail */
-  .rail { position: fixed; left: 32px; top: 50%; transform: translateY(-50%); z-index: 3; list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; transition: opacity .5s; opacity: 0; pointer-events: none; }
-  body.in-story .rail { opacity: 1; pointer-events: auto; }
-  body.past-story .rail { opacity: 0; pointer-events: none; }
-  .rail li { display: flex; align-items: center; gap: 12px; color: var(--text-3); cursor: pointer; font-size: 13px; font-weight: 500; transition: color .3s; }
-  .rail li i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; transition: all .35s; }
-  .rail li.on { color: var(--text); }
-  .rail li.on i { width: 22px; border-radius: 3px; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
-  .rail li[data-c="2"].on i { background: #fff; box-shadow: 0 0 14px #fff; }
-  .rail li[data-c="0"].on i, .rail li[data-c="1"].on i { background: var(--text-2); box-shadow: none; }
-  @media (max-width: 1180px) { .rail { display: none; } }
-
-  /* Story chapters: type on the left, the glass on the right */
-  .chapter { height: 170vh; position: relative; }
-  .chapter > .wrap { height: 100%; }
-  .chapter .copy { position: sticky; top: 26vh; max-width: 470px; margin-left: 40px; }
-  .kicker { font: 600 13px var(--sans); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 18px; display: inline-block; }
-  .chapter h2 { margin: 0 0 20px; font: 500 clamp(36px, 4.2vw, 60px)/1.02 var(--sans); letter-spacing: -.04em; }
-  .chapter p { margin: 0; color: var(--text-2); font-size: 19px; line-height: 1.55; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
-  .chip { font: 500 14px var(--sans); padding: 8px 14px; border-radius: 99px; display: inline-flex; gap: 8px; align-items: center; }
-  .chip.open { background: #fff; color: #000; box-shadow: 0 0 30px -6px rgba(255,255,255,.7); }
-  .chip.proved { background: rgba(252,163,17,.1); color: var(--gold-2); box-shadow: inset 0 0 0 1px rgba(252,163,17,.4); }
-  .chip.sealed { color: var(--text-2); background: repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 2px, rgba(255,255,255,.02) 2px 5px); box-shadow: inset 0 0 0 1px var(--hair); backdrop-filter: blur(6px); }
-  .chip svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-  @media (max-width: 1180px) { .chapter .copy { margin-left: 0; } }
-  @media (max-width: 860px) { .chapter { height: 160vh; } .chapter .copy { top: 56vh; padding: 22px; border-radius: 24px; background: rgba(6,14,12,.55); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); } .chapter h2 { font-size: 32px; } .chapter p { font-size: 16px; } .chips { margin-top: 18px; } }
-
-  /* After the story */
-  .solid { background: linear-gradient(180deg, rgba(0,0,0,0) 0, rgba(0,0,0,.78) 220px, rgba(0,0,0,.84) 100%); }
-  body[data-phase="exposed"] .chapter p { color: #f2f2f2; transition: color .6s; }
-  section { padding: 150px 0; position: relative; }
-  .head { text-align: center; max-width: 780px; margin: 0 auto 72px; }
-  h2.big { font: 500 clamp(38px, 5vw, 72px)/1.02 var(--sans); letter-spacing: -.045em; margin: 0 0 22px; }
-  .sub { font-size: 20px; color: var(--text-2); margin: 0 auto; max-width: 34em; }
-  @media (max-width: 760px) { section { padding: 96px 0; } .head { margin-bottom: 48px; } }
-
-  .panel { border: 1px solid transparent; border-radius: 30px; background: linear-gradient(180deg, rgba(22,22,24,.92), rgba(10,10,11,.92)) padding-box, var(--edge) border-box; box-shadow: 0 40px 120px -40px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04); }
-
-  .live { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); overflow: hidden; }
-  .live > div { padding: 48px; }
-  .live .facts { list-style: none; margin: 32px 0 0; padding: 0; }
-  .live .facts li { padding: 14px 0; border-top: 1px solid var(--hair); display: flex; justify-content: space-between; gap: 16px; color: var(--text-2); font-size: 15.5px; }
-  .live .facts li span:last-child { color: var(--text); font-family: var(--mono); font-size: 13.5px; text-align: right; }
-  .live h3 { font: 500 30px/1.15 var(--sans); letter-spacing: -.03em; margin: 0 0 12px; }
-  .live p { color: var(--text-2); margin: 0; }
-  .live .till { background: #f5f5f4; color: #111; border-top: 3px solid var(--gold); display: flex; flex-direction: column; justify-content: center; gap: 18px; }
-  .live .order { font: 500 12.5px var(--mono); color: #6b6455; display: flex; justify-content: space-between; letter-spacing: .06em; }
-  @media (max-width: 920px) { .live { grid-template-columns: 1fr; } .live > div { padding: 30px 24px; } }
-
-  .proofs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .proofs a { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 28px 26px 30px; border-radius: 24px; min-height: 196px; overflow: hidden;
-              border: 1px solid transparent; background: linear-gradient(180deg, rgba(22,22,24,.9), rgba(9,9,10,.9)) padding-box, var(--edge) border-box; transition: transform .3s cubic-bezier(.2,.8,.2,1), box-shadow .3s; }
-  .proofs a::before { content: ""; position: absolute; inset: -40% -20% auto; height: 200px; background: radial-gradient(closest-side, rgba(255,255,255,.08), transparent); opacity: .5; transition: opacity .3s; pointer-events: none; }
-  .proofs a:hover { transform: translateY(-4px); box-shadow: 0 30px 80px -30px rgba(252,163,17,.35); }
-  .proofs a:hover .prefix { color: var(--gold); }
-  .proofs a:hover::before { opacity: 1; }
-  .proofs .prefix { font: 500 12px var(--mono); color: var(--text-3); transition: color .3s; letter-spacing: .02em; }
-  .proofs .name { font-size: 23px; font-weight: 500; letter-spacing: -.025em; }
-  .proofs .what { color: var(--text-2); font-size: 15.5px; }
-  @media (max-width: 920px) { .proofs { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 600px) { .proofs { grid-template-columns: 1fr; } .proofs a { min-height: 0; } }
-
-  .dev { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 72px; align-items: center; }
-  .dev ul { list-style: none; padding: 0; margin: 36px 0 0; }
-  .dev li { padding: 14px 0; border-top: 1px solid var(--hair); color: var(--text-2); }
-  .dev li b { color: var(--text); font-weight: 500; }
-  .code { overflow: hidden; }
-  .tabs { display: flex; gap: 4px; padding: 12px; border-bottom: 1px solid var(--hair); overflow-x: auto; }
-  .tabs button { font: 500 13px var(--sans); color: var(--text-3); background: none; border: 0; padding: 8px 14px; border-radius: 99px; cursor: pointer; white-space: nowrap; transition: color .2s, background .2s; }
-  .tabs button[aria-selected="true"] { color: var(--text); background: rgba(255,255,255,.08); }
-  .code pre { margin: 0; padding: 30px; font: 13.5px/1.8 var(--mono); color: var(--text); overflow-x: auto; min-height: 270px; }
+  /* ---------- developers ---------- */
+  .dev { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 56px; align-items: center; }
+  .dev .h2 { font-size: clamp(34px, 3.6vw, 52px); }
+  .dev ul { list-style: none; padding: 0; margin: 32px 0 0; display: grid; gap: 10px; }
+  .dev li { display: flex; gap: 14px; align-items: baseline; color: var(--ink-2); font-size: 16px; }
+  .dev li b { color: var(--ink); font-weight: 600; min-width: 92px; }
+  .code { background: #0E0E12; color: #E9E9EE; border-radius: var(--r-island); overflow: hidden; box-shadow: 0 40px 80px -40px rgba(17,17,20,.55); }
+  .tabs { display: flex; gap: 2px; padding: 10px; border-bottom: 1px solid rgba(255,255,255,.07); overflow-x: auto; }
+  .tabs button { all: unset; cursor: pointer; font: 500 13px var(--sans); color: #8A8A94; padding: 8px 14px; border-radius: 99px; white-space: nowrap; transition: color .2s, background .2s; }
+  .tabs button[aria-selected="true"] { color: #fff; background: rgba(255,255,255,.09); }
+  .tabs button:focus-visible { outline: 2px solid var(--iris); }
+  .code pre { margin: 0; padding: 28px 30px; font: 13.5px/1.8 var(--mono); overflow-x: auto; min-height: 270px; }
   .code pre[hidden] { display: none; }
-  .c { color: var(--text-3); } .s { color: var(--gold-2); } .kw { color: #c9c9ce; }
-  @media (max-width: 920px) { .dev { grid-template-columns: 1fr; gap: 44px; } }
+  .c { color: #6B6B74; } .s { color: #B3A4FF; } .kw { color: #7CC4FF; }
+  @media (max-width: 920px) { .dev { grid-template-columns: 1fr; gap: 36px; } }
 
-  .close { text-align: center; padding: 180px 0 170px; background: radial-gradient(50% 50% at 50% 60%, rgba(252,163,17,.09), transparent 70%); }
-  .close h2.big { margin: 0 auto 40px; max-width: 12em; }
-  .close .cta { display: flex; gap: 26px; justify-content: center; align-items: center; flex-wrap: wrap; }
-  footer { background: var(--ink); border-top: 1px solid var(--hair); padding: 36px 0 48px; color: var(--text-3); font-size: 14px; }
-  footer .wrap { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-  footer nav { display: flex; gap: 24px; flex-wrap: wrap; }
-  footer a:hover { color: var(--text); }
-
-  .reveal { opacity: 0; transform: translateY(28px); filter: blur(14px); transition: opacity 1.1s cubic-bezier(.2,.8,.2,1), transform 1.1s cubic-bezier(.2,.8,.2,1), filter 1.1s cubic-bezier(.2,.8,.2,1); }
-  .frost { filter: blur(16px); opacity: .25; transition: filter 1s cubic-bezier(.2,.8,.2,1), opacity 1s; }
-  .frost.in { filter: none; opacity: 1; }
-  h1 > span { animation: unfrost 1.6s cubic-bezier(.2,.8,.2,1) both; } h1 > span + span { animation-delay: .35s; }
-  .hero .cta { animation: unfrost 1.4s .7s cubic-bezier(.2,.8,.2,1) both; }
-  @keyframes unfrost { from { filter: blur(18px); opacity: 0; transform: translateY(10px); } to { filter: none; opacity: 1; transform: none; } }
-  .reveal.in { opacity: 1; transform: none; filter: none; }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; } .reveal, .frost { opacity: 1; transform: none; filter: none; } }
+  .close { text-align: center; padding: 160px 0 150px; }
+  .close h2 { font-size: clamp(40px, 6vw, 84px); margin: 0 auto 36px; max-width: 10em; }
+  .close h2 span { color: var(--ink-3); }
+  .close .row { justify-content: center; }
 </style>
 </head>
-<body>
-<canvas id="stage" aria-hidden="true"></canvas>
-<div class="texture" aria-hidden="true"><canvas id="cipher"></canvas></div>
-<ol class="rail" aria-label="Story"><li data-c="0"><i></i>Sealed</li><li data-c="1"><i></i>Private by default</li><li data-c="2"><i></i>Exposed</li><li data-c="3"><i></i>One window</li></ol>
+<body class="top-of-story">
+<div class="bg" aria-hidden="true"><i></i><i></i></div>
 
-<nav class="top" id="nav">
-  <div class="wrap">
-    <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M9 7h14v18l-2.3-1.6L18.3 25 16 23.4 13.7 25l-2.4-1.6L9 25z" fill="#000"/><path d="M12.5 11.5h7l-7 7h7" stroke="#FCA311" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>Zceipt</a>
-    <div class="links">
-      <a class="hide-sm" href="#story">Story</a>
-      <a class="hide-sm" href="#proofs">Proofs</a>
-      <a href="/docs/">Docs</a>
-      <!--DASHBOARD_NAV-->
-      <a class="btn small" href="/verify/">Verify a receipt</a>
-    </div>
+<nav class="island-nav" id="nav">
+  <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#111114"/><path d="M10.5 10.5h11l-11 11h11" stroke="#fff" stroke-width="2.6" fill="none" stroke-linejoin="round" stroke-linecap="round"/><circle cx="24" cy="8" r="3.2" fill="#5B3DF5"/></svg>Zceipt</a>
+  <div class="links">
+    <a class="hide-sm" href="#try">Try it</a>
+    <a class="hide-sm" href="#proofs">Proofs</a>
+    <a class="hide-sm" href="#developers">Developers</a>
+    <a href="/docs/">Docs</a>
+    <!--DASHBOARD_NAV-->
   </div>
+  <a class="btn small" href="/verify/">Verify</a>
 </nav>
 
 <main>
-  <header class="hero">
+  <section id="story" aria-label="How Zceipt keeps a wallet private">
+    <div class="sticky">
+      <div class="wash" aria-hidden="true"></div>
+      <canvas id="stage" aria-hidden="true"></canvas>
+
+      <header class="hero-copy">
+        <span class="pill"><i class="dot iris"></i>ZIP 311 · Orchard · testnet</span>
+        <h1>Prove one payment. <span>Reveal nothing else.</span></h1>
+        <div class="row">
+          <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
+          <a class="btn ghost" href="/docs/quickstart">Quickstart</a>
+        </div>
+      </header>
+      <div class="cue" aria-hidden="true"></div>
+
+      <div class="beat" aria-hidden="true"></div>
+      <article class="beat">
+        <div class="num">01 · Sealed</div>
+        <h2>Every payment, sealed.</h2>
+        <p>Shielded Zcash hides who you paid, how much and why. Even from the chain.</p>
+      </article>
+      <article class="beat" data-tone="flare">
+        <div class="num">02 · Exposed</div>
+        <h2>A viewing key opens all of it.</h2>
+        <p>Asked for proof, you hand over every payment, your balance, and the ones you haven't made yet.</p>
+        <div class="chips"><span class="chip flare">Balance</span><span class="chip flare">Rent</span><span class="chip flare">Clinic</span><span class="chip flare">Salary</span><span class="chip flare">Future payments</span></div>
+      </article>
+      <article class="beat" data-tone="iris">
+        <div class="num">03 · One payment</div>
+        <h2>Zceipt opens one card.</h2>
+        <p>Recipient, amount and memo from a single payment. The rest of the wallet stays shut.</p>
+        <div class="chips"><span class="chip on">Recipient</span><span class="chip on">Amount</span><span class="chip on">Memo</span><span class="chip sealed">Sender</span><span class="chip sealed">Balance</span><span class="chip sealed">History</span></div>
+      </article>
+      <article class="beat" data-tone="iris">
+        <div class="num">04 · Proven</div>
+        <h2>Signed by the key that spent it.</h2>
+        <p>A fresh zero-knowledge proof, checked in any browser. Someone who only saw the payment can't make one.</p>
+        <div class="row" style="margin-top:26px"><a class="btn" href="/verify/#{{SAMPLE_LINK}}">Check this receipt</a></div>
+      </article>
+
+      <nav class="story-dots" aria-label="Story">
+        <button data-go="0.2"><i></i><span>Sealed</span></button>
+        <button data-go="0.45"><i></i><span>Exposed</span></button>
+        <button data-go="0.72"><i></i><span>One payment</span></button>
+        <button data-go="0.92"><i></i><span>Proven</span></button>
+      </nav>
+    </div>
+  </section>
+
+  <section id="try" class="sec">
     <div class="wrap">
-      <h1><span class="gradw">Prove a payment.</span><span class="grad">Keep the rest <span class="rib">sealed.</span></span></h1>
-      <div class="cta">
-        <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
-        <a class="more" href="/docs/quickstart">Quickstart ›</a>
+      <div class="head reveal">
+        <h2>Check one yourself.</h2>
+        <p>A real testnet receipt, verified by WebAssembly in this tab.</p>
+      </div>
+      <div class="try reveal">
+        <div class="island till">
+          <div class="order"><span>KEMI'S COFFEE · ORDER #42</span><span>0.01 ZEC</span></div>
+          {{WIDGET}}
+        </div>
+        <div class="facts">
+          <div class="island fact"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="3"/><path d="M8 21h8M12 17v4"/></svg></span><div><b>Checked on this device</b><span>3.8 MB of wasm, no server</span></div></div>
+          <div class="island fact"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l8-4 8 4-8 4z"/><path d="M4 12l8 4 8-4M4 17l8 4 8-4"/></svg></span><div><b>The server sees one block</b><span>Not which transaction</span></div></div>
+          <div class="island fact"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3.5v5.5c0 4.6-3.4 8.3-8 9-4.6-.7-8-4.4-8-9V6.5z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></span><div><b>Orchard Action proof</b><span>Halo 2, no trusted setup</span></div></div>
+        </div>
       </div>
     </div>
-  </header>
+  </section>
 
-  <div id="story">
-    <div class="chapter" data-ch="1">
-      <div class="wrap"><div class="copy frost">
-        <div class="kicker" style="color:var(--text-3)">Private by default</div>
-        <h2 class="gradw">Your wallet is behind frosted glass.</h2>
-        <p>Every shielded payment is sealed on chain: who you paid, how much, the memo, your balance. Nobody can read it. That's the point of Zcash.</p>
-      </div></div>
-    </div>
-    <div class="chapter" data-ch="2">
-      <div class="wrap"><div class="copy frost">
-        <div class="kicker" style="color:#fff">Then someone asks for proof</div>
-        <h2 class="gradw">A viewing key shatters all of it.</h2>
-        <p>The shop, the exchange, the auditor. Today the only answer is a viewing key, and it doesn't open one payment. It opens all of them, including the ones you haven't made yet.</p>
-        <div class="chips">
-          <span class="chip open">Balance</span><span class="chip open">Rent</span><span class="chip open">Clinic</span><span class="chip open">Family</span><span class="chip open">Every future payment</span>
+  <section id="choose" class="sec">
+    <div class="wrap">
+      <div class="head reveal">
+        <h2>You choose what it shows.</h2>
+      </div>
+      <div class="builder reveal">
+        <div class="island toggles" id="toggles">
+          <div class="tg"><span>Recipient</span><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Always</span></div>
+          <div class="tg"><span>Amount</span><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Always</span></div>
+          <label class="tg"><span>Memo</span><span class="switch"><input type="checkbox" data-f="memo" checked><i></i></span></label>
+          <label class="tg"><span>Your address</span><span class="switch"><input type="checkbox" data-f="from"><i></i></span></label>
+          <label class="tg"><span>Source of funds</span><span class="switch"><input type="checkbox" data-f="funds"><i></i></span></label>
+          <div class="tg"><span>Balance</span><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Never</span></div>
+          <div class="tg"><span>Other payments</span><span class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>Never</span></div>
         </div>
-      </div></div>
-    </div>
-    <div class="chapter" data-ch="3">
-      <div class="wrap"><div class="copy frost">
-        <div class="kicker gold">Zceipt</div>
-        <h2 class="gradw">Open one window. Nothing more.</h2>
-        <p>Your wallet makes a fresh zero-knowledge proof for one payment and signs it. Anyone can check it, offline, forever. The glass stays on everything else.</p>
-        <div class="chips">
-          <span class="chip proved"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Who you paid</span><span class="chip proved"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Amount</span><span class="chip proved"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Memo</span><span class="chip proved"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Your key spent it</span><span class="chip sealed">Everything else stays sealed</span>
-        </div>
-      </div></div>
-    </div>
-  </div>
-
-  <div class="solid">
-    <section id="demo">
-      <div class="wrap">
-        <div class="head reveal">
-          <h2 class="big gradw">See for yourself.</h2>
-          <p class="sub">A real testnet receipt, checked by WebAssembly in this tab. Only public chain data is fetched.</p>
-        </div>
-        <div class="panel live reveal">
+        <div class="island preview">
           <div>
-            <h3>Kemi's Coffee, order 42</h3>
-            <p>The shop learns it was paid 0.01 ZEC with this memo, by the key that spent it. It learns nothing about the payer's wallet.</p>
-            <ul class="facts">
-              <li><span>Proof</span><span>Orchard Action, Halo 2</span></li>
-              <li><span>Verifier</span><span>3.8 MB wasm</span></li>
-              <li><span>Server sees</span><span>one block, not the tx</span></li>
-            </ul>
-          </div>
-          <div class="till">
-            <div class="order"><span>KEMI'S COFFEE · ORDER #42</span><span>0.01 ZEC</span></div>
-            {{WIDGET}}
+            <div class="paper" id="paper">
+              <div class="p-top"><span>ZCASH · SHIELDED</span><span class="stamp-mini">Proven</span></div>
+              <div class="p-title"><span class="rv on">Kemi's Coffee</span></div>
+              <div class="p-amt"><span class="rv on">0.01</span> <small>ZEC</small></div>
+              <div class="p-rule"></div>
+              <div class="p-row"><b>TO</b><span class="rv on mono">utest14te…0zndfa</span></div>
+              <div class="p-row"><b>MEMO</b><span class="rv on" data-r="memo">Invoice 42: two coffees</span></div>
+              <div class="p-row"><b>FROM</b><span class="rv mono" data-r="from">utest1zr4…8hkd2</span></div>
+              <div class="p-row"><b>FUNDS</b><span class="rv" data-r="funds">Note from 7c41e0…, block 4,498,210</span></div>
+              <div class="p-row"><b>BALANCE</b><span class="rv">41.2630 ZEC</span></div>
+              <div class="p-row"><b>HISTORY</b><span class="rv">214 payments</span></div>
+            </div>
+            <div class="meter"><span class="bar" id="meter"></span><span id="meterText"></span></div>
           </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <div class="perf" aria-hidden="true"></div>
-    <section id="proofs">
-      <div class="wrap">
-        <div class="head reveal">
-          <h2 class="big gradw">One proof. Then a whole language of them.</h2>
-          <p class="sub">Facts about sets of payments, each without the history behind it.</p>
-        </div>
-        <div class="proofs reveal">
-          <a href="/docs/concepts/spend-authority"><span class="prefix">zip311r1</span><span class="name">One payment</span><span class="what">Who was paid, how much, and that your key spent the money</span></a>
-          <a href="/docs/composability/same-payer"><span class="prefix">zip311b1</span><span class="name">Same payer</span><span class="what">One key made all of these payments</span></a>
-          <a href="/docs/composability/distinct-payers"><span class="prefix">zip311t1</span><span class="name">Distinct payers</span><span class="what">These payments came from different wallets</span></a>
-          <a href="/docs/composability/sibling-accounts"><span class="prefix">zip311w1</span><span class="name">Sibling accounts</span><span class="what">These accounts belong to one wallet</span></a>
-          <a href="/docs/composability/income"><span class="prefix">zip311i1</span><span class="name">Income</span><span class="what">At least this much came in, without listing the payments</span></a>
-          <a href="/docs/composability/source-of-funds"><span class="prefix">zip311s1</span><span class="name">Source of funds</span><span class="what">The money came from an approved set of notes</span></a>
-          <a href="/docs/composability/key-sets"><span class="prefix">zip311m1</span><span class="name">Key sets</span><span class="what">Paid by one of a company's keys, without saying which</span></a>
-          <a href="/docs/composability/delegation"><span class="prefix">zip311a1</span><span class="name">Delegation</span><span class="what">An agent paid within the limits its owner signed</span></a>
-          <a href="/docs/composability/frost-policy"><span class="prefix">zip311p1</span><span class="name">FROST policy</span><span class="what">A threshold of signers approved the payment</span></a>
-        </div>
+  <section id="proofs" class="sec">
+    <div class="wrap">
+      <div class="head reveal">
+        <h2>One receipt. A family of proofs.</h2>
+        <p>Facts about many payments, without the history behind them.</p>
       </div>
-    </section>
+      <div class="bento reveal">
+        <a class="island lead" href="/docs/concepts/spend-authority">
+          <svg class="g" viewBox="0 0 320 220" fill="none" stroke-width="2" aria-hidden="true">
+            <g stroke="currentColor"><rect x="30" y="40" width="96" height="132" rx="14" opacity=".5"/><rect x="46" y="30" width="96" height="132" rx="14" opacity=".7"/></g>
+            <rect x="150" y="18" width="120" height="164" rx="16" fill="#fff"/>
+            <rect x="166" y="40" width="58" height="10" rx="5" fill="#111114"/><rect x="166" y="62" width="40" height="18" rx="6" fill="#111114"/>
+            <g fill="#5B3DF5"><circle cx="170" cy="104" r="4"/><circle cx="170" cy="124" r="4"/></g>
+            <g fill="#D6D6DE"><rect x="182" y="99" width="70" height="10" rx="5"/><rect x="182" y="119" width="54" height="10" rx="5"/></g>
+            <g fill="#1B1B21"><rect x="166" y="142" width="86" height="10" rx="5"/><rect x="166" y="160" width="62" height="10" rx="5"/></g>
+            <circle cx="262" cy="170" r="26" fill="#5B3DF5"/><path d="M251 170l8 8 15-16" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div><span class="prefix">zip311r1</span><span class="name">One payment</span><span class="what">Who was paid, how much, the memo, and that your key spent the money.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/same-payer">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="12" y="10" width="34" height="22" rx="6" class="card"/><rect x="12" y="38" width="34" height="22" rx="6" class="card"/><rect x="12" y="66" width="34" height="22" rx="6" class="card"/><path d="M46 21C100 21 110 48 150 48M46 49h104M46 77C100 77 110 48 150 48" class="ks"/><circle cx="164" cy="48" r="14" class="k" stroke="none"/></svg>
+          <div><span class="prefix">zip311b1</span><span class="name">Same payer</span><span class="what">One key made all of these.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/distinct-payers">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="12" y="10" width="34" height="22" rx="6" class="card"/><rect x="12" y="38" width="34" height="22" rx="6" class="card"/><rect x="12" y="66" width="34" height="22" rx="6" class="card"/><path d="M46 21h96M46 49h96M46 77h96" class="ks"/><circle cx="156" cy="21" r="9" class="k" stroke="none"/><circle cx="156" cy="49" r="9" class="k" stroke="none" opacity=".7"/><circle cx="156" cy="77" r="9" class="k" stroke="none" opacity=".45"/></svg>
+          <div><span class="prefix">zip311t1</span><span class="name">Distinct payers</span><span class="what">Different wallets, not one wallet twice.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/sibling-accounts">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="44" y="12" width="112" height="72" rx="20" stroke-dasharray="5 6"/><circle cx="80" cy="48" r="16" class="k" stroke="none"/><circle cx="120" cy="48" r="16" class="k" stroke="none" opacity=".55"/></svg>
+          <div><span class="prefix">zip311w1</span><span class="name">Sibling accounts</span><span class="what">Two accounts, one wallet.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/income">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 30h160" stroke-dasharray="5 6" class="ks"/><rect x="34" y="56" width="22" height="30" rx="6" fill="currentColor" stroke="none"/><rect x="66" y="46" width="22" height="40" rx="6" fill="currentColor" stroke="none"/><rect x="98" y="62" width="22" height="24" rx="6" fill="currentColor" stroke="none"/><rect x="138" y="24" width="28" height="62" rx="8" class="k" stroke="none"/></svg>
+          <div><span class="prefix">zip311i1</span><span class="name">Income</span><span class="what">At least this much came in.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/source-of-funds">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="54" cy="48" r="34" stroke-dasharray="5 6"/><g fill="currentColor" stroke="none"><circle cx="40" cy="36" r="5"/><circle cx="62" cy="32" r="5"/><circle cx="44" cy="60" r="5"/><circle cx="68" cy="56" r="5"/></g><circle cx="54" cy="46" r="6" class="k" stroke="none"/><path d="M94 48h50" class="ks"/><path d="M138 42l8 6-8 6" class="ks"/><rect x="152" y="30" width="34" height="36" rx="7" class="card"/></svg>
+          <div><span class="prefix">zip311s1</span><span class="name">Source of funds</span><span class="what">The money came from an approved set.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/key-sets">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M26 22v-8h148v8M26 74v8h148v-8" class="ks"/><g fill="currentColor" stroke="none"><circle cx="46" cy="48" r="12"/><circle cx="78" cy="48" r="12"/><circle cx="110" cy="48" r="12"/><circle cx="142" cy="48" r="12"/></g><circle cx="174" cy="48" r="0"/></svg>
+          <div><span class="prefix">zip311m1</span><span class="name">Key sets</span><span class="what">One of these keys, not saying which.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/delegation">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="40" cy="48" r="16" fill="currentColor" stroke="none"/><path d="M60 48h68" stroke-dasharray="5 6"/><path d="M122 42l8 6-8 6"/><circle cx="152" cy="48" r="16" class="k" stroke="none"/><rect x="128" y="74" width="48" height="8" rx="4" fill="currentColor" stroke="none" opacity=".5"/><rect x="128" y="74" width="30" height="8" rx="4" class="k" stroke="none"/></svg>
+          <div><span class="prefix">zip311a1</span><span class="name">Delegation</span><span class="what">An agent paid within its owner's limits.</span></div>
+        </a>
+        <a class="island" href="/docs/composability/frost-policy">
+          <svg class="g" viewBox="0 0 200 96" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M100 18L64 78h72z" stroke-dasharray="5 6"/><circle cx="100" cy="18" r="13" class="k" stroke="none"/><circle cx="64" cy="78" r="13" class="k" stroke="none"/><circle cx="136" cy="78" r="13" fill="currentColor" stroke="none"/></svg>
+          <div><span class="prefix">zip311p1</span><span class="name">FROST policy</span><span class="what">A threshold of signers approved it.</span></div>
+        </a>
+      </div>
+    </div>
+  </section>
 
-    <div class="perf" aria-hidden="true"></div>
-    <section id="developers">
-      <div class="wrap dev">
-        <div class="reveal">
-          <h2 class="big gradw">Take shielded payments without a viewing key.</h2>
-          <ul>
-            <li><b>Payment API.</b> Proof requests, signed webhooks, refunds, attestations.</li>
-            <li><b>SDKs.</b> TypeScript, Python, Rust and Go.</li>
-            <li><b>HTTP 402 gate.</b> Express, Next.js, FastAPI, Django.</li>
-            <li><b>Wallets.</b> Swift and Kotlin bindings, a zcash-devtool patch.</li>
-          </ul>
+  <section id="developers" class="sec">
+    <div class="wrap dev">
+      <div class="reveal">
+        <h2 class="h2">Take shielded payments without a viewing key.</h2>
+        <ul>
+          <li><b>API</b>Proof requests, signed webhooks, refunds</li>
+          <li><b>SDKs</b>TypeScript, Python, Rust, Go</li>
+          <li><b>HTTP 402</b>Express, Next.js, FastAPI, Django</li>
+          <li><b>Wallets</b>Swift and Kotlin bindings</li>
+        </ul>
+      </div>
+      <div class="code reveal">
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-t="browser">Browser</button>
+          <button role="tab" aria-selected="false" data-t="node">Node</button>
+          <button role="tab" aria-selected="false" data-t="python">Python</button>
+          <button role="tab" aria-selected="false" data-t="go">Go</button>
+          <button role="tab" aria-selected="false" data-t="cli">CLI</button>
         </div>
-        <div class="code panel reveal">
-          <div class="tabs" role="tablist">
-            <button role="tab" aria-selected="true" data-t="browser">Browser</button>
-            <button role="tab" aria-selected="false" data-t="node">Node</button>
-            <button role="tab" aria-selected="false" data-t="python">Python</button>
-            <button role="tab" aria-selected="false" data-t="go">Go</button>
-            <button role="tab" aria-selected="false" data-t="cli">CLI</button>
-          </div>
 <pre data-p="browser"><span class="kw">import</span> { verifyReceipt } <span class="kw">from</span> <span class="s">"zceipt"</span>;
 
 <span class="c">// Runs on the device. Only public chain data is fetched.</span>
@@ -332,27 +363,25 @@ zceipt verify <span class="s">'zip311r1…'</span>
 
 <span class="c"># the whole flow in five seconds, no wallet needed</span>
 zceipt demo</pre>
-        </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <div class="perf" aria-hidden="true"></div>
-    <section class="close">
-      <div class="wrap reveal">
-        <h2 class="big"><span class="gradw">Stop handing over </span><span class="gold">everything.</span></h2>
-        <div class="cta">
-          <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
-          <a class="more" href="/docs/">Read the docs ›</a>
-          <!--DASHBOARD_CTA-->
-        </div>
+  <section class="close">
+    <div class="wrap reveal">
+      <h2>Stop handing over <span>everything.</span></h2>
+      <div class="row">
+        <a class="btn" href="/verify/#{{SAMPLE_LINK}}">Verify a real receipt</a>
+        <a class="btn ghost" href="/docs/">Read the docs</a>
+        <!--DASHBOARD_CTA-->
       </div>
-    </section>
-  </div>
+    </div>
+  </section>
 </main>
 
-<footer>
+<footer class="foot">
   <div class="wrap">
-    <span>Zceipt · unaudited, testnet only</span>
+    <span>Zceipt · unaudited · testnet only</span>
     <nav>
       <a href="/verify/">Verifier</a>
       <a href="/docs/">Docs</a>
@@ -365,22 +394,39 @@ zceipt demo</pre>
 
 <script type="module" src="/verify/zceipt/widget.js"></script>
 <script>
-  const nav = document.getElementById("nav"), story = document.getElementById("story");
+  const nav = document.getElementById("nav");
   const onScroll = () => {
     nav.classList.toggle("scrolled", scrollY > 8);
-    document.body.classList.toggle("in-story", story.getBoundingClientRect().top < innerHeight * 0.5);
+    document.body.classList.toggle("top-of-story", scrollY < innerHeight * 0.3);
   };
   addEventListener("scroll", onScroll, { passive: true }); onScroll();
+
   const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
   document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
-  const fo = new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle("in", e.isIntersecting)), { rootMargin: "-12% 0px -12% 0px" });
-  document.querySelectorAll(".frost").forEach((el) => fo.observe(el));
+
+  const story = document.getElementById("story");
+  document.querySelectorAll(".story-dots button").forEach((b) => b.addEventListener("click", () => {
+    const top = story.getBoundingClientRect().top + scrollY;
+    scrollTo({ top: top + (story.offsetHeight - innerHeight) * Number(b.dataset.go), behavior: "smooth" });
+  }));
+
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
     document.querySelectorAll(".code pre").forEach((p) => (p.hidden = p.dataset.p !== b.dataset.t));
   }));
+
+  // disclosure builder: recipient and amount always shown, balance and history never
+  const paper = document.getElementById("paper"), meter = document.getElementById("meter"), meterText = document.getElementById("meterText");
+  const ALL = paper.querySelectorAll(".rv").length;
+  function paint() {
+    document.querySelectorAll("#toggles input").forEach((i) => paper.querySelector(`[data-r="${i.dataset.f}"]`).classList.toggle("on", i.checked));
+    const shown = paper.querySelectorAll(".rv.on").length;
+    meter.innerHTML = Array.from({ length: ALL }, (_, i) => `<i class="${i < shown ? "on" : ""}"></i>`).join("");
+    meterText.textContent = `${shown} of ${ALL} shown`;
+  }
+  document.querySelectorAll("#toggles input").forEach((i) => i.addEventListener("change", paint));
+  paint();
 </script>
-<script src="/verify/cipher.js" defer></script>
 <script type="module" src="/stage.js"></script>
 </body>
 </html>

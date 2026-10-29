@@ -327,9 +327,11 @@ fn prepared_receipts_decode_alike() {
     }
 }
 
-/// Every binary format starts with its own magic, so bytes of one never decode as another. The
-/// one shared pair, ZRCI, is told apart by its text prefix (zrcin1 incoming receipts, zip311i1
-/// proofs of income) and by structure.
+/// Every binary format starts with its own magic, so bytes of one never decode as another. Two
+/// pairs share one on purpose: ZRCI (zrcin1 incoming receipts and zip311i1 proofs of income,
+/// told apart by text prefix and structure) and ZRCT (Orchard/Ironwood receipts and Sapling
+/// receipts, told apart by pool byte 2 and the zip311z1 prefix; the Sapling magic is frozen by
+/// the testnet receipt in examples/testnet-sapling).
 #[test]
 fn binary_magics_are_distinct() {
     let src = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))
@@ -340,5 +342,5 @@ fn binary_magics_are_distinct() {
     magics.sort();
     let before = magics.len();
     magics.dedup();
-    assert_eq!(before - magics.len(), 1, "{magics:?}");
+    assert_eq!(before - magics.len(), 2, "exactly ZRCI and ZRCT are shared: {magics:?}");
 }

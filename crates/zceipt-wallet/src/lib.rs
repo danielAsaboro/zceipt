@@ -38,8 +38,6 @@ fn account() -> zip32::AccountId {
 /// `rand` 0.10 replaced the infallible `OsRng` with the fallible `SysRng`.
 #[allow(non_upper_case_globals)]
 const OsRng: rand::rand_core::UnwrapErr<rand::rngs::SysRng> = rand::rand_core::UnwrapErr(rand::rngs::SysRng);
-use zceipt_chain::net::{Heights, Net};
-use zceipt_core::{screened::ScreenedProof, Pool, PreparedReceipt, Receipt, ViewingSpendWitness};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use shardtree::error::ShardTreeError;
@@ -50,6 +48,8 @@ use zcash_keys::keys::UnifiedSpendingKey;
 use zcash_note_encryption::try_note_decryption;
 use zcash_primitives::transaction::TxId;
 use zcash_protocol::consensus::BlockHeight;
+use zceipt_chain::net::{Heights, Net};
+use zceipt_core::{screened::ScreenedProof, Pool, PreparedReceipt, Receipt, ViewingSpendWitness};
 
 #[derive(Deserialize)]
 struct KeysToml {
@@ -293,7 +293,12 @@ pub fn sign_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt) 
 
 /// Like [`sign_prepared`], for one verifier only (`zceipt_core::designated`): convincing to the
 /// holder of the key `verifier`, who can't show it to anyone else as proof.
-pub fn designate_prepared(wallet: &Path, identity: &Path, prepared: PreparedReceipt, verifier: [u8; 32]) -> anyhow::Result<zceipt_core::designated::DesignatedReceipt> {
+pub fn designate_prepared(
+    wallet: &Path,
+    identity: &Path,
+    prepared: PreparedReceipt,
+    verifier: [u8; 32],
+) -> anyhow::Result<zceipt_core::designated::DesignatedReceipt> {
     let (net, seed) = decrypt_seed(wallet, identity)?;
     if prepared.unsigned().coin_type != net.coin_type() {
         bail!("this receipt is for another network than the wallet");
@@ -578,9 +583,21 @@ impl KeysWallet {
     }
 }
 
-/// Like [`prepare_receipt`], for a [`KeysWallet`]: fetches the payment (among its block's
-/// transactions when `height` is given), then finds the spent notes by trial-decrypting every
-/// Orchard and Ironwood output from the wallet's birthday up to the payment.
+/// The last block a note scan asks the server for. Given the payment's block `height`, the scan
+/// ends at the end of that block's 1,000-block witness window (or the tip, if sooner), so the
+/// range tells the server which window the payment is in, never its block. Without it the scan
+/// runs to the tip, where the payment is found locally.
+pub fn scan_end(height: Option<u32>, tip: u32) -> u32 {
+    match height {
+        Some(h) => zceipt_chain::chain::witness_window_end(h).min(tip),
+        None => tip,
+    }
+}
+
+/// Like [`prepare_receipt`], for a [`KeysWallet`]: finds the spent notes by trial-decrypting
+/// every Orchard and Ironwood output from the wallet's birthday to [`scan_end`], then fetches the
+/// payment among its block's transactions. Blocks from the payment's on are skipped locally:
+/// a note made there cannot have been spent by it.
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_receipt_from_keys(
     w: &KeysWallet,
@@ -595,16 +612,15 @@ pub async fn prepare_receipt_from_keys(
     withhold_memo: bool,
     screened_set: Option<Screened<'_>>,
 ) -> anyhow::Result<(PreparedReceipt, u32, Vec<ScreenedProof>)> {
-    // Without the payment's block, the scan runs to the tip and finds it in the compact blocks,
-    // so no server is ever asked for the payment by its txid.
-    let end = match height {
-        Some(h) => h.saturating_sub(1),
-        None => zceipt_chain::chain::chain_tip(w.net, server).await?,
-    };
+    // The scan never ends at the payment's block: with the block known it runs to the end of
+    // that block's window, without it to the tip, where the payment is found in the compact
+    // blocks. No server is ever asked for the payment by its txid.
+    let tip = zceipt_chain::chain::chain_tip(w.net, server).await?;
+    let end = scan_end(height, tip);
     if w.birthday > end {
         bail!("the birthday {} is after block {end}", w.birthday);
     }
-    let (mut notes, found_at) = scan_wallet_notes(w, server, end, txid).await?;
+    let (mut notes, found_at) = scan_wallet_notes(w, server, end, height, txid).await?;
     let h = match (height, found_at) {
         (Some(h), _) => h,
         (None, Some(h)) => h,
@@ -646,19 +662,21 @@ pub async fn prepare_receipt_from_keys(
 }
 
 /// Trial-decrypts the compact blocks from the birthday to `end` and returns this wallet's notes,
-/// by pool and nullifier, and the block holding `txid` if it is in the range. The server sees
-/// the block range only.
+/// by pool and nullifier, and the block holding `txid` if it is in the range. Blocks from
+/// `skip_from` on are read but not decrypted, so the request's range stays the same whether or
+/// not the payment's block is known. The server sees the block range only.
 async fn scan_wallet_notes(
     w: &KeysWallet,
     server: Option<&str>,
     end: u32,
+    skip_from: Option<u32>,
     txid: [u8; 32],
 ) -> anyhow::Result<(std::collections::HashMap<(Pool, [u8; 32]), SpentNote>, Option<u32>)> {
     use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
     use zcash_note_encryption::try_compact_note_decryption;
     let ivks = [PreparedIncomingViewingKey::new(&w.fvk.to_ivk(Scope::External)), PreparedIncomingViewingKey::new(&w.fvk.to_ivk(Scope::Internal))];
     let mut client = zceipt_chain::chain::connect(server.unwrap_or(w.net.default_server())).await?;
-    eprintln!("Scanning blocks {}..={end} for this wallet's notes (trial decryption, done here)…", w.birthday);
+    eprintln!("Scanning blocks {}..={end} for this wallet's notes (trial decryption, done here; whole 1,000-block windows)…", w.birthday);
     let mut stream = client
         .get_block_range(BlockRange {
             start: Some(BlockId { height: u64::from(w.birthday), hash: vec![] }),
@@ -671,6 +689,9 @@ async fn scan_wallet_notes(
     let mut found = std::collections::HashMap::new();
     let mut found_at = None;
     while let Some(block) = stream.message().await? {
+        if skip_from.is_some_and(|h| block.height >= u64::from(h)) {
+            continue;
+        }
         for ctx in &block.vtx {
             let source_txid: [u8; 32] = ctx.txid.as_slice().try_into().map_err(|_| anyhow!("bad txid in compact block"))?;
             if source_txid == txid {
@@ -745,22 +766,32 @@ async fn build_prepared(
     };
     let bundle = bundle_of(pool).ok_or_else(|| anyhow!("transaction has no {pool:?} bundle"))?;
 
-    // Spends: every action that spent one of our notes.
-    let mut spends = Vec::new();
+    // Spends: every action that spent one of our notes. The paths the wallet has no witness
+    // for are rebuilt from chain data together, in one request.
+    let mut chosen: Vec<(usize, &SpentNote, Option<MerklePath>)> = Vec::new();
     for (i, action) in bundle.actions().iter().enumerate() {
         let Some(stored) = spent.get(&(pool, action.nullifier().to_bytes())) else { continue };
-        let path = match stored.position.and_then(|p| local_witness(pool, p, *bundle.anchor())) {
-            Some(p) => p,
-            None => {
-                let h = stored.mined_height.ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
-                eprintln!(
-                    "Rebuilding the note's Merkle path from chain data (blocks {}..={}, whole 1,000-block windows)…",
-                    zceipt_chain::chain::witness_window_start(h),
-                    zceipt_chain::chain::witness_window_end(mined)
-                );
-                zceipt_chain::chain::rebuild_witness(net, server, pool, stored.note.commitment().into(), h, *bundle.anchor(), mined).await?
-            }
-        };
+        let path = stored.position.and_then(|p| local_witness(pool, p, *bundle.anchor()));
+        chosen.push((i, stored, path));
+    }
+    let missing: Vec<usize> = chosen.iter().enumerate().filter(|(_, (_, _, p))| p.is_none()).map(|(k, _)| k).collect();
+    if !missing.is_empty() {
+        let mut notes = Vec::with_capacity(missing.len());
+        for &k in &missing {
+            let stored = chosen[k].1;
+            let h = stored.mined_height.ok_or_else(|| anyhow!("the spent note's block height is unknown; sync the wallet"))?;
+            notes.push((stored.note.commitment().into(), h));
+        }
+        let (start, end) = zceipt_chain::chain::witness_range(notes.iter().map(|n| n.1), mined, u32::MAX).expect("notes");
+        eprintln!("Rebuilding {} Merkle path(s) from chain data (blocks {start}..={end}, whole 1,000-block windows, both pools)…", notes.len());
+        let paths = zceipt_chain::chain::rebuild_witnesses(net, server, pool, &notes, *bundle.anchor(), mined).await?;
+        for (k, path) in missing.into_iter().zip(paths) {
+            chosen[k].2 = Some(path);
+        }
+    }
+    let mut spends = Vec::new();
+    for (i, stored, path) in chosen {
+        let path = path.ok_or_else(|| anyhow!("no path"))?;
         let source = prove_source.map(|mode| zceipt_core::SourceWitness {
             txid: stored.source_txid,
             index: stored.source_action,
@@ -1002,10 +1033,9 @@ pub fn sign_payment_request(
             a
         }
     };
-    let r = zceipt_core::payreq::sign_request(&zceipt_core::proving_key(), net.coin_type(), domain, amount, memo, code, expires_at, &sk, addr, OsRng)
-        .map_err(|_| {
-            anyhow!("invalid request: the domain must be a host name, the amount above 0, the memo at most 512 bytes and the code 6-64 hex characters")
-        })?;
+    let r = zceipt_core::payreq::sign_request(&zceipt_core::proving_key(), net.coin_type(), domain, amount, memo, code, expires_at, &sk, addr, OsRng).map_err(
+        |_| anyhow!("invalid request: the domain must be a host name, the amount above 0, the memo at most 512 bytes and the code 6-64 hex characters"),
+    )?;
     Ok((r, zceipt_chain::chain::encode_orchard_receiver(net, addr.to_raw_address_bytes())))
 }
 
@@ -1278,7 +1308,9 @@ fn create_claim_selecting(
         Some(h) => conn
             .query_row(&format!("SELECT checkpoint_id FROM {cp_t} WHERE checkpoint_id = ?1"), [h], |r| r.get(0))
             .map_err(|_| anyhow!("the wallet keeps no tree checkpoint at block {h}; claim from a wallet synced to it"))?,
-        None => conn.query_row(&format!("SELECT max(checkpoint_id) FROM {cp_t}"), [], |r| r.get(0)).map_err(|_| anyhow!("the wallet has no tree checkpoint; sync it"))?,
+        None => conn
+            .query_row(&format!("SELECT max(checkpoint_id) FROM {cp_t}"), [], |r| r.get(0))
+            .map_err(|_| anyhow!("the wallet has no tree checkpoint; sync it"))?,
     };
     // Notes mined by the snapshot and not spent by it (or, for the dishonest test claimant, spent by it).
     let membership = if spent { "IN" } else { "NOT IN" };
@@ -1305,7 +1337,9 @@ fn create_claim_selecting(
     let pos = Position::from(n.position);
     let path = match pool {
         Pool::Orchard => db.with_orchard_tree_mut::<_, _, E>(|t| t.witness_at_checkpoint_id_caching(pos, &id))?,
-        Pool::Ironwood => db.with_ironwood_tree_mut::<_, _, E>(|t| t.witness_at_checkpoint_id_caching(pos, &id))?.ok_or_else(|| anyhow!("the wallet has no Ironwood tree"))?,
+        Pool::Ironwood => {
+            db.with_ironwood_tree_mut::<_, _, E>(|t| t.witness_at_checkpoint_id_caching(pos, &id))?.ok_or_else(|| anyhow!("the wallet has no Ironwood tree"))?
+        }
     };
     let path = path.ok_or_else(|| anyhow!("no witness for the note at block {height}; sync the wallet"))?;
     eprintln!("Proving a note against the {pool:?} tree at block {height}…");
@@ -1472,6 +1506,67 @@ pub async fn prove_income(
 
 #[cfg(test)]
 mod tests {
+    /// The scan range never ends at the payment's block: given the block it ends at that block's
+    /// window end (or the tip), without it at the tip.
+    #[test]
+    fn scan_end_hides_the_payment_block() {
+        use super::scan_end;
+        for h in [4_500_000, 4_500_001, 4_500_500, 4_500_998, 4_500_999] {
+            assert_eq!(scan_end(Some(h), 9_000_000), 4_500_999, "block {h}");
+            assert_ne!(scan_end(Some(h), 9_000_000), h.saturating_sub(1));
+        }
+        assert_eq!(scan_end(Some(4_501_000), 9_000_000), 4_501_999);
+        // A window the tip is in ends at the tip.
+        assert_eq!(scan_end(Some(4_500_500), 4_500_700), 4_500_700);
+        assert_eq!(scan_end(Some(4_500_700), 4_500_700), 4_500_700);
+        // Without the block, to the tip.
+        assert_eq!(scan_end(None, 4_500_700), 4_500_700);
+        assert_eq!(scan_end(None, 0), 0);
+    }
+
+    /// A Sapling receipt's default disclosure is what was sent to others: the payment opens, the
+    /// change (sent to the wallet's internal address under its internal outgoing key) and a note
+    /// sent to the wallet's own external address do not, nor does a stranger's output. Asking for
+    /// the change by index is refused.
+    #[test]
+    fn sapling_default_disclosure_skips_change() {
+        use sapling_crypto::{
+            bundle::OutputDescription,
+            keys::OutgoingViewingKey,
+            note_encryption::{sapling_note_encryption, SaplingDomain},
+            value::{NoteValue, ValueCommitTrapdoor, ValueCommitment},
+            zip32::{DiversifiableFullViewingKey, ExtendedSpendingKey},
+            Note, PaymentAddress, Rseed,
+        };
+        use zcash_note_encryption::Domain;
+        let mut rng = super::OsRng;
+        let payer = ExtendedSpendingKey::master(&[7; 32]).unwrap().to_diversifiable_full_viewing_key();
+        let other = ExtendedSpendingKey::master(&[8; 32]).unwrap().to_diversifiable_full_viewing_key();
+        let mut output = |ovk: Option<OutgoingViewingKey>, to: PaymentAddress, value: u64| {
+            let note = Note::from_parts(to, NoteValue::from_raw(value), Rseed::AfterZip212([value as u8; 32]));
+            let cv = ValueCommitment::derive(note.value(), ValueCommitTrapdoor::random(&mut rng));
+            let enc = sapling_note_encryption(ovk, note.clone(), [0; 512], &mut rng);
+            let enc_ct = enc.encrypt_note_plaintext().0;
+            let out_ct = enc.encrypt_outgoing_plaintext(&cv, &note.cmu(), &mut rng);
+            OutputDescription::from_parts(cv, note.cmu(), SaplingDomain::epk_bytes(enc.epk()), enc_ct, out_ct, [0u8; 192])
+        };
+        let ext_ovk = |k: &DiversifiableFullViewingKey| k.to_ovk(zip32::Scope::External);
+        let int_ovk = |k: &DiversifiableFullViewingKey| k.to_ovk(zip32::Scope::Internal);
+        let outputs = [
+            output(Some(ext_ovk(&payer)), other.default_address().1, 30_000),
+            output(Some(int_ovk(&payer)), payer.change_address().1, 19_000),
+            output(Some(ext_ovk(&payer)), payer.default_address().1, 1_000),
+            output(Some(ext_ovk(&other)), payer.default_address().1, 5),
+        ];
+        let got = super::sapling_disclosures(&payer, &outputs, &[]).unwrap();
+        assert_eq!(got.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(got[0].1 .0, ext_ovk(&payer).0);
+        assert_eq!(super::sapling_disclosures(&payer, &outputs, &[0]).unwrap().len(), 1);
+        for own in [1, 2, 3] {
+            assert!(super::sapling_disclosures(&payer, &outputs, &[own]).is_err(), "output {own} is not disclosed on request either");
+        }
+    }
+
     #[test]
     fn keys_wallets_from_a_phrase_or_a_viewing_key_agree_and_never_echo_the_phrase() {
         use super::{KeysWallet, Net};
@@ -1515,6 +1610,39 @@ pub fn __orchard_spending_key_for_tests(wallet: &Path, identity: &Path) -> anyho
     Ok(*usk.orchard().to_bytes())
 }
 
+/// Which Sapling outputs a receipt discloses, each with the key that opens it: the ones asked
+/// for, or by default everything sent to someone else, meaning every output the external
+/// outgoing viewing key recovers that neither of the wallet's own incoming keys decrypts. Change
+/// is encrypted under the internal outgoing key and decrypts with the internal incoming key, so
+/// it is never disclosed, as with Orchard.
+fn sapling_disclosures(
+    dfvk: &sapling_crypto::zip32::DiversifiableFullViewingKey,
+    shielded_outputs: &[sapling_crypto::bundle::OutputDescription<sapling_crypto::bundle::GrothProofBytes>],
+    outputs: &[u32],
+) -> anyhow::Result<Vec<(u32, sapling_crypto::keys::OutgoingViewingKey)>> {
+    use sapling_crypto::{
+        keys::PreparedIncomingViewingKey,
+        note_encryption::{try_sapling_note_decryption, try_sapling_output_recovery, Zip212Enforcement},
+    };
+    use zip32::Scope as SScope;
+    let ovk = dfvk.to_ovk(SScope::External);
+    let ivks = [PreparedIncomingViewingKey::new(&dfvk.to_ivk(SScope::External)), PreparedIncomingViewingKey::new(&dfvk.to_ivk(SScope::Internal))];
+    let mut disclose = vec![];
+    for (j, o) in shielded_outputs.iter().enumerate() {
+        if !outputs.is_empty() && !outputs.contains(&(j as u32)) {
+            continue;
+        }
+        let opens = try_sapling_output_recovery(&ovk, o, Zip212Enforcement::On).is_some();
+        let ours = ivks.iter().any(|ivk| try_sapling_note_decryption(ivk, o, Zip212Enforcement::On).is_some());
+        if opens && !ours {
+            disclose.push((j as u32, ovk));
+        } else if !outputs.is_empty() {
+            bail!("Sapling output {j} doesn't open with this wallet's external outgoing viewing key, or is the wallet's own");
+        }
+    }
+    Ok(disclose)
+}
+
 /// Makes a Sapling receipt (`zip311z1…`) for a payment this wallet sent from its Sapling pool:
 /// a fresh Spend proof and signature for every Sapling note of ours the transaction spent, and
 /// the disclosure of `outputs` (Sapling output indices; all outputs our key can open when empty).
@@ -1526,9 +1654,8 @@ pub fn create_sapling_receipt(
     msg: &[u8],
     outputs: &[u32],
 ) -> anyhow::Result<(zceipt_core::sapling::SaplingReceipt, u32)> {
-    use sapling_crypto::{note_encryption::try_sapling_output_recovery, Diversifier, Note as SNote, Rseed};
+    use sapling_crypto::{Diversifier, Note as SNote, Rseed};
     use zceipt_core::sapling;
-    use zip32::Scope as SScope;
     let (net, seed) = decrypt_seed(wallet, identity)?;
     let usk = UnifiedSpendingKey::from_seed(&net, seed.expose_secret(), account()).map_err(|e| anyhow!("deriving keys: {e:?}"))?;
     let external = usk.sapling().clone();
@@ -1578,7 +1705,9 @@ pub fn create_sapling_receipt(
             }
             Ok(None)
         })?;
-        let path = path.ok_or_else(|| anyhow!("the wallet no longer has a checkpoint at this transaction's Sapling anchor; create receipts within ~100 blocks of sending, or rescan"))?;
+        let path = path.ok_or_else(|| {
+            anyhow!("the wallet no longer has a checkpoint at this transaction's Sapling anchor; create receipts within ~100 blocks of sending, or rescan")
+        })?;
         witnesses.push(sapling::SaplingSpendWitness {
             index: i as u32,
             ask: xsk.expsk().ask().clone(),
@@ -1591,20 +1720,10 @@ pub fn create_sapling_receipt(
     if witnesses.is_empty() {
         bail!("this wallet spent no Sapling note in that transaction, so it can't prove it paid");
     }
-    let ovks = [dfvk.to_ovk(SScope::External), dfvk.to_ovk(SScope::Internal)];
-    let mut disclose = vec![];
-    for (j, o) in bundle.shielded_outputs().iter().enumerate() {
-        if !outputs.is_empty() && !outputs.contains(&(j as u32)) {
-            continue;
-        }
-        if let Some(ovk) = ovks.iter().find(|k| try_sapling_output_recovery(k, o, sapling_crypto::note_encryption::Zip212Enforcement::On).is_some()) {
-            disclose.push((j as u32, *ovk));
-        } else if !outputs.is_empty() {
-            bail!("Sapling output {j} doesn't open with this wallet's outgoing viewing key");
-        }
-    }
+    let disclose = sapling_disclosures(&dfvk, bundle.shielded_outputs(), outputs)?;
     let dir = zceipt_core::sapling::default_params_dir().ok_or_else(|| anyhow!("set ZCASH_PARAMS to the directory holding sapling-spend.params"))?;
-    let params = sapling::spend_parameters_from(&dir.join("sapling-spend.params")).with_context(|| format!("reading {}/sapling-spend.params", dir.display()))?;
+    let params =
+        sapling::spend_parameters_from(&dir.join("sapling-spend.params")).with_context(|| format!("reading {}/sapling-spend.params", dir.display()))?;
     eprintln!("Proving {} Sapling spend(s)…", witnesses.len());
     let r = sapling::create(&params, net.coin_type(), txid, bundle, &disclose, &witnesses, msg, OsRng)?;
     Ok((r, mined))

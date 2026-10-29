@@ -2,13 +2,13 @@
 
 use crate::net::{self, Net};
 use anyhow::{anyhow, bail, Context};
-use zceipt_core::{display_txid, Pool, Receipt};
 use serde::Serialize;
 use tonic::transport::{Channel, ClientTlsConfig};
 use zcash_address::unified::{self, Container, Encoding};
 use zcash_client_backend::proto::service::{compact_tx_streamer_client::CompactTxStreamerClient, TxFilter};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Parameters};
+use zceipt_core::{display_txid, Pool, Receipt};
 
 pub async fn connect(server: &str) -> anyhow::Result<CompactTxStreamerClient<Channel>> {
     let host = server.split(':').next().unwrap_or(server).to_string();
@@ -724,9 +724,8 @@ fn report_for(
     let v = match (deferred, designated) {
         _ if delegated.is_some() => {
             let d = delegated.unwrap();
-            zceipt_core::verify_delegated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup).and_then(|v| {
-                zceipt_core::delegated::check_policy(&d.cert, &v, height).map_err(|_| zceipt_core::Error::BadDelegation).map(|_| v)
-            })
+            zceipt_core::verify_delegated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup)
+                .and_then(|v| zceipt_core::delegated::check_policy(&d.cert, &v, height).map_err(|_| zceipt_core::Error::BadDelegation).map(|_| v))
         }
         (_, Some(d)) => zceipt_core::verify_designated_tx_bundles(vk, d, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), &lookup),
         (Some(st), None) => zceipt_core::verify_tx_bundles_deferred(vk, receipt, u.coin_type, u.txid, tx.orchard_bundle(), tx.ironwood_bundle(), st),
@@ -798,13 +797,6 @@ fn report_for(
     })
 }
 
-/// Rebuilds the Merkle path of the note at `cmx`, mined at `note_height`, to `anchor`, using
-/// only public chain data: the pool's tree frontier just before `note_height`, then every note
-/// commitment from `note_height` until the tree root equals `anchor` (at most `max_height`).
-///
-/// This lets a sender make a receipt long after paying, without having cached anything (one
-/// of ZIP 311's requirements). It downloads compact blocks covering the note's whole
-/// lifetime up to the spend, so it is fast for recent notes and slower for old ones.
 /// Blocks per window when rebuilding a witness from chain data.
 pub const WITNESS_WINDOW: u32 = 1000;
 
@@ -818,6 +810,17 @@ pub fn witness_window_end(height: u32) -> u32 {
     (height / WITNESS_WINDOW + 1) * WITNESS_WINDOW - 1
 }
 
+/// The one block range a witness rebuild asks for, whatever the number of spent notes: from
+/// the start of the earliest note's window to the end of the payment's window (or the tip,
+/// but never short of the payment's block). The server learns one window the payment spent
+/// from, not how many notes it spent, their blocks or their order. `None` without notes.
+pub fn witness_range(note_heights: impl IntoIterator<Item = u32>, max_height: u32, tip: u32) -> Option<(u32, u32)> {
+    let first = note_heights.into_iter().min()?;
+    Some((witness_window_start(first), witness_window_end(max_height).min(tip).max(max_height)))
+}
+
+/// Rebuilds the Merkle path of the note at `cmx`, mined at `note_height`, to `anchor`, using
+/// only public chain data. One note of [`rebuild_witnesses`].
 pub async fn rebuild_witness(
     net: Net,
     server: Option<&str>,
@@ -827,14 +830,49 @@ pub async fn rebuild_witness(
     anchor: orchard::Anchor,
     max_height: u32,
 ) -> anyhow::Result<orchard::tree::MerklePath> {
+    let mut paths = rebuild_witnesses(net, server, pool, &[(cmx, note_height)], anchor, max_height).await?;
+    paths.pop().ok_or_else(|| anyhow!("no path"))
+}
+
+/// Rebuilds the Merkle paths of the `pool` notes at `notes` (each its commitment and the block
+/// it was mined in), to `anchor`, using only public chain data: the pool's tree frontier just
+/// before the earliest note's window, then every note commitment until the tree root equals
+/// `anchor` (at most `max_height`). The paths come back in the order of `notes`.
+///
+/// This lets a sender make a receipt long after paying, without having cached anything (one
+/// of ZIP 311's requirements). It downloads compact blocks covering the notes' whole lifetime
+/// up to the spend, so it is fast for recent notes and slower for old ones. All the notes go
+/// in one request ([`witness_range`]) that asks for both pools' actions, over one connection,
+/// so the server learns neither how many notes the payment spent nor which pool they are in.
+pub async fn rebuild_witnesses(
+    net: Net,
+    server: Option<&str>,
+    pool: Pool,
+    notes: &[(orchard::note::ExtractedNoteCommitment, u32)],
+    anchor: orchard::Anchor,
+    max_height: u32,
+) -> anyhow::Result<Vec<orchard::tree::MerklePath>> {
     use incrementalmerkletree::witness::IncrementalWitness;
     use orchard::tree::MerkleHashOrchard;
     use zcash_client_backend::proto::service::{BlockId, BlockRange, PoolType};
 
-    // Start at a window boundary rather than at the note's block, so the server learns only the
-    // window the spent note was created in (docs/ASSURANCE.md, "What the chain server sees").
-    let start = witness_window_start(note_height);
+    if notes.is_empty() {
+        return Ok(vec![]);
+    }
     let mut client = connect(server.unwrap_or(net.default_server())).await?;
+    // End at a window boundary too (or the tip), and read the whole range even after the paths
+    // are found: ending at the payment's block, or hanging up there, would tell the server which
+    // block the payment is in.
+    let tip = client
+        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
+        .await
+        .map_err(|e| anyhow!("latest block: {}", e.message()))?
+        .into_inner()
+        .height as u32;
+    // Start at a window boundary rather than at a note's block, so the server learns only the
+    // window the earliest spent note was created in (docs/ASSURANCE.md, "What the chain server
+    // sees").
+    let (start, end) = witness_range(notes.iter().map(|n| n.1), max_height, tip).ok_or_else(|| anyhow!("no notes"))?;
     // From the first block the tree starts empty (servers have no tree state for genesis).
     let mut tree = if start <= 1 {
         incrementalmerkletree::frontier::CommitmentTree::empty()
@@ -849,33 +887,19 @@ pub async fn rebuild_witness(
             Pool::Orchard => ts.orchard_tree()?,
         }
     };
-    let target = MerkleHashOrchard::from_cmx(&cmx);
+    let targets: Vec<MerkleHashOrchard> = notes.iter().map(|(cmx, _)| MerkleHashOrchard::from_cmx(cmx)).collect();
     let want_root = MerkleHashOrchard::from_bytes(&anchor.to_bytes()).into_option().ok_or_else(|| anyhow!("bad anchor"))?;
-    let pool_type = match pool {
-        Pool::Ironwood => PoolType::Ironwood,
-        Pool::Orchard => PoolType::Orchard,
-    };
-    // End at a window boundary too (or the tip), and read the whole range even after the path
-    // is found: ending at the payment's block, or hanging up there, would tell the server which
-    // block the payment is in.
-    let tip = client
-        .get_latest_block(zcash_client_backend::proto::service::ChainSpec {})
-        .await
-        .map_err(|e| anyhow!("latest block: {}", e.message()))?
-        .into_inner()
-        .height as u32;
-    let end = witness_window_end(max_height).min(tip).max(max_height);
     let mut stream = client
         .get_block_range(BlockRange {
             start: Some(BlockId { height: u64::from(start), hash: vec![] }),
             end: Some(BlockId { height: u64::from(end), hash: vec![] }),
-            pool_types: vec![pool_type as i32],
+            pool_types: vec![PoolType::Orchard as i32, PoolType::Ironwood as i32],
         })
         .await
         .map_err(|e| anyhow!("block range: {}", e.message()))?
         .into_inner();
-    let mut found: Option<orchard::tree::MerklePath> = None;
-    let mut witness: Option<IncrementalWitness<MerkleHashOrchard, 32>> = None;
+    let mut found: Option<Vec<orchard::tree::MerklePath>> = None;
+    let mut witnesses: Vec<Option<IncrementalWitness<MerkleHashOrchard, 32>>> = vec![None; notes.len()];
     while let Some(block) = stream.message().await? {
         if found.is_some() || block.height > u64::from(max_height) {
             continue;
@@ -887,28 +911,38 @@ pub async fn rebuild_witness(
             };
             for a in actions {
                 let leaf = MerkleHashOrchard::from_cmx(&a.cmx().map_err(|e| anyhow!("bad compact action: {e:?}"))?);
-                match witness.as_mut() {
-                    Some(w) => w.append(leaf).map_err(|_| anyhow!("tree full"))?,
-                    None => {
-                        tree.append(leaf).map_err(|_| anyhow!("tree full"))?;
-                        if leaf == target && block.height == u64::from(note_height) {
-                            witness = Some(IncrementalWitness::from_tree(tree.clone()).ok_or_else(|| anyhow!("empty tree"))?);
+                for w in witnesses.iter_mut().flatten() {
+                    w.append(leaf).map_err(|_| anyhow!("tree full"))?;
+                }
+                if witnesses.iter().any(Option::is_none) {
+                    tree.append(leaf).map_err(|_| anyhow!("tree full"))?;
+                    for (k, (_, note_height)) in notes.iter().enumerate() {
+                        if witnesses[k].is_none() && leaf == targets[k] && block.height == u64::from(*note_height) {
+                            witnesses[k] = Some(IncrementalWitness::from_tree(tree.clone()).ok_or_else(|| anyhow!("empty tree"))?);
                         }
                     }
                 }
             }
         }
-        if let Some(w) = &witness {
-            if w.root() == want_root {
-                let path = w.path().ok_or_else(|| anyhow!("no path"))?;
-                found = Some(orchard::tree::MerklePath::from(path));
+        if witnesses.iter().all(Option::is_some) && witnesses[0].as_ref().is_some_and(|w| w.root() == want_root) {
+            let mut paths = Vec::with_capacity(notes.len());
+            for w in witnesses.iter().flatten() {
+                paths.push(orchard::tree::MerklePath::from(w.path().ok_or_else(|| anyhow!("no path"))?));
             }
+            found = Some(paths);
         }
     }
-    if let Some(path) = found {
-        return Ok(path);
+    if let Some(paths) = found {
+        return Ok(paths);
     }
-    bail!("{}", if witness.is_none() { "the note was not found at its recorded height" } else { "no block's tree root matched the transaction's anchor" })
+    bail!(
+        "{}",
+        if witnesses.iter().any(Option::is_none) {
+            "a spent note was not found at its recorded height"
+        } else {
+            "no block's tree root matched the transaction's anchor"
+        }
+    )
 }
 
 /// What a verified incoming receipt shows.
@@ -1209,7 +1243,11 @@ pub async fn published_nullifiers(
         }
         // Written whole under another name and renamed into place, so a check running at the same
         // time reads the old file or the new one, never half of one (a half would miss nullifiers).
-        let tmp = c.with_extension(format!("tmp{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)));
+        let tmp = c.with_extension(format!(
+            "tmp{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0)
+        ));
         if std::fs::write(&tmp, out).is_ok() && std::fs::rename(&tmp, c).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
@@ -1383,6 +1421,22 @@ mod window_tests {
         assert_eq!(height_hint("zip311r1Abc"), None);
         assert_eq!(height_hint("zip311r1Abc&h="), None);
         assert_eq!(height_hint("zip311r1Abc&h=1234567890"), None);
+    }
+
+    #[test]
+    fn one_range_covers_every_spent_note() {
+        // Notes in three windows: one request from the earliest window's start to the end of
+        // the payment's window, whichever order the notes come in.
+        assert_eq!(witness_range([4_502_300, 4_500_983, 4_501_010], 4_502_500, 9_000_000), Some((4_500_000, 4_502_999)));
+        assert_eq!(witness_range([4_501_010, 4_500_983], 4_502_500, 9_000_000), Some((4_500_000, 4_502_999)));
+        // Notes in one window: the same range as any one of them alone.
+        assert_eq!(witness_range([4_500_983, 4_500_001], 4_500_990, 9_000_000), witness_range([4_500_001], 4_500_990, 9_000_000));
+        // The tip cuts the end, but never short of the payment's block.
+        assert_eq!(witness_range([4_500_983], 4_502_500, 4_502_600), Some((4_500_000, 4_502_600)));
+        assert_eq!(witness_range([4_500_983], 4_502_500, 4_502_400), Some((4_500_000, 4_502_500)));
+        assert_eq!(witness_range([5], 20, 100), Some((1, 100)));
+        assert_eq!(witness_range([5], 20, 5_000), Some((1, 999)));
+        assert_eq!(witness_range([], 20, 100), None);
     }
 
     #[test]
@@ -1614,4 +1668,3 @@ pub fn sapling_report(receipt: &zceipt_core::sapling::SaplingReceipt, net: Net, 
         outputs,
     })
 }
-

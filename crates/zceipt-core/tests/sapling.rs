@@ -11,16 +11,16 @@ use rand::{rand_core::UnwrapErr, rngs::SysRng};
 #[allow(non_upper_case_globals)]
 const OsRng: UnwrapErr<SysRng> = UnwrapErr(SysRng);
 use sapling_crypto::{
-    builder::{BundleType, Builder},
-    circuit::{Output, OutputParameters, Spend, SpendParameters},
+    builder::{Builder, BundleType},
     bundle::Authorized,
+    circuit::{Output, OutputParameters, Spend, SpendParameters},
     note_encryption::Zip212Enforcement,
     value::NoteValue,
     zip32::ExtendedSpendingKey,
     Bundle, CommitmentTree, IncrementalWitness, Node, Note, Rseed,
 };
-use zceipt_core::sapling::{self, SaplingError, SaplingSpendWitness};
 use zcash_protocol::value::ZatBalance;
+use zceipt_core::sapling::{self, SaplingError, SaplingSpendWitness};
 
 struct Params {
     spend: SpendParameters,
@@ -88,10 +88,7 @@ fn pay(seed: u8) -> Paid {
     b.add_output(Some(dfvk.fvk().ovk), to, NoteValue::from_raw(30_000), memo).unwrap();
     let (unauth, meta) = b.build::<SpendParameters, OutputParameters, _, ZatBalance>(&[payer.clone()], &mut rng).unwrap().unwrap();
     let sighash = [seed; 32];
-    let bundle = unauth
-        .create_proofs(&p.spend, &p.output, &mut rng, ())
-        .apply_signatures(&mut rng, sighash, &[payer.expsk().ask().clone()])
-        .unwrap();
+    let bundle = unauth.create_proofs(&p.spend, &p.output, &mut rng, ()).apply_signatures(&mut rng, sighash, &[payer.expsk().ask().clone()]).unwrap();
     let witness = SaplingSpendWitness {
         index: meta.spend_index(0).unwrap() as u32,
         ask: payer.expsk().ask().clone(),
@@ -108,17 +105,7 @@ fn ovk(k: &ExtendedSpendingKey) -> sapling_crypto::keys::OutgoingViewingKey {
 }
 
 fn make(t: &Paid, msg: &[u8]) -> sapling::SaplingReceipt {
-    sapling::create(
-        &params().spend,
-        1,
-        t.txid,
-        &t.bundle,
-        &[(t.output_index, ovk(&t.payer))],
-        std::slice::from_ref(&t.witness),
-        msg,
-        OsRng,
-    )
-    .unwrap()
+    sapling::create(&params().spend, 1, t.txid, &t.bundle, &[(t.output_index, ovk(&t.payer))], std::slice::from_ref(&t.witness), msg, OsRng).unwrap()
 }
 
 #[test]
@@ -212,6 +199,23 @@ fn a_receipt_without_a_spend_is_refused() {
 /// With the real Zcash Sapling parameters (`$ZCASH_PARAMS` or the default directory): the
 /// bundle and the receipt are proved with the ceremony keys, and verified with the verifying
 /// key read from `sapling-spend.params` after its SHA-256 check. Skipped when they're absent.
+/// The encoding counts outputs and spends in one byte each, so `create` refuses a 256th of
+/// either before any proof is made (the bound is checked first: 255 spends pass it and the
+/// 256 outputs are what is refused; 255 outputs pass it and fail only as duplicates).
+#[test]
+fn create_refuses_a_256th_output_or_spend() {
+    let t = pay(9);
+    let outputs = |n: usize| vec![(t.output_index, ovk(&t.payer)); n];
+    let spends = |n: usize| vec![t.witness.clone(); n];
+    let create = |o: &[(u32, sapling_crypto::keys::OutgoingViewingKey)], s: &[SaplingSpendWitness]| {
+        sapling::create(&params().spend, 1, t.txid, &t.bundle, o, s, b"", OsRng)
+    };
+    assert!(matches!(create(&outputs(256), &spends(1)), Err(SaplingError::Malformed("more than 255 outputs"))));
+    assert!(matches!(create(&outputs(256), &spends(255)), Err(SaplingError::Malformed("more than 255 outputs"))));
+    assert!(matches!(create(&outputs(1), &spends(256)), Err(SaplingError::Malformed("more than 255 spends"))));
+    assert!(matches!(create(&outputs(255), &spends(1)), Err(SaplingError::DuplicateIndex)));
+}
+
 #[test]
 fn sapling_receipt_with_the_zcash_parameters() {
     let Some(dir) = sapling::default_params_dir().filter(|d| d.join("sapling-spend.params").exists()) else {

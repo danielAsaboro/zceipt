@@ -22,12 +22,12 @@
 //! digest   := BLAKE2b-256("ZIP311Signed" || I2LEOSP_32(coinType), unsigned)
 //! ```
 
+use bellman::gadgets::multipack;
 use bls12_381::Bls12;
 use ff::Field;
-use group::Curve;
 use groth16::{PreparedVerifyingKey, Proof};
+use group::Curve;
 use rand_core::CryptoRng;
-use bellman::gadgets::multipack;
 use redjubjub::SpendAuth;
 use sapling_crypto::{
     bundle::{Authorization, GrothProofBytes, OutputDescription},
@@ -77,6 +77,7 @@ pub struct SaplingReceipt {
 }
 
 /// What the payer's wallet knows about one spent note.
+#[derive(Clone)]
 pub struct SaplingSpendWitness {
     /// Index of the spend in the transaction's Sapling bundle.
     pub index: u32,
@@ -150,6 +151,7 @@ pub fn signing_digest(u: &SaplingUnsignedReceipt) -> [u8; 32] {
 
 /// Makes a Sapling receipt: discloses `outputs` (by index and `ovk`) and proves spend authority
 /// for every witness. `params` are the Sapling Spend parameters (`sapling-spend.params`).
+#[allow(clippy::too_many_arguments)]
 pub fn create<A: Authorization, V>(
     params: &SpendParameters,
     coin_type: u32,
@@ -162,6 +164,13 @@ pub fn create<A: Authorization, V>(
 ) -> Result<SaplingReceipt, SaplingError> {
     if spends.is_empty() {
         return Err(SaplingError::NoSpend);
+    }
+    // The encoding counts each in one byte.
+    if spends.len() > usize::from(u8::MAX) {
+        return Err(SaplingError::Malformed("more than 255 spends"));
+    }
+    if outputs.len() > usize::from(u8::MAX) {
+        return Err(SaplingError::Malformed("more than 255 outputs"));
     }
     if msg.len() > u16::MAX as usize {
         return Err(SaplingError::Malformed("message too long"));
@@ -201,22 +210,13 @@ pub fn create<A: Authorization, V>(
         .ok_or(SaplingError::BadWitness)?;
         let proof = params.create_proof(circuit, &mut rng);
         let rk = vk.rk(alpha);
-        disclosures.push(SaplingSpendDisclosure {
-            index: w.index,
-            cv: cv.to_bytes(),
-            rk: <[u8; 32]>::from(rk),
-            zkproof: SpendParameters::encode_proof(proof),
-        });
+        disclosures.push(SaplingSpendDisclosure { index: w.index, cv: cv.to_bytes(), rk: <[u8; 32]>::from(rk), zkproof: SpendParameters::encode_proof(proof) });
         alphas.push(alpha);
     }
     let unsigned = SaplingUnsignedReceipt { coin_type, txid, msg: msg.to_vec(), outputs: out, spends: disclosures };
     check_indices(&unsigned)?;
     let digest = signing_digest(&unsigned);
-    let sigs = spends
-        .iter()
-        .zip(&alphas)
-        .map(|(w, alpha)| <[u8; 64]>::from(w.ask.randomize(alpha).sign(&mut rng, &digest)))
-        .collect();
+    let sigs = spends.iter().zip(&alphas).map(|(w, alpha)| <[u8; 64]>::from(w.ask.randomize(alpha).sign(&mut rng, &digest))).collect();
     Ok(SaplingReceipt { unsigned, sigs })
 }
 

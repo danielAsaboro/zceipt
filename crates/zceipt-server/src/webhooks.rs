@@ -61,7 +61,8 @@ async fn worker_for(st: Shared, mode: &'static str) {
         match tick(&st, mode).await {
             Ok(n) if n == BATCH => continue,
             Ok(_) => {}
-            Err(e) => tracing::warn!("webhook worker ({mode}): {e}"),
+            // There is no log subscriber in the server: stderr is where an operator looks.
+            Err(e) => eprintln!("webhook worker ({mode}): {e}"),
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
@@ -103,6 +104,9 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
         match pinned_public_client(&url).await {
             Ok(c) => c,
             Err(e) => {
+                if !e.starts_with("DNS") {
+                    eprintln!("webhook delivery {id} refused: {e}");
+                }
                 let c = st.db.0.lock().unwrap();
                 // A failed DNS lookup is transient: retry on the usual schedule. A refused address or URL is final.
                 let attempts = attempts + 1;
@@ -118,10 +122,14 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
             }
         }
     } else {
-        // Test deliveries may reach localhost and private hosts, but not link-local or metadata addresses.
-        match test_mode_client(&url).await {
+        // Test deliveries may reach localhost and private hosts only while the server listens on
+        // loopback (`Config::test_webhooks_private`), and never link-local or metadata addresses.
+        match test_mode_client(&url, st.config.test_webhooks_private()).await {
             Ok(c) => c,
             Err(e) => {
+                if !e.starts_with("DNS") {
+                    eprintln!("webhook delivery {id} refused: {e}");
+                }
                 let c = st.db.0.lock().unwrap();
                 let attempts = attempts + 1;
                 if e.starts_with("DNS") && attempts < st.config.webhook_max_attempts {
@@ -168,7 +176,8 @@ async fn deliver(st: Shared, (id, body, url, secret, attempts, mode): (i64, Stri
 /// Link-local, unspecified and cloud-metadata addresses, including IPv6 forms that embed one.
 pub(crate) fn is_blocked_test_ip(ip: std::net::IpAddr) -> bool {
     use std::net::IpAddr;
-    let v4 = |v: std::net::Ipv4Addr| v.is_link_local() || v.is_unspecified() || matches!(v.octets(), [100, 100, 100, 200] | [168, 63, 129, 16] | [192, 0, 0, 192]);
+    let v4 =
+        |v: std::net::Ipv4Addr| v.is_link_local() || v.is_unspecified() || matches!(v.octets(), [100, 100, 100, 200] | [168, 63, 129, 16] | [192, 0, 0, 192]);
     match ip {
         IpAddr::V4(v) => v4(v),
         IpAddr::V6(v) => {
@@ -186,10 +195,10 @@ pub(crate) fn is_blocked_test_ip(ip: std::net::IpAddr) -> bool {
 }
 
 /// A client for a test-mode delivery: the host is resolved once, refused if any answer is a
-/// link-local or metadata address, and the connection is pinned to what was checked, so a second
-/// DNS answer can't differ (rebinding). Localhost and private networks stay allowed.
-async fn test_mode_client(url: &str) -> Result<reqwest::Client, String> {
-    crate::check_test_webhook_url(url).map_err(|e| e.message)?;
+/// link-local or metadata address (or, when `private_ok` is false, any non-public address), and
+/// the connection is pinned to what was checked, so a second DNS answer can't differ (rebinding).
+async fn test_mode_client(url: &str, private_ok: bool) -> Result<reqwest::Client, String> {
+    crate::check_test_webhook_url(url, private_ok).map_err(|e| e.message)?;
     let u = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
     let host = u.host_str().ok_or("no host")?.to_string();
     let port = u.port_or_known_default().unwrap_or(80);
@@ -200,6 +209,11 @@ async fn test_mode_client(url: &str) -> Result<reqwest::Client, String> {
         let addr = addrs.first().copied().ok_or("DNS: no address")?;
         if let Some(bad) = addrs.iter().find(|a| is_blocked_test_ip(a.ip())) {
             return Err(format!("refused: {host} resolves to a link-local or metadata address ({})", bad.ip()));
+        }
+        if !private_ok {
+            if let Some(bad) = addrs.iter().find(|a| !crate::is_public_ip(a.ip())) {
+                return Err(format!("refused: {host} resolves to a private address ({}); {}", bad.ip(), crate::TEST_WEBHOOKS_PRIVATE_HINT));
+            }
         }
         b = b.resolve(&host, addr);
     }

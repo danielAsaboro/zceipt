@@ -3,9 +3,9 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use zceipt_chain::Net;
 use serde_json::{json, Value};
 use tower::ServiceExt;
+use zceipt_chain::Net;
 
 const PAYEE: &str = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";
 
@@ -14,14 +14,21 @@ async fn app() -> (axum::Router, String, String) {
 }
 
 async fn app_with(config: zceipt_server::Config) -> (axum::Router, String, String) {
+    let (router, test, live, _) = app_at(config).await;
+    (router, test, live)
+}
+
+/// Like `app_with`, and also returns the database path (for tests that seed rows directly).
+async fn app_at(config: zceipt_server::Config) -> (axum::Router, String, String, String) {
     // One fresh database per app, so parallel tests never share endpoints or events.
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let db = std::env::temp_dir().join(format!("zceipt-test-{}-{}-{n}.db", std::process::id(), rand_suffix()));
-    let (router, keys) = zceipt_server::build(db.to_str().unwrap(), config).await.unwrap();
+    let path = db.to_str().unwrap().to_string();
+    let (router, keys) = zceipt_server::build(&path, config).await.unwrap();
     let test = keys.iter().find(|(_, m)| m == "test").unwrap().0.clone();
     let live = keys.iter().find(|(_, m)| m == "live").unwrap().0.clone();
-    (router, test, live)
+    (router, test, live, path)
 }
 
 fn rand_suffix() -> u64 {
@@ -323,7 +330,7 @@ async fn campaigns_publish_aggregates_only() {
         "POST",
         "/v1/requests",
         Some(&test),
-        Some(json!({ "payee": PAYEE, "amount_zatoshis": 5_000_000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })),
+        Some(json!({ "payee": PAYEE, "amount_zatoshis": 20_000_000, "kind": "campaign", "label": "Library fund", "metadata": { "internal": "x" } })),
         None,
     )
     .await;
@@ -333,27 +340,248 @@ async fn campaigns_publish_aggregates_only() {
         let id = id.to_string();
         async move { call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": fixture })), None).await.0 }
     };
+    // The partial fixture pays half of what is still owed: 0.1 ZEC, then 0.05 ZEC; the note pays the rest.
     assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
-    assert_eq!(pay("zip311_test_public_note").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
     // Below k = 3: nothing is published.
     let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
     assert_eq!(c["tally"]["visible"], false);
     assert!(c["tally"]["received_zatoshis_rounded"].is_null() && c["tally"]["contributions"].is_null());
-    assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_public_note").await, StatusCode::OK);
     let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
     let t = &c["tally"];
     assert_eq!(t["visible"], true);
     assert_eq!(t["contributions"], 3);
-    assert_eq!(t["received_zatoshis_rounded"].as_i64().unwrap() % 100_000, 0, "totals are rounded");
+    let bucket = t["bucket_zatoshis"].as_i64().unwrap();
+    assert!(bucket >= 1_000_000, "buckets are at least 0.01 ZEC: {t}");
+    assert_eq!(t["received_zatoshis_rounded"].as_i64().unwrap() % bucket, 0, "totals are rounded down to the bucket");
+    assert_eq!(t["received_zatoshis_rounded"], 20_000_000);
     assert_eq!(t["public_notes"], json!(["Good luck with the library!"]), "only opted-in notes");
     let text = c.to_string();
     for leak in ["txid", "mined_height", "sandbox fixture", "metadata", "internal", "\"zatoshis\":"] {
         assert!(!text.contains(leak), "public campaign JSON must not contain {leak}: {text}");
     }
+    // Dust (here 1 zatoshi, the goal being met) is received but neither counted nor published.
+    assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
+    let (_, c2, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
+    assert_eq!(c2["tally"]["contributions"], 3, "{c2}");
+    assert_eq!(c2["tally"]["received_zatoshis_rounded"], 20_000_000);
     // The owner still sees everything through the API.
     let (_, full, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
-    assert_eq!(full["payments"].as_array().unwrap().len(), 3);
+    assert_eq!(full["payments"].as_array().unwrap().len(), 4);
+    assert_eq!(full["received_zatoshis"], 20_000_001);
     assert_eq!(full["status"], "open", "campaigns never close by themselves");
+}
+
+/// The active attacker from the audit: a victim pays, the attacker adds k-1 contributions of a
+/// known amount, reads the tally once and subtracts their own. The bucket keeps the victim's
+/// amount to no better than one bucket (0.01 ZEC here), never the exact 500,000.
+#[tokio::test]
+async fn campaign_tally_resists_an_active_contributor() {
+    let mut cfg = zceipt_server::Config::new(Net::Test, "http://verifier.test/");
+    cfg.campaign_snapshot_secs = 0;
+    let (app, test, _) = app_with(cfg).await;
+    let (_, r, _) =
+        call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign", "public_min_contributions": 3 })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let pay = |fixture: &'static str| {
+        let app = app.clone();
+        let id = id.to_string();
+        async move { call(&app, "POST", &format!("/v1/public/requests/{id}/receipts"), None, Some(json!({ "receipt": fixture })), None).await.0 }
+    };
+    let victim = 500_000i64; // zip311_test_partial with no goal: half of 0.01 ZEC
+    let attacker = 2 * 1_000_000i64; // two zip311_test_valid
+    assert_eq!(pay("zip311_test_partial").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_valid").await, StatusCode::OK);
+    assert_eq!(pay("zip311_test_valid").await, StatusCode::OK);
+    let (_, c, _) = call(&app, "GET", &format!("/v1/public/campaigns/{id}"), None, None, None).await;
+    let t = &c["tally"];
+    assert_eq!(t["contributions"], 3, "{t}");
+    let published = t["received_zatoshis_rounded"].as_i64().unwrap();
+    let bucket = t["bucket_zatoshis"].as_i64().unwrap();
+    assert!(bucket >= 1_000_000, "{t}");
+    assert_eq!(published % bucket, 0);
+    // What the attacker can infer: the victim paid somewhere in [published - attacker, published - attacker + bucket).
+    let low = published - attacker;
+    assert_ne!(low, victim, "the exact amount must not be recoverable");
+    assert!(low <= victim && victim < low + bucket, "the real amount lies in the inferred bucket: {t}");
+    assert_eq!(published, 2_000_000, "the total is rounded down to the bucket");
+}
+
+/// A rejection event records which check failed, never the free-text message: that text carries
+/// the submitted txid and the amount paid, and campaigns accept submissions from anyone.
+#[tokio::test]
+async fn rejection_events_store_the_code_not_the_message() {
+    let (app, test, _) = app().await;
+    let (_, errors, _) = call(&app, "GET", "/v1/errors", None, None, None).await;
+    let description = |code: &str| errors["data"].as_array().unwrap().iter().find(|e| e["code"] == code).map(|e| e["description"].clone()).unwrap();
+    // Anonymous campaign submission whose message names the transaction.
+    let (_, c, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "kind": "campaign" })), None).await;
+    let cid = c["id"].as_str().unwrap();
+    let (s, e, _) = call(&app, "POST", &format!("/v1/public/requests/{cid}/receipts"), None, Some(json!({ "receipt": "zip311_test_not_found" })), None).await;
+    assert_eq!((s, e["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("transaction_not_found")));
+    assert!(e["error"]["message"].as_str().unwrap().contains("sandbox:"), "the submitter still gets the full message: {e}");
+    // Hosted-page submission whose message names the amount paid.
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1_000_000 })), None).await;
+    let (rid, secret) = (r["id"].as_str().unwrap(), r["client_secret"].as_str().unwrap());
+    let (s, e, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/public/requests/{rid}/receipts"),
+        None,
+        Some(json!({ "client_secret": secret, "receipt": "zip311_test_insufficient_amount" })),
+        None,
+    )
+    .await;
+    assert_eq!((s, e["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("insufficient_amount")));
+    assert!(e["error"]["message"].as_str().unwrap().contains("999999"), "{e}");
+    let (_, ev, _) = call(&app, "GET", "/v1/events?limit=50", Some(&test), None, None).await;
+    let rejected: Vec<&Value> = ev["data"].as_array().unwrap().iter().filter(|e| e["type"] == "receipt.rejected").collect();
+    assert_eq!(rejected.len(), 2, "{ev}");
+    for e in &rejected {
+        let err = &e["data"]["object"]["error"];
+        let code = err["code"].as_str().unwrap();
+        assert_eq!(err["message"], description(code), "the stored message is the fixed description: {e}");
+        let text = e.to_string();
+        for leak in ["sandbox:", "999999", "paid ", "5a4db0c5", "could not find"] {
+            assert!(!text.contains(leak), "a stored rejection must not contain {leak}: {text}");
+        }
+    }
+}
+
+/// A payment a reorg dropped is shown as unconfirmed on the request and cannot be refunded until
+/// it is mined again (the same `payment_unconfirmed` answer attestations give).
+#[tokio::test]
+async fn reorged_payments_are_not_refundable_until_remined() {
+    let (app, test, _) = app().await;
+    let (_, clock, _) = call(&app, "POST", "/v1/test_clocks", Some(&test), Some(json!({ "height": 500 })), None).await;
+    let cid = clock["id"].as_str().unwrap();
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 300_000, "test_clock": cid })), None).await;
+    let id = r["id"].as_str().unwrap();
+    let (s, paid, _) = call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_refund_to" })), None).await;
+    assert_eq!((s, paid["unconfirmed_zatoshis"].as_i64()), (StatusCode::OK, Some(0)), "{paid}");
+    call(&app, "POST", &format!("/v1/test_clocks/{cid}/reorg"), Some(&test), Some(json!({ "depth": 1 })), None).await;
+    let (_, req, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!((req["status"].as_str(), req["unconfirmed_zatoshis"].as_i64()), (Some("fulfilled"), Some(300_000)), "{req}");
+    assert!(req["payments"][0]["mined_height"].is_null());
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 100_000 })), Some("rf-reorg")).await;
+    assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::CONFLICT, Some("payment_unconfirmed")), "{v}");
+    // Mined again: refundable, and the same Idempotency-Key is not stuck on the refusal.
+    call(&app, "POST", &format!("/v1/test_clocks/{cid}/advance"), Some(&test), Some(json!({ "blocks": 1 })), None).await;
+    let (_, req, _) = call(&app, "GET", &format!("/v1/requests/{id}"), Some(&test), None, None).await;
+    assert_eq!(req["unconfirmed_zatoshis"], 0);
+    let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/refunds"), Some(&test), Some(json!({ "amount_zatoshis": 100_000 })), Some("rf-reorg")).await;
+    assert_eq!((s, v["status"].as_str()), (StatusCode::CREATED, Some("pending")), "{v}");
+}
+
+/// Test-mode webhooks may reach loopback and private hosts only while the server itself listens
+/// on loopback (a developer's machine). A server on 0.0.0.0 refuses them, at creation and again
+/// at delivery; `test_webhooks_private` and ZCEIPT_TEST_WEBHOOKS_PRIVATE override the default.
+#[tokio::test]
+async fn test_webhooks_to_private_hosts_follow_the_listen_address() {
+    // Loopback server: private test endpoints are fine (the existing behaviour).
+    let (app, test, _) = app().await;
+    let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://10.0.0.5:3000/hooks" })), None).await;
+    assert_eq!(s, StatusCode::CREATED);
+    // A server listening on every interface refuses them.
+    let mut cfg = zceipt_server::Config::new(Net::Test, "http://verifier.test/");
+    cfg.public_url = "http://0.0.0.0:8723".into();
+    let (app, test, _, path) = app_at(cfg.clone()).await;
+    for bad in ["http://127.0.0.1:3000/hooks", "http://10.0.0.5/h", "http://localhost/h", "http://[::1]/h", "http://db.internal/h", "http://[fc00::1]/h"] {
+        let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": bad })), None).await;
+        assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}: {v}");
+    }
+    let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://hooks.example.com/zceipt" })), None).await;
+    assert_eq!(s, StatusCode::CREATED);
+    // An endpoint that slipped in (made before the rule, or by hand) is refused at delivery too.
+    let (url, seen) = receiver(200).await;
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute("INSERT INTO webhook_endpoints (id, mode, url, secret, events, created) VALUES ('we_private', 'test', ?1, 'whsec_x', '[\"*\"]', 1)", [&url])
+            .unwrap();
+    }
+    call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE })), None).await;
+    wait_for(|| {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.query_row("SELECT COUNT(*) FROM deliveries WHERE endpoint_id = 'we_private' AND status = 'failed'", [], |r| r.get::<_, i64>(0)).unwrap() > 0
+    })
+    .await;
+    assert!(seen.lock().unwrap().is_empty(), "nothing was delivered to the private receiver");
+    let (_, d, _) = call(&app, "GET", "/v1/deliveries", Some(&test), None, None).await;
+    let failed = d["data"].as_array().unwrap().iter().find(|x| x["endpoint"] == "we_private").unwrap();
+    assert!(failed["last_error"].as_str().unwrap().contains("private"), "{failed}");
+    // The flag opens them again on any listen address.
+    cfg.test_webhooks_private = Some(true);
+    let (app, test, _) = app_with(cfg).await;
+    let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://127.0.0.1:3000/hooks" })), None).await;
+    assert_eq!(s, StatusCode::CREATED);
+}
+
+/// `?status=` is applied in the query (expiry included), so a rare status among many rows is found
+/// without walking them, and pages stay correct.
+#[tokio::test]
+async fn status_filter_is_applied_in_the_query() {
+    let (app, test, _, path) = app_at(zceipt_server::Config::new(Net::Test, "http://verifier.test/")).await;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        let mut ins = c
+            .prepare("INSERT INTO requests (id, mode, kind, challenge, payee, status, created, expires_at, metadata) VALUES (?1, 'test', 'single', ?2, ?3, ?4, ?5, ?6, '{}')")
+            .unwrap();
+        // 3,000 open requests, newer than everything that matches the filters below.
+        for i in 0..3000 {
+            ins.execute(rusqlite::params![format!("preq_open{i:05}"), format!("ch{i:05}"), PAYEE, "open", now + 100 + i, Option::<i64>::None]).unwrap();
+        }
+        // Older: three that expired (still 'open' in the row; the filter must compute that), one fulfilled.
+        for i in 0..3 {
+            ins.execute(rusqlite::params![format!("preq_exp{i}"), format!("exp{i}"), PAYEE, "open", 50 + i, now - 1]).unwrap();
+        }
+        ins.execute(rusqlite::params!["preq_done", "done", PAYEE, "fulfilled", 40, Option::<i64>::None]).unwrap();
+    }
+    let (s, l, _) = call(&app, "GET", "/v1/requests?status=fulfilled", Some(&test), None, None).await;
+    assert_eq!(s, StatusCode::OK, "{l}");
+    let ids: Vec<&str> = l["data"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!((ids, l["has_more"].as_bool()), (vec!["preq_done"], Some(false)));
+    let (_, p1, _) = call(&app, "GET", "/v1/requests?status=expired&limit=2", Some(&test), None, None).await;
+    let ids: Vec<&str> = p1["data"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!((ids, p1["has_more"].as_bool()), (vec!["preq_exp2", "preq_exp1"], Some(true)), "{p1}");
+    assert!(p1["data"].as_array().unwrap().iter().all(|r| r["status"] == "expired"));
+    let (_, p2, _) = call(&app, "GET", "/v1/requests?status=expired&limit=2&starting_after=preq_exp1", Some(&test), None, None).await;
+    let ids: Vec<&str> = p2["data"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap()).collect();
+    assert_eq!((ids, p2["has_more"].as_bool()), (vec!["preq_exp0"], Some(false)), "{p2}");
+    let (_, open, _) = call(&app, "GET", "/v1/requests?status=open&limit=3", Some(&test), None, None).await;
+    assert_eq!(open["data"].as_array().unwrap().len(), 3);
+    assert!(open["data"].as_array().unwrap().iter().all(|r| r["status"] == "open"));
+    let (_, all, _) = call(&app, "GET", "/v1/requests?limit=100", Some(&test), None, None).await;
+    assert_eq!((all["data"].as_array().unwrap().len(), all["has_more"].as_bool()), (100, Some(true)));
+}
+
+/// Every attestation carries a fresh random `jti` and an `iat` to the second, like `exp`.
+#[tokio::test]
+async fn attestations_carry_a_jti_and_second_granular_iat() {
+    let (app, test, _) = app().await;
+    let (_, r, _) = call(&app, "POST", "/v1/requests", Some(&test), Some(json!({ "payee": PAYEE, "amount_zatoshis": 1_000_000 })), None).await;
+    let id = r["id"].as_str().unwrap();
+    call(&app, "POST", &format!("/v1/requests/{id}/receipts"), Some(&test), Some(json!({ "receipt": "zip311_test_valid" })), None).await;
+    let claims = |a: &Value| -> Value {
+        let p = a["presentation"].as_str().unwrap().split('.').nth(1).unwrap().to_string();
+        serde_json::from_slice(&base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, p).unwrap()).unwrap()
+    };
+    let (_, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "valid_for_days": 1 })), None).await;
+    let (_, b, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
+    let (ca, cb) = (claims(&a), claims(&b));
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    for c in [&ca, &cb] {
+        let jti = c["jti"].as_str().unwrap();
+        assert_eq!(hex::decode(jti).unwrap().len(), 16, "jti is 128 random bits: {c}");
+        let iat = c["iat"].as_i64().unwrap();
+        assert!((now - iat).abs() < 60, "iat is the issue time to the second: {c}");
+    }
+    assert_ne!(ca["jti"], cb["jti"]);
+    assert_eq!(ca["exp"].as_i64().unwrap() - ca["iat"].as_i64().unwrap(), 86_400);
+    // Older tokens without a jti still verify.
+    let (s, _, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": b["presentation"] })), None).await;
+    assert_eq!(s, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -651,7 +879,9 @@ async fn attestations_subtract_refunds() {
     let (s, v, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "at_least_zatoshis": 2000000 })), None).await;
     assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("attestation_overclaims")));
     // An attestation made for an audience is accepted by that audience only; one made for nobody is refused by a verifier that names itself.
-    let (s, a, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "audience": "lender.example", "valid_for_days": 30 })), None).await;
+    let (s, a, _) =
+        call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({ "audience": "lender.example", "valid_for_days": 30 })), None)
+            .await;
     assert_eq!(s, StatusCode::OK, "{a}");
     let p = a["presentation"].as_str().unwrap().to_string();
     let verify = |aud: Option<&str>| {
@@ -668,7 +898,9 @@ async fn attestations_subtract_refunds() {
         assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::UNPROCESSABLE_ENTITY, Some("attestation_invalid")), "{other:?}: {v}");
     }
     let (_, plain, _) = call(&app, "POST", &format!("/v1/requests/{id}/attestations"), Some(&test), Some(json!({})), None).await;
-    let (s, _, _) = call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": plain["presentation"], "audience": "lender.example" })), None).await;
+    let (s, _, _) =
+        call(&app, "POST", "/v1/attestations/verify", Some(&test), Some(json!({ "attestation": plain["presentation"], "audience": "lender.example" })), None)
+            .await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
@@ -717,7 +949,17 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     let (_, _, h) = call(&app, "GET", &format!("/pay/{id}?secret={secret}"), None, None, None).await;
     assert_eq!(h.get("referrer-policy").unwrap(), "no-referrer");
     assert_eq!(h.get("x-content-type-options").unwrap(), "nosniff");
-    assert!(h.get("content-security-policy").unwrap().to_str().unwrap().contains("frame-ancestors"));
+    // The API-hosted pages get a real policy; the verifier app (wasm, remote lightwalletd) keeps its own.
+    let csp = h.get("content-security-policy").unwrap().to_str().unwrap().to_string();
+    for directive in ["default-src 'self'", "script-src 'self'", "connect-src 'self'", "frame-ancestors 'self'", "base-uri 'none'"] {
+        assert!(csp.contains(directive), "{directive} missing from {csp}");
+    }
+    for page in ["/dashboard", &format!("/c/{id}")] {
+        let (_, _, h) = call(&app, "GET", page, None, None, None).await;
+        assert_eq!(h.get("content-security-policy").unwrap().to_str().unwrap(), csp, "{page}");
+    }
+    let (_, _, h) = call(&app, "GET", "/verify/", None, None, None).await;
+    assert_eq!(h.get("content-security-policy").unwrap(), "frame-ancestors 'self'");
     // Live webhooks: https and public hosts only. Test mode may use localhost.
     for bad in [
         "http://example.com/h",
@@ -736,7 +978,18 @@ async fn hardening_public_limits_headers_and_live_webhook_hosts() {
     let (s, _, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": "http://127.0.0.1:3000/hooks" })), None).await;
     assert_eq!(s, StatusCode::CREATED);
     // A sandbox key can't aim the server at link-local or cloud metadata addresses either.
-    for bad in ["http://169.254.169.254/latest", "http://[fe80::1]/h", "http://[::ffff:169.254.169.254]/", "http://100.100.100.200/", "http://0.0.0.0:80/", "http://metadata.google.internal/", "http://168.63.129.16/", "http://[64:ff9b::a9fe:a9fe]/", "http://[2002:a9fe:a9fe::1]/", "http://[fd00:ec2::254]/"] {
+    for bad in [
+        "http://169.254.169.254/latest",
+        "http://[fe80::1]/h",
+        "http://[::ffff:169.254.169.254]/",
+        "http://100.100.100.200/",
+        "http://0.0.0.0:80/",
+        "http://metadata.google.internal/",
+        "http://168.63.129.16/",
+        "http://[64:ff9b::a9fe:a9fe]/",
+        "http://[2002:a9fe:a9fe::1]/",
+        "http://[fd00:ec2::254]/",
+    ] {
         let (s, v, _) = call(&app, "POST", "/v1/webhook_endpoints", Some(&test), Some(json!({ "url": bad })), None).await;
         assert_eq!((s, v["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("webhook_url_not_allowed")), "{bad}");
     }
@@ -1013,7 +1266,12 @@ async fn api_keys_are_digests_in_the_database_and_old_plaintext_keys_are_convert
 async fn list_mode_claims_check_against_the_callers_list_and_floor() {
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/proofs");
     let claim = std::fs::read_to_string(format!("{dir}/listclaim.txt")).unwrap().trim().to_string();
-    let list: Vec<String> = std::fs::read_to_string(format!("{dir}/list.txt")).unwrap().lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).map(|l| l.trim().to_string()).collect();
+    let list: Vec<String> = std::fs::read_to_string(format!("{dir}/list.txt"))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| l.trim().to_string())
+        .collect();
     let (app, test, _) = app().await;
     let ask = |body: Value| {
         let app = app.clone();

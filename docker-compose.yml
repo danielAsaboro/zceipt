@@ -8,6 +8,15 @@ services:
       - "127.0.0.1:8723:8723"
     volumes:
       - zceipt-data:/data
-    restart: unless-stopped
+    environment:
+      # The URL this API is reached at: it goes into hosted pay-page links and attestation `iss`.
+      # The container listens on 0.0.0.0, so without this they would say http://0.0.0.0:8723.
+      # Set it to your public address (https://api.example.com) when you put the API behind a host name.
+      ZCEIPT_PUBLIC_URL: http://127.0.0.1:8723
+      # Test-mode webhooks to loopback and private addresses are refused on a 0.0.0.0 listener;
+      # set this to 1 to receive them on your own network while trying the sandbox.
+      # ZCEIPT_TEST_WEBHOOKS_PRIVATE: "1"
+    # A trial should not come back by itself after a reboot; use `unless-stopped` for a real deployment.
+    restart: "no"
 volumes:
   zceipt-data:

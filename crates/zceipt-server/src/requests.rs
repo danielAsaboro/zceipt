@@ -4,10 +4,20 @@
 //! - `single` (default): one receipt must pay at least `amount_zatoshis`.
 //! - `partial`: several receipts add up; the request is fulfilled once they reach the amount.
 //! - `campaign`: open-ended; every valid receipt is counted and the request never closes.
-//!   The public page at `/c/{id}` is aggregate-only: a rounded total and a contributor count,
+//!   The public page at `/c/{id}` is aggregate-only: a bucketed total and a contributor count,
 //!   shown only after `public_min_contributions` (k, default 3) contributions, refreshed in
 //!   delayed batches, with no amounts, txids or on-chain memos. A contributor can opt in to a
 //!   public note by signing `public-note:<text>` into their receipt.
+//!
+//!   What the tally hides, and from whom: only contributions of at least
+//!   [`CAMPAIGN_COUNT_FLOOR`] count towards k, the step rule and the published total, so dust
+//!   cannot be used to force a refresh; the total is rounded down to a bucket of at least
+//!   [`CAMPAIGN_MIN_BUCKET`] (0.01 ZEC) or 5 % of the total (whichever is larger, on a 1-2-5
+//!   ladder), and once shown it moves only in steps of at least k new contributions. This holds a
+//!   single contribution's amount against passive readers and against single active contributors
+//!   (who add k-1 known contributions and subtract them) to within one bucket. It does not hold
+//!   against an attacker who can watch the chain and the page together over many refreshes, or
+//!   against the campaign's owner, who sees every payment through the API.
 //!
 //! A payment (transaction + output) can count towards only one request, ever. Otherwise one
 //! payment could be proven again for a second request with a fresh challenge.
@@ -109,6 +119,28 @@ pub fn load(st: &AppState, mode: Option<Mode>, id: &str) -> Result<RequestRec, A
     rec.ok_or_else(|| ApiError::not_found("request_not_found", format!("no proof request {id}")))
 }
 
+/// The smallest contribution that counts towards a campaign's public tally: 0.0005 ZEC.
+pub const CAMPAIGN_COUNT_FLOOR: i64 = 50_000;
+/// The smallest bucket a campaign's public total is rounded down to: 0.01 ZEC.
+pub const CAMPAIGN_MIN_BUCKET: i64 = 1_000_000;
+
+/// The bucket a campaign total of `total` zatoshis is published in: the larger of
+/// [`CAMPAIGN_MIN_BUCKET`] and 5 % of the total, rounded up to 1, 2 or 5 × 10^n. The ladder
+/// matters: a bucket that is exactly 5 % of the total would place the total in its 20th step and
+/// give it away to within 20 zatoshis.
+pub fn campaign_bucket(total: i64) -> i64 {
+    let want = (total / 20).max(CAMPAIGN_MIN_BUCKET);
+    let mut b = CAMPAIGN_MIN_BUCKET;
+    while b < want {
+        b = match b.to_string().as_bytes()[0] {
+            b'1' => b * 2,
+            b'2' => b / 2 * 5,
+            _ => b * 2,
+        };
+    }
+    b
+}
+
 fn payments(st: &AppState, id: &str) -> Result<Vec<Value>, ApiError> {
     let c = st.db.0.lock().unwrap();
     let mut stmt = c.prepare(
@@ -153,6 +185,10 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         link.push_str(&format!("&label={}", urlenc(l)));
     }
     let secret = r.client_secret.clone().unwrap_or_default();
+    let payments = payments(st, &r.id).unwrap_or_default();
+    // Payments a reorg dropped from the chain: still counted in `received_zatoshis`, not refundable
+    // or attestable until they are mined again.
+    let unconfirmed: i64 = payments.iter().filter(|p| p["mined_height"].is_null()).filter_map(|p| p["zatoshis"].as_i64()).sum();
     json!({
         "id": r.id,
         "object": "proof_request",
@@ -164,6 +200,7 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "amount_zatoshis": r.amount,
         "received_zatoshis": r.received,
         "remaining_zatoshis": remaining,
+        "unconfirmed_zatoshis": unconfirmed,
         "label": r.label,
         "metadata": serde_json::from_str::<Value>(&r.metadata).unwrap_or(json!({})),
         "created": r.created,
@@ -185,7 +222,7 @@ pub fn to_json(st: &AppState, r: &RequestRec) -> Value {
         "final": r.final_at.is_some(),
         "final_at": r.final_at,
         "test_clock": r.test_clock,
-        "payments": payments(st, &r.id).unwrap_or_default(),
+        "payments": payments,
         "refunds": crate::refunds::refunds_of(st, &r.id),
         "fulfillment": r.fulfilled_at.map(|t| json!({
             "fulfilled_at": t,
@@ -305,36 +342,42 @@ pub async fn create_request(State(st): State<Shared>, auth: Auth, headers: Heade
 
 pub async fn list_requests(State(st): State<Shared>, auth: Auth, Query(q): Query<ListQuery>) -> Result<Json<Value>, ApiError> {
     let limit = q.limit.unwrap_or(20).clamp(1, 100);
-    // Pages of 500 are read until enough requests match the status filter (the status is computed
-    // per request, so it can't be part of the query): a match older than the newest 500 is found too.
-    let mut cursor = q.starting_after.clone();
-    let mut data: Vec<Value> = Vec::new();
-    for _ in 0..40 {
-        let rows: Vec<RequestRec> = {
-            let c = st.db.0.lock().unwrap();
-            let after = match &cursor {
-                Some(id) => c.query_row("SELECT created FROM requests WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.unwrap_or(i64::MAX),
-                None => i64::MAX,
-            };
-            let mut stmt = c.prepare(&format!("SELECT {COLS} FROM requests WHERE mode = ?1 AND (?3 IS NULL OR created < ?2 OR (created = ?2 AND id < ?3)) ORDER BY created DESC, id DESC LIMIT ?4"))?;
-            let rows = stmt.query_map(params![auth.mode.as_str(), after, cursor, 500], from_row)?.collect::<Result<Vec<_>, _>>()?;
-            rows
+    // The status filter is applied in the query, expiry included (an open request past its
+    // `expires_at`, by its test clock's time if it has one, is `expired`), so a rare status among
+    // many rows is found without reading them, and only the page returned is rendered.
+    let rows: Vec<RequestRec> = {
+        let c = st.db.0.lock().unwrap();
+        let after = match &q.starting_after {
+            Some(id) => c.query_row("SELECT created FROM requests WHERE id = ?1", [id], |r| r.get::<_, i64>(0)).optional()?.unwrap_or(i64::MAX),
+            None => i64::MAX,
         };
-        let full_page = rows.len() == 500;
-        let last = rows.last().map(|r| r.id.clone());
-        data.extend(rows.iter().filter(|r| q.status.as_deref().is_none_or(|s| r.effective_status() == s)).map(|r| to_json(&st, r)));
-        if data.len() > limit as usize || !full_page {
-            break;
-        }
-        cursor = last;
-    }
-    let has_more = data.len() > limit as usize;
-    data.truncate(limit as usize);
+        let mut stmt = c.prepare(&format!(
+            "SELECT {COLS} FROM requests WHERE mode = ?1 AND (?3 IS NULL OR created < ?2 OR (created = ?2 AND id < ?3))
+             AND (?5 IS NULL OR (CASE WHEN status = 'open' AND expires_at IS NOT NULL
+                 AND expires_at <= COALESCE((SELECT frozen_time FROM test_clocks WHERE test_clocks.id = requests.test_clock), ?6)
+                 THEN 'expired' ELSE status END) = ?5)
+             ORDER BY created DESC, id DESC LIMIT ?4"
+        ))?;
+        let rows =
+            stmt.query_map(params![auth.mode.as_str(), after, q.starting_after, limit + 1, q.status, now()], from_row)?.collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    let has_more = rows.len() > limit as usize;
+    let data: Vec<Value> = rows.iter().take(limit as usize).map(|r| to_json(&st, r)).collect();
     Ok(Json(json!({ "object": "list", "data": data, "has_more": has_more })))
 }
 
 pub async fn get_request(State(st): State<Shared>, auth: Auth, Path(id): Path<String>) -> Result<Json<Value>, ApiError> {
     Ok(Json(to_json(&st, &load(&st, Some(auth.mode), &id)?)))
+}
+
+/// What a `receipt.rejected` event keeps of an error: the code and its fixed description from
+/// `ERROR_CODES`, never the message, which names the submitted transaction ("could not find
+/// <txid>") and the amount paid. Campaigns take submissions from anyone, so the stored events and
+/// the webhooks they feed must not become a log of outsiders' transactions.
+fn rejection_error(e: &ApiError) -> Value {
+    let description = crate::error::ERROR_CODES.iter().find(|(c, _, _)| *c == e.code).map(|(_, _, d)| *d).unwrap_or("The receipt was refused; see `code`.");
+    json!({ "type": e.kind, "code": e.code, "message": description, "param": e.param, "doc_url": format!("/docs/ERRORS.md#{}", e.code) })
 }
 
 /// Verifies `text` against request `r` and records it. Shared by the API and the hosted page.
@@ -377,7 +420,10 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         // The block height at creation is fetched in the background; until it is known, an old payment
         // could be shown again, so a real receipt waits for it (fixtures and test clocks have none).
         if !sandbox::is_fixture(text) && r.test_clock.is_none() && r.created_height.is_none() {
-            return Err(ApiError::conflict("request_not_ready", "this request's creation height isn't recorded yet (the chain server was slow); retry in a few seconds"));
+            return Err(ApiError::conflict(
+                "request_not_ready",
+                "this request's creation height isn't recorded yet (the chain server was slow); retry in a few seconds",
+            ));
         }
         if !sandbox::is_fixture(text) && r.created_height.is_some_and(|h| i64::from(v.mined_height) <= h) {
             return Err(ApiError::verification(
@@ -428,7 +474,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
         Ok(x) => x,
         Err(e) => {
             if e.kind == "verification_error" {
-                let _ = emit(st, mode, "receipt.rejected", json!({ "object": "receipt_rejection", "request": r.id, "error": e.body()["error"] }));
+                let _ = emit(st, mode, "receipt.rejected", json!({ "object": "receipt_rejection", "request": r.id, "error": rejection_error(&e) }));
             }
             return Err(e);
         }
@@ -481,7 +527,7 @@ pub async fn accept_receipt(st: &Shared, mode: Mode, r: &RequestRec, text: &str)
                 drop(tx);
                 drop(c);
                 let e = ApiError::conflict("payment_already_used", msg).param("receipt");
-                let _ = emit(st, mode, "receipt.rejected", json!({ "object": "receipt_rejection", "request": r.id, "error": e.body()["error"] }));
+                let _ = emit(st, mode, "receipt.rejected", json!({ "object": "receipt_rejection", "request": r.id, "error": rejection_error(&e) }));
                 return Err(e);
             }
         }
@@ -665,8 +711,15 @@ pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> 
     let prior: Option<Value> = snapshot.as_deref().and_then(|s| serde_json::from_str(s).ok());
     // Once published, the tally moves only in steps of at least k new contributions: a refresh
     // that added one contribution would show its amount (and its note) to anyone diffing two reads.
+    // Only contributions at or above the floor count (see the module docs).
     let held = prior.as_ref().and_then(|p| p["contributions"].as_i64()).filter(|&shown| {
-        let count: i64 = st.db.0.lock().unwrap().query_row("SELECT COUNT(*) FROM request_payments WHERE request_id = ?1", [&id], |x| x.get(0)).unwrap_or(shown);
+        let count: i64 = st
+            .db
+            .0
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM request_payments WHERE request_id = ?1 AND zatoshis >= ?2", params![id, CAMPAIGN_COUNT_FLOOR], |x| x.get(0))
+            .unwrap_or(shown);
         count > shown && count - shown < k
     });
     let snap: Value = match (fresh || held.is_some(), prior) {
@@ -674,11 +727,13 @@ pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> 
         _ => {
             let (count, total, mut notes): (i64, i64, Vec<String>) = {
                 let c = st.db.0.lock().unwrap();
-                let (count, total) = c.query_row("SELECT COUNT(*), COALESCE(SUM(zatoshis), 0) FROM request_payments WHERE request_id = ?1", [&id], |x| {
-                    Ok((x.get(0)?, x.get(1)?))
-                })?;
-                let mut stmt = c.prepare("SELECT public_note FROM request_payments WHERE request_id = ?1 AND public_note IS NOT NULL")?;
-                let notes = stmt.query_map([&id], |x| x.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+                let (count, total) = c.query_row(
+                    "SELECT COUNT(*), COALESCE(SUM(zatoshis), 0) FROM request_payments WHERE request_id = ?1 AND zatoshis >= ?2",
+                    params![id, CAMPAIGN_COUNT_FLOOR],
+                    |x| Ok((x.get(0)?, x.get(1)?)),
+                )?;
+                let mut stmt = c.prepare("SELECT public_note FROM request_payments WHERE request_id = ?1 AND public_note IS NOT NULL AND zatoshis >= ?2")?;
+                let notes = stmt.query_map(params![id, CAMPAIGN_COUNT_FLOOR], |x| x.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
                 (count, total, notes)
             };
             // Shuffle so the order of notes doesn't reveal the order of contributions.
@@ -688,11 +743,14 @@ pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> 
                 notes.swap(i, (u64::from_le_bytes(b) % (i as u64 + 1)) as usize);
             }
             let visible = count >= k;
+            // Rounded down to a coarse bucket (at least 0.01 ZEC, or 5 % of the total) so a total
+            // can't be diffed back to one amount, even by a contributor who knows the other k-1.
+            let bucket = campaign_bucket(total);
             let s = json!({
                 "visible": visible,
                 "contributions": if visible { json!(count) } else { Value::Null },
-                // Rounded down to 0.001 ZEC so a total can't be diffed back to one exact amount.
-                "received_zatoshis_rounded": if visible { json!((total / 100_000) * 100_000) } else { Value::Null },
+                "received_zatoshis_rounded": if visible { json!(total / bucket * bucket) } else { Value::Null },
+                "bucket_zatoshis": if visible { json!(bucket) } else { Value::Null },
                 "public_notes": if visible { json!(notes) } else { json!([]) },
                 "as_of": now(),
             });
@@ -705,6 +763,7 @@ pub async fn campaign_json(State(st): State<Shared>, Path(id): Path<String>) -> 
     Ok(Json(json!({
         "id": r.id, "object": "campaign", "label": r.label, "payee": r.payee, "goal_zatoshis": r.amount,
         "min_contributions_to_publish": k,
+        "min_contribution_zatoshis": CAMPAIGN_COUNT_FLOOR,
         "refresh_secs": st.config.campaign_snapshot_secs,
         "tally": snap,
         "payment_uri": full["payment_uri"], "receipt_link": full["receipt_link"], "livemode": r.mode == "live",

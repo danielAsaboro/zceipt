@@ -135,20 +135,24 @@ pub async fn create(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Pa
         {
             let mut c = st2.db.0.lock().unwrap();
             let tx = c.transaction()?;
-            let payment: Option<(String, i64, Option<String>)> = tx
+            let payment: Option<(String, i64, Option<String>, Option<i64>)> = tx
                 .query_row(
-                    "SELECT txid, zatoshis, refund_address FROM request_payments WHERE request_id = ?1 AND (?2 IS NULL OR txid = ?2) ORDER BY (refund_address IS NULL), id DESC LIMIT 1",
+                    "SELECT txid, zatoshis, refund_address, mined_height FROM request_payments WHERE request_id = ?1 AND (?2 IS NULL OR txid = ?2) ORDER BY (refund_address IS NULL), id DESC LIMIT 1",
                     params![r.id, req.payment_txid],
-                    |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?)),
+                    |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?)),
                 )
                 .optional()?;
-            let (txid, paid, address) = payment.ok_or_else(|| match &req.payment_txid {
+            let (txid, paid, address, mined_height) = payment.ok_or_else(|| match &req.payment_txid {
                 Some(_) => ApiError::not_found("payment_not_found", "no payment with that txid on this request").param("payment_txid"),
                 None => ApiError::conflict("refund_not_possible", "this request has no payments yet"),
             })?;
             let address = address.ok_or_else(|| {
                 ApiError::conflict("refund_address_missing", "the payer did not sign a refund address into their receipt (`zceipt create --refund-to <address>`)")
             })?;
+            // A payment a reorg dropped is not a payment yet: nothing to pay back until it is mined again.
+            if mined_height.is_none() {
+                return Err(ApiError::conflict("payment_unconfirmed", "this payment left the chain in a reorg; refund it once it is mined again").param("payment_txid"));
+            }
             let already: i64 = tx.query_row(
                 "SELECT COALESCE(SUM(amount_zatoshis), 0) FROM refunds WHERE request_id = ?1 AND payment_txid = ?2",
                 params![r.id, txid],
@@ -288,11 +292,12 @@ pub fn checked_refund_address(st: &AppState, mode: Mode, message: &str) -> Optio
 /// same address cannot settle it.
 fn check_fresh(created_height: Option<i64>, mined_height: u32) -> Result<(), ApiError> {
     match created_height {
-        None => Err(ApiError::conflict("refund_not_ready", "this refund's creation height isn't recorded yet (the chain server was slow); retry in a few seconds")),
-        Some(h) if i64::from(mined_height) <= h => Err(ApiError::verification(
-            "paid_before_refund",
-            format!("the payment was mined at block {mined_height}, before this refund was made (block {h})"),
-        )),
+        None => {
+            Err(ApiError::conflict("refund_not_ready", "this refund's creation height isn't recorded yet (the chain server was slow); retry in a few seconds"))
+        }
+        Some(h) if i64::from(mined_height) <= h => {
+            Err(ApiError::verification("paid_before_refund", format!("the payment was mined at block {mined_height}, before this refund was made (block {h})")))
+        }
         Some(_) => Ok(()),
     }
 }

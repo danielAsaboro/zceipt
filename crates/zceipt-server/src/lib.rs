@@ -34,7 +34,6 @@ use axum::{
 };
 use db::{new_id, now, Db};
 use error::ApiError;
-use zceipt_chain::{chain, Net};
 use requests::{create_request, get_request, list_requests, request_qr, submit_receipt};
 use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
@@ -43,6 +42,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use zcash_address::unified::{self, Encoding};
 use zcash_protocol::consensus::{NetworkType, Parameters};
+use zceipt_chain::{chain, Net};
 
 #[derive(Clone)]
 pub struct Config {
@@ -63,7 +63,17 @@ pub struct Config {
     pub campaign_snapshot_secs: i64,
     /// Requests allowed per API key per minute (default RATE_LIMIT).
     pub rate_limit: u32,
+    /// Whether test-mode webhooks may go to loopback and private addresses (a developer receiving
+    /// them on their own machine). `None` decides from the listen address `public_url` carries:
+    /// allowed when the server listens on loopback, refused otherwise, so a server on `0.0.0.0`
+    /// cannot be pointed at its own network by a sandbox key. `build` applies the
+    /// `ZCEIPT_TEST_WEBHOOKS_PRIVATE` environment variable (`1`/`true` or `0`/`false`) over both.
+    pub test_webhooks_private: Option<bool>,
 }
+
+/// What a refused private test webhook tells the operator.
+pub(crate) const TEST_WEBHOOKS_PRIVATE_HINT: &str =
+    "test webhooks to loopback or private addresses are off because this server does not listen on loopback; set ZCEIPT_TEST_WEBHOOKS_PRIVATE=1 to allow them";
 
 impl Config {
     /// Defaults: testnet for test keys, public lightwalletd servers, 10 s → 1 h backoff, 8 attempts.
@@ -78,7 +88,37 @@ impl Config {
             public_url: "http://127.0.0.1:8723".into(),
             campaign_snapshot_secs: 600,
             rate_limit: RATE_LIMIT,
+            test_webhooks_private: None,
         }
+    }
+
+    /// Whether test-mode webhooks may reach private addresses: the explicit setting, else whether
+    /// `public_url` (the listen address, unless the operator set a public one) is loopback.
+    pub fn test_webhooks_private(&self) -> bool {
+        self.test_webhooks_private.unwrap_or_else(|| listens_on_loopback(&self.public_url))
+    }
+}
+
+/// Whether `url`'s host is a loopback address or name.
+fn listens_on_loopback(url: &str) -> bool {
+    match reqwest::Url::parse(url).ok().and_then(|u| u.host().map(|h| h.to_owned())) {
+        Some(url::Host::Domain(d)) => {
+            let d = d.trim_end_matches('.').to_ascii_lowercase();
+            d == "localhost" || d.ends_with(".localhost")
+        }
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback() || ip.to_ipv4_mapped().is_some_and(|v| v.is_loopback()),
+        None => false,
+    }
+}
+
+/// The setting `build` applies: the environment variable over the config's explicit value over the
+/// listen-address default.
+fn resolve_test_webhooks_private(configured: Option<bool>, env: Option<&str>, public_url: &str) -> bool {
+    match env.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("1" | "true" | "yes") => true,
+        Some("0" | "false" | "no") => false,
+        _ => configured.unwrap_or_else(|| listens_on_loopback(public_url)),
     }
 }
 
@@ -160,10 +200,20 @@ async fn api_middleware(State(st): State<Shared>, req: axum::extract::Request, n
     h.insert("referrer-policy", "no-referrer".parse().unwrap());
     h.insert("x-content-type-options", "nosniff".parse().unwrap());
     if h.get("content-type").and_then(|v| v.to_str().ok()).is_some_and(|c| c.starts_with("text/html")) {
-        h.insert("content-security-policy", "frame-ancestors 'self'".parse().unwrap());
+        let policy = if path == "/dashboard" || path.starts_with("/pay/") || path.starts_with("/c/") { HOSTED_PAGE_CSP } else { "frame-ancestors 'self'" };
+        h.insert("content-security-policy", policy.parse().unwrap());
     }
     res
 }
+
+/// The policy for the pages this API serves itself (`/dashboard`, `/pay/{id}`, `/c/{id}`): they
+/// talk only to this origin and load nothing from elsewhere. `script-src` keeps `'unsafe-inline'`
+/// because each of those pages runs its code from an inline `<script>` block in docs/*.html; the
+/// policy still refuses remote scripts, plugins, embedding by other sites and a rewritten base
+/// URL. The verifier app under `/verify/` is not covered: it runs wasm and talks to lightwalletd
+/// servers, and carries its own policy.
+pub const HOSTED_PAGE_CSP: &str =
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'none'";
 
 pub type Shared = Arc<AppState>;
 
@@ -302,9 +352,11 @@ fn idem_lookup(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw
     let Some(k) = headers.get("idempotency-key").and_then(|v| v.to_str().ok()) else { return Ok(None) };
     let c = st.db.0.lock().unwrap();
     let row: Option<(String, String, i64, String)> = c
-        .query_row("SELECT route, body_hash, status, response FROM idempotency WHERE api_key = ?1 AND idem_key = ?2", params![crate::db::key_digest(&auth.key), k], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-        })
+        .query_row(
+            "SELECT route, body_hash, status, response FROM idempotency WHERE api_key = ?1 AND idem_key = ?2",
+            params![crate::db::key_digest(&auth.key), k],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
         .optional()?;
     match row {
         None => Ok(None),
@@ -350,7 +402,15 @@ fn idem_store(st: &AppState, auth: &Auth, headers: &HeaderMap, route: &str, raw:
 }
 
 /// Error codes that mean the answer may change on a retry; never replayed from the idempotency store.
-const RETRYABLE: &[&str] = &["transaction_not_mined", "transaction_not_found", "request_not_ready", "refund_not_ready", "idempotency_in_progress", "payment_unconfirmed", "source_not_found"];
+const RETRYABLE: &[&str] = &[
+    "transaction_not_mined",
+    "transaction_not_found",
+    "request_not_ready",
+    "refund_not_ready",
+    "idempotency_in_progress",
+    "payment_unconfirmed",
+    "source_not_found",
+];
 
 /// Runs `f` once per Idempotency-Key, storing and replaying its result (successes and
 /// verification failures alike, so a retry never changes the answer).
@@ -369,7 +429,9 @@ where
     let _in_flight = match headers.get("idempotency-key").and_then(|v| v.to_str().ok()) {
         Some(k) => match InFlight::enter(format!("{}\u{0}{k}", auth.key)) {
             Some(g) => Some(g),
-            None => return ApiError::conflict("idempotency_in_progress", "a request with this Idempotency-Key is still running; retry in a moment").into_response(),
+            None => {
+                return ApiError::conflict("idempotency_in_progress", "a request with this Idempotency-Key is still running; retry in a moment").into_response()
+            }
         },
         None => None,
     };
@@ -477,7 +539,10 @@ async fn verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _): Body
         }
         // Anyone can sign with the public demo wallet's key, so it can't answer a challenge.
         if v.public_demo {
-            return Err(ApiError::verification("public_demo_key", "this receipt is from the public demo wallet, whose key anyone has; it proves nothing about who paid"));
+            return Err(ApiError::verification(
+                "public_demo_key",
+                "this receipt is from the public demo wallet, whose key anyone has; it proves nothing about who paid",
+            ));
         }
     }
     let mut body = serde_json::to_value(&v).unwrap();
@@ -516,7 +581,8 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
     let domain = req.domain.ok_or_else(|| ApiError::missing("domain"))?;
     let net = auth.mode.net(&st.config);
     let server = auth.mode.server(&st.config);
-    let c = zceipt_core::claim::Claim::from_text(&text).map_err(|_| ApiError::invalid("claim_malformed", "the claim text could not be decoded").param("claim"))?;
+    let c =
+        zceipt_core::claim::Claim::from_text(&text).map_err(|_| ApiError::invalid("claim_malformed", "the claim text could not be decoded").param("claim"))?;
     if c.coin_type != net.coin_type() {
         return Err(ApiError::invalid("receipt_network_mismatch", "the claim is for another network than the key's mode").param("claim"));
     }
@@ -531,21 +597,33 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
         }
         let least = req.min_floor_zatoshis.ok_or_else(|| ApiError::missing("min_floor_zatoshis"))?;
         if c.height != 0 || c.nf.is_some() {
-            return Err(ApiError::verification("claim_invalid", "this isn't a list-mode claim (it has a snapshot block or reveals its nullifier)").param("claim"));
+            return Err(
+                ApiError::verification("claim_invalid", "this isn't a list-mode claim (it has a snapshot block or reveals its nullifier)").param("claim")
+            );
         }
         if c.floor < least || least == 0 {
-            return Err(ApiError::verification("claim_below_floor", format!("the claim shows at least {} zatoshis held, less than the {least} required", c.floor)).param("claim"));
+            return Err(ApiError::verification(
+                "claim_below_floor",
+                format!("the claim shows at least {} zatoshis held, less than the {least} required", c.floor),
+            )
+            .param("claim"));
         }
         let set: Vec<[u8; 32]> = list
             .iter()
-            .map(|h| hex::decode(h).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| ApiError::invalid("parameter_invalid", "list entries are 64 hex digits").param("list")))
+            .map(|h| {
+                hex::decode(h)
+                    .ok()
+                    .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                    .ok_or_else(|| ApiError::invalid("parameter_invalid", "list entries are 64 hex digits").param("list"))
+            })
             .collect::<Result<_, _>>()?;
         // Building the list's tree and the Halo 2 check are CPU-bound: a verify slot, off the async workers.
         let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
         let (c2, d2) = (c.clone(), domain.clone());
         let tag = tokio::task::spawn_blocking(move || {
             let root = zceipt_core::screened::set_root(&set).map_err(|e| ApiError::invalid("parameter_invalid", e.to_string()).param("list"))?;
-            zceipt_core::claim::verify(&c2, d2.as_bytes(), &root).map_err(|_| ApiError::verification("claim_invalid", "the claim doesn't hold against this list").param("claim"))
+            zceipt_core::claim::verify(&c2, d2.as_bytes(), &root)
+                .map_err(|_| ApiError::verification("claim_invalid", "the claim doesn't hold against this list").param("claim"))
         })
         .await
         .map_err(|e| ApiError::internal(e.to_string()))??;
@@ -555,7 +633,11 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
         // The caller's arguments say what is being checked, not the claim's bytes: a snapshot or a
         // floor means an airdrop claim, and a claim with no snapshot isn't one.
         if req.height.is_some() || req.min_floor_zatoshis.is_some() {
-            return Err(ApiError::verification("claim_invalid", "this is a payer tag (no snapshot block), but height or min_floor_zatoshis ask for an airdrop claim").param("claim"));
+            return Err(ApiError::verification(
+                "claim_invalid",
+                "this is a payer tag (no snapshot block), but height or min_floor_zatoshis ask for an airdrop claim",
+            )
+            .param("claim"));
         }
         let txid = std::str::from_utf8(&c.msg)
             .ok()
@@ -577,17 +659,19 @@ async fn claims_verify_handler(State(st): State<Shared>, auth: Auth, Body(req, _
     // The claimant chooses the floor it shows, so the caller states the least its rules allow.
     let least = req.min_floor_zatoshis.ok_or_else(|| ApiError::missing("min_floor_zatoshis"))?;
     if c.floor < least {
-        return Err(ApiError::verification("claim_below_floor", format!("the claim shows at least {} zatoshis held, less than the {least} required", c.floor)).param("claim"));
+        return Err(ApiError::verification("claim_below_floor", format!("the claim shows at least {} zatoshis held, less than the {least} required", c.floor))
+            .param("claim"));
     }
     // Each check reads the pool's nullifiers up to the snapshot: take a verify slot (the same cap
     // as receipts) and keep what was downloaded, so the next check fetches only newer blocks.
     let _permit = verify::verify_slots().acquire().await.map_err(|e| ApiError::internal(e.to_string()))?;
     let cache = chain::nullifier_cache_path(net, c.pool, server.as_deref());
     // Bounded: a chain server that stalls must not hold a verify slot for good.
-    let rep = tokio::time::timeout(std::time::Duration::from_secs(180), chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), None, least))
-        .await
-        .map_err(|_| ApiError::verification("claim_invalid", "the chain server did not answer in time".to_string()).param("claim"))?
-        .map_err(invalid)?;
+    let rep =
+        tokio::time::timeout(std::time::Duration::from_secs(180), chain::verify_claim_against_chain(&c, net, server.as_deref(), cache.as_deref(), None, least))
+            .await
+            .map_err(|_| ApiError::verification("claim_invalid", "the chain server did not answer in time".to_string()).param("claim"))?
+            .map_err(invalid)?;
     Ok(Json(serde_json::to_value(rep).unwrap()))
 }
 
@@ -687,8 +771,7 @@ pub(crate) fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
         None => bad("the URL has no host"),
         Some(url::Host::Domain(d)) => {
             let d = d.trim_end_matches('.').to_ascii_lowercase();
-            let internal = ["localhost", "local", "internal", "localdomain", "home.arpa", "lan", "intranet", "corp"];
-            if d.is_empty() || internal.iter().any(|s| d == *s || d.ends_with(&format!(".{s}"))) {
+            if is_internal_name(&d) {
                 bad("live webhooks must go to a public host")
             } else {
                 Ok(())
@@ -711,11 +794,14 @@ pub(crate) fn check_live_webhook_url(url: &str) -> Result<(), ApiError> {
     }
 }
 
-/// Test-mode webhooks may go to localhost and private networks (developers receive them on their
-/// own machines), but never to link-local or cloud metadata addresses: a sandbox key handed to
-/// the public must not let the server read its host's credentials.
-pub(crate) fn check_test_webhook_url(url: &str) -> Result<(), ApiError> {
+/// Test-mode webhooks may go to localhost and private networks when `private_ok` (developers
+/// receive them on their own machines; see `Config::test_webhooks_private`), but never to
+/// link-local or cloud metadata addresses: a sandbox key handed to the public must not let the
+/// server read its host's credentials. Without `private_ok` they must go to a public host, like
+/// live ones (plain http is still allowed).
+pub(crate) fn check_test_webhook_url(url: &str, private_ok: bool) -> Result<(), ApiError> {
     let bad = || Err(ApiError::invalid("webhook_url_not_allowed", "webhooks can't go to link-local or cloud metadata addresses".to_string()).param("url"));
+    let private = || Err(ApiError::invalid("webhook_url_not_allowed", TEST_WEBHOOKS_PRIVATE_HINT.to_string()).param("url"));
     let Ok(u) = reqwest::Url::parse(url) else { return Err(ApiError::invalid("parameter_invalid", "not a valid URL").param("url")) };
     match u.host() {
         Some(url::Host::Domain(d)) => {
@@ -723,11 +809,17 @@ pub(crate) fn check_test_webhook_url(url: &str) -> Result<(), ApiError> {
             if d == "metadata.google.internal" || d.ends_with(".internal") && d.starts_with("metadata") {
                 return bad();
             }
+            if !private_ok && is_internal_name(&d) {
+                return private();
+            }
             Ok(())
         }
         Some(url::Host::Ipv4(ip)) => {
             if webhooks::is_blocked_test_ip(ip.into()) {
                 return bad();
+            }
+            if !private_ok && !is_public_ip(ip.into()) {
+                return private();
             }
             Ok(())
         }
@@ -735,10 +827,19 @@ pub(crate) fn check_test_webhook_url(url: &str) -> Result<(), ApiError> {
             if webhooks::is_blocked_test_ip(ip.into()) {
                 return bad();
             }
+            if !private_ok && !is_public_ip(ip.into()) {
+                return private();
+            }
             Ok(())
         }
         None => Err(ApiError::invalid("parameter_invalid", "the URL has no host").param("url")),
     }
+}
+
+/// Host names that name the local machine or network (lower-cased, no trailing dot).
+fn is_internal_name(d: &str) -> bool {
+    let internal = ["localhost", "local", "internal", "localdomain", "home.arpa", "lan", "intranet", "corp"];
+    d.is_empty() || internal.iter().any(|s| d == *s || d.ends_with(&format!(".{s}")))
 }
 
 async fn create_endpoint(State(st): State<Shared>, auth: Auth, headers: HeaderMap, Body(req, raw): Body<CreateEndpoint>) -> Response {
@@ -757,7 +858,7 @@ fn create_endpoint_inner(st: &Shared, mode: Mode, req: CreateEndpoint) -> Result
     if auth.mode == Mode::Live {
         check_live_webhook_url(&url)?;
     } else {
-        check_test_webhook_url(&url)?;
+        check_test_webhook_url(&url, st.config.test_webhooks_private())?;
     }
     let events = req.events.unwrap_or_else(|| vec!["*".into()]);
     if let Some(bad) = events.iter().find(|e| *e != "*" && !EVENT_TYPES.contains(&e.as_str())) {
@@ -772,7 +873,10 @@ fn create_endpoint_inner(st: &Shared, mode: Mode, req: CreateEndpoint) -> Result
         "INSERT INTO webhook_endpoints (id, mode, url, secret, events, created) VALUES (?1,?2,?3,?4,?5,?6)",
         params![id, auth.mode.as_str(), url, secret, serde_json::to_string(&events).unwrap(), now()],
     )?;
-    Ok((StatusCode::CREATED, json!({ "id": id, "object": "webhook_endpoint", "url": url, "events": events, "secret": secret, "livemode": auth.mode == Mode::Live })))
+    Ok((
+        StatusCode::CREATED,
+        json!({ "id": id, "object": "webhook_endpoint", "url": url, "events": events, "secret": secret, "livemode": auth.mode == Mode::Live }),
+    ))
 }
 
 async fn list_endpoints(State(st): State<Shared>, auth: Auth) -> Result<Json<Value>, ApiError> {
@@ -1019,9 +1123,12 @@ pub fn router(state: Shared) -> Router {
 
 /// Opens the database, ensures one test and one live key exist, starts the webhook worker
 /// and warms the verifier. Returns the router and the keys.
-pub async fn build(db_path: &str, config: Config) -> anyhow::Result<(Router, Vec<(String, String)>)> {
+pub async fn build(db_path: &str, mut config: Config) -> anyhow::Result<(Router, Vec<(String, String)>)> {
     let db = Db::open(db_path)?;
     let keys = db.ensure_keys()?;
+    // Settled once here, so every check (endpoint creation, each delivery) sees the same answer.
+    let env = std::env::var("ZCEIPT_TEST_WEBHOOKS_PRIVATE").ok();
+    config.test_webhooks_private = Some(resolve_test_webhooks_private(config.test_webhooks_private, env.as_deref(), &config.public_url));
     let state = Arc::new(AppState {
         db,
         config,
@@ -1054,5 +1161,37 @@ mod key_reading {
         // A non-Bearer Authorization header must not hide the key that authentication will use.
         assert_eq!(api_key_of(&h(&[("authorization", "Foo"), ("x-api-key", "rcpt_test_c")])).as_deref(), Some("rcpt_test_c"));
         assert_eq!(api_key_of(&h(&[("authorization", "Basic abc")])), None);
+    }
+
+    #[test]
+    fn private_test_webhooks_follow_the_listen_address_unless_overridden() {
+        // Default: only a loopback listener may deliver to private hosts.
+        for (url, expect) in [
+            ("http://127.0.0.1:8723", true),
+            ("http://localhost:8723", true),
+            ("http://[::1]:8723", true),
+            ("http://0.0.0.0:8723", false),
+            ("http://[::]:8723", false),
+            ("http://192.168.1.9:8723", false),
+            ("https://api.zceipt.xyz", false),
+            ("not a url", false),
+        ] {
+            assert_eq!(resolve_test_webhooks_private(None, None, url), expect, "{url}");
+        }
+        // An explicit setting wins over the address; the environment wins over both.
+        assert!(resolve_test_webhooks_private(Some(true), None, "http://0.0.0.0:8723"));
+        assert!(!resolve_test_webhooks_private(Some(false), None, "http://127.0.0.1:8723"));
+        assert!(resolve_test_webhooks_private(Some(false), Some("1"), "http://0.0.0.0:8723"));
+        assert!(resolve_test_webhooks_private(None, Some("true"), "http://0.0.0.0:8723"));
+        assert!(!resolve_test_webhooks_private(Some(true), Some("0"), "http://127.0.0.1:8723"));
+        assert!(!resolve_test_webhooks_private(None, Some("false"), "http://127.0.0.1:8723"));
+        // Something else in the variable is ignored, not taken as yes.
+        assert!(!resolve_test_webhooks_private(None, Some("maybe"), "http://0.0.0.0:8723"));
+        // The URL rule itself.
+        assert!(check_test_webhook_url("http://10.0.0.5/h", true).is_ok());
+        assert_eq!(check_test_webhook_url("http://10.0.0.5/h", false).unwrap_err().code, "webhook_url_not_allowed");
+        assert_eq!(check_test_webhook_url("http://box.lan/h", false).unwrap_err().code, "webhook_url_not_allowed");
+        assert!(check_test_webhook_url("http://hooks.example.com/h", false).is_ok());
+        assert_eq!(check_test_webhook_url("http://169.254.169.254/", true).unwrap_err().code, "webhook_url_not_allowed");
     }
 }

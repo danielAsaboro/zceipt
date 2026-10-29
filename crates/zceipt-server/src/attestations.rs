@@ -205,13 +205,19 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
     }
     digests.sort(); // order must not leak which claim is which
     let (kid, sk) = key(&st)?;
-    let (_, today) = utc_date(now());
     if req.audience.as_ref().is_some_and(|a| a.is_empty() || a.len() > 200) || req.valid_for_days.is_some_and(|d| !(1..=3650).contains(&d)) {
         return Err(ApiError::invalid("parameter_invalid", "audience is 1 to 200 characters; valid_for_days is 1 to 3650"));
     }
+    // A random 128-bit token id, so a verifier can keep a seen-list and refuse a replayed
+    // presentation. `iat` and `exp` are both to the second: `exp` already was, so a day-granular
+    // `iat` hid nothing. Neither claim says when the payment happened; that is `paid_at`, hidden.
+    let mut jti = [0u8; 16];
+    getrandom::fill(&mut jti).expect("OS RNG");
+    let issued = now();
     let mut payload = json!({
         "iss": st.config.public_url,
-        "iat": today,
+        "iat": issued,
+        "jti": hex::encode(jti),
         "vct": VCT,
         "network": auth.mode.net(&st.config).name(),
         "livemode": auth.mode == crate::Mode::Live,
@@ -229,7 +235,7 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Path(id): Path<String>
         payload["aud"] = json!(a);
     }
     if let Some(d) = req.valid_for_days {
-        payload["exp"] = json!(now() + i64::from(d) * 86_400);
+        payload["exp"] = json!(issued + i64::from(d) * 86_400);
     }
     let header = json!({ "alg": "EdDSA", "typ": "vc+sd-jwt", "kid": kid });
     let signing_input = format!("{}.{}", B64.encode(header.to_string()), B64.encode(payload.to_string()));

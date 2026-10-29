@@ -117,6 +117,9 @@ paths:
       description: |
         Returns an Ed25519 SD-JWT stating `paid_at_least_zatoshis`, `paid_on_or_before` (a day), `network` and `final`.
         The txid, exact amount, exact time, request id and label are selectively disclosable (`disclosures`).
+        Every token carries a random 128-bit `jti` (so a verifier can refuse a replayed presentation) and `iat`
+        to the second, like `exp`; the time of the payment itself stays hidden in `paid_at`. Tokens issued without
+        a `jti` still verify. A request with an unconfirmed payment (dropped by a reorg) answers 409 `payment_unconfirmed`.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       requestBody:
@@ -182,6 +185,8 @@ paths:
       description: |
         Only works if the payer signed `refund-to:<address>` into their receipt (`zceipt create --refund-to`).
         Returns a ZIP-321 `payment_uri` to that address and a `challenge` for the refund receipt. Emits `refund.created`.
+        A payment a reorg dropped from the chain (the request's `unconfirmed_zatoshis` is above zero and the payment's
+        `mined_height` is null) answers 409 `payment_unconfirmed` until it is mined again; retry later.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -409,7 +414,7 @@ paths:
       operationId: listRequests
       summary: List proof requests, newest first
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [open, fulfilled, held_for_review, rejected, expired] } }
+        - { name: status, in: query, schema: { type: string, enum: [open, fulfilled, held_for_review, rejected, expired] }, description: "Applied in the query (expiry included), so a rare status is found however many requests there are." }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
         - { name: starting_after, in: query, schema: { type: string }, description: "Cursor: the last id of the previous page." }
       responses:
@@ -439,7 +444,8 @@ paths:
       summary: Submit the receipt that answers a request
       description: |
         Verifies the receipt, checks that it signs the request's challenge, paid the payee, and paid at least `amount_zatoshis`.
-        On success the request becomes `fulfilled` and `request.fulfilled` is sent. On a verification failure `receipt.rejected` is sent and the request stays open.
+        On success the request becomes `fulfilled` and `request.fulfilled` is sent. On a verification failure `receipt.rejected` is sent and the request stays open;
+        that event (and `GET /v1/events`) keeps the error's `code` and its fixed description, never the message, which names the submitted transaction and amount.
         If the request has `source_of_funds`, a receipt without a source proof for every spent note is refused (422 `source_of_funds_required`); a deposit whose funding fails screening becomes `held_for_review` (`request.held_for_review`).
       parameters:
         - { $ref: "#/components/parameters/Id" }
@@ -476,6 +482,11 @@ paths:
       tags: [Proof requests]
       operationId: publicCampaign
       summary: Public campaign tally (verified total and payments, never donors)
+      description: |
+        `tally.received_zatoshis_rounded` is rounded down to `tally.bucket_zatoshis` (at least 0.01 ZEC, or 5 % of the
+        total on a 1-2-5 ladder) and only contributions of at least `min_contribution_zatoshis` count towards it and
+        towards `min_contributions_to_publish`; once shown, the tally moves only in steps of that many new contributions.
+        This keeps one contribution's amount from passive readers and from a single active contributor to within one bucket.
       security: []
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "200": { description: OK } }
@@ -670,7 +681,8 @@ components:
         kind: { type: string, enum: [single, partial, campaign] }
         received_zatoshis: { type: integer }
         remaining_zatoshis: { type: [integer, "null"] }
-        payments: { type: array, items: { type: object, properties: { txid: { type: string }, zatoshis: { type: integer }, mined_height: { type: integer }, memo: { type: [string, "null"] } } } }
+        unconfirmed_zatoshis: { type: integer, description: "Payments a reorg dropped from the chain (mined_height null): counted in received_zatoshis, not refundable or attestable until mined again" }
+        payments: { type: array, items: { type: object, properties: { txid: { type: string }, zatoshis: { type: integer }, mined_height: { type: [integer, "null"], description: "null while a reorg has the payment out of the chain" }, memo: { type: [string, "null"] } } } }
         client_secret: { type: string, description: "Lets a payer open the hosted page and submit a receipt without your API key" }
         hosted_url: { type: string, description: "Hosted pay page: /pay/{id}#secret=… (the secret stays in the fragment, out of server logs)" }
         public_url: { type: [string, "null"], description: "Campaigns only: public tally page /c/{id}" }

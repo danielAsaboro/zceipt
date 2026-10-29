@@ -11,6 +11,8 @@ import { verifyInBackground as verifyInWorker } from "./background.js";
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const zec = (z) => (z / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
 const short = (s, n = 10) => (s.length > 2 * n + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
+// The currency of the payment shown: testnet (and regtest) coins are TAZ, not ZEC.
+const unitFor = (network) => (network === "mainnet" ? "ZEC" : "TAZ");
 
 // Pages can restyle the card through these custom properties; the defaults are the paper look.
 const STYLE = `
@@ -48,14 +50,15 @@ class ZcashReceipt extends HTMLElement {
       const v = await verifyInWorker(input, options);
       if (token !== this._token) return;
       const o = v.outputs[0];
+      const unit = unitFor(v.network);
       this.paint(`
         <div class="top"><span>ZCASH RECEIPT · ${esc(v.network)}</span><span class="stamp ok">VERIFIED</span></div>
-        ${o ? `<div class="amount">${zec(o.zatoshis)} ZEC</div>
+        ${o ? `<div class="amount">${zec(o.zatoshis)} ${unit}</div>
         <div class="row"><span class="k">TO</span>${esc(short(o.recipient, 12))}</div>
         ${o.memo ? `<div class="row"><span class="k">MEMO</span><span class="memo">“${esc(o.memo)}”</span></div>` : o.memo_withheld ? `<div class="row"><span class="k">MEMO</span>withheld by the sender</div>` : ""}` : ""}
         ${v.outputs.length > 1 ? `<div class="row">+ ${v.outputs.length - 1} more output(s)</div>` : ""}
         ${(v.sender_addresses || []).map((s) => `<div class="row"><span class="k">FROM</span>${esc(short(s, 12))} (proven)</div>`).join("")}
-        ${(v.sources || []).map((s) => `<div class="row"><span class="k">FUNDS</span>${s.zatoshis != null ? esc((s.zatoshis / 1e8).toFixed(8)) + " ZEC note " : ""}from ${esc(short(s.source_txid, 6))}:${s.source_action}${(s.transparent_inputs || []).filter((i) => i.address).map((i) => `, funded by ${esc(short(i.address, 8))}`).join("")} (proven)</div>`).join("")}
+        ${(v.sources || []).map((s) => `<div class="row"><span class="k">FUNDS</span>${s.zatoshis != null ? `${zec(s.zatoshis)} ${unit} note ` : ""}from ${esc(short(s.source_txid, 6))}:${s.source_action}${(s.transparent_inputs || []).filter((i) => i.address).map((i) => `, funded by ${esc(short(i.address, 8))}`).join("")} (proven)</div>`).join("")}
         <div class="row"><span class="k">TX</span>${esc(short(v.txid, 8))} · block ${v.mined_height.toLocaleString()}</div>
         ${v.message ? `<div class="row"><span class="k">NOTE</span>${esc(v.message)}</div>` : ""}
         ${options.expectAddress ? "" : `<div class="fine">The payee was not checked: this proves a payment was authorized, not that it was made to you. Add expect-address (and min-zatoshis, challenge).</div>`}

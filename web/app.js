@@ -46,6 +46,7 @@ const warmed = call("warm")
   })
   .catch(() => {});
 import { fetchTipHeight, fetchTransactionPrivately, heightHint } from "./zceipt/grpc.js";
+import { parseRequestLink } from "./zceipt/index.js";
 import { SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER, SAMPLE_HEIGHT, SAMPLE_BATCH, SAMPLE_BATCH_HEIGHTS, SAMPLE_TX, SAMPLE_SOURCE, SAMPLE_MERCHANT, DEMO_PREPARED, DEMO_KEY, DEMO_HEIGHT, SAMPLE_SCREENED, SAMPLE_SCREENED_PROOF, SAMPLE_SCREENED_SET } from "./samples.js";
 import initLocal, { inspect as inspectLocal, orchard_receiver_hex, address_network, open_batch, secret_kind, check_payment_uri, check_tex_deposit, source_txids, transparent_output, inspect_incoming, verify_payment_request, txid_of, sign_prepared_text, claimed_outputs, qr_svg, verify_same_payer, verify_screened, verify_keyset, verify_policy } from "./zceipt/pkg/zceipt_wasm.js";
 const local = initLocal();
@@ -131,11 +132,10 @@ async function fetchRawTx(endpoint, displayTxid) {
 }
 
 const regtest = () => $("#regtest").checked;
-// A local regtest chain is a developer's setup: the switch shows only when the page is opened with ?regtest.
-if (new URLSearchParams(location.search).has("regtest")) {
-  $("#regtest").checked = true;
-  $("#regtestRow").hidden = false;
-}
+// A local regtest chain is a developer's setup: the switch shows only when the page is opened
+// with ?regtest, and only the viewer ticks it. A link must not point the verifier at another
+// chain by itself.
+if (new URLSearchParams(location.search).has("regtest")) $("#regtestRow").hidden = false;
 
 // ---------- proof requests ("prove it's you") ----------
 // A verifier creates a request: a random challenge plus the payee and minimum amount they
@@ -149,17 +149,9 @@ const loadUsed = () => { try { return JSON.parse(localStorage.getItem(USED_KEY) 
 const saveUsed = (txid, code) => { try { localStorage.setItem(USED_KEY, JSON.stringify({ ...loadUsed(), [txid]: code })); } catch {} };
 const saveRequest = (code, r) => { try { const all = loadRequests(); all[code] = r; localStorage.setItem(REQ_KEY, JSON.stringify(all)); } catch {} };
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-function requestFromUrl() {
-  // Request parameters live in the #fragment (older links used the query string).
-  const frag = new URLSearchParams(location.hash.slice(1).split("&").filter((p) => /^(request|to|min|label)=/.test(p)).join("&"));
-  const q = frag.get("request") ? frag : new URLSearchParams(location.search);
-  const code = q.get("request");
-  // A request code is 6 to 64 lowercase hex digits (as the API and CLI require); anything else is not one.
-  if (!code || !/^[0-9a-f]{6,64}$/.test(code)) return null;
-  const min = Number(q.get("min") || 0);
-  if (!Number.isFinite(min) || min < 0) return null; // a minimum that is not a number must not silently disable the check
-  return { code, to: q.get("to") || "", min, label: q.get("label") || "" };
-}
+// The request in this link, or null (see parseRequestLink: the code, a whole-zatoshi minimum
+// and an address-shaped payee, or nothing).
+const requestFromUrl = () => parseRequestLink(location.hash, location.search);
 // The challenge a receipt signs: the first line starting "challenge:", if its value is 6 to 64
 // lowercase hex digits (the API reads it the same way; lines end at \n or \r\n).
 function challengeIn(message) {
@@ -274,7 +266,7 @@ function localBadge() {
     : `${escapeHtml(f.host || "The server")} saw which transaction you checked. Links with an <code>h=</code> block hint avoid this.`;
   const second = f.second ? " The deposit's second step (a public transparent transaction) was fetched by its id." : "";
   const sources = f.sources ? ` The source transaction${f.sources > 1 ? "s" : ""} the sender named (and the outputs that funded ${f.sources > 1 ? "them" : "it"}) were fetched by id, so the server saw those ids.` : "";
-  return `<div class="local" data-mode="${f.mode || "txid"}"><strong>Verified on this device.</strong> The receipt never left your browser; the proof was checked here in WebAssembly. ${sees}${second}${sources}</div>`;
+  return `<div class="local" data-mode="${f.mode || "txid"}"><strong>Verified on this device.</strong> The receipt never left your browser; the proof was checked here in WebAssembly. ${sees}${second}${sources} The receipt has been removed from this tab's address bar so browser history and sync don't keep it.</div>`;
 }
 
 function bytesToHex(b) {
@@ -315,7 +307,7 @@ function render(v, net) {
         : fetchMode && fetchMode.mode === "offline"
         ? `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()} <small>(as you gave it, not checked)</small></span></div>
       <p class="fine">Offline check: this receipt matches the transaction you pasted. Whether that transaction was mined was not checked; fetch it from a server to confirm.</p>`
-        : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}${confirmations(v) != null ? ` <small>(${confirmations(v).toLocaleString()} confirmation${confirmations(v) === 1 ? "" : "s"}${confirmations(v) < FINAL ? ", not final yet" : ""})</small>` : ""}</span></div>${fetchMode && fetchMode.time ? `<div class="line"><span class="k">DATE</span><span class="v">${new Date(fetchMode.time * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></div>` : ""}`}
+        : `<div class="line"><span class="k">BLOCK</span><span class="v mono">${v.mined_height.toLocaleString()}${confirmations(v) != null ? ` <small>(${confirmations(v).toLocaleString()} confirmation${confirmations(v) === 1 ? "" : "s"}${confirmations(v) < FINAL ? ", not final yet" : ""})</small>` : ` <small>(confirmations unknown: the server didn't say its tip)</small>`}</span></div>${fetchMode && fetchMode.time ? `<div class="line"><span class="k">DATE</span><span class="v">${new Date(fetchMode.time * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span></div>` : ""}`}
       ${(v.sender_addresses || []).map((s) => `<div class="line"><span class="k">FROM</span><span class="v mono addr" title="${s}">${short(s, 14)} <small>(the signer controls it)</small></span></div>`).join("")}
       ${(v.sources || []).map((s) => `<div class="line"><span class="k">FUNDS</span><span class="v">${s.zatoshis != null ? `${zec(s.zatoshis)} ${UNIT} note ` : "spent note "}from <span class="mono" title="${s.source_txid}">${short(s.source_txid, 6)}</span> output ${s.source_action} <small>(block ${s.source_height.toLocaleString()}, proven)</small></span></div>
       ${s.transparent_inputs.map((i) => `<div class="line"><span class="k"></span><span class="v"><small>${i.address ? `funded in the clear: ${zec(i.zatoshis)} ${UNIT} from <span class="mono" title="${i.address}">${short(i.address, 8)}</span>` : `spent transparent output ${short(i.prevout_txid, 6)}:${i.prevout_index}`}</small></span></div>`).join("")}
@@ -327,7 +319,7 @@ function render(v, net) {
       <div class="line"><span class="k">VIA</span><span class="v mono">${short(v.deposit.first_tx, 6)} → ${short(v.deposit.second_tx, 6)}</span></div>
       <div class="local" data-mode="txid"><strong>Exchange deposit (ZIP 320).</strong> The sender proved they made this two-step deposit to the exchange's TEX address. ${escapeHtml(v.deposit.warning)}</div>` : ""}
       <div class="dash"></div>
-      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) != null && confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp warn">VERIFIED · RECIPIENT NOT CHECKED</div>`}
+      ${fetchMode && fetchMode.mode === "offline" ? `<div class="stamp warn">MATCHES THE PASTED TRANSACTION</div>` : confirmations(v) == null ? `<div class="stamp warn">VERIFIED · CONFIRMATIONS UNKNOWN</div>` : confirmations(v) < FINAL ? `<div class="stamp warn">VERIFIED · NOT FINAL YET</div>` : `<div class="stamp warn">VERIFIED · RECIPIENT NOT CHECKED</div>`}
       <ul class="facts">
         <li>Signed with the key that spent the money in this payment (a zero-knowledge proof and a signature over this receipt).</li>
         ${v.keySetSize ? `<li><strong>One of ${v.keySetSize} published keys:</strong> signed under one of the keys this link's proof lists, not saying which. Compare them with the set the payer's organization publishes.</li>` : ""}
@@ -456,15 +448,7 @@ async function renderRequestChecks(v) {
       row(false, `Could not check the payee: ${friendlyAddressError(e, req.to)}`);
     }
   }
-  if (mine) {
-    // An old payment can't answer a new request, and one payment answers one request.
-    // By block when the tip at creation is known; else by time, with no slack.
-    const paidAt = fetchMode?.time ? fetchMode.time * 1000 : confirmations(v) != null ? Date.now() - confirmations(v) * 75_000 : null;
-    const fresh = mine.tip ? v.mined_height > mine.tip : paidAt != null && mine.created && paidAt >= Date.parse(mine.created);
-    row(fresh, fresh ? "Paid after you created the request" : !mine.tip && paidAt == null ? "Couldn't tell when it was paid, so not that it was paid for this request" : `Paid in block ${v.mined_height.toLocaleString()}, before you created this request`);
-    const prior = loadUsed()[v.txid];
-    if (prior && prior !== code) row(false, `This payment already answered request ${prior} in this browser`);
-  }
+  if (mine) ownRequestRows(row, mine, code, [{ v, time: fetchMode?.time }]);
   const ok = !rows.some((r) => r.includes('data-ok="false"'));
   if (ok && mine) saveUsed(v.txid, code);
   const head = !ok ? "REQUEST NOT SATISFIED" : mine ? "REQUEST SATISFIED" : "MATCHES THE REQUEST IN THIS LINK";
@@ -475,6 +459,29 @@ async function renderRequestChecks(v) {
   }
 }
 
+// The checks only a request this browser made can carry, shared by the single and batch paths so
+// neither fails open. An old payment can't answer a new request: each payment must be mined after
+// the request was created, by block when the tip at creation is known, else by block time, with
+// no slack; when neither is known the row fails, since "couldn't tell" must not read as paid for
+// this request. And one payment answers one request: a payment that already answered another
+// request in this browser fails here.
+function ownRequestRows(row, mine, code, payments) {
+  const one = payments.length === 1;
+  const unknown = [], early = [];
+  for (const { v, time } of payments) {
+    const paidAt = time ? time * 1000 : confirmations(v) != null ? Date.now() - confirmations(v) * 75_000 : null;
+    const fresh = mine.tip ? v.mined_height > mine.tip : paidAt != null && mine.created && paidAt >= Date.parse(mine.created);
+    if (fresh) continue;
+    (!mine.tip && paidAt == null ? unknown : early).push(v);
+  }
+  if (unknown.length) row(false, one ? "Couldn't tell when it was paid, so not that it was paid for this request" : `Couldn't tell when ${unknown.length === payments.length ? "the payments were" : `${unknown.length} of the ${payments.length} payments ${unknown.length === 1 ? "was" : "were"}`} made, so not that they were paid for this request`);
+  else if (early.length) row(false, one ? `Paid in block ${early[0].mined_height.toLocaleString()}, before you created this request` : `A payment (block ${early[0].mined_height.toLocaleString()}) was made before you created this request`);
+  else row(true, one ? "Paid after you created the request" : "Every payment was made after you created the request");
+  const used = loadUsed();
+  const prior = payments.map(({ v }) => used[v.txid]).find((p) => p && p !== code);
+  if (prior) row(false, one ? `This payment already answered request ${prior} in this browser` : `A payment in this batch already answered request ${prior} in this browser`);
+}
+
 // The card's verdict, from everything checked so far. Green only for a request this browser
 // made and the receipt meets in full, or a payment to the viewer's own address; never before
 // the payment is final, and never for a transaction checked offline.
@@ -482,7 +489,8 @@ function paintStamp() {
   const stamp = $("#result .stamp");
   const v = verdict.v;
   if (!stamp || !v || (fetchMode && fetchMode.mode.startsWith("offline"))) return;
-  const notFinal = confirmations(v) != null && confirmations(v) < FINAL;
+  // A tip the server didn't give is not ten confirmations: unknown counts as not final.
+  const notFinal = confirmations(v) == null || confirmations(v) < FINAL;
   const r = verdict.req;
   // Your own "No" outranks a request written in the link.
   let text = verdict.paid === false ? "VALID · NOT TO YOUR ADDRESS" : r ? (!r.ok ? "VALID · REQUEST NOT MET" : r.mine ? "PAID AS REQUESTED" : "VERIFIED · MATCHES THE LINK'S REQUEST")
@@ -494,7 +502,7 @@ function paintStamp() {
     text = "VALID · DEMO WALLET (KEY IS PUBLIC)";
     good = false;
   }
-  if (notFinal) text += " · NOT FINAL YET";
+  if (notFinal) text += confirmations(v) == null ? " · CONFIRMATIONS UNKNOWN" : " · NOT FINAL YET";
   stamp.textContent = text;
   stamp.className = good ? "stamp good" : "stamp warn";
   // Only a request this browser made rules out a receipt shown again: a payment to you could be
@@ -531,7 +539,7 @@ async function run(receiptText) {
     const manual = $("#rawTx").value.trim();
     if (manual) {
       tx = { raw: hexToBytes(manual), height: Number($("#rawHeight").value) };
-      fetchMode = { mode: "offline" };
+      if (ok()) fetchMode = { mode: "offline" };
       ok() && setStep("fetch", "done", "using the transaction you pasted");
     } else {
       const custom = $("#endpoint").value.trim();
@@ -546,15 +554,15 @@ async function run(receiptText) {
             // the block, not which transaction is checked.
             await local;
             tx = await fetchTransactionPrivately(endpoint, summary.txid, hint, { txidOf: txidOf(summary.network) });
-            fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, blocks: tx.blocks, time: tx.blockTime };
+            if (ok()) fetchMode = { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, blocks: tx.blocks, time: tx.blockTime };
             ok() && setStep("fetch", "done", `${blockRange(fetchMode)} (${tx.anonymitySet} that could carry a receipt) from ${new URL(endpoint).host}`);
           } else {
             tx = await fetchRawTx(endpoint, summary.txid);
-            fetchMode = { mode: "txid", host: new URL(endpoint).host };
+            if (ok()) fetchMode = { mode: "txid", host: new URL(endpoint).host };
             ok() && setStep("fetch", "done", `${short(summary.txid, 6)} at block ${tx.height.toLocaleString()} from ${new URL(endpoint).host}`);
           }
           // Confirmations: how deep the payment is under this server's tip.
-          try { fetchMode.tip = await fetchTipHeight(endpoint); } catch { /* shown without a count */ }
+          try { const tip = await fetchTipHeight(endpoint); if (ok()) fetchMode.tip = tip; } catch { /* shown as confirmations unknown, never as final */ }
           break;
         } catch (e) {
           lastError = e;
@@ -564,7 +572,7 @@ async function run(receiptText) {
         // The samples carry their published transaction: check them offline rather than fail.
         if ([SAMPLE_REAL, SAMPLE_EDITED, SAMPLE_OBSERVER].includes(receiptText)) {
           tx = { raw: hexToBytes(SAMPLE_TX), height: SAMPLE_HEIGHT };
-          fetchMode = { mode: "offline-sample" };
+          if (ok()) fetchMode = { mode: "offline-sample" };
           ok() && setStep("fetch", "done", "no chain server answered; using the sample's published transaction");
         } else {
           throw lastError;
@@ -589,7 +597,7 @@ async function run(receiptText) {
     if (needed.length) {
       const stxs = await Promise.all(needed.map((id) => fetchRawTx(endpoint, id)));
       sources = JSON.stringify(stxs.map((t) => ({ raw: bytesToHex(t.raw), height: t.height })));
-      if (fetchMode) fetchMode.sources = needed.length;
+      if (ok() && fetchMode) fetchMode.sources = needed.length;
     }
     const v = await call("verify", { receipt: receiptText, rawTx: tx.raw, height: tx.height, regtest: regtest(), sources });
     // Who funded each source transaction in the clear: the outputs its transparent inputs spent.
@@ -614,7 +622,7 @@ async function run(receiptText) {
         // The receipt itself checked out: not finding its second step is the chain's answer, not a forgery.
         return ok() && showError(`The receipt's proof and signature are valid, but its second deposit step (${second[1].slice(0, 12)}…) couldn't be fetched: ${e.message}`, "network");
       }
-      if (fetchMode) fetchMode.second = true;
+      if (ok() && fetchMode) fetchMode.second = true;
       await local;
       v.deposit = JSON.parse(check_tex_deposit(receiptText, tx.raw, tx.height, tx2.raw, tx2.height, regtest()));
     }
@@ -626,7 +634,10 @@ async function run(receiptText) {
     await local;
     if (ks) v.keySetSize = verify_keyset(ks, receiptText);
     if (pol) v.policy = JSON.parse(verify_policy(pol, receiptText));
-    ok() && render(v, summary.network);
+    if (ok()) {
+      render(v, summary.network);
+      hideReceiptFromUrl();
+    }
   } catch (e) {
     ok() && setStep("verify", "fail", plainFailure(e.message));
     const unproven = /^not proven by the payer/.test(e.message);
@@ -675,14 +686,14 @@ async function runBatch(batchText) {
     return ok() && showError(`This batch is not valid: ${e.message}`);
   }
   const results = [];
+  const txs = [];
   try {
     // With block hints (one per receipt), each transaction is fetched with others from its
     // block, so the server learns which blocks were looked at, not which transactions.
     const hints = batchHeightHints(location.hash);
     const useHints = hints && hints.length === b.receipts.length;
     ok() && setStep("fetch", "busy", `fetching ${b.receipts.length} transactions`);
-    const txs = [];
-    let host = "", set = 0;
+    let host = "", set = 0, lastEndpoint = "";
     // Fetch in random order, all of them, before reporting any failure: the order and the point
     // where fetching stops would otherwise tell the server which block is which receipt.
     const order = [...b.receipts.keys()];
@@ -695,15 +706,20 @@ async function runBatch(batchText) {
       const s = await quick("inspect", { receipt: r });
       const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
       host = new URL(endpoint).host;
+      lastEndpoint = endpoint;
       const tx = useHints ? await fetchTransactionPrivately(endpoint, s.txid, hints[i], { txidOf: txidOf(s.network) }) : await fetchRawTx(endpoint, s.txid);
       set += tx.anonymitySet || 0;
       txs[i] = tx;
     }));
     const failed = fetched.find((f) => f.status === "rejected");
     if (failed) throw failed.reason;
+    if (!ok()) return;
     fetchMode = useHints
       ? { mode: "batch-blocks", host, blocks: [...new Set(hints)], set }
       : { mode: "batch-txids", host, n: txs.length };
+    // The tip, so a request's "paid after it was created" check can count blocks when the link
+    // carries no block times.
+    try { const tip = await fetchTipHeight(lastEndpoint); if (ok()) fetchMode.tip = tip; } catch { /* checked by block time, or not at all */ }
     ok() && setStep("fetch", "done", useHints ? `${txs.length} blocks' transactions fetched (${set} in all)` : `${txs.length} transactions fetched by id`);
     await local;
     // An aggregated batch: one proof for every spend, checked once with all the transactions.
@@ -721,7 +737,7 @@ async function runBatch(batchText) {
         const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
         const stxs = await Promise.all(needed.map((id) => fetchRawTx(endpoint, id)));
         sources = JSON.stringify(stxs.map((t) => ({ raw: bytesToHex(t.raw), height: t.height })));
-        if (fetchMode) fetchMode.sources = (fetchMode.sources || 0) + needed.length;
+        if (ok() && fetchMode) fetchMode.sources = (fetchMode.sources || 0) + needed.length;
       }
       results.push(await call("verify", { receipt: r, rawTx: txs[i].raw, height: txs[i].height, regtest: regtest(), sources }));
     }
@@ -742,6 +758,7 @@ async function runBatch(batchText) {
       return ok() && showError(e.message, "forged");
     }
   }
+  if (!ok()) return;
   UNIT = unitFor(results[0].network);
   const lines = results.flatMap((v) => v.outputs.map((o) => ({ v, o })));
   // Outputs disclosed without their memo don't show the payee can receive the note: listed, not counted.
@@ -779,7 +796,8 @@ async function runBatch(batchText) {
       <div id="mineOut" class="fine"></div>
     </div>`;
   shareButtons(`batch-${results[0].txid.slice(0, 12)}`);
-  batchRequestChecks(results);
+  batchRequestChecks(results, txs.map((t) => t && t.blockTime));
+  hideReceiptFromUrl();
   $("#mineBtn").onclick = async () => {
     const ua = $("#mine").value.trim();
     if (!ua) return need("#mine", "Paste your address.");
@@ -800,7 +818,7 @@ async function runBatch(batchText) {
 
 // One request answered by several payments (invoices A and B): every receipt in the batch signs
 // the request's challenge, and together they paid the requested address at least the amount.
-async function batchRequestChecks(results) {
+async function batchRequestChecks(results, blockTimes = []) {
   const fromUrl = requestFromUrl();
   if (!fromUrl) return;
   const mine = loadRequests()[fromUrl.code];
@@ -821,12 +839,10 @@ async function batchRequestChecks(results) {
       row(false, `Could not check the payee: ${friendlyAddressError(e, req.to)}`);
     }
   }
-  if (mine && mine.tip) {
-    const fresh = results.every((v) => v.mined_height > mine.tip);
-    row(fresh, fresh ? "Every payment was made after you created the request" : "A payment was made before you created this request");
-  }
+  if (mine) ownRequestRows(row, mine, fromUrl.code, results.map((v, i) => ({ v, time: blockTimes[i] })));
   if (results.some((v) => v.public_demo)) row(false, "A payment is from the public demo wallet, whose key anyone has");
   const ok = !rows.some((r) => r.includes('data-ok="false"'));
+  if (ok && mine) for (const v of results) saveUsed(v.txid, fromUrl.code);
   $("#reqChecks").innerHTML = `<div class="reqbox" data-ok="${ok ? (mine ? "true" : "info") : "false"}"><div class="reqhead">${!ok ? "REQUEST NOT SATISFIED" : mine ? "REQUEST SATISFIED" : "MATCHES THE REQUEST IN THIS LINK"}</div><ul>${rows.join("")}</ul></div>`;
   const stamp = $("#result .stamp");
   if (stamp) {
@@ -835,17 +851,27 @@ async function batchRequestChecks(results) {
   }
 }
 
+// Once a card is up, the receipt leaves the address bar: browser history, synced history and
+// bookmarks would otherwise keep the whole receipt. The full link stays here for Copy link, Save
+// as file and Print. replaceState fires no hashchange, so nothing re-runs.
+let shareLink = "";
+function hideReceiptFromUrl() {
+  if (!location.hash) return;
+  shareLink = location.href;
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
 // Copy, save and print for the card showing: the link can be too long for some chat apps, and a
 // file always carries it whole.
 function shareButtons(name) {
   $("#printBtn").onclick = () => window.print();
   $("#copyLink").onclick = () =>
-    navigator.clipboard.writeText(location.href).then(
+    navigator.clipboard.writeText(shareLink || location.href).then(
       () => { $("#copyLink").textContent = "Copied"; },
       () => { $("#copyLink").textContent = "Copy it from the address bar"; },
     );
   $("#saveFile").onclick = () => {
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([location.href + "\n"], { type: "text/plain" })), download: `${name}.zip311.txt` });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([(shareLink || location.href) + "\n"], { type: "text/plain" })), download: `${name}.zip311.txt` });
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -880,7 +906,7 @@ async function runIncoming(text) {
     const endpoint = $("#endpoint").value.trim() || (regtest() ? location.origin : ENDPOINTS[s.network]);
     const hint = heightHint(location.hash);
     tx = hint ? await fetchTransactionPrivately(endpoint, s.txid, hint, { txidOf: txidOf(s.network) }) : await fetchRawTx(endpoint, s.txid);
-    fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, blocks: tx.blocks } : { mode: "txid", host: new URL(endpoint).host };
+    if (ok()) fetchMode = hint ? { mode: "block", host: new URL(endpoint).host, set: tx.anonymitySet, block: hint, blocks: tx.blocks } : { mode: "txid", host: new URL(endpoint).host };
     ok() && setStep("fetch", "done", `${short(s.txid, 6)} at block ${tx.height.toLocaleString()}`);
   } catch (e) {
     ok() && setStep("fetch", "fail", e.message);
@@ -890,6 +916,7 @@ async function runIncoming(text) {
     ok() && setStep("verify", "busy", "checking the recipient's address proof, signature and each output");
     const v = await call("incoming", { receipt: text, rawTx: tx.raw, height: tx.height, regtest: regtest() });
     ok() && setStep("verify", "done", "address proof, signature and outputs valid");
+    if (!ok()) return;
     UNIT = unitFor(regtest() ? "regtest" : s.network);
     const rows = v.outputs.map((o) => `
       <div class="line paid"><span class="k">RECEIVED</span><span class="v amount">${zec(o.zatoshis)} <small>${UNIT}</small></span></div>
@@ -914,6 +941,7 @@ async function runIncoming(text) {
         ${localBadge()}
         ${requestFromUrl() ? `<div class="reqbox" data-ok="false"><div class="reqhead">REQUEST NOT SATISFIED</div><ul><li data-ok="false">✗ This is an incoming receipt (the recipient proving it was paid). It doesn't answer a payment request: ask the payer for a receipt made with the request link.</li></ul></div>` : ""}
       </div>`;
+    hideReceiptFromUrl();
   } catch (e) {
     ok() && setStep("verify", "fail", e.message);
     ok() && showError(e.message, "forged");
@@ -988,6 +1016,7 @@ $("#verifyBtn").onclick = async () => {
   // A new attempt: clear the previous run's steps so they can't contradict this one.
   runGen++;
   resetSteps();
+  $("#ignored").hidden = true;
   $("#progress").hidden = true;
   if (!t) return need("#paste", "Paste a receipt link, or open a file.");
   await local;
@@ -1018,37 +1047,31 @@ $("#verifyBtn").onclick = async () => {
   history.replaceState(null, "", "#" + r + (h ? `&h=${h}` : ""));
   run(r);
 };
+// One check per link, on load as on every hash change: the first kind of artifact found wins
+// (incoming receipt, then batch, then receipt) and the page says which other kind it ignored.
+// Two checks running at once would overwrite each other's server choice, unit and card.
+function checkFromHash() {
+  const h = safeDecode(location.hash.slice(1));
+  const it = incomingFromHash();
+  const bt = it ? "" : batchFromHash();
+  const r = it || bt ? "" : receiptFromHash();
+  const ignored = [["zrcin1", "an incoming receipt"], ["zip311b1", "a batch"], ["zip311r1", "a receipt"]].filter(([tag]) => h.includes(tag)).map(([, name]) => name).slice(1);
+  $("#ignored").hidden = !ignored.length;
+  $("#ignored").textContent = ignored.length ? `This link also holds ${ignored.join(" and ")}, which was ignored: one link checks one thing.` : "";
+  $("#paste").value = it || bt || r;
+  if (it) return runIncoming(it);
+  if (bt) return runBatch(bt);
+  if (r) return run(r);
+  showRequest();
+}
 window.addEventListener("hashchange", () => {
   // Whatever the new link holds replaces the old check entirely: box, steps and result.
   runGen++;
   resetSteps();
   $("#progress").hidden = true;
   $("#result").hidden = true;
-  const it = incomingFromHash();
-  const bt = it ? "" : batchFromHash();
-  const r = it || bt ? "" : receiptFromHash();
-  $("#paste").value = it || bt || r;
-  if (it) return runIncoming(it);
-  if (bt) return runBatch(bt);
-  if (r) return run(r);
-  showRequest();
+  checkFromHash();
 });
-
-const initialIncoming = incomingFromHash();
-if (initialIncoming) {
-  $("#paste").value = initialIncoming;
-  runIncoming(initialIncoming);
-}
-const initialBatch = batchFromHash();
-if (initialBatch) {
-  $("#paste").value = initialBatch;
-  runBatch(initialBatch);
-}
-const initial = receiptFromHash();
-if (initial) {
-  $("#paste").value = initial;
-  run(initial);
-}
 
 // A request link opened on its own: say what is being asked, and how to answer it.
 // The command a payer runs to answer a request, from any wallet's seed phrase, with a copy button.
@@ -1062,50 +1085,75 @@ function answerCommand(link, to) {
 }
 
 let askedFor = requestFromUrl();
-function showRequest() {
+async function showRequest() {
   askedFor = requestFromUrl();
   if (!askedFor) return;
+  const asked = askedFor;
+  await local;
+  if (askedFor !== asked) return; // the link changed while the verifier loaded
+  // Only an address the verifier parses as a unified address reaches the pay link, the QR code
+  // and the make page; the unit follows its network.
+  let net = "";
+  try { net = asked.to ? address_network(asked.to) : ""; } catch { asked.to = ""; }
   const answer = location.href;
-  const payUri = `zcash:${askedFor.to}${askedFor.min ? `?amount=${zec(askedFor.min)}` : ""}`;
+  const payUri = `zcash:${asked.to}${asked.min ? `?amount=${zec(asked.min)}` : ""}`;
+  const makeParams = new URLSearchParams();
+  for (const [k, v] of Object.entries({ request: asked.code, to: asked.to, min: asked.min ? String(asked.min) : "", label: asked.label })) if (v) makeParams.set(k, v);
   $("#empty").innerHTML = `
     <div class="big">PAYMENT REQUEST</div>
-    <p>You're asked to prove a payment${askedFor.min ? ` of at least <strong>${zec(askedFor.min)} ${/^u1/.test(askedFor.to || "") ? "ZEC" : "TAZ"}</strong>` : ""}${askedFor.to ? ` to <span class="mono" title="${escapeHtml(askedFor.to)}">${escapeHtml(short(askedFor.to, 10))}</span>` : ""}${askedFor.label ? ` (“${escapeHtml(askedFor.label)}”)` : ""}.</p>
-    ${askedFor.to ? `<p><a class="paybtn" href="${escapeHtml(payUri)}">Pay in your wallet</a></p><div class="qr" id="payQr" aria-label="QR code of the payment link"></div>` : ""}
-    <p><a class="paybtn" href="./make.html${escapeHtml(location.hash.replace(/&?zip311[a-z0-9]1[A-Za-z0-9_-]*/, ""))}">Then make the receipt in your browser</a></p>
-    <details class="more"><summary>Or in a terminal</summary>${answerCommand(answer, askedFor.to)}</details>`;
-  if (askedFor.to) local.then(() => { $("#payQr").innerHTML = qr_svg(payUri); }).catch(() => {});
+    <p>You're asked to prove a payment${asked.min ? ` of at least <strong>${zec(asked.min)} ${unitFor(net || "testnet")}</strong>` : ""}${asked.to ? ` to <span class="mono" title="${escapeHtml(asked.to)}">${escapeHtml(short(asked.to, 10))}</span>` : ""}${asked.label ? ` (“${escapeHtml(asked.label)}”)` : ""}.</p>
+    ${asked.to ? `<p><a class="paybtn" href="${escapeHtml(payUri)}">Pay in your wallet</a></p><div class="qr" id="payQr" aria-label="QR code of the payment link"></div>` : ""}
+    <p><a class="paybtn" href="./make.html#${escapeHtml(makeParams.toString())}">Then make the receipt in your browser</a></p>
+    <details class="more"><summary>Or in a terminal</summary>${answerCommand(answer, asked.to)}</details>`;
+  if (asked.to) try { $("#payQr").innerHTML = qr_svg(payUri); } catch { /* the link stands without a QR code */ }
   // On a phone the request comes first, not below the form.
   document.body.classList.add("has-result");
 }
-if (!initial && !initialBatch && !initialIncoming) showRequest();
+checkFromHash();
 
 // ---------- signed payment requests (zreq1) ----------
+// What the signed request claims, checked here; the domain's payee list only on the viewer's
+// click, since anyone can sign a request naming any domain, and the fetch tells that domain the
+// viewer's address and the time.
 async function checkSignedRequest(text) {
   const out = $("#linkOut");
+  let r;
   try {
     await local;
-    const r = JSON.parse(verify_payment_request(text, Date.now() / 1000));
-    let listed = null;
-    try {
-      const doc = await fetch(r.well_known, { redirect: "error" }).then((x) => x.json());
-      const want = orchard_receiver_hex(r.payee);
-      listed = (doc.payees || []).some((ua) => { try { return orchard_receiver_hex(ua) === want; } catch { return false; } });
-    } catch { /* the domain may not allow cross-origin reads; say so below */ }
+    r = JSON.parse(verify_payment_request(text, Date.now() / 1000));
+  } catch (e) {
+    out.innerHTML = `<div class="reqbox" data-ok="false"><div class="reqhead">DO NOT PAY</div><ul><li>${escapeHtml(e.message)}</li></ul></div>`;
+    return;
+  }
+  const paint = (listed) => {
     const domainLine = listed === true ? `<strong>${escapeHtml(r.domain)}</strong> lists this address.`
       : listed === false ? `<strong>Refuse it:</strong> ${escapeHtml(r.domain)} does not list this address.`
-      : `Confirm that <a href="${escapeHtml(r.well_known)}" target="_blank" rel="noreferrer noopener">${escapeHtml(r.domain)}'s list</a> contains this address before paying.`;
+      : listed === "unreadable" ? `${escapeHtml(r.domain)}'s list couldn't be read from here. Open <a href="${escapeHtml(r.well_known)}" target="_blank" rel="noreferrer noopener">it</a> and confirm it contains this address before paying.`
+      : `This is what the request claims. Only ${escapeHtml(r.domain)}'s own payee list ties the signing key to the shop.`;
     // Only the shop's own list ties the signing key to the shop: unread, it's unconfirmed.
     const state = listed === true ? "true" : listed === false ? "false" : "info";
     const head = { true: "SIGNED BY THE PAYEE", false: "DO NOT PAY", info: "SIGNED, SHOP NOT CONFIRMED" }[state];
     out.innerHTML = `<div class="reqbox" data-ok="${state}"><div class="reqhead">${head}</div><ul>
-      <li>Pay ${zec(r.amount_zatoshis)} ${r.network === "mainnet" ? "ZEC" : "TAZ"} to <span class="mono">${escapeHtml(short(r.payee, 14))}</span> (${escapeHtml(r.network)})</li>
+      <li>Pay ${zec(r.amount_zatoshis)} ${unitFor(r.network)} to <span class="mono">${escapeHtml(short(r.payee, 14))}</span> (${escapeHtml(r.network)})</li>
       ${r.memo ? `<li>Memo “${escapeHtml(r.memo)}”</li>` : ""}
       <li>Request ${escapeHtml(r.code)}, valid until ${new Date(r.expires_at * 1000).toLocaleString()}</li>
       <li>Nobody changed the address, amount or memo: ${listed === true ? "the payee's own key signed them" : "the key behind this address signed them"}.</li>
-      <li>${domainLine}</li></ul></div>`;
-  } catch (e) {
-    out.innerHTML = `<div class="reqbox" data-ok="false"><div class="reqhead">DO NOT PAY</div><ul><li>${escapeHtml(e.message)}</li></ul></div>`;
-  }
+      <li>${domainLine}</li></ul>
+      ${listed == null ? `<p class="fine"><button type="button" class="ghost" id="wellKnownBtn">Check the domain's payee list</button> ${escapeHtml(r.domain)} will see this request (your address and the time).</p>` : ""}</div>`;
+    const btn = $("#wellKnownBtn");
+    if (btn) btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = "Checking";
+      try {
+        const doc = await fetch(r.well_known, { redirect: "error" }).then((x) => x.json());
+        const want = orchard_receiver_hex(r.payee);
+        paint((doc.payees || []).some((ua) => { try { return orchard_receiver_hex(ua) === want; } catch { return false; } }));
+      } catch {
+        paint("unreadable"); // the domain may not allow cross-origin reads
+      }
+    };
+  };
+  paint(null);
 }
 
 // ---------- check a payment link ----------

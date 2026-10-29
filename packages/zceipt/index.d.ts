@@ -50,6 +50,8 @@ export interface PaymentLinkCheck {
 }
 /** Lints a ZIP-321 payment link: network, address type, provability, amount, memo, params, QR density. */
 export function checkPaymentLink(uri: string, options?: { network?: "mainnet" | "testnet" | "regtest" }): Promise<PaymentLinkCheck>;
+/** The proof request in a verifier link's fragment (`#request=…&to=…&min=…&label=…`), or null when it holds none that is valid. `min` is whole zatoshis. */
+export function parseRequestLink(hash: string, search?: string): { code: string; to: string; min: number; label: string } | null;
 export interface AttestationClaims { iss: string; iat: number; vct: string; network: string; pool_proof: "zip311"; paid_at_least_zatoshis: number; paid_on_or_before: string; final: boolean; livemode: boolean; sandbox: boolean; net_of_refunds: true; revealed: Partial<{ txid: string; amount_zatoshis: number; paid_at: number; request: string; label: string }> }
 /** Verifies a payment-fact attestation (SD-JWT, Ed25519) locally. */
 export function verifyAttestation(presentation: string, options: { issuer?: string; jwks?: { keys: object[] } | string; allowTest?: boolean; audience?: string }): Promise<AttestationClaims>;

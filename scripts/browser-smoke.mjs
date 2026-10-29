@@ -83,8 +83,15 @@ try {
   // The verdict table: the same answer against a request this browser made before the payment,
   // after it, and with no request in the link at all.
   const stampNow = `(() => { const s = document.querySelector('#result .stamp'); return s ? s.textContent + '|' + s.className : '' })()`;
+  // The page removes the receipt from the address bar once it has read it, so each run opens
+  // the answer link again instead of reloading.
+  const answerFrag = answer.split("#")[1];
+  const answerTo = new URLSearchParams(answerFrag).get("to");
   const withRequest = async (created) => {
-    await evaluate(`localStorage.clear(); localStorage.setItem('zceipt.requests.v1', JSON.stringify({ e1e14a5d182a: { to: new URLSearchParams(location.hash.slice(1)).get('to'), min: 1000000, label: '', created: '${created}' } })); location.reload(); true`);
+    await evaluate(`localStorage.clear(); localStorage.setItem('zceipt.requests.v1', JSON.stringify({ e1e14a5d182a: { to: ${JSON.stringify(answerTo)}, min: 1000000, label: '', created: '${created}' } })); true`);
+    await send("Page.navigate", { url: url.replace(/#.*$/, "") });
+    await sleep(500);
+    await evaluate(`location.hash = ${JSON.stringify(answerFrag)}; true`);
     await sleep(1500);
     return until(`document.querySelector('.reqhead') ? ${stampNow} : ''`, 90);
   };
@@ -92,7 +99,7 @@ try {
   check(late === "VALID · REQUEST NOT MET|stamp warn", `a payment older than the request doesn't answer it (got ${late})`);
   const timely = await withRequest("2026-01-01T00:00:00Z");
   check(timely === "PAID AS REQUESTED|stamp good", `a payment after this browser's request is PAID AS REQUESTED (got ${timely})`);
-  await evaluate(`localStorage.clear(); location.hash = location.hash.replace(/^#.*?(zip311r1)/, '#$1'); true`);
+  await evaluate(`localStorage.clear(); location.hash = ${JSON.stringify(answerFrag.replace(/^.*?(zip311r1)/, "$1"))}; true`);
   await sleep(500);
   const bare = await until(`(${resultText}).includes('VERIFIED') && !document.querySelector('.reqhead') ? ${stampNow} : ''`, 90);
   check(bare === "VERIFIED · RECIPIENT NOT CHECKED|stamp warn", `a signed challenge with no request anywhere proves nothing (got ${bare})`);
@@ -117,12 +124,21 @@ try {
   // "Make a receipt": the demo wallet's viewing key and txid, proofs made in this browser.
   const ufvk = readFileSync(new URL("../examples/testnet/demo/viewing-key.txt", import.meta.url), "utf8").trim();
   await send("Page.navigate", { url: url.replace(/#.*$/, "").replace(/\/?$/, "/") + "make.html" });
-  await until(`!!document.querySelector('#openBtn')`, 30);
+  // The page's module attaches the handlers after the HTML is there: wait for it, as a user would.
+  await until(`!!document.querySelector('#openBtn')?.onclick`, 60);
   await evaluate(`document.querySelector('#key').value = ${JSON.stringify(ufvk)}; document.querySelector('#birthday').value = '4532853'; document.querySelector('#openBtn').click(); true`);
   // The scan lists the wallet's payments as it meets them; pick the demo payment.
   const listed = await until(`[...document.querySelectorAll('.pay small')].some((s) => s.textContent.startsWith('d2d4c90445cb714e')) ? 'yes' : ''`, 300);
-  check(listed === "yes" && !(await evaluate(`document.querySelector('#key').value`)), "opening the wallet lists its payment, and the key field keeps nothing");
-  await evaluate(`[...document.querySelectorAll('.pay')].find((b) => b.innerText.includes('d2d4c90445cb714e')).click(); document.querySelector('#makeBtn').click(); true`);
+  const makeState = await evaluate(`JSON.stringify({ progress: document.querySelector('#progress').innerText, payments: document.querySelector('#payments').innerText, key: document.querySelector('#key').value.length })`);
+  check(listed === "yes" && !(await evaluate(`document.querySelector('#key').value`)), `opening the wallet lists its payment, and the key field keeps nothing (state ${makeState})`);
+  // Picking the payment fetches it and lists what its receipt would reveal, before any proof.
+  await evaluate(`[...document.querySelectorAll('.pay')].find((b) => b.innerText.includes('d2d4c90445cb714e')).click(); true`);
+  const reviewed = await until(`!document.querySelector('#review').hidden ? document.querySelector('#review').innerText : ''`, 300);
+  const outs = await evaluate(`[...document.querySelectorAll('#outputs .out')].map((o) => o.querySelector('b').textContent + ' ' + o.querySelector('small').textContent)`);
+  check(outs && outs.length === 1 && outs[0].startsWith('0.002 TAZ') && outs[0].includes("Demo wallet: sign this payment's receipt with your own message") && /Nothing else\./.test(reviewed || ""), `the review lists the one output the receipt reveals, with its memo (got ${JSON.stringify(outs)})`);
+  check(await evaluate(`document.querySelector('.pay[aria-checked="true"] b').textContent`) === "0.002 TAZ sent", "the picked payment now shows what was sent, not the notes' value");
+  check(!(await evaluate(`document.querySelector('#makeBtn').disabled`)), "Make receipt waits for the review and is then enabled");
+  await evaluate(`document.querySelector('#makeBtn').click(); true`);
   const made = await until(`(() => { const t = document.querySelector('#progress').innerText; return /Proofs made|err/.test(document.querySelector('#progress').innerHTML) ? t : '' })()`, 300);
   check(/Proofs made/.test(made || "") && !(await evaluate(`document.querySelector('#signPart').hidden`)), `a viewing key makes the proofs in the browser (${(made || "timed out").slice(0, 60)})`);
   await send("Page.navigate", { url: url.replace(/#.*$/, "") });

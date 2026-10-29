@@ -209,6 +209,24 @@ export function challengeIn(message) {
   return /^[0-9a-f]{6,64}$/.test(c) ? c : null;
 }
 
+// A payment request written in a verifier link (`#request=<code>&to=<ua>&min=<zatoshis>&label=`;
+// older links used the query string). Returns null when the link holds no usable request. The
+// code is 6 to 64 lowercase hex digits (as the API and CLI require). `min` is zatoshis, so it
+// must be a whole number: "0.01" (meant as ZEC) would otherwise become 0.01 zatoshi and let any
+// paid amount through, and NaN would silently disable the check. `to` must look like a unified
+// address (bech32m charset) or it is dropped, so nothing else reaches the pay link or QR code.
+export function parseRequestLink(hash, search = "") {
+  const frag = new URLSearchParams(String(hash || "").replace(/^#/, "").split("&").filter((p) => /^(request|to|min|label)=/.test(p)).join("&"));
+  const q = frag.get("request") ? frag : new URLSearchParams(String(search || ""));
+  const code = q.get("request");
+  if (!code || !/^[0-9a-f]{6,64}$/.test(code)) return null;
+  const rawMin = q.get("min") || "0";
+  if (!/^\d{1,16}$/.test(rawMin)) return null;
+  const min = Number(rawMin);
+  const to = q.get("to") || "";
+  return { code, to: /^u(test|regtest)?1[02-9ac-hj-np-z]{20,}$/.test(to) ? to : "", min, label: q.get("label") || "" };
+}
+
 // Testnet and regtest share a coin type, so only mainnet versus the test networks is checked.
 const sameNet = (a, b) => (a === "mainnet") === (b === "mainnet");
 

@@ -1,9 +1,9 @@
 //! Runs the shared conformance vectors (conformance/vectors.json) through the Rust verifier.
 //! The npm package runs the same file, so both must agree on every vector.
 
-use zceipt_core::{signin::SignIn, Receipt};
 use serde_json::Value;
 use std::path::Path;
+use zceipt_core::{signin::SignIn, Receipt};
 
 const ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
@@ -24,8 +24,7 @@ fn run(v: &Value) -> Result<Value, String> {
         }
         Some("incoming") => {
             let r = zceipt_core::incoming::IncomingReceipt::from_text(&s("receipt")).ok_or("malformed")?;
-            let rep =
-                zceipt_chain::chain::verify_incoming_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, None).map_err(|e| e.to_string())?;
+            let rep = zceipt_chain::chain::verify_incoming_offline(&r, &s("raw_tx"), v["height"].as_u64().unwrap() as u32, None).map_err(|e| e.to_string())?;
             Ok(serde_json::to_value(&rep).unwrap())
         }
         Some("sign_in") => {

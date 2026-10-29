@@ -31,17 +31,9 @@ impl LimbRotation {
         full_number_u64_column: Column<Advice>,
         limbs: [Column<Advice>; 8],
     ) -> Result<AssignedBlake2bWord<F>, Error> {
-        let result_value =
-            Self::right_rotation_value(input_row.full_number.value(), limbs_to_rotate_to_the_right);
+        let result_value = Self::right_rotation_value(input_row.full_number.value(), limbs_to_rotate_to_the_right);
 
-        let result_cell = region
-            .assign_advice(
-                || "Full number rotation output",
-                full_number_u64_column,
-                *offset,
-                || result_value,
-            )?
-            .into();
+        let result_cell = region.assign_advice(|| "Full number rotation output", full_number_u64_column, *offset, || result_value)?.into();
 
         self.q_decompose.enable(region, *offset)?;
 
@@ -50,13 +42,7 @@ impl LimbRotation {
             // as x = l1|l2|...|l7|l8, the limbs are stored as [l8, l7, ..., l2, l1]
             let top_assigned_cell = input_row.limbs[i].clone();
             let out_limb_index = (8 + i - limbs_to_rotate_to_the_right) % 8;
-            AssignedByte::copy_advice_byte(
-                region,
-                "Limb rotation output",
-                limbs[out_limb_index],
-                *offset,
-                top_assigned_cell,
-            )?;
+            AssignedByte::copy_advice_byte(region, "Limb rotation output", limbs[out_limb_index], *offset, top_assigned_cell)?;
         }
 
         *offset += 1;
@@ -64,10 +50,7 @@ impl LimbRotation {
     }
 
     /// Computes the actual value of the rotation of the number
-    fn right_rotation_value(
-        value: Value<Blake2bWord>,
-        limbs_to_rotate: usize,
-    ) -> Value<Blake2bWord> {
+    fn right_rotation_value(value: Value<Blake2bWord>, limbs_to_rotate: usize) -> Value<Blake2bWord> {
         value.map(|input| {
             let bits_to_rotate = limbs_to_rotate * 8;
             rotate_right_field_element(input, bits_to_rotate)

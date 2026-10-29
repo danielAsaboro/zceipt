@@ -1,6 +1,6 @@
 use super::*;
-use num_bigint::BigUint;
 use crate::blake2b_halo2::base_operations::types::blake2b_word::AssignedBlake2bWord;
+use num_bigint::BigUint;
 
 /// This config handles the 63-right-bit rotation of a 64-bit number, which is the same as the
 /// 1-bit rotation to the left.
@@ -24,12 +24,7 @@ impl Rotate63Config {
     /// The gate is defined as:
     ///    0 = 2 * input_full_number - output_full_number
     ///                      * (2 * input_full_number - output_full_number - (1 << 64 - 1))
-    pub(crate) fn configure<F: PrimeField>(
-        meta: &mut ConstraintSystem<F>,
-        full_number_u64: Column<Advice>,
-        q_decompose: Selector,
-        q_range: Selector,
-    ) -> Self {
+    pub(crate) fn configure<F: PrimeField>(meta: &mut ConstraintSystem<F>, full_number_u64: Column<Advice>, q_decompose: Selector, q_range: Selector) -> Self {
         Self::enforce_modulus_size::<F>();
 
         let q_rot63 = meta.complex_selector();
@@ -40,20 +35,13 @@ impl Rotate63Config {
             let output_full_number = meta.query_advice(full_number_u64, Rotation(0));
             let constraints = vec![
                 q_rot63
-                    * (Expression::Constant(F::from(2)) * input_full_number.clone()
-                        - output_full_number.clone())
-                    * (Expression::Constant(F::from(2)) * input_full_number
-                        - output_full_number
-                        - Expression::Constant(F::from(((1u128 << 64) - 1) as u64))),
+                    * (Expression::Constant(F::from(2)) * input_full_number.clone() - output_full_number.clone())
+                    * (Expression::Constant(F::from(2)) * input_full_number - output_full_number - Expression::Constant(F::from(((1u128 << 64) - 1) as u64))),
             ];
             constraints
         });
 
-        Self {
-            q_rot63,
-            q_decompose,
-            q_range,
-        }
+        Self { q_rot63, q_decompose, q_range }
     }
 
     /// This method receives a [AssignedBlake2bWord] and a [full_number_u64] column where it will be
@@ -72,8 +60,7 @@ impl Rotate63Config {
 
         self.q_decompose.enable(region, *offset)?;
         self.q_range.enable(region, *offset)?;
-        let result_row =
-            generate_row_from_word_value(region, result_value, *offset, full_number_u64, limbs)?;
+        let result_row = generate_row_from_word_value(region, result_value, *offset, full_number_u64, limbs)?;
         *offset += 1;
         Ok(result_row.full_number)
     }
@@ -81,8 +68,7 @@ impl Rotate63Config {
     /// Enforces the field's modulus to be greater than 2^65. This is necessary to preserve the
     /// soundness of a circuit that uses this operation.
     pub(crate) fn enforce_modulus_size<F: PrimeField>() {
-        let modulus_bytes: Vec<u8> = hex::decode(F::MODULUS.trim_start_matches("0x"))
-            .expect("Modulus is not a valid hex number");
+        let modulus_bytes: Vec<u8> = hex::decode(F::MODULUS.trim_start_matches("0x")).expect("Modulus is not a valid hex number");
         let modulus = BigUint::from_bytes_be(&modulus_bytes);
         let two_pow_65 = BigUint::from(1u128 << 65);
         assert!(modulus > two_pow_65, "Field modulus must be greater than 2^65");

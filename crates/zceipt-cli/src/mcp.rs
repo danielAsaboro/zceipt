@@ -8,9 +8,9 @@
 //!   "env": { "ZCEIPT_KEY": "rcpt_test_…", "ZCEIPT_URL": "http://127.0.0.1:8723" } } } }
 //! ```
 
-use zceipt_client::{Client, CreateRequest, VerifyParams};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use zceipt_client::{Client, CreateRequest, VerifyParams};
 
 const PROTOCOL: &str = "2025-06-18";
 
@@ -66,7 +66,11 @@ fn tools() -> Value {
 fn uint(args: &Value, k: &str) -> Result<Option<u64>, String> {
     match &args[k] {
         Value::Null => Ok(None),
-        Value::Number(n) => n.as_u64().or_else(|| n.as_f64().filter(|f| f.fract() == 0.0 && *f >= 0.0 && *f < 9.0e15).map(|f| f as u64)).map(Some).ok_or_else(|| format!("{k} must be a whole number of zatoshis")),
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0 && *f >= 0.0 && *f < 9.0e15).map(|f| f as u64))
+            .map(Some)
+            .ok_or_else(|| format!("{k} must be a whole number of zatoshis")),
         Value::String(t) => t.trim().parse::<u64>().map(Some).map_err(|_| format!("{k} must be a whole number of zatoshis")),
         _ => Err(format!("{k} must be a whole number of zatoshis")),
     }

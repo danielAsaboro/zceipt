@@ -45,10 +45,7 @@ pub fn prepare_receipt(db_path: String, network: String, txid: String, message: 
         "test" | "testnet" => zceipt_chain::net::Net::Test,
         n => return Err(refused(format!("unknown network {n}: use main or test"))),
     };
-    let mut id: [u8; 32] = hex::decode(txid)
-        .ok()
-        .and_then(|b| b.try_into().ok())
-        .ok_or_else(|| refused("a txid is 64 hex digits"))?;
+    let mut id: [u8; 32] = hex::decode(txid).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| refused("a txid is 64 hex digits"))?;
     id.reverse();
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(refused)?;
     let (p, height) =

@@ -1,8 +1,8 @@
 use super::*;
 use ff::PrimeField;
 use halo2_proofs::circuit::{Region, Value};
-use halo2_proofs::plonk::{Advice, Column, Error};
 use halo2_proofs::plonk::Assigned;
+use halo2_proofs::plonk::{Advice, Column, Error};
 
 /// The inner type of AssignedBit. A wrapper around `bool`
 #[derive(Copy, Clone, Debug)]
@@ -50,8 +50,7 @@ impl<F: PrimeField> AssignedBit<F> {
         // Check value is in range
         let bit_value = value.map(|v| Bit::new_from_field(v));
         // Create AssignedCell with the same value but different type
-        let assigned_bit =
-            Self(region.assign_advice(|| annotation, column, offset, || bit_value)?);
+        let assigned_bit = Self(region.assign_advice(|| annotation, column, offset, || bit_value)?);
         Ok(assigned_bit)
     }
 }

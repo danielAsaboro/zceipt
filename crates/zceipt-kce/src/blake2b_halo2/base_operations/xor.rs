@@ -39,10 +39,7 @@ pub(crate) struct XorConfig {
 
 impl XorConfig {
     /// Method that populates the lookup table. Must be called only once in the user circuit.
-    pub(crate) fn populate_xor_lookup_table<F: PrimeField>(
-        &self,
-        layouter: &mut impl Layouter<F>,
-    ) -> Result<(), Error> {
+    pub(crate) fn populate_xor_lookup_table<F: PrimeField>(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         layouter.assign_table(
             || "xor check table",
             |mut table| {
@@ -50,24 +47,9 @@ impl XorConfig {
                     for right in 0..256 {
                         let index = left * 256 + right;
                         let result = left ^ right;
-                        table.assign_cell(
-                            || "left_value",
-                            self.t_xor_left,
-                            index,
-                            || Value::known(F::from(left as u64)),
-                        )?;
-                        table.assign_cell(
-                            || "right_value",
-                            self.t_xor_right,
-                            index,
-                            || Value::known(F::from(right as u64)),
-                        )?;
-                        table.assign_cell(
-                            || "out_value",
-                            self.t_xor_out,
-                            index,
-                            || Value::known(F::from(result as u64)),
-                        )?;
+                        table.assign_cell(|| "left_value", self.t_xor_left, index, || Value::known(F::from(left as u64)))?;
+                        table.assign_cell(|| "right_value", self.t_xor_right, index, || Value::known(F::from(right as u64)))?;
+                        table.assign_cell(|| "out_value", self.t_xor_out, index, || Value::known(F::from(result as u64)))?;
                     }
                 }
                 Ok(())
@@ -91,14 +73,12 @@ impl XorConfig {
 
         // We only enable decomposition because the range-checks are performed by the lookups of the gate
         self.q_decompose.enable(region, *offset)?;
-        let first_operand_row =
-            generate_row_from_cell(region, rhs, *offset, self.full_number_u64, self.limbs)?;
+        let first_operand_row = generate_row_from_cell(region, rhs, *offset, self.full_number_u64, self.limbs)?;
         *offset += 1;
 
         // We only enable decomposition because the range-checks are performed by the lookups of the gate
         self.q_decompose.enable(region, *offset)?;
-        let second_operand_row =
-            generate_row_from_cell(region, lhs, *offset, self.full_number_u64, self.limbs)?;
+        let second_operand_row = generate_row_from_cell(region, lhs, *offset, self.full_number_u64, self.limbs)?;
         *offset += 1;
 
         self.generate_xor_result_row(region, offset, &first_operand_row, &second_operand_row)
@@ -119,13 +99,7 @@ impl XorConfig {
 
         // We only enable decomposition because the range-checks are performed by the lookups of the gate
         self.q_decompose.enable(region, *offset)?;
-        let second_operand_row = generate_row_from_cell(
-            region,
-            second_operand,
-            *offset,
-            self.full_number_u64,
-            self.limbs,
-        )?;
+        let second_operand_row = generate_row_from_cell(region, second_operand, *offset, self.full_number_u64, self.limbs)?;
         *offset += 1;
 
         self.generate_xor_result_row(region, offset, first_operand_row, &second_operand_row)
@@ -148,22 +122,12 @@ impl XorConfig {
             let result_value = left.value().zip(right.value()).map(|(v0, v1)| v0 ^ v1);
             result_limb_values.push(result_value)
         }
-        let result_value = first_operand_row
-            .full_number
-            .value()
-            .zip(second_operand_row.full_number.value())
-            .map(|(v0, v1)| v0 ^ v1);
+        let result_value = first_operand_row.full_number.value().zip(second_operand_row.full_number.value()).map(|(v0, v1)| v0 ^ v1);
 
         // We only enable decomposition because the range-checks are performed by the lookups of the gate
         self.q_decompose.enable(region, *offset)?;
-        let result_row = create_row_with_word_and_limbs(
-            region,
-            result_value,
-            result_limb_values.try_into().unwrap(),
-            *offset,
-            self.full_number_u64,
-            self.limbs,
-        )?;
+        let result_row =
+            create_row_with_word_and_limbs(region, result_value, result_limb_values.try_into().unwrap(), *offset, self.full_number_u64, self.limbs)?;
         *offset += 1;
         Ok(result_row)
     }
@@ -187,22 +151,10 @@ impl XorConfig {
                 let right: Expression<F> = meta.query_advice(limb, Rotation(1));
                 let out: Expression<F> = meta.query_advice(limb, Rotation(2));
                 let q_xor = meta.query_selector(q_xor);
-                vec![
-                    (q_xor.clone() * left, t_xor_left),
-                    (q_xor.clone() * right, t_xor_right),
-                    (q_xor.clone() * out, t_xor_out),
-                ]
+                vec![(q_xor.clone() * left, t_xor_left), (q_xor.clone() * right, t_xor_right), (q_xor.clone() * out, t_xor_out)]
             });
         }
 
-        Self {
-            t_xor_left,
-            t_xor_right,
-            t_xor_out,
-            q_xor,
-            full_number_u64,
-            limbs,
-            q_decompose,
-        }
+        Self { t_xor_left, t_xor_right, t_xor_out, q_xor, full_number_u64, limbs, q_decompose }
     }
 }

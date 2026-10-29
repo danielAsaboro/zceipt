@@ -1,10 +1,10 @@
 //! Verifying receipts against the chain, with every failure mapped to a stable error code.
 
 use crate::error::ApiError;
-use zceipt_chain::{chain, Net};
-use zceipt_core::{batch_position, display_txid, Pool, Receipt, ReceiptBatch, COIN_TYPE_MAINNET};
 use serde::Serialize;
 use std::sync::OnceLock;
+use zceipt_chain::{chain, Net};
+use zceipt_core::{batch_position, display_txid, Pool, Receipt, ReceiptBatch, COIN_TYPE_MAINNET};
 
 fn vk() -> &'static orchard::circuit::VerifyingKey {
     static VK: OnceLock<orchard::circuit::VerifyingKey> = OnceLock::new();
@@ -156,7 +156,10 @@ pub async fn verify_batch_checked(net: Net, server: Option<&str>, text: &str, ex
     let (mut body, results) = verify_batch_results(net, server, text).await?;
     if let Some(c) = expect.challenge {
         if results.iter().any(|v| v.public_demo) {
-            return Err(ApiError::verification("public_demo_key", "a receipt in the batch is from the public demo wallet, whose key anyone has; it can't answer a challenge"));
+            return Err(ApiError::verification(
+                "public_demo_key",
+                "a receipt in the batch is from the public demo wallet, whose key anyone has; it can't answer a challenge",
+            ));
         }
         if results.iter().any(|v| v.challenge.as_deref() != Some(c)) {
             return Err(ApiError::verification("challenge_mismatch", "not every receipt in the batch signs this challenge"));
@@ -203,7 +206,13 @@ pub async fn verify_parsed_hinted(net: Net, server: Option<&str>, receipt: &Rece
 /// is checked; one proof then covers them all.
 type Deferred = std::sync::Arc<std::sync::Mutex<Vec<(usize, Vec<orchard::circuit::Instance>)>>>;
 
-async fn verify_parsed_inner(net: Net, server: Option<&str>, receipt: &Receipt, hint: Option<u32>, deferred: Option<(usize, Deferred)>) -> Result<Verification, ApiError> {
+async fn verify_parsed_inner(
+    net: Net,
+    server: Option<&str>,
+    receipt: &Receipt,
+    hint: Option<u32>,
+    deferred: Option<(usize, Deferred)>,
+) -> Result<Verification, ApiError> {
     let u = &receipt.unsigned;
     let receipt_is_main = u.coin_type == COIN_TYPE_MAINNET;
     if receipt_is_main != (net == Net::Main) {
@@ -278,7 +287,8 @@ async fn verify_parsed_inner(net: Net, server: Option<&str>, receipt: &Receipt, 
     };
     let message = String::from_utf8_lossy(&v.msg).into_owned();
     let tip = chain::chain_tip(net, server).await.ok();
-    let (mut verdict, mut checks) = levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
+    let (mut verdict, mut checks) =
+        levels(height, tip, v.outputs.len(), v.proven_spends.len(), challenge_of(&message).as_deref(), None, v.proven_addresses.len());
     checks["source_of_funds"] = if v.sources.is_empty() { "not_disclosed" } else { "proven" }.into();
     let source_json: Vec<serde_json::Value> = v
         .sources
@@ -466,7 +476,12 @@ async fn verify_batch_results(net: Net, server: Option<&str>, text: &str) -> Res
         tokio::task::spawn_blocking(move || zceipt_core::verify_aggregate(vk(), &instances, &proof))
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?
-            .map_err(|e| ApiError::verification("batch_invalid", format!("{e}: a receipt in the batch was changed after it was made, or not made by the wallet that paid")))?;
+            .map_err(|e| {
+                ApiError::verification(
+                    "batch_invalid",
+                    format!("{e}: a receipt in the batch was changed after it was made, or not made by the wallet that paid"),
+                )
+            })?;
     }
     let mut totals = serde_json::Map::new();
     for v in &results {

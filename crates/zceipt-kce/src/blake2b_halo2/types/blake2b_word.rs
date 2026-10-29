@@ -1,8 +1,8 @@
 use super::*;
 use ff::PrimeField;
 use halo2_proofs::circuit::{AssignedCell, Cell, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, Error};
 use halo2_proofs::plonk::Assigned;
+use halo2_proofs::plonk::{Advice, Column, Error};
 use std::ops::{BitXor, Sub};
 
 /// The inner type of AssignedBlake2bWord. A wrapper around `u64`
@@ -69,13 +69,7 @@ pub(crate) struct AssignedBlake2bWord<F: PrimeField>(AssignedCell<Blake2bWord, F
 
 impl<F: PrimeField> AssignedBlake2bWord<F> {
     /// Method that copies an [AssignedBlake2bWord] in the trace into another cell.
-    pub(crate) fn copy_advice_word(
-        &self,
-        region: &mut Region<'_, F>,
-        column: Column<Advice>,
-        offset: usize,
-        annotation: &str,
-    ) -> Result<Self, Error> {
+    pub(crate) fn copy_advice_word(&self, region: &mut Region<'_, F>, column: Column<Advice>, offset: usize, annotation: &str) -> Result<Self, Error> {
         let result = self.0.copy_advice(|| annotation, region, column, offset)?;
         Ok(Self(result))
     }
@@ -89,8 +83,7 @@ impl<F: PrimeField> AssignedBlake2bWord<F> {
         offset: usize,
         word_value: Blake2bWord,
     ) -> Result<Self, Error> {
-        let result =
-            region.assign_advice_from_constant(|| annotation, column, offset, word_value)?;
+        let result = region.assign_advice_from_constant(|| annotation, column, offset, word_value)?;
         Ok(Self(result))
     }
 

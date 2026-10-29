@@ -16,10 +16,10 @@ pub type AssignedNative<F> = AssignedCell<F, F>;
 
 /// Module for assigned bits.
 pub mod bit;
-/// Module for assigned bytes.
-pub mod byte;
 /// Module for assigned blake2b words.
 pub mod blake2b_word;
+/// Module for assigned bytes.
+pub mod byte;
 /// Module for assigned blake2b rows.
 pub mod row;
 

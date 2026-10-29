@@ -40,21 +40,14 @@ impl AdditionMod64Config {
             let carry = meta.query_advice(carry, Rotation(1));
 
             let constraints = vec![
-                q_add.clone()
-                    * (full_number_result - full_number_x - full_number_y
-                        + carry.clone() * (Expression::Constant(F::from_u128(1u128 << 64)))),
+                q_add.clone() * (full_number_result - full_number_x - full_number_y + carry.clone() * (Expression::Constant(F::from_u128(1u128 << 64)))),
                 q_add * carry.clone() * (Expression::Constant(F::from_u128(1u128)) - carry),
             ];
 
             constraints
         });
 
-        Self {
-            carry,
-            q_add,
-            q_decompose,
-            q_range,
-        }
+        Self { carry, q_add, q_decompose, q_range }
     }
 
     /// This method receives two cells, copies the values of the cells to the trace and then
@@ -75,42 +68,22 @@ impl AdditionMod64Config {
         full_number_u64_column: Column<Advice>,
         limbs: [Column<Advice>; 8],
     ) -> Result<(AssignedRow<F>, AssignedBit<F>), Error> {
-        let (result_value, carry_value) =
-            Self::calculate_result_and_carry(previous_cell.value(), cell_to_copy.value());
+        let (result_value, carry_value) = Self::calculate_result_and_carry(previous_cell.value(), cell_to_copy.value());
         let offset_to_enable = *offset - if use_last_cell_as_first_operand { 1 } else { 0 };
         self.q_add.enable(region, offset_to_enable)?;
 
         if !use_last_cell_as_first_operand {
-            AssignedBlake2bWord::copy_advice_word(
-                previous_cell,
-                region,
-                full_number_u64_column,
-                *offset,
-                "Sum first operand",
-            )?;
+            AssignedBlake2bWord::copy_advice_word(previous_cell, region, full_number_u64_column, *offset, "Sum first operand")?;
             *offset += 1;
         }
-        AssignedBlake2bWord::copy_advice_word(
-            cell_to_copy,
-            region,
-            full_number_u64_column,
-            *offset,
-            "Sum second operand",
-        )?;
+        AssignedBlake2bWord::copy_advice_word(cell_to_copy, region, full_number_u64_column, *offset, "Sum second operand")?;
 
-        let carry_cell =
-            AssignedBit::assign_advice_bit(region, "carry", self.carry, *offset, carry_value)?;
+        let carry_cell = AssignedBit::assign_advice_bit(region, "carry", self.carry, *offset, carry_value)?;
         *offset += 1;
 
         self.q_decompose.enable(region, *offset)?;
         self.q_range.enable(region, *offset)?;
-        let result_row = generate_row_from_word_value(
-            region,
-            result_value,
-            *offset,
-            full_number_u64_column,
-            limbs,
-        )?;
+        let result_row = generate_row_from_word_value(region, result_value, *offset, full_number_u64_column, limbs)?;
         *offset += 1;
 
         Ok((result_row, carry_cell))
@@ -119,13 +92,9 @@ impl AdditionMod64Config {
     /// Given 2 operand values, known at proof generation time, returns the values holding the
     /// result of that sum mod 2^64 and the carry value, which must be 0 or 1. Both ranges will be
     /// constrained by this gate.
-    fn calculate_result_and_carry<F: PrimeField>(
-        lhs: Value<Blake2bWord>,
-        rhs: Value<Blake2bWord>,
-    ) -> (Value<Blake2bWord>, Value<F>) {
+    fn calculate_result_and_carry<F: PrimeField>(lhs: Value<Blake2bWord>, rhs: Value<Blake2bWord>) -> (Value<Blake2bWord>, Value<F>) {
         let result_value = lhs.and_then(|l| rhs.and_then(|r| Value::known(Self::sum_mod_64(l, r))));
-        let carry_value =
-            lhs.and_then(|l| rhs.and_then(|r| Value::known(Self::carry_mod_64(l, r))));
+        let carry_value = lhs.and_then(|l| rhs.and_then(|r| Value::known(Self::carry_mod_64(l, r))));
         (result_value, carry_value)
     }
 

@@ -1,5 +1,5 @@
-use crate::blake2b_halo2::base_operations::types::blake2b_word::AssignedBlake2bWord;
 use super::*;
+use crate::blake2b_halo2::base_operations::types::blake2b_word::AssignedBlake2bWord;
 
 /// This config handles the bitwise negation of a 64-bit number.
 ///
@@ -15,10 +15,7 @@ impl NegateConfig {
     /// The gate that will be used to negate a number
     /// The gate is defined as:
     ///    negate = (1 << 64) - 1 - value - not_value
-    pub(crate) fn configure<F: PrimeField>(
-        meta: &mut ConstraintSystem<F>,
-        full_number_u64: Column<Advice>,
-    ) -> Self {
+    pub(crate) fn configure<F: PrimeField>(meta: &mut ConstraintSystem<F>, full_number_u64: Column<Advice>) -> Self {
         let q_negate = meta.complex_selector();
 
         meta.create_gate("negate", |meta| {
@@ -26,10 +23,7 @@ impl NegateConfig {
             let value = meta.query_advice(full_number_u64, Rotation(0));
             let not_value = meta.query_advice(full_number_u64, Rotation(1));
 
-            let constraints = vec![
-                q_negate
-                    * (Expression::Constant(F::from_u128((1u128 << 64) - 1)) - value - not_value),
-            ];
+            let constraints = vec![q_negate * (Expression::Constant(F::from_u128((1u128 << 64) - 1)) - value - not_value)];
             constraints
         });
 
@@ -47,21 +41,12 @@ impl NegateConfig {
         full_number_column: Column<Advice>,
     ) -> Result<AssignedBlake2bWord<F>, Error> {
         self.q_negate.enable(region, *offset)?;
-        AssignedBlake2bWord::copy_advice_word(
-            input,
-            region,
-            full_number_column,
-            *offset,
-            "Negation input",
-        )?;
+        AssignedBlake2bWord::copy_advice_word(input, region, full_number_column, *offset, "Negation input")?;
         *offset += 1;
 
-        let result_value: Value<Blake2bWord> =
-            input.value().map(|input| Blake2bWord(u64::MAX) - input);
+        let result_value: Value<Blake2bWord> = input.value().map(|input| Blake2bWord(u64::MAX) - input);
 
-        let result_cell = region
-            .assign_advice(|| "Negation output", full_number_column, *offset, || result_value)?
-            .into();
+        let result_cell = region.assign_advice(|| "Negation output", full_number_column, *offset, || result_value)?.into();
 
         *offset += 1;
         Ok(result_cell)

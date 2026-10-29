@@ -19,10 +19,10 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use zceipt_chain::chain::{self, FINALITY_CONFIRMATIONS};
 use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use zceipt_chain::chain::{self, FINALITY_CONFIRMATIONS};
 
 pub struct Clock {
     pub id: String,
@@ -92,7 +92,11 @@ pub async fn create(State(st): State<Shared>, auth: Auth, Body(req, _): Body<Cre
     if !(0..=32_503_680_000).contains(&t) {
         return Err(ApiError::invalid("parameter_invalid", "frozen_time must be a unix time between 1970 and 3000").param("frozen_time"));
     }
-    st.db.0.lock().unwrap().execute("INSERT INTO test_clocks (id, frozen_time, height, created, owner) VALUES (?1,?2,?3,?4,?5)", params![id, t, h, now(), owner_of(&auth.key)])?;
+    st.db
+        .0
+        .lock()
+        .unwrap()
+        .execute("INSERT INTO test_clocks (id, frozen_time, height, created, owner) VALUES (?1,?2,?3,?4,?5)", params![id, t, h, now(), owner_of(&auth.key)])?;
     Ok((StatusCode::CREATED, Json(clock_json(&st, &load(&st, &id)?))))
 }
 

@@ -1,6 +1,6 @@
-use ff::PrimeField;
 use crate::blake2b_halo2::types::blake2b_word::AssignedBlake2bWord;
 use crate::blake2b_halo2::types::byte::AssignedByte;
+use ff::PrimeField;
 
 /// We use this type to model the Row we generally use along this circuit. This row has the
 /// following shape:

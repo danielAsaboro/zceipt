@@ -37,16 +37,15 @@ use rand_core::CryptoRng;
 use zcash_note_encryption::{try_output_recovery_with_ock, Domain, EphemeralKeyBytes, OutgoingCipherKey};
 
 pub mod builder;
-pub mod sapling;
-#[cfg(feature = "extensions")]
-pub mod deposit;
-mod encoding;
 #[cfg(all(feature = "extensions", feature = "orchard-ext"))]
 pub mod claim;
 #[cfg(feature = "extensions")]
 pub mod delegated;
 #[cfg(feature = "extensions")]
+pub mod deposit;
+#[cfg(feature = "extensions")]
 pub mod designated;
+mod encoding;
 #[cfg(feature = "extensions")]
 pub mod income;
 #[cfg(feature = "orchard-ext")]
@@ -63,6 +62,7 @@ pub mod policy;
 pub mod preflight;
 #[cfg(feature = "extensions")]
 pub mod reserve;
+pub mod sapling;
 #[cfg(feature = "extensions")]
 pub mod screened;
 #[cfg(feature = "extensions")]

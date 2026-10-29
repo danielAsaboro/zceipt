@@ -114,7 +114,14 @@ impl Client {
         self.call_with(method, path, body, idem, None).await
     }
 
-    async fn call_with(&self, method: reqwest::Method, path: &str, body: Option<Value>, idem: Option<&str>, header: Option<(&str, &str)>) -> Result<Value, Error> {
+    async fn call_with(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        idem: Option<&str>,
+        header: Option<(&str, &str)>,
+    ) -> Result<Value, Error> {
         let idem = match (&method, idem) {
             (&reqwest::Method::POST, Some(k)) => Some(k.to_string()),
             (&reqwest::Method::POST, None) => Some(random_key()),
@@ -123,20 +130,26 @@ impl Client {
         // A live key goes over https (or to this computer): never in the clear across a network.
         if self.key.starts_with("rcpt_live_") {
             let b = self.base.to_ascii_lowercase();
-            let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| b.strip_prefix(p).is_some_and(|r| {
-                // After the host: nothing, a path, or a numeric port then a path; a `@` makes it another host.
-                let end = r.find(['/', '?', '#']).unwrap_or(r.len());
-                let auth = &r[..end];
-                auth.is_empty() || auth.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
-            }));
+            let local = ["http://127.0.0.1", "http://localhost", "http://[::1]"].iter().any(|p| {
+                b.strip_prefix(p).is_some_and(|r| {
+                    // After the host: nothing, a path, or a numeric port then a path; a `@` makes it another host.
+                    let end = r.find(['/', '?', '#']).unwrap_or(r.len());
+                    let auth = &r[..end];
+                    auth.is_empty() || auth.strip_prefix(':').is_some_and(|p| !p.is_empty() && p.bytes().all(|c| c.is_ascii_digit()))
+                })
+            });
             if !b.starts_with("https://") && !local {
-                return Err(Error::InvalidRequest { status: 0, code: "insecure_base_url".into(), message: "a live API key must be sent over https".into(), param: None });
+                return Err(Error::InvalidRequest {
+                    status: 0,
+                    code: "insecure_base_url".into(),
+                    message: "a live API key must be sent over https".into(),
+                    param: None,
+                });
             }
         }
         let mut attempt = 0;
         loop {
-            let mut rb =
-                self.http.request(method.clone(), format!("{}{path}", self.base)).bearer_auth(&self.key).header("user-agent", "zceipt-rust/0.1");
+            let mut rb = self.http.request(method.clone(), format!("{}{path}", self.base)).bearer_auth(&self.key).header("user-agent", "zceipt-rust/0.1");
             if let Some(k) = &idem {
                 rb = rb.header("idempotency-key", k);
             }
@@ -278,7 +291,13 @@ impl Client {
     /// its note must have held: the claimant picks the floor it shows) or payer tag (both None) for
     /// `domain`; returns its tag.
     pub async fn verify_claim(&self, claim: &str, domain: &str, height: Option<u32>, min_floor_zatoshis: Option<u64>) -> Result<Value, Error> {
-        self.call(reqwest::Method::POST, "/v1/claims/verify", Some(json!({ "claim": claim, "domain": domain, "height": height, "min_floor_zatoshis": min_floor_zatoshis })), None).await
+        self.call(
+            reqwest::Method::POST,
+            "/v1/claims/verify",
+            Some(json!({ "claim": claim, "domain": domain, "height": height, "min_floor_zatoshis": min_floor_zatoshis })),
+            None,
+        )
+        .await
     }
     pub async fn create_webhook_endpoint(&self, url: &str, events: Option<&[&str]>) -> Result<Value, Error> {
         let mut b = json!({ "url": url });

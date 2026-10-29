@@ -1,9 +1,9 @@
 //! Verifies the committed receipt for a real regtest Ironwood transaction, offline.
 
-use zceipt_core::{Pool, Receipt, COIN_TYPE_TESTNET};
 use zcash_address::unified::{self, Container, Encoding};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::BranchId;
+use zceipt_core::{Pool, Receipt, COIN_TYPE_TESTNET};
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/regtest");
 

@@ -39,7 +39,8 @@ fn main() -> anyhow::Result<()> {
     let (shares, pubkeys) = frost::keys::split(&secret, 3, 2, frost::keys::IdentifierList::Default, &mut rng).map_err(|e| anyhow::anyhow!("{e:?}"))?;
     let pubkeys = pubkeys.into_even_y(None);
     let shares: BTreeMap<_, _> = shares.into_iter().map(|(id, s)| (id, s.into_even_y(None))).collect();
-    let group_key: [u8; 32] = pubkeys.verifying_key().serialize().map_err(|e| anyhow::anyhow!("{e:?}"))?.try_into().map_err(|_| anyhow::anyhow!("key length"))?;
+    let group_key: [u8; 32] =
+        pubkeys.verifying_key().serialize().map_err(|e| anyhow::anyhow!("{e:?}"))?.try_into().map_err(|_| anyhow::anyhow!("key length"))?;
     anyhow::ensure!(group_key == ak, "the group key is not the wallet's ak");
 
     let text = std::fs::read_to_string(prepared)?;

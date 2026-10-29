@@ -2,10 +2,10 @@
 //! `scripts/e2e-testnet.sh`): every byte of each proof is edited, proofs are moved to payments,
 //! domains, kinds and keys they weren't made for, and dishonest provers are run. None may pass.
 
-use zceipt_core::claim::{self, Claim, TagKind};
-use zceipt_core::{delegated, designated, Pool, Receipt, COIN_TYPE_TESTNET};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::BranchId;
+use zceipt_core::claim::{self, Claim, TagKind};
+use zceipt_core::{delegated, designated, Pool, Receipt, COIN_TYPE_TESTNET};
 
 const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/testnet/proofs");
 const DOMAIN: &[u8] = b"round-testnet";
@@ -197,7 +197,9 @@ fn the_real_one_verifier_receipt_convinces_only_its_verifier() {
     let vk = zceipt_core::verifying_key();
     let none = |_: Pool, _: &[u8; 32], _: u32| None;
     let d = designated("dv.txt");
-    let ok = |d: &designated::DesignatedReceipt, p: &Payment| zceipt_core::verify_designated_tx_bundles(&vk, d, COIN_TYPE_TESTNET, p.txid, None, p.tx.ironwood_bundle(), &none);
+    let ok = |d: &designated::DesignatedReceipt, p: &Payment| {
+        zceipt_core::verify_designated_tx_bundles(&vk, d, COIN_TYPE_TESTNET, p.txid, None, p.tx.ironwood_bundle(), &none)
+    };
     assert_eq!(ok(&d, &a).unwrap().outputs[0].value, 200_000);
     // Its key is the shop's, not the other one.
     let y = |f: &str| -> [u8; 32] { hex::decode(text(f)).unwrap().try_into().unwrap() };
@@ -299,7 +301,8 @@ fn the_real_frost_policy_proof_names_its_key_and_its_receipt() {
 #[test]
 fn a_real_list_claim_holds_for_its_list_and_nothing_else() {
     let c = Claim::from_text(&text("listclaim.txt")).unwrap();
-    let set: Vec<[u8; 32]> = text("list.txt").lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).map(|l| hex::decode(l.trim()).unwrap().try_into().unwrap()).collect();
+    let set: Vec<[u8; 32]> =
+        text("list.txt").lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()).map(|l| hex::decode(l.trim()).unwrap().try_into().unwrap()).collect();
     let root = zceipt_core::screened::set_root(&set).unwrap();
     assert!(c.nf.is_none() && c.height == 0);
     let tag = claim::verify(&c, b"list-airdrop", &root).unwrap();

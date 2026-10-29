@@ -3,9 +3,9 @@
 //! receipt verifies, the edited copy is refused, and the receipt whose spend proof was altered
 //! before signing is refused by the Halo 2 check.
 
-use zceipt_core::{verify_transaction, Error, Receipt, COIN_TYPE_TESTNET};
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, TEST_NETWORK};
+use zceipt_core::{verify_transaction, Error, Receipt, COIN_TYPE_TESTNET};
 
 fn example(path: &str) -> String {
     std::fs::read_to_string(format!("{}/../../examples/testnet/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -60,8 +60,7 @@ fn builder_needs_a_spend_and_names_the_network() {
     let raw = (0..example("tx.hex").trim().len()).step_by(2).map(|i| u8::from_str_radix(&example("tx.hex").trim()[i..i + 2], 16).unwrap()).collect::<Vec<u8>>();
     let tx = Transaction::read(&raw[..], BranchId::for_height(&TEST_NETWORK, BlockHeight::from_u32(4_500_997))).unwrap();
     assert_eq!((Network::Mainnet.coin_type(), Network::Testnet.coin_type()), (133, 1));
-    let empty = ReceiptBuilder::new(Network::Testnet, &tx)
-        .message(b"Invoice 42")
-        .prepare(&zceipt_core::proving_key(), rand::rand_core::UnwrapErr(rand::rngs::SysRng));
+    let empty =
+        ReceiptBuilder::new(Network::Testnet, &tx).message(b"Invoice 42").prepare(&zceipt_core::proving_key(), rand::rand_core::UnwrapErr(rand::rngs::SysRng));
     assert!(matches!(empty, Err(Error::NoSpends)));
 }

@@ -3,8 +3,8 @@
 
 use crate::{chain, net::Net};
 use anyhow::anyhow;
-use zceipt_core::Receipt;
 use zcash_protocol::consensus::NetworkType;
+use zceipt_core::Receipt;
 
 pub use zceipt_core::deposit::{check, deposit_claim, tex_p2pkh, Deposit, WARNING};
 

@@ -1,9 +1,9 @@
+use crate::blake2b_halo2::types::blake2b_word::AssignedBlake2bWord;
+use crate::blake2b_halo2::types::row::AssignedRow;
 use crate::blake2b_halo2::types::AssignedNative;
 use ff::PrimeField;
 use halo2_proofs::circuit::Region;
 use halo2_proofs::plonk::Error;
-use crate::blake2b_halo2::types::blake2b_word::AssignedBlake2bWord;
-use crate::blake2b_halo2::types::row::AssignedRow;
 
 /// Enforces the output and key sizes.
 /// Output size must be between 1 and 64 bytes.
@@ -15,30 +15,14 @@ pub(crate) fn enforce_input_sizes(output_size: usize, key_size: usize) {
 }
 
 /// Extracts the full number cell of each of the state rows
-pub(crate) fn full_number_of_each_state_row<F: PrimeField>(
-    current_block_rows: [AssignedRow<F>; 16],
-) -> [AssignedBlake2bWord<F>; 16] {
-    current_block_rows
-        .iter()
-        .map(|row| row.full_number.clone())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
+pub(crate) fn full_number_of_each_state_row<F: PrimeField>(current_block_rows: [AssignedRow<F>; 16]) -> [AssignedBlake2bWord<F>; 16] {
+    current_block_rows.iter().map(|row| row.full_number.clone()).collect::<Vec<_>>().try_into().unwrap()
 }
 
 /// The 'processed_bytes_count' is a variable in the algorithm that changes with every iteration,
 /// in each iteration we compute the new value for it.
-pub(crate) fn compute_processed_bytes_count_value_for_iteration(
-    iteration: usize,
-    is_last_block: bool,
-    input_size: usize,
-    empty_key: bool,
-) -> u64 {
-    let processed_bytes_count = if is_last_block {
-        input_size + if empty_key { 0 } else { 128 }
-    } else {
-        128 * (iteration + 1)
-    };
+pub(crate) fn compute_processed_bytes_count_value_for_iteration(iteration: usize, is_last_block: bool, input_size: usize, empty_key: bool) -> u64 {
+    let processed_bytes_count = if is_last_block { input_size + if empty_key { 0 } else { 128 } } else { 128 * (iteration + 1) };
 
     processed_bytes_count as u64
 }
@@ -47,12 +31,7 @@ pub(crate) fn compute_processed_bytes_count_value_for_iteration(
 /// 1 - In the "key block": the first block (if there's a key)
 /// 2 - In the last block, if the input length in bytes isn't a multiple of 128
 /// 3 - If the input and key are empty, the algorithm will compute a single block of 128 zeros
-pub(crate) fn zeros_to_pad_in_current_block<F: PrimeField>(
-    key: &[AssignedNative<F>],
-    input_size: usize,
-    is_last_block: bool,
-    is_key_block: bool,
-) -> usize {
+pub(crate) fn zeros_to_pad_in_current_block<F: PrimeField>(key: &[AssignedNative<F>], input_size: usize, is_last_block: bool, is_key_block: bool) -> usize {
     if is_last_block && !is_key_block {
         if input_size == 0 {
             // Border case, the input and the key are empty
@@ -71,11 +50,7 @@ pub(crate) fn zeros_to_pad_in_current_block<F: PrimeField>(
 }
 
 /// Computes the edge cases in the amount of blocks to process.
-pub(crate) fn get_total_blocks_count(
-    input_blocks: usize,
-    is_input_empty: bool,
-    is_key_empty: bool,
-) -> usize {
+pub(crate) fn get_total_blocks_count(input_blocks: usize, is_input_empty: bool, is_key_empty: bool) -> usize {
     if is_key_empty {
         if is_input_empty {
             // If there's no input and no key, we still need to process one block of zeroes.
@@ -108,10 +83,7 @@ pub(crate) fn constrain_padding_cells_to_equal_zero<F: PrimeField>(
     for row in (0..16).rev() {
         for limb in (0..8).rev() {
             if constrained_padding_cells < zeros_amount {
-                region.constrain_equal(
-                    current_block_rows[row].limbs[limb].cell(),
-                    zero_constant_cell.cell(),
-                )?;
+                region.constrain_equal(current_block_rows[row].limbs[limb].cell(), zero_constant_cell.cell())?;
                 constrained_padding_cells += 1;
             }
         }
@@ -143,16 +115,7 @@ pub const SIGMA: [[usize; 16]; 12] = [
 /// The first round, these components are
 /// state[0], state[4], state[8], state[12], the second round, they're
 /// state[1], state[5], state[9], state[13], and so on.
-pub const ABCD: [[usize; 4]; 8] = [
-    [0, 4, 8, 12],
-    [1, 5, 9, 13],
-    [2, 6, 10, 14],
-    [3, 7, 11, 15],
-    [0, 5, 10, 15],
-    [1, 6, 11, 12],
-    [2, 7, 8, 13],
-    [3, 4, 9, 14],
-];
+pub const ABCD: [[usize; 4]; 8] = [[0, 4, 8, 12], [1, 5, 9, 13], [2, 6, 10, 14], [3, 7, 11, 15], [0, 5, 10, 15], [1, 6, 11, 12], [2, 7, 8, 13], [3, 4, 9, 14]];
 
 pub const IV_CONSTANTS: [u64; 8] = [
     0x6A09E667F3BCC908u64,

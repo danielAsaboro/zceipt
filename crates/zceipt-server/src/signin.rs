@@ -8,12 +8,12 @@ use crate::{
     Auth, Body, Mode, Shared,
 };
 use axum::{extract::State, Json};
-use zceipt_chain::chain;
-use zceipt_core::{signin::SignIn, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
 use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::OnceLock;
+use zceipt_chain::chain;
+use zceipt_core::{signin::SignIn, COIN_TYPE_MAINNET, COIN_TYPE_TESTNET};
 
 /// How long a sign-in challenge stays valid.
 pub const CHALLENGE_TTL_SECS: i64 = 300;

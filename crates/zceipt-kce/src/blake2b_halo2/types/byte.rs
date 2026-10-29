@@ -1,9 +1,9 @@
-use std::ops::BitXor;
+use super::*;
 use ff::PrimeField;
 use halo2_proofs::circuit::{Cell, Region, Value};
-use halo2_proofs::plonk::{Advice, Column, Error};
 use halo2_proofs::plonk::Assigned;
-use super::*;
+use halo2_proofs::plonk::{Advice, Column, Error};
+use std::ops::BitXor;
 
 /// The inner type of AssignedByte. A wrapper around `u8`
 #[derive(Copy, Clone, Debug)]
@@ -57,8 +57,7 @@ impl<F: PrimeField> AssignedByte<F> {
         // Check value is in range
         let byte_value = cell_to_copy.value().map(|v| Byte::new_from_field(*v));
         // Create AssignedCell with the same value but different type
-        let assigned_byte =
-            Self(region.assign_advice(|| annotation, column, offset, || byte_value)?);
+        let assigned_byte = Self(region.assign_advice(|| annotation, column, offset, || byte_value)?);
         // Constrain cells have equal values
         region.constrain_equal(cell_to_copy.cell(), assigned_byte.cell())?;
 
@@ -78,8 +77,7 @@ impl<F: PrimeField> AssignedByte<F> {
         // Check value is in range
         let byte_value = cell_to_copy.0.value().map(|v| Byte(v.0));
         // Create AssignedCell with the same value but different type
-        let assigned_byte =
-            Self(region.assign_advice(|| annotation, column, offset, || byte_value)?);
+        let assigned_byte = Self(region.assign_advice(|| annotation, column, offset, || byte_value)?);
         // Constrain cells have equal values
         region.constrain_equal(cell_to_copy.cell(), assigned_byte.cell())?;
 

@@ -179,7 +179,11 @@ impl Circuit<pallas::Base> for SiblingCircuit {
 }
 
 /// Copies hash output bytes into plain cells (equal to them) for the next hash's input.
-fn to_native(config: &Config, layouter: &mut impl Layouter<pallas::Base>, bytes: &[AssignedByte<pallas::Base>]) -> Result<Vec<AssignedNative<pallas::Base>>, Error> {
+fn to_native(
+    config: &Config,
+    layouter: &mut impl Layouter<pallas::Base>,
+    bytes: &[AssignedByte<pallas::Base>],
+) -> Result<Vec<AssignedNative<pallas::Base>>, Error> {
     layouter.assign_region(
         || "copy bytes",
         |mut region| {
@@ -197,7 +201,11 @@ fn to_native(config: &Config, layouter: &mut impl Layouter<pallas::Base>, bytes:
 }
 
 /// The 64 little-endian bytes as one field element (reduced mod p, as ToBase).
-fn to_base(config: &Config, layouter: &mut impl Layouter<pallas::Base>, bytes: &[AssignedByte<pallas::Base>]) -> Result<AssignedCell<pallas::Base, pallas::Base>, Error> {
+fn to_base(
+    config: &Config,
+    layouter: &mut impl Layouter<pallas::Base>,
+    bytes: &[AssignedByte<pallas::Base>],
+) -> Result<AssignedCell<pallas::Base, pallas::Base>, Error> {
     layouter.assign_region(
         || "to base",
         |mut region| {
@@ -292,7 +300,15 @@ impl Siblings {
 
 /// Proves accounts `a` and `b` of `seed` are siblings, for tags in the domain whose field element
 /// is `domain_field`.
-pub fn prove(keys: &Keys, seed: &[u8], coin_type: u32, accounts: [u32; 2], domain: &[u8], domain_field: pallas::Base, rng: impl rand::CryptoRng) -> Result<Siblings, Error> {
+pub fn prove(
+    keys: &Keys,
+    seed: &[u8],
+    coin_type: u32,
+    accounts: [u32; 2],
+    domain: &[u8],
+    domain_field: pallas::Base,
+    rng: impl rand::CryptoRng,
+) -> Result<Siblings, Error> {
     if domain.len() > u16::MAX as usize {
         return Err(Error::Synthesis);
     }
@@ -370,7 +386,11 @@ impl Keys {
         let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(&mut rest);
         plonk::verify_proof(&self.params, self.pk.get_vk(), SingleVerifier::new(&self.params), &[&[public]], &mut transcript)?;
         // A proof has one encoding: bytes after what the verifier reads are refused.
-        if rest.is_empty() { Ok(()) } else { Err(Error::Opening) }
+        if rest.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Opening)
+        }
     }
 }
 
@@ -396,7 +416,11 @@ impl VerifyingKey {
         let mut rest: &[u8] = proof;
         let mut transcript = Blake2bRead::<_, vesta::Affine, Challenge255<_>>::init(&mut rest);
         plonk::verify_proof(&self.params, &self.vk, SingleVerifier::new(&self.params), &[&[public]], &mut transcript)?;
-        if rest.is_empty() { Ok(()) } else { Err(Error::Opening) }
+        if rest.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::Opening)
+        }
     }
 }
 
@@ -603,7 +627,9 @@ mod gadget {
             chip.load(&mut layouter)?;
             let input = layouter.assign_region(
                 || "input",
-                |mut region| self.input.iter().enumerate().map(|(k, v)| region.assign_advice(|| "byte", advice[1 + k % 8], k / 8, || *v)).collect::<Result<Vec<_>, _>>(),
+                |mut region| {
+                    self.input.iter().enumerate().map(|(k, v)| region.assign_advice(|| "byte", advice[1 + k % 8], k / 8, || *v)).collect::<Result<Vec<_>, _>>()
+                },
             )?;
             let out = chip.hash_personalized(&mut layouter, &input, &[], 64, self.personal)?;
             for (k, b) in out.iter().enumerate() {
@@ -629,7 +655,9 @@ mod gadget {
     #[test]
     fn matches_blake2b_for_many_lengths() {
         // One and two blocks, the block boundary, and the two lengths ZIP 32 uses (33 and 69).
-        for (n, personal) in [(0, Some(PERSONAL)), (1, None), (33, Some(PERSONAL)), (69, Some(PERSONAL)), (127, None), (128, Some(PERSONAL)), (129, Some(*b"ZcashIP32Orchard"))] {
+        for (n, personal) in
+            [(0, Some(PERSONAL)), (1, None), (33, Some(PERSONAL)), (69, Some(PERSONAL)), (127, None), (128, Some(PERSONAL)), (129, Some(*b"ZcashIP32Orchard"))]
+        {
             let bytes: Vec<u8> = (0..n).map(|i| (i * 37 + n * 11) as u8).collect();
             let input = bytes.iter().map(|b| Value::known(pallas::Base::from(*b as u64))).collect();
             assert!(run(input, personal, digest(&bytes, personal)), "length {n}");

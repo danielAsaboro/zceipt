@@ -74,7 +74,13 @@ impl Certificate {
     }
 
     fn digest(&self) -> [u8; 32] {
-        blake2b_simd::Params::new().hash_length(32).personal(&signing_personal(b"ZIP311Deleg\0", self.coin_type)).hash(&self.body()).as_bytes().try_into().unwrap()
+        blake2b_simd::Params::new()
+            .hash_length(32)
+            .personal(&signing_personal(b"ZIP311Deleg\0", self.coin_type))
+            .hash(&self.body())
+            .as_bytes()
+            .try_into()
+            .unwrap()
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -166,7 +172,8 @@ impl Session {
         let bad = || Error::BadDelegation;
         let field = |name: &str| -> Result<[u8; 32], Error> {
             let h = s.lines().find_map(|l| l.strip_prefix(name)).ok_or_else(bad)?.trim();
-            let v: Vec<u8> = (0..h.len()).step_by(2).map(|i| h.get(i..i + 2).and_then(|x| u8::from_str_radix(x, 16).ok()).ok_or_else(bad)).collect::<Result<_, _>>()?;
+            let v: Vec<u8> =
+                (0..h.len()).step_by(2).map(|i| h.get(i..i + 2).and_then(|x| u8::from_str_radix(x, 16).ok()).ok_or_else(bad)).collect::<Result<_, _>>()?;
             v.try_into().map_err(|_| bad())
         };
         let cert = Certificate::from_text(s.lines().find(|l| l.starts_with(CERT_TEXT_PREFIX)).ok_or_else(bad)?)?;
@@ -175,7 +182,14 @@ impl Session {
 }
 
 /// The spend key authorizes a fresh session key under the policy. Give the delegate the session.
-pub fn delegate(coin_type: u32, ask: &SpendAuthorizingKey, max_zats: u64, until_height: u32, payees: Vec<[u8; 43]>, mut rng: impl CryptoRng) -> Result<Session, Error> {
+pub fn delegate(
+    coin_type: u32,
+    ask: &SpendAuthorizingKey,
+    max_zats: u64,
+    until_height: u32,
+    payees: Vec<[u8; 43]>,
+    mut rng: impl CryptoRng,
+) -> Result<Session, Error> {
     if payees.len() > u8::MAX as usize {
         return Err(Error::BadDelegation);
     }
@@ -232,7 +246,12 @@ pub fn issue(prepared: PreparedReceipt, session: &Session, mut rng: impl CryptoR
     let (s, alpha_c) = (scalar(&session.secret).map_err(|_| Error::BadDelegation)?, scalar(&session.alpha).map_err(|_| Error::BadDelegation)?);
     let rk_c = point(&session.cert.rk).map_err(|_| Error::BadDelegation)?;
     let digest = signing_digest(u);
-    let mut d = DelegatedReceipt { cert: session.cert.clone(), links: vec![], session_sig: [0; 64], receipt: Receipt { unsigned: u.clone(), spend_auth_sigs: vec![[0; 64]; u.spends.len()] } };
+    let mut d = DelegatedReceipt {
+        cert: session.cert.clone(),
+        links: vec![],
+        session_sig: [0; 64],
+        receipt: Receipt { unsigned: u.clone(), spend_auth_sigs: vec![[0; 64]; u.spends.len()] },
+    };
     let mut nonces = Vec::new();
     let mut rs = Vec::new();
     for (sp, alpha) in u.spends.iter().zip(prepared.alphas()) {

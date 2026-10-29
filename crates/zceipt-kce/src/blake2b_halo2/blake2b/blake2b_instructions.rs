@@ -5,8 +5,7 @@ use ff::PrimeField;
 use halo2_proofs::circuit::{Layouter, Region};
 use halo2_proofs::plonk::Error;
 
-pub(crate) type ConstantCells<F> =
-    ([AssignedBlake2bWord<F>; 8], AssignedBlake2bWord<F>, AssignedNative<F>);
+pub(crate) type ConstantCells<F> = ([AssignedBlake2bWord<F>; 8], AssignedBlake2bWord<F>, AssignedNative<F>);
 
 /// This is the trait that groups the Blake2b implementation chips. Every Blake2b chip
 /// should implement this trait.

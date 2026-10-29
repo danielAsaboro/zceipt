@@ -17,8 +17,7 @@ pub mod rotate_63;
 fn rotate_right_field_element(value_to_rotate: Blake2bWord, rotation_degree: usize) -> Blake2bWord {
     let value_to_rotate = value_to_rotate.0;
     let rotation_degree = rotation_degree % 64;
-    let rotated_value = ((value_to_rotate as u128) >> rotation_degree)
-        | ((value_to_rotate as u128) << (64 - rotation_degree));
+    let rotated_value = ((value_to_rotate as u128) >> rotation_degree) | ((value_to_rotate as u128) << (64 - rotation_degree));
     (rotated_value as u64).into()
 }
 
@@ -33,25 +32,14 @@ pub(crate) fn generate_row_from_assigned_bytes<F: PrimeField>(
     limbs: [Column<Advice>; 8],
 ) -> Result<AssignedRow<F>, Error> {
     // Compute the full number from the limbs
-    let full_number_cell = AssignedBlake2bWord::assign_advice_word_from_field(
-        region,
-        "full number",
-        full_number_u64,
-        offset,
-        compute_full_value_u64_from_bytes(bytes),
-    )?;
+    let full_number_cell =
+        AssignedBlake2bWord::assign_advice_word_from_field(region, "full number", full_number_u64, offset, compute_full_value_u64_from_bytes(bytes))?;
 
     let mut assigned_limbs = vec![];
 
     // Fill the row with copies of the limbs
     for (index, byte_cell) in bytes.iter().enumerate() {
-        let assigned_byte = AssignedByte::copy_advice_byte_from_native(
-            region,
-            "Copied input byte",
-            limbs[index],
-            offset,
-            byte_cell.clone(),
-        )?;
+        let assigned_byte = AssignedByte::copy_advice_byte_from_native(region, "Copied input byte", limbs[index], offset, byte_cell.clone())?;
         assigned_limbs.push(assigned_byte)
     }
 
@@ -83,8 +71,7 @@ fn generate_row_from_cell<F: PrimeField>(
     limbs: [Column<Advice>; 8],
 ) -> Result<AssignedRow<F>, Error> {
     let value = cell.value();
-    let new_cells =
-        generate_row_from_word_and_keep_row(region, value, offset, full_number_u64, limbs)?;
+    let new_cells = generate_row_from_word_and_keep_row(region, value, offset, full_number_u64, limbs)?;
     region.constrain_equal(cell.cell(), new_cells.full_number.cell())?;
     Ok(new_cells)
 }
@@ -114,8 +101,7 @@ pub(crate) fn generate_row_from_word_and_keep_row<F: PrimeField>(
     full_number_u64: Column<Advice>,
     limbs: [Column<Advice>; 8],
 ) -> Result<AssignedRow<F>, Error> {
-    let limb_values: [Value<Byte>; 8] =
-        (0..8).map(|i| get_limb_from(value, i)).collect::<Vec<_>>().try_into().unwrap();
+    let limb_values: [Value<Byte>; 8] = (0..8).map(|i| get_limb_from(value, i)).collect::<Vec<_>>().try_into().unwrap();
     create_row_with_word_and_limbs(region, value, limb_values, offset, full_number_u64, limbs)
 }
 
@@ -137,21 +123,10 @@ pub(crate) fn create_row_with_word_and_limbs<F: PrimeField>(
     full_number_u64: Column<Advice>,
     limbs: [Column<Advice>; 8],
 ) -> Result<AssignedRow<F>, Error> {
-    let full_number_cell = AssignedBlake2bWord::assign_advice_word(
-        region,
-        "full number",
-        full_number_u64,
-        offset,
-        full_value,
-    )?;
+    let full_number_cell = AssignedBlake2bWord::assign_advice_word(region, "full number", full_number_u64, offset, full_value)?;
 
-    let assigned_limbs: Vec<AssignedByte<F>> = limb_values
-        .iter()
-        .enumerate()
-        .map(|(i, limb)| {
-            AssignedByte::assign_advice_byte(region, "limb", limbs[i], offset, *limb).unwrap()
-        })
-        .collect::<Vec<_>>();
+    let assigned_limbs: Vec<AssignedByte<F>> =
+        limb_values.iter().enumerate().map(|(i, limb)| AssignedByte::assign_advice_byte(region, "limb", limbs[i], offset, *limb).unwrap()).collect::<Vec<_>>();
 
     Ok(AssignedRow::new(full_number_cell, assigned_limbs.try_into().unwrap()))
 }
@@ -168,8 +143,7 @@ pub(crate) fn create_limb_decomposition_gate<F: PrimeField>(
     meta.create_gate("decompose in 8 bit words", |meta| {
         let q_decompose = meta.query_selector(q_decompose);
         let full_number = meta.query_advice(full_number_u64, Rotation::cur());
-        let limbs: Vec<Expression<F>> =
-            limbs.iter().map(|column| meta.query_advice(*column, Rotation::cur())).collect();
+        let limbs: Vec<Expression<F>> = limbs.iter().map(|column| meta.query_advice(*column, Rotation::cur())).collect();
         let constraints = vec![
             q_decompose
                 * (full_number
@@ -188,12 +162,7 @@ pub(crate) fn create_limb_decomposition_gate<F: PrimeField>(
 
 /// Creates the necessary lookups to constrain that all the limbs in a given row are in the
 /// range [0, 255].
-pub(crate) fn create_range_check_gate<F: PrimeField>(
-    meta: &mut ConstraintSystem<F>,
-    t_range: TableColumn,
-    q_range: Selector,
-    limbs: [Column<Advice>; 8],
-) {
+pub(crate) fn create_range_check_gate<F: PrimeField>(meta: &mut ConstraintSystem<F>, t_range: TableColumn, q_range: Selector, limbs: [Column<Advice>; 8]) {
     for limb in limbs {
         range_check_for_limb(meta, &limb, &q_range, &t_range);
     }
@@ -201,12 +170,7 @@ pub(crate) fn create_range_check_gate<F: PrimeField>(
 
 /// Creates the lookup of an 8-bit limb. It uses the [t-range] table, which is filled in the
 /// [populate_lookup_table()] method, and the [q_range], which is turned on whenever needed
-fn range_check_for_limb<F: PrimeField>(
-    meta: &mut ConstraintSystem<F>,
-    limb: &Column<Advice>,
-    q_range: &Selector,
-    t_range: &TableColumn,
-) {
+fn range_check_for_limb<F: PrimeField>(meta: &mut ConstraintSystem<F>, limb: &Column<Advice>, q_range: &Selector, t_range: &TableColumn) {
     meta.lookup(|meta| {
         let limb: Expression<F> = meta.query_advice(*limb, Rotation::cur());
         let q_range = meta.query_selector(*q_range);
@@ -215,10 +179,7 @@ fn range_check_for_limb<F: PrimeField>(
 }
 
 /// Fills the [t_range] table with values in the range [0,255]
-pub(crate) fn populate_lookup_table<F: PrimeField>(
-    layouter: &mut impl Layouter<F>,
-    t_range: TableColumn,
-) -> Result<(), Error> {
+pub(crate) fn populate_lookup_table<F: PrimeField>(layouter: &mut impl Layouter<F>, t_range: TableColumn) -> Result<(), Error> {
     const LIMB_SIZE_IN_BITS: usize = 8;
     layouter.assign_table(
         || format!("range {LIMB_SIZE_IN_BITS}-bit check table"),

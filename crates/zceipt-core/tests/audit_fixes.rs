@@ -3,7 +3,7 @@
 use group::{ff::PrimeField, GroupEncoding};
 use zceipt_core::delegated::{check_policy, Certificate};
 use zceipt_core::link::spend_auth_base;
-use zceipt_core::{VerifiedOutput, VerifiedReceipt, Pool};
+use zceipt_core::{Pool, VerifiedOutput, VerifiedReceipt};
 
 fn forged_identity_cert() -> Certificate {
     let g = spend_auth_base();

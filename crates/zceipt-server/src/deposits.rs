@@ -23,10 +23,10 @@ use axum::{
     extract::{Path, State},
     Json,
 };
-use zceipt_chain::Net;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use zceipt_chain::Net;
 
 #[derive(Deserialize)]
 pub struct SourcePolicy {
@@ -88,7 +88,10 @@ pub fn policy_summary(p: Option<&str>) -> Value {
 /// `except`): the clear funding of one source can't be counted for several deposits.
 pub fn prior_claims(c: &rusqlite::Connection, except: &str) -> std::collections::BTreeMap<String, u64> {
     let mut out = std::collections::BTreeMap::new();
-    let Ok(mut stmt) = c.prepare("SELECT provenance FROM requests WHERE provenance IS NOT NULL AND status IN ('fulfilled', 'held_for_review') AND id != ?1") else { return out };
+    let Ok(mut stmt) = c.prepare("SELECT provenance FROM requests WHERE provenance IS NOT NULL AND status IN ('fulfilled', 'held_for_review') AND id != ?1")
+    else {
+        return out;
+    };
     let rows: Vec<String> = stmt.query_map([except], |r| r.get(0)).map(|it| it.flatten().collect()).unwrap_or_default();
     for p in rows {
         let Ok(p) = serde_json::from_str::<Value>(&p) else { continue };

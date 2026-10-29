@@ -13,10 +13,10 @@ use orchard::{
     value::NoteValue,
 };
 use rand::{rand_core::UnwrapErr, rngs::SysRng};
-use zceipt_core::{prepare, signing_digest, verify, Pool, ViewingSpendWitness, COIN_TYPE_TESTNET};
 use reddsa05::frost::redpallas::{self as frost, keys::EvenY, rerandomized};
 use shardtree::{store::memory::MemoryShardStore, ShardTree};
 use std::collections::BTreeMap;
+use zceipt_core::{prepare, signing_digest, verify, Pool, ViewingSpendWitness, COIN_TYPE_TESTNET};
 
 #[allow(non_upper_case_globals)]
 const OsRng: UnwrapErr<SysRng> = UnwrapErr(SysRng);

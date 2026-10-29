@@ -43,7 +43,9 @@ fn is_base58(s: &str) -> bool {
 /// Base58 WIF keys: mainnet 5…(51) or K…/L…(52); testnet 9…(51) or c…(52).
 fn is_wif(t: &str) -> bool {
     let n = t.len();
-    is_base58(t) && ((n == 51 && (t.starts_with('5') || t.starts_with('9'))) || (n == 52 && (t.starts_with('K') || t.starts_with('L') || t.starts_with('c')))) && base58check_ok(t)
+    is_base58(t)
+        && ((n == 51 && (t.starts_with('5') || t.starts_with('9'))) || (n == 52 && (t.starts_with('K') || t.starts_with('L') || t.starts_with('c'))))
+        && base58check_ok(t)
 }
 
 /// Whether `t` decodes as Base58Check: its last four bytes are the first four of the double SHA-256

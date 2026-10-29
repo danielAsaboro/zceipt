@@ -8,8 +8,8 @@ use zceipt_chain::{chain, net};
 
 use anyhow::{anyhow, bail, Context};
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use zceipt_core::{Pool, Receipt};
 use std::path::PathBuf;
+use zceipt_core::{Pool, Receipt};
 
 /// Where `zceipt create` points the shareable link. The page verifies everything in the
 /// browser; the receipt travels in the URL fragment, which browsers never send to a server.
@@ -60,13 +60,17 @@ enum Cmd {
     ///
     /// Create a receipt for a transaction you sent, from a seed phrase or viewing key (any
     /// wallet) or a zcash-devtool wallet.
-    #[command(display_order = 1)]
+    #[command(
+        display_order = 1,
+        group(clap::ArgGroup::new("key_source").required(true).args(["wallet", "seed_stdin", "ufvk"])),
+        after_help = "Either a zcash-devtool wallet (-w, -i), a seed phrase (--seed-stdin) or a viewing key (--ufvk … --unsigned)."
+    )]
     Create {
-        /// Wallet directory (as used by `zcash-devtool wallet -w`).
-        #[arg(short, long, required_unless_present_any = ["seed_stdin", "ufvk"])]
+        /// Wallet directory (as used by `zcash-devtool wallet -w`). Needs -i, or --unsigned.
+        #[arg(short, long)]
         wallet: Option<PathBuf>,
         /// age identity file that decrypts the wallet's mnemonic.
-        #[arg(short, long, required_unless_present_any = ["unsigned", "seed_stdin"])]
+        #[arg(short, long, requires = "wallet")]
         identity: Option<PathBuf>,
         /// Any wallet's seed phrase (Zodl, Zingo, YWallet…), read from standard input: the
         /// wallet's notes are found by scanning the chain from --birthday, with no wallet files.
@@ -186,6 +190,7 @@ enum Cmd {
         /// Transaction ids whose Orchard and Ironwood outputs go in the list.
         #[arg(long = "txid", required = true)]
         txids: Vec<String>,
+        /// lightwalletd server, host:port. Default: zec.rocks for the network.
         #[arg(short, long)]
         server: Option<String>,
         /// main or test (default test).
@@ -207,13 +212,19 @@ enum Cmd {
     /// Needs the wallet's keys.toml and identity, not its database or a network connection.
     /// Shows what it is about to sign, computes the digest itself and checks that this key
     /// made the spends before signing.
-    #[command(display_order = 2)]
+    #[command(
+        display_order = 2,
+        group(clap::ArgGroup::new("key_source").required(true).args(["wallet", "seed_stdin", "session"])),
+        after_help = "Either a zcash-devtool wallet (-w, -i), a seed phrase (--seed-stdin) or a delegation (--session)."
+    )]
     Sign {
         /// The file `create --unsigned` wrote. It is deleted once signed.
         prepared: PathBuf,
-        #[arg(short, long, required_unless_present_any = ["seed_stdin", "session"])]
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
+        #[arg(short, long, requires = "identity")]
         wallet: Option<PathBuf>,
-        #[arg(short, long, required_unless_present_any = ["seed_stdin", "session"])]
+        /// age identity file that decrypts the wallet's mnemonic.
+        #[arg(short, long, requires = "wallet")]
         identity: Option<PathBuf>,
         /// Sign with a seed phrase read from standard input instead of a wallet's files (the
         /// confirmation is then asked on the terminal).
@@ -248,8 +259,10 @@ enum Cmd {
     /// the session file to give them with your viewing key.
     #[command(display_order = 13)]
     Delegate {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// The most a receipt may show paid (ZEC).
@@ -272,6 +285,9 @@ enum Cmd {
         /// Where to keep the secret half (created; never overwritten).
         #[arg(long)]
         out: PathBuf,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Verify a receipt against the chain.
     #[command(display_order = 2)]
@@ -357,8 +373,8 @@ enum Cmd {
         /// For a claim: the domain it must be for (the airdrop's or round's name).
         #[arg(long)]
         domain: Option<String>,
-        /// For a receipt made for you alone (`zip311d1…`): the secret half `receipts
-        /// verifier-key` kept.
+        /// For a receipt made for you alone (`zip311d1…`): the secret half `zceipt verifier-key`
+        /// kept.
         #[arg(long)]
         verifier_key: Option<PathBuf>,
         /// Offline exchange deposits: the second ZIP 320 step's raw transaction (hex file).
@@ -371,6 +387,9 @@ enum Cmd {
         /// each source the receipt names.
         #[arg(long = "source-raw-tx", requires = "raw_tx")]
         source_raw_txs: Vec<String>,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Verify many receipts into a spreadsheet, and optionally one record file per receipt.
     ///
@@ -394,12 +413,18 @@ enum Cmd {
         /// Write one verification record (JSON) per receipt into this directory.
         #[arg(long)]
         records: Option<PathBuf>,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Decode a receipt without touching the network.
     #[command(display_order = 3)]
     Inspect {
         /// The receipt (`zip311r1…`), a link containing it, or `@file`.
         receipt: String,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Shops: lint a ZIP-321 payment link (`zcash:…`) before printing it.
     ///
@@ -454,6 +479,7 @@ enum Cmd {
     /// Print this wallet's spend key (`ak`) for a published key set (`create --key-set`).
     #[command(display_order = 8)]
     Key {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
     },
@@ -464,8 +490,10 @@ enum Cmd {
     /// each note's nullifier (the verifier can see if they are spent), nothing else.
     #[command(display_order = 6)]
     Income {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// A payment this wallet received (repeat it for each).
@@ -480,6 +508,7 @@ enum Cmd {
         /// lightwalletd server, host:port, for payments the wallet keeps no full copy of.
         #[arg(short, long)]
         server: Option<String>,
+        /// Write the proof text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -490,8 +519,10 @@ enum Cmd {
     /// each note's value and nullifier (so the verifier can see when they are spent), nothing else.
     #[command(display_order = 7)]
     Reserve {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// A challenge or purpose to bind in (e.g. the counterparty's nonce).
@@ -506,6 +537,7 @@ enum Cmd {
         /// Show only the total, not each note's value.
         #[arg(long)]
         hide_values: bool,
+        /// Write the proof text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -514,8 +546,10 @@ enum Cmd {
     /// this wallet makes in that domain. Reveals that note's nullifier, nothing else.
     #[command(display_order = 8)]
     Claim {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// What is being claimed (the airdrop's or round's name); one claim per wallet in it.
@@ -537,6 +571,7 @@ enum Cmd {
         /// orchard or ironwood (default ironwood).
         #[arg(long, default_value = "ironwood")]
         pool: String,
+        /// Write the proof text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -544,17 +579,22 @@ enum Cmd {
     /// wallets (one donor can't pass as several by splitting donations) without learning who.
     #[command(display_order = 8)]
     Tag {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
+        /// The payment you made (its transaction id).
         #[arg(long)]
         txid: String,
         /// The campaign's or round's name.
         #[arg(long)]
         domain: String,
+        /// lightwalletd server, host:port, if the wallet kept no full copy of the payment.
         #[arg(short, long)]
         server: Option<String>,
+        /// Write the tag text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -562,8 +602,10 @@ enum Cmd {
     /// without saying which wallet or which accounts.
     #[command(display_order = 8)]
     Siblings {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// The two accounts, e.g. 0,1.
@@ -572,6 +614,7 @@ enum Cmd {
         /// The domain of the payer tags (the round's name).
         #[arg(long)]
         domain: String,
+        /// Write the proof text to this file as well.
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -581,8 +624,10 @@ enum Cmd {
     /// check nobody changed the address, amount or memo, and that your domain lists the address.
     #[command(hide = true, display_order = 11)]
     Request {
+        /// Wallet directory (as used by `zcash-devtool wallet -w`).
         #[arg(short, long)]
         wallet: PathBuf,
+        /// age identity file that decrypts the wallet's mnemonic.
         #[arg(short, long)]
         identity: PathBuf,
         /// Your shop's domain; publish the address at https://<domain>/.well-known/zceipt.json.
@@ -591,6 +636,7 @@ enum Cmd {
         /// Amount in ZEC, e.g. 0.25.
         #[arg(long)]
         amount: String,
+        /// Memo the payer's wallet puts in the payment.
         #[arg(long, default_value = "")]
         memo: String,
         /// Request code (hex). Default: random. The payer's receipt signs `challenge:<code>`.
@@ -649,8 +695,10 @@ enum Cmd {
         /// Your app's webhook URL, e.g. http://localhost:3000/webhooks/receipts
         #[arg(long)]
         forward_to: Option<String>,
+        /// API key (`rcpt_test_…` or `rcpt_live_…`) from `zceipt serve`.
         #[arg(long, env = "ZCEIPT_KEY")]
         api_key: String,
+        /// The Zceipt API to talk to.
         #[arg(long, env = "ZCEIPT_URL", default_value = "http://127.0.0.1:8723")]
         base_url: String,
         /// Only these event types (default: all).
@@ -673,6 +721,12 @@ enum Cmd {
         /// Sign a real testnet receipt for this message with the public demo wallet, and print it.
         #[arg(short, long, conflicts_with = "shop")]
         msg: Option<String>,
+        /// With -m: also write the receipt to this file, ready for `zceipt verify @file`.
+        #[arg(long, requires = "msg")]
+        out: Option<PathBuf>,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Shops: pay a proof request and answer it with a receipt in one step.
     ///
@@ -717,19 +771,26 @@ enum Cmd {
         /// Also check this zcash-devtool wallet directory.
         #[arg(short, long)]
         wallet: Option<PathBuf>,
+        /// API key (`rcpt_test_…` or `rcpt_live_…`) to check against the API.
         #[arg(long, env = "ZCEIPT_KEY")]
         api_key: Option<String>,
+        /// The Zceipt API to check.
         #[arg(long, env = "ZCEIPT_URL", default_value = "http://127.0.0.1:8723")]
         base_url: String,
         /// Skip the proof-building timing (about 2 seconds).
         #[arg(long)]
         quick: bool,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Shops: Model Context Protocol server so AI agents can use the Zceipt API.
     #[command(hide = true, display_order = 15)]
     Mcp {
+        /// API key (`rcpt_test_…` or `rcpt_live_…`) from `zceipt serve`.
         #[arg(long, env = "ZCEIPT_KEY")]
         api_key: String,
+        /// The Zceipt API to talk to.
         #[arg(long, env = "ZCEIPT_URL", default_value = "http://127.0.0.1:8723")]
         base_url: String,
     },
@@ -740,8 +801,10 @@ enum Cmd {
         /// request.final, request.expired, receipt.rejected, refund.created, refund.succeeded,
         /// request.payment_reorged
         event: String,
+        /// API key (`rcpt_test_…` or `rcpt_live_…`) from `zceipt serve`.
         #[arg(long, env = "ZCEIPT_KEY")]
         api_key: String,
+        /// The Zceipt API to talk to.
         #[arg(long, env = "ZCEIPT_URL", default_value = "http://127.0.0.1:8723")]
         base_url: String,
         /// Payee for the proof request (default: a sandbox testnet address).
@@ -751,6 +814,7 @@ enum Cmd {
     /// Shops: run the Zceipt REST API (proof requests, verification, signed webhooks).
     #[command(hide = true, display_order = 12)]
     Serve {
+        /// Address and port to listen on.
         #[arg(long, default_value = "127.0.0.1:8723")]
         listen: String,
         /// SQLite database file (created if missing).
@@ -759,6 +823,7 @@ enum Cmd {
         /// Network for rcpt_test_ keys: "test", or "regtest" with --heights.
         #[arg(long, default_value = "test")]
         test_network: String,
+        /// Activation heights file, for `--test-network regtest`.
         #[arg(long)]
         heights: Option<PathBuf>,
         /// lightwalletd for test mode (default: testnet.zec.rocks:443, or 127.0.0.1:9067 on regtest).
@@ -770,9 +835,17 @@ enum Cmd {
         /// Verifier page used in proof-request links. Default: this server's own /verify/.
         #[arg(long)]
         verifier_url: Option<String>,
+        /// The URL this API is reached at from outside (the issuer of its attestations and the
+        /// base of its pay links), e.g. https://pay.example.com behind a proxy or in Docker.
+        /// Default: the origin of --verifier-url, else http://<listen>.
+        #[arg(long, env = "ZCEIPT_PUBLIC_URL")]
+        public_url: Option<String>,
         /// Requests allowed per API key per minute.
         #[arg(long, default_value_t = zceipt_server::RATE_LIMIT)]
         rate_limit: u32,
+        /// Unused here: no wallet is read.
+        #[arg(long, hide = true, default_value_t = 0)]
+        account: u32,
     },
     /// Show a mined transaction's shielded bundles (useful before creating a receipt).
     #[command(hide = true, display_order = 7)]
@@ -876,7 +949,12 @@ fn with_screened(mut report: chain::Report, receipt: &Receipt) -> anyhow::Result
 /// `verify --json`: only the JSON object is printed, on stdout and stderr alike.
 static JSON_OUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow::Result<()> {
+/// The wording of a refused signature or proof: `NOT VALID: <reason> (<TAMPERED>)`.
+const TAMPERED: &str = "the receipt was changed after it was made, or not made by the wallet that paid";
+
+/// `--expect-address`, `--min`, `--challenge` and `--memo-contains` against a verified receipt.
+/// Returns the "paid … to the expected address" note to print after the verdict.
+fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow::Result<Option<String>> {
     let (min, challenge, memo_contains) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
     if let Some(want) = memo_contains {
         if !report.outputs.iter().any(|o| o.memo.as_deref().is_some_and(|m| m.contains(want.as_str()))) {
@@ -897,7 +975,7 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
         if min.is_some() {
             bail!("--min checks what --expect-address received: give the address too");
         }
-        return Ok(());
+        return Ok(None);
     };
     let paid = chain::paid_to_address(report, addr)?;
     if paid == 0 {
@@ -910,10 +988,85 @@ fn check_expected_payee(report: &chain::Report, expect: Option<&str>) -> anyhow:
     if let Some(min) = min.filter(|m| paid < *m) {
         bail!("{addr} received {} {}, less than the {} expected", chain::zec(paid), chain::unit(report.network), chain::zec(min));
     }
-    if !JSON_OUT.load(std::sync::atomic::Ordering::Relaxed) {
-        eprintln!("(paid {} {} to the expected address)", chain::zec(paid), chain::unit(report.network));
+    Ok(paid_note(paid, report.network))
+}
+
+fn paid_note(paid: u64, network: &str) -> Option<String> {
+    (!JSON_OUT.load(std::sync::atomic::Ordering::Relaxed)).then(|| format!("(paid {} {} to the expected address)", chain::zec(paid), chain::unit(network)))
+}
+
+/// A Sapling receiver (a Sapling address, or a unified address's Sapling receiver) and its
+/// network: what `--expect-address` is matched against on a Sapling receipt.
+struct SaplingRecv(zcash_protocol::consensus::NetworkType, [u8; 43]);
+
+impl zcash_address::TryFromAddress for SaplingRecv {
+    type Error = &'static str;
+    fn try_from_sapling(net: zcash_protocol::consensus::NetworkType, data: [u8; 43]) -> Result<Self, zcash_address::ConversionError<Self::Error>> {
+        Ok(Self(net, data))
     }
-    Ok(())
+    fn try_from_unified(
+        net: zcash_protocol::consensus::NetworkType,
+        data: zcash_address::unified::Address,
+    ) -> Result<Self, zcash_address::ConversionError<Self::Error>> {
+        use zcash_address::unified::{Container, Receiver};
+        data.items()
+            .into_iter()
+            .find_map(|r| match r {
+                Receiver::Sapling(b) => Some(Self(net, b)),
+                _ => None,
+            })
+            .ok_or(zcash_address::ConversionError::User("that unified address has no Sapling receiver"))
+    }
+}
+
+fn sapling_receiver_of(addr: &str) -> anyhow::Result<SaplingRecv> {
+    zcash_address::ZcashAddress::try_from_encoded(addr.trim())
+        .map_err(|e| anyhow!("not a Zcash address: {e}"))?
+        .convert::<SaplingRecv>()
+        .map_err(|e| anyhow!("{e}"))
+}
+
+/// The one-payment checks on a verified Sapling receipt, the same rules as `check_expected_payee`.
+fn check_sapling_expectations(rep: &chain::SaplingReport, expect: Option<&str>) -> anyhow::Result<Option<String>> {
+    use zcash_protocol::consensus::NetworkType;
+    let (min, challenge, memo_contains) = VERIFY_EXPECT.get().cloned().unwrap_or_default();
+    if let Some(want) = memo_contains {
+        if !rep.outputs.iter().any(|o| o.memo.contains(want.as_str())) {
+            bail!("no disclosed output's memo contains \"{want}\"");
+        }
+    }
+    if let Some(c) = challenge {
+        match zceipt_server::verify::challenge_of(&rep.message) {
+            Some(signed) if signed == c.to_lowercase() => {}
+            Some(signed) => bail!("the receipt signs challenge {signed}, not {c}: it was made for another request"),
+            None => bail!("the receipt signs no challenge, so it wasn't made for request {c}"),
+        }
+    }
+    let Some(addr) = expect else {
+        if min.is_some() {
+            bail!("--min checks what --expect-address received: give the address too");
+        }
+        return Ok(None);
+    };
+    let SaplingRecv(nt, want) = sapling_receiver_of(addr).with_context(|| format!("--expect-address {addr}"))?;
+    let network = if rep.network == "main" { "mainnet" } else { "testnet" };
+    if !matches!((network, nt), ("mainnet", NetworkType::Main) | ("testnet", NetworkType::Test | NetworkType::Regtest)) {
+        let short = if addr.len() > 16 { format!("{}…", &addr[..14]) } else { addr.to_string() };
+        let kind = match nt {
+            NetworkType::Main => "mainnet",
+            NetworkType::Test => "testnet",
+            NetworkType::Regtest => "regtest",
+        };
+        bail!("{short} is a {kind} address, but the payment is on {network}");
+    }
+    let paid: u64 = rep.outputs.iter().filter(|o| sapling_receiver_of(&o.address).is_ok_and(|r| r.1 == want)).map(|o| o.zatoshis).sum();
+    if paid == 0 {
+        bail!("no disclosed output pays {addr}");
+    }
+    if let Some(min) = min.filter(|m| paid < *m) {
+        bail!("{addr} received {} {}, less than the {} expected", chain::zec(paid), chain::unit(network), chain::zec(min));
+    }
+    Ok(paid_note(paid, network))
 }
 
 /// How many receipts of any kind (receipt, batch, incoming receipt, proof of funds) the input holds.
@@ -928,6 +1081,7 @@ fn count_receipts(text: &str) -> usize {
         zceipt_core::reserve::RESERVE_TEXT_PREFIX,
         zceipt_core::income::INCOME_TEXT_PREFIX,
         zceipt_core::claim::CLAIM_TEXT_PREFIX,
+        zceipt_core::sapling::SAPLING_TEXT_PREFIX,
     ]
     .iter()
     .map(|p| text.matches(p).count())
@@ -969,23 +1123,42 @@ fn ufvk_network(ufvk: &str) -> Option<&'static str> {
     }
 }
 
+/// Terminal echo off while a secret is typed, and back on when this is dropped: on the way out
+/// of an error as much as after a read.
+struct EchoOff;
+
+impl EchoOff {
+    fn new() -> Self {
+        let _ = std::process::Command::new("stty").arg("-echo").stdin(std::process::Stdio::inherit()).status();
+        EchoOff
+    }
+}
+
+impl Drop for EchoOff {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("stty").arg("echo").stdin(std::process::Stdio::inherit()).status();
+        eprintln!();
+    }
+}
+
 /// A seed phrase from standard input (never from the command line, where `ps` and shell
-/// history would keep it).
-fn read_stdin_secret() -> anyhow::Result<String> {
+/// history would keep it). Wiped from memory when dropped.
+fn read_stdin_secret() -> anyhow::Result<secrecy::SecretString> {
     use std::io::IsTerminal;
-    let mut s = String::new();
+    // Room for any phrase, so the buffer never grows and leaves a copy behind.
+    let mut s = String::with_capacity(1024);
     if std::io::stdin().is_terminal() {
         // Typed: don't echo it, and read one line.
         eprint!("Seed phrase (not shown): ");
-        let _ = std::process::Command::new("stty").arg("-echo").stdin(std::process::Stdio::inherit()).status();
+        let echo = EchoOff::new();
         let read = std::io::stdin().read_line(&mut s);
-        let _ = std::process::Command::new("stty").arg("echo").stdin(std::process::Stdio::inherit()).status();
-        eprintln!();
+        drop(echo);
         read?;
     } else {
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut s)?;
     }
-    if s.trim().is_empty() {
+    let s = secrecy::SecretString::new(s);
+    if secrecy::ExposeSecret::expose_secret(&s).trim().is_empty() {
         bail!("no seed phrase on standard input");
     }
     Ok(s)
@@ -1066,7 +1239,10 @@ async fn verify_batch(text: &str, server: Option<&str>, regtest: Option<&std::pa
             }
             zceipt_core::link::verify(&proof, &batch.receipts.iter().collect::<Vec<_>>())
                 .map_err(|_| anyhow!("the same-payer proof doesn't hold: these payments weren't all signed by one key"))?;
-            Some(format!("every payment was signed by keys one party controls (proven, {} spends; two unrelated keys held together would pass too)", proof.links.len() + 1))
+            Some(format!(
+                "every payment was signed by keys one party controls (proven, {} spends; two unrelated keys held together would pass too)",
+                proof.links.len() + 1
+            ))
         }
     };
     let mut reports = Vec::new();
@@ -1254,9 +1430,38 @@ fn pool_name(p: Pool) -> &'static str {
 
 /// `verify`'s flags, checked before anything is fetched; also sets what the checks compare.
 fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
-    if let Cmd::Verify { receipt, min, challenge, memo_contains, screened_set, screened_proof, screened_min, expect_address, server, cross_check, network, raw_tx, key_set, policy_commitment, list, min_payments, payer_tags, min_payers, siblings, .. } = cmd {
+    if let Cmd::Verify {
+        receipt,
+        min,
+        challenge,
+        memo_contains,
+        screened_set,
+        screened_proof,
+        screened_min,
+        expect_address,
+        server,
+        cross_check,
+        network,
+        raw_tx,
+        key_set,
+        policy_commitment,
+        list,
+        min_payments,
+        payer_tags,
+        min_payers,
+        siblings,
+        domain,
+        verifier_key,
+        second_raw_tx,
+        second_height,
+        source_raw_txs,
+        ..
+    } = cmd
+    {
+        let text = read_arg_text(receipt)?;
+        let sapling = text.contains(zceipt_core::sapling::SAPLING_TEXT_PREFIX);
         // Offline checking reads one transaction and none of the extra proofs: a pin on them can't be honoured.
-        if raw_tx.is_some() && (key_set.is_some() || policy_commitment.is_some()) {
+        if raw_tx.is_some() && (key_set.is_some() || policy_commitment.is_some()) && !sapling {
             bail!("--key-set and --policy-commitment are checked against the chain fetch, not with --raw-tx");
         }
         if let Some(n) = network {
@@ -1264,7 +1469,11 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
         }
         // Before anything is fetched: a mistyped address, or a second server that is the first.
         if let Some(a) = expect_address {
-            chain::orchard_receiver_of(a).with_context(|| format!("--expect-address {a}"))?;
+            if sapling {
+                sapling_receiver_of(a).with_context(|| format!("--expect-address {a}"))?;
+            } else {
+                chain::orchard_receiver_of(a).with_context(|| format!("--expect-address {a}"))?;
+            }
         }
         if let (Some(s), Some(c)) = (server, cross_check) {
             if chain::same_server(s, c) {
@@ -1274,13 +1483,34 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
         // `verify` routes by the artifact's own prefix, in this order; a flag the chosen kind doesn't
         // implement is an error, never silently skipped (it would read as a check that passed).
         {
-            let text = read_arg_text(receipt)?;
             let has = |p: &str| text.contains(p);
             // Flags of the proof-of-income check; no other kind implements them.
             let income_only = |v: &mut Vec<(&'static str, bool)>| {
-                v.extend([("--min-payments", min_payments.is_some()), ("--payer-tag", !payer_tags.is_empty()), ("--min-payers", min_payers.is_some()), ("--sibling", !siblings.is_empty())]);
+                v.extend([
+                    ("--min-payments", min_payments.is_some()),
+                    ("--payer-tag", !payer_tags.is_empty()),
+                    ("--min-payers", min_payers.is_some()),
+                    ("--sibling", !siblings.is_empty()),
+                ]);
             };
-            let (kind, extras): (&str, Vec<(&'static str, bool)>) = if has(zceipt_core::income::INCOME_TEXT_PREFIX) {
+            let (kind, extras): (&str, Vec<(&'static str, bool)>) = if sapling {
+                // Checked one payment at a time, with or without the chain; nothing else is implemented.
+                (
+                    "a Sapling receipt",
+                    vec![
+                        ("--list", list.is_some()),
+                        ("--key-set", key_set.is_some()),
+                        ("--policy-commitment", policy_commitment.is_some()),
+                        ("--cross-check", cross_check.is_some()),
+                        ("--screened-set", screened_set.is_some()),
+                        ("--domain", domain.is_some()),
+                        ("--verifier-key", verifier_key.is_some()),
+                        ("--second-raw-tx", second_raw_tx.is_some()),
+                        ("--second-height", second_height.is_some()),
+                        ("--source-raw-tx", !source_raw_txs.is_empty()),
+                    ],
+                )
+            } else if has(zceipt_core::income::INCOME_TEXT_PREFIX) {
                 (
                     "a proof of income",
                     vec![
@@ -1295,7 +1525,12 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
             } else if has(zceipt_core::delegated::DELEGATED_TEXT_PREFIX) || has(zceipt_core::designated::DESIGNATED_TEXT_PREFIX) {
                 (
                     "a delegated or one-verifier receipt",
-                    vec![("--screened-set", screened_set.is_some()), ("--key-set", key_set.is_some()), ("--policy-commitment", policy_commitment.is_some()), ("--cross-check", cross_check.is_some())],
+                    vec![
+                        ("--screened-set", screened_set.is_some()),
+                        ("--key-set", key_set.is_some()),
+                        ("--policy-commitment", policy_commitment.is_some()),
+                        ("--cross-check", cross_check.is_some()),
+                    ],
                 )
             } else if has(zceipt_kce::SIBLINGS_TEXT_PREFIX) {
                 (
@@ -1325,7 +1560,12 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
             } else if has(zceipt_core::BATCH_TEXT_PREFIX) || has(zceipt_core::incoming::INCOMING_TEXT_PREFIX) {
                 (
                     "a batch or an incoming receipt",
-                    vec![("--key-set", key_set.is_some()), ("--policy-commitment", policy_commitment.is_some()), ("--cross-check", cross_check.is_some()), ("--list", list.is_some())],
+                    vec![
+                        ("--key-set", key_set.is_some()),
+                        ("--policy-commitment", policy_commitment.is_some()),
+                        ("--cross-check", cross_check.is_some()),
+                        ("--list", list.is_some()),
+                    ],
                 )
             } else if has(zceipt_core::TEXT_PREFIX) {
                 ("a receipt", vec![("--list", list.is_some())])
@@ -1346,7 +1586,6 @@ fn check_verify_flags(cmd: &Cmd) -> anyhow::Result<()> {
         // These checks are about one payment: refuse them for kinds they can't apply to, rather
         // than pass a batch, an incoming receipt or a proof of funds without checking.
         if min.is_some() || challenge.is_some() || memo_contains.is_some() || screened_set.is_some() {
-            let text = read_arg_text(receipt)?;
             // A batch answers a request as a whole: every receipt signs its challenge, and --min
             // is what the batch paid --expect-address in total.
             if text.contains(zceipt_core::BATCH_TEXT_PREFIX) && (memo_contains.is_some() || screened_set.is_some()) {
@@ -1386,6 +1625,7 @@ async fn main() -> anyhow::Result<()> {
     zceipt_wallet::set_account(cli.account)?;
     // `verify --json` answers in JSON whatever happens, so scripts never parse an error line.
     let json_verify = matches!(&cli.cmd, Cmd::Verify { json: true, .. });
+    let reads_receipt = matches!(&cli.cmd, Cmd::Verify { .. } | Cmd::Inspect { .. } | Cmd::Export { .. });
     JSON_OUT.store(json_verify, std::sync::atomic::Ordering::Relaxed);
     // A bad flag is the caller's mistake, not the receipt's: its own code.
     let (result, usage) = match check_verify_flags(&cli.cmd) {
@@ -1444,6 +1684,26 @@ async fn main() -> anyhow::Result<()> {
         // 1: the receipt is refused. 2: it wasn't checked (a wrong flag or file, or no chain).
         std::process::exit(if matches!(code, "usage" | "chain_unavailable") { 2 } else { 1 });
     }
+    if let (true, false, Err(e)) = (reads_receipt, json_verify, &result) {
+        // A refused receipt is a verdict, not an error of the caller's: NOT VALID, with the reason.
+        use zceipt_core::Error as E;
+        let m = e.to_string();
+        let reason = e
+            .chain()
+            .find_map(|c| c.downcast_ref::<E>())
+            .filter(|c| matches!(c, E::BadSignature(_) | E::SignatureCount | E::BadProof(_) | E::BadAddressProof(_) | E::BadSourceProof(_) | E::BadOpening(_)))
+            .map(ToString::to_string)
+            .or_else(|| m.strip_suffix(&format!(": {TAMPERED}")).map(str::to_string))
+            .or_else(|| m.strip_prefix("NOT VERIFIED: ").map(str::to_string));
+        if let Some(reason) = reason {
+            eprintln!("NOT VALID: {reason} ({TAMPERED})");
+            std::process::exit(1);
+        }
+        if e.chain().any(|c| c.to_string() == "invalid base64") {
+            eprintln!("Error: this isn't a receipt (invalid base64 after the zip311… prefix)");
+            std::process::exit(1);
+        }
+    }
     result
 }
 
@@ -1467,7 +1727,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             zceipt_wallet::set_account(cli.account)?;
             Box::pin(run(cli.cmd)).await?;
         }
-        Cmd::VerifierKey { out } => {
+        Cmd::VerifierKey { out, .. } => {
             let (y, v) = zceipt_core::designated::verifier_key(rand::rand_core::UnwrapErr(rand::rngs::SysRng));
             let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
             let mut f = create_private_new(&out)?;
@@ -1489,7 +1749,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
         Cmd::Sign { prepared, session: Some(session), out, .. } => {
             let text = std::fs::read_to_string(&prepared).with_context(|| format!("reading {}", prepared.display()))?;
             let p = zceipt_core::PreparedReceipt::from_text(text.lines().next().unwrap_or("")).map_err(|e| anyhow!("not a prepared receipt: {e}"))?;
-            let s = zceipt_core::delegated::Session::from_text(&std::fs::read_to_string(&session)?).map_err(|_| anyhow!("{} isn't a session file", session.display()))?;
+            let s = zceipt_core::delegated::Session::from_text(&std::fs::read_to_string(&session)?)
+                .map_err(|_| anyhow!("{} isn't a session file", session.display()))?;
             let d = zceipt_core::delegated::issue(p, &s, rand::rand_core::UnwrapErr(rand::rngs::SysRng))
                 .map_err(|_| anyhow!("this payment wasn't made by the wallet that delegated the session"))?;
             let text = d.to_text();
@@ -1509,7 +1770,11 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             // The receipt says its own network; --network only has to agree with it.
             let own = if p.unsigned().coin_type == zceipt_core::COIN_TYPE_MAINNET { "main" } else { "test" };
             let keys = if seed_stdin {
-                Some(wallet::KeysWallet::from_phrase(keys_net(network.as_deref().or(Some(own)), regtest.as_deref())?, &read_stdin_secret()?, 0)?)
+                Some(wallet::KeysWallet::from_phrase(
+                    keys_net(network.as_deref().or(Some(own)), regtest.as_deref())?,
+                    secrecy::ExposeSecret::expose_secret(&read_stdin_secret()?),
+                    0,
+                )?)
             } else {
                 None
             };
@@ -1576,7 +1841,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
             if let Some(v) = &for_verifier {
-                let v: [u8; 32] = hex::decode(v.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow!("--for takes the verifier's key: 64 hex digits"))?;
+                let v: [u8; 32] =
+                    hex::decode(v.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow!("--for takes the verifier's key: 64 hex digits"))?;
                 let d = match (&keys, &wallet, &identity) {
                     (Some(k), _, _) => k.designate(p, v)?,
                     (None, Some(w), Some(i)) => wallet::designate_prepared(w, i, p, v)?,
@@ -1643,6 +1909,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             screened_proof,
             screened_amount,
         } => {
+            if wallet.is_some() && identity.is_none() && unsigned.is_none() {
+                bail!("--wallet needs --identity (the age identity that decrypts its mnemonic), or --unsigned <file> to make the proofs only");
+            }
             let mut lines: Vec<String> = if msg.is_empty() { vec![] } else { vec![msg] };
             if let Some(n) = public_note {
                 lines.push(format!("public-note:{n}"));
@@ -1710,7 +1979,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 let birthday = birthday.expect("clap requires it");
                 let keys = match &ufvk {
                     Some(_) => wallet::KeysWallet::from_ufvk(net, ufvk_text.as_deref().unwrap_or_default(), birthday)?,
-                    None => wallet::KeysWallet::from_phrase(net, &read_stdin_secret()?, birthday)?,
+                    None => wallet::KeysWallet::from_phrase(net, secrecy::ExposeSecret::expose_secret(&read_stdin_secret()?), birthday)?,
                 };
                 let (p, h, screened) = wallet::prepare_receipt_from_keys(
                     &keys,
@@ -1951,21 +2220,47 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             eprintln!("Sapling receipt for a payment mined at block {mined}:");
             println!("{}", zceipt_core::sapling::to_text(&r));
         }
-        Cmd::Verify { receipt, server, regtest, json, .. } if read_arg_text(&receipt)?.contains(zceipt_core::sapling::SAPLING_TEXT_PREFIX) => {
+        // One receipt per input, of any kind: an input holding two can't be routed past a check.
+        Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
+            bail!("the input holds more than one receipt; verify one at a time");
+        }
+        Cmd::Verify { receipt, server, regtest, json, expect_address, raw_tx, height, .. }
+            if read_arg_text(&receipt)?.contains(zceipt_core::sapling::SAPLING_TEXT_PREFIX) =>
+        {
             let text = read_arg_text(&receipt)?;
             let start = text.find(zceipt_core::sapling::SAPLING_TEXT_PREFIX).expect("checked");
             let body: String = text[start..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
             let r = zceipt_core::sapling::from_text(&body).map_err(|e| anyhow!("{e}"))?;
-            let rep = chain::verify_sapling_against_chain(&r, server.as_deref(), regtest.as_deref()).await?;
+            let net = net::for_receipt(r.unsigned.coin_type, regtest.as_deref())?;
+            // With --raw-tx the transaction is the caller's, not the chain's: the receipt is checked
+            // against it, and nothing says it was mined.
+            let (rep, fetched_by) = match (&raw_tx, height) {
+                (Some(raw), Some(h)) => {
+                    let bytes = hex::decode(std::fs::read_to_string(raw).with_context(|| format!("reading {}", raw.display()))?.trim())?;
+                    let tx = zcash_primitives::transaction::Transaction::read(
+                        &bytes[..],
+                        zcash_protocol::consensus::BranchId::for_height(&net, zcash_protocol::consensus::BlockHeight::from_u32(h)),
+                    )?;
+                    (chain::sapling_report(&r, net, &tx, h)?, "offline")
+                }
+                _ => (chain::verify_sapling_against_chain(&r, server.as_deref(), regtest.as_deref()).await?, "txid"),
+            };
+            let paid = check_sapling_expectations(&rep, expect_address.as_deref())?;
             if json {
-                println!("{}", serde_json::to_string_pretty(&rep)?);
+                let mut v = serde_json::to_value(&rep)?;
+                v["fetched_by"] = fetched_by.into();
+                println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
                 rep.print();
+                if fetched_by == "offline" {
+                    println!("  offline      this shows the receipt matches the transaction you supplied, not that it was mined");
+                } else {
+                    eprintln!("(fetched by txid: the server learned which transaction was checked)");
+                }
+                if let Some(n) = paid {
+                    eprintln!("{n}");
+                }
             }
-        }
-        // One receipt per input, of any kind: an input holding two can't be routed past a check.
-        Cmd::Verify { receipt, .. } if count_receipts(&read_arg_text(&receipt)?) > 1 => {
-            bail!("the input holds more than one receipt; verify one at a time");
         }
         Cmd::Verify { receipt, server, regtest, json, min_payments, payer_tags, min_payers, siblings, domain, .. }
             if read_arg_text(&receipt)?.contains(zceipt_core::income::INCOME_TEXT_PREFIX) =>
@@ -2072,13 +2367,15 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::Verify { receipt, server, json, regtest, expect_address, .. } if read_arg_text(&receipt)?.contains(zceipt_core::delegated::DELEGATED_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, json, regtest, expect_address, .. }
+            if read_arg_text(&receipt)?.contains(zceipt_core::delegated::DELEGATED_TEXT_PREFIX) =>
+        {
             let text = read_arg_text(&receipt)?;
             let i = text.find(zceipt_core::delegated::DELEGATED_TEXT_PREFIX).unwrap();
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
             let d = zceipt_core::delegated::DelegatedReceipt::from_text(&body).map_err(|_| anyhow!("malformed delegated receipt"))?;
             let report = chain::verify_delegated_against_chain(&d, server.as_deref(), regtest.as_deref()).await?;
-            check_expected_payee(&report, expect_address.as_deref())?;
+            let paid = check_expected_payee(&report, expect_address.as_deref())?;
             let c = &d.cert;
             if json {
                 let mut v = serde_json::to_value(&report)?;
@@ -2092,6 +2389,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     c.until_height,
                     if c.payees.is_empty() { String::new() } else { format!(", to {} listed address(es)", c.payees.len()) }
                 );
+                if let Some(n) = paid {
+                    eprintln!("{n}");
+                }
             }
         }
         Cmd::Verify { receipt, server, json, regtest, verifier_key, expect_address, .. }
@@ -2102,14 +2402,19 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
             let d = zceipt_core::designated::DesignatedReceipt::from_text(&body).map_err(|_| anyhow!("malformed designated receipt"))?;
             // It convinces only the holder of its key: anyone else can't rule out that holder made it.
-            let file = verifier_key.ok_or_else(|| anyhow!("this receipt was made for one verifier: give its key with --verifier-key (anyone else can't tell it from one that verifier made)"))?;
-            let y: [u8; 32] = hex::decode(std::fs::read_to_string(&file)?.trim()).ok().and_then(|b| b.try_into().ok()).ok_or_else(|| anyhow!("{} isn't a verifier key", file.display()))?;
+            let file = verifier_key.ok_or_else(|| {
+                anyhow!("this receipt was made for one verifier: give its key with --verifier-key (anyone else can't tell it from one that verifier made)")
+            })?;
+            let y: [u8; 32] = hex::decode(std::fs::read_to_string(&file)?.trim())
+                .ok()
+                .and_then(|b| b.try_into().ok())
+                .ok_or_else(|| anyhow!("{} isn't a verifier key", file.display()))?;
             let mine = zceipt_core::designated::public_key(&y).map_err(|_| anyhow!("{} isn't a verifier key", file.display()))?;
             if d.verifier != mine {
                 bail!("this receipt was made for another verifier's key, so it proves nothing to you");
             }
             let report = chain::verify_designated_against_chain(&d, server.as_deref(), regtest.as_deref()).await?;
-            check_expected_payee(&report, expect_address.as_deref())?;
+            let paid = check_expected_payee(&report, expect_address.as_deref())?;
             if json {
                 let mut v = serde_json::to_value(&report)?;
                 v["designated"] = true.into();
@@ -2117,6 +2422,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             } else {
                 report.print();
                 println!("  for you   made for your key only: it convinces you, and you can't show it to anyone else as proof");
+                if let Some(n) = paid {
+                    eprintln!("{n}");
+                }
             }
         }
         Cmd::Verify { receipt, json, domain, .. } if read_arg_text(&receipt)?.contains(zceipt_kce::SIBLINGS_TEXT_PREFIX) => {
@@ -2130,7 +2438,8 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             }
             eprintln!("Building the verifying key (the first run derives its parameters, a few minutes)…");
             let vk = zceipt_kce::VerifyingKey::build(wallet::kce_params_cache().as_deref());
-            zceipt_kce::verify(&vk, &s, zceipt_core::claim::domain_field(zceipt_core::claim::TagKind::PayerTag, domain.as_bytes())).map_err(|_| anyhow!("the sibling-account proof doesn't hold"))?;
+            zceipt_kce::verify(&vk, &s, zceipt_core::claim::domain_field(zceipt_core::claim::TagKind::PayerTag, domain.as_bytes()))
+                .map_err(|_| anyhow!("the sibling-account proof doesn't hold"))?;
             let hex = |b: &[u8; 32]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
             if json {
                 println!("{}", serde_json::json!({ "valid": true, "kind": "siblings", "domain": domain, "tags": [hex(&s.tags[0]), hex(&s.tags[1])] }));
@@ -2141,7 +2450,9 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("  shows     the payer tags above are of two accounts of one wallet; not which wallet or accounts");
             }
         }
-        Cmd::Verify { receipt, server, json, regtest, domain, height, cross_check, list, .. } if read_arg_text(&receipt)?.contains(zceipt_core::claim::CLAIM_TEXT_PREFIX) => {
+        Cmd::Verify { receipt, server, json, regtest, domain, height, cross_check, list, .. }
+            if read_arg_text(&receipt)?.contains(zceipt_core::claim::CLAIM_TEXT_PREFIX) =>
+        {
             let text = read_arg_text(&receipt)?;
             let i = text.find(zceipt_core::claim::CLAIM_TEXT_PREFIX).unwrap();
             let body: String = text[i..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
@@ -2171,7 +2482,10 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
                 let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
                 if json {
-                    println!("{}", serde_json::json!({ "valid": true, "kind": "list_claim", "domain": domain, "message": String::from_utf8_lossy(&c.msg), "tag": tag, "floor_zatoshis": c.floor, "floor_zec": chain::zec(c.floor) }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "valid": true, "kind": "list_claim", "domain": domain, "message": String::from_utf8_lossy(&c.msg), "tag": tag, "floor_zatoshis": c.floor, "floor_zec": chain::zec(c.floor) })
+                    );
                 } else {
                     println!("VALID list claim");
                     println!("  domain    {}", chain::shown(&domain, "            "));
@@ -2192,13 +2506,19 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     bail!("--challenge doesn't apply to a payer tag (it signs the payment's id, not a challenge)");
                 }
                 let domain = domain.ok_or_else(|| anyhow!("a payer tag is checked for your domain: give --domain"))?;
-                let txid = std::str::from_utf8(&c.msg).ok().and_then(|m| m.strip_prefix("payer-tag:")).ok_or_else(|| anyhow!("this claim has no snapshot block and names no payment"))?;
+                let txid = std::str::from_utf8(&c.msg)
+                    .ok()
+                    .and_then(|m| m.strip_prefix("payer-tag:"))
+                    .ok_or_else(|| anyhow!("this claim has no snapshot block and names no payment"))?;
                 let txid = parse_txid(txid)?;
                 let net = net::for_receipt(c.coin_type, regtest.as_deref())?;
                 let tag = chain::verify_payer_tag_against_chain(&c, domain.as_bytes(), txid, net, server.as_deref()).await?;
                 let tag: String = tag.iter().map(|b| format!("{b:02x}")).collect();
                 if json {
-                    println!("{}", serde_json::json!({ "valid": true, "kind": "payer_tag", "domain": domain, "txid": zceipt_core::display_txid(&txid), "tag": tag }));
+                    println!(
+                        "{}",
+                        serde_json::json!({ "valid": true, "kind": "payer_tag", "domain": domain, "txid": zceipt_core::display_txid(&txid), "tag": tag })
+                    );
                 } else {
                     println!("VALID payer tag");
                     println!("  payment   tx {}", zceipt_core::display_txid(&txid));
@@ -2347,20 +2667,28 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                     bail!("--second-height {h2} is before the first transaction's block {height}; the second step can't be mined first");
                 }
                 let tx2 = read(&std::fs::read_to_string(&second)?, h2)?;
-                let d = zceipt_chain::deposit::check(&receipt, &report.message, zceipt_chain::deposit::network_type(net), &tx1, &tx2)
-                    .map_err(|e| anyhow!(e))?;
+                let d =
+                    zceipt_chain::deposit::check(&receipt, &report.message, zceipt_chain::deposit::network_type(net), &tx1, &tx2).map_err(|e| anyhow!(e))?;
                 let report = with_screened(report, &receipt)?;
-                check_expected_payee(&report, expect_address.as_deref())?;
-                print_deposit(&report, &d, json)?;
+                let paid = check_expected_payee(&report, expect_address.as_deref())?;
+                print_deposit(&report, &d, json, "offline")?;
+                if let Some(n) = paid {
+                    eprintln!("{n}");
+                }
                 return Ok(());
             }
             let report = with_screened(report, &receipt)?;
-            check_expected_payee(&report, expect_address.as_deref())?;
+            let paid = check_expected_payee(&report, expect_address.as_deref())?;
             let _ = server;
             if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
+                let mut v = serde_json::to_value(&report)?;
+                v["fetched_by"] = "offline".into();
+                println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
                 report.print();
+                if let Some(n) = paid {
+                    eprintln!("{n}");
+                }
             }
         }
         Cmd::Verify { receipt, server, expect_address, json, regtest, cross_check, key_set, policy_commitment, .. } => {
@@ -2414,43 +2742,51 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                             }
                             Some(format!("authorized under the key whose published commitment is {} (threshold {t}; the proof also claims {n} holders, which the commitment does not fix)", file.display()))
                         }
-                        None => Some(format!("the proof CLAIMS a {t}-of-{n} key; nothing checked that against a published commitment (pass --policy-commitment)")),
+                        None => {
+                            Some(format!("the proof CLAIMS a {t}-of-{n} key; nothing checked that against a published commitment (pass --policy-commitment)"))
+                        }
                     }
                 }
             };
             if zceipt_chain::deposit::deposit_claim(&String::from_utf8_lossy(&receipt.unsigned.msg)).is_some() {
                 let (report, d) = zceipt_chain::deposit::verify_against_chain(&receipt, server.as_deref(), regtest.as_deref()).await?;
                 let report = with_screened(report, &receipt)?;
-                check_expected_payee(&report, expect_address.as_deref())?;
-                print_deposit(&report, &d, json)?;
+                let paid = check_expected_payee(&report, expect_address.as_deref())?;
+                print_deposit(&report, &d, json, "txid")?;
+                if let Some(n) = paid {
+                    eprintln!("{n}");
+                }
                 return Ok(());
             }
             // A link's `h=` block hint: fetch the payment among others from its block.
             let hint = chain::height_hint(&text);
             let report = chain::verify_against_chain_hinted(&receipt, server.as_deref(), regtest.as_deref(), hint).await?;
-            if !json {
-                match hint {
-                    Some(h) => match report.anonymity_set {
-                        Some(n) if n < 4 => eprintln!("(fetched by block {h}, but only {n} transaction(s) there could carry a receipt: the server can narrow it to those)"),
-                        Some(n) => eprintln!("(fetched among {n} transactions that could carry a receipt, from block {h} and, if it was quiet, the other blocks of its run of 4: the server learned the blocks, not which one)"),
-                        None => {}
-                    },
-                    None => eprintln!("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)"),
-                }
+            // The verdict comes first; what the server learned, and what else was checked, after it.
+            let mut notes: Vec<String> = Vec::new();
+            match hint {
+                Some(h) => match report.anonymity_set {
+                    Some(n) if n < 4 => notes.push(format!("(fetched by block {h}, but only {n} transaction(s) there could carry a receipt: the server can narrow it to those)")),
+                    Some(n) => notes.push(format!("(fetched among {n} transactions that could carry a receipt, from block {h} and, if it was quiet, the other blocks of its run of 4: the server learned the blocks, not which one)")),
+                    None => {}
+                },
+                None => notes.push("(fetched by txid: the server learned which transaction was checked; links with &h=<block> avoid this)".into()),
             }
             let report = with_screened(report, &receipt)?;
-            check_expected_payee(&report, expect_address.as_deref())?;
+            notes.extend(check_expected_payee(&report, expect_address.as_deref())?);
             if let Some(second) = &cross_check {
                 let net = net::for_receipt(receipt.unsigned.coin_type, regtest.as_deref())?;
                 let conf = chain::cross_check(net, server.as_deref(), second, receipt.unsigned.txid, report.mined_height, hint.is_some()).await?;
-                if !json {
-                    eprintln!("(cross-checked with {second}: same block, {conf} confirmation{})", if conf == 1 { "" } else { "s" });
-                }
+                notes.push(format!("(cross-checked with {second}: same block, {conf} confirmation{})", if conf == 1 { "" } else { "s" }));
             }
             if json {
-                println!("{}", serde_json::to_string_pretty(&report)?);
+                let mut v = serde_json::to_value(&report)?;
+                v["fetched_by"] = if hint.is_some() { "block" } else { "txid" }.into();
+                println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
                 report.print();
+                for n in &notes {
+                    eprintln!("{n}");
+                }
                 if let Some(line) = &key_set_line {
                     println!("  key set   {line}");
                 }
@@ -2495,20 +2831,22 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 println!("{}", ::hex::encode(raw));
             }
         }
-        Cmd::Serve { listen, db, test_network, heights, test_lightwalletd, live_lightwalletd, verifier_url, rate_limit } => {
+        Cmd::Serve { listen, db, test_network, heights, test_lightwalletd, live_lightwalletd, verifier_url, public_url, rate_limit, .. } => {
             let test_net = match test_network.as_str() {
                 "test" => net::Net::Test,
                 "regtest" => net::regtest_from_file(heights.as_deref().ok_or_else(|| anyhow!("--heights is required for regtest"))?)?,
                 n => bail!("--test-network must be test or regtest, not {n}"),
             };
-            let verifier_url = verifier_url.unwrap_or_else(|| format!("http://{listen}/verify/"));
-            let config = zceipt_server::Config {
-                test_lightwalletd,
-                live_lightwalletd,
-                rate_limit,
-                public_url: format!("http://{listen}"),
-                ..zceipt_server::Config::new(test_net, verifier_url)
+            // Where the outside reaches this API: given, else the verifier page's origin (behind
+            // one proxy they are one host), else the listen address, which is right only locally.
+            let public_url = match (public_url, &verifier_url) {
+                (Some(u), _) => u.trim_end_matches('/').to_string(),
+                (None, Some(v)) => reqwest::Url::parse(v).with_context(|| format!("--verifier-url {v}"))?.origin().ascii_serialization(),
+                (None, None) => format!("http://{listen}"),
             };
+            let verifier_url = verifier_url.unwrap_or_else(|| format!("http://{listen}/verify/"));
+            let config =
+                zceipt_server::Config { test_lightwalletd, live_lightwalletd, rate_limit, public_url, ..zceipt_server::Config::new(test_net, verifier_url) };
             let (app, keys) = zceipt_server::build(&db, config).await?;
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("Zceipt API on http://{listen}  (test mode: {}, live mode: mainnet)", test_net.name());
@@ -2572,12 +2910,12 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
             }
             eprintln!("No viewing keys, spending keys or seed phrases found.");
         }
-        Cmd::Demo { msg: Some(m), .. } => demo::sign_own(&m)?,
+        Cmd::Demo { msg: Some(m), out, .. } => demo::sign_own(&m, out.as_deref())?,
         Cmd::Demo { shop, no_wait, .. } => demo::run(!no_wait, shop).await?,
         Cmd::Pay { link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes } => {
             pay(link, wallet, identity, devtool, server, refund_to, dry_run, txid, yes).await?
         }
-        Cmd::Doctor { wallet, api_key, base_url, quick } => doctor(wallet, api_key, base_url, quick).await?,
+        Cmd::Doctor { wallet, api_key, base_url, quick, .. } => doctor(wallet, api_key, base_url, quick).await?,
         Cmd::CheckLink { uri, network, json } => {
             let v = zceipt_core::preflight::check_payment_uri(&uri, network.as_deref());
             if json {
@@ -2734,12 +3072,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 std::fs::write(&out, &text)?;
                 eprintln!("wrote {}", out.display());
             }
-            eprintln!(
-                "Incoming receipt for {}: {} output(s) you received, {} bytes.",
-                zceipt_core::display_txid(&r.txid),
-                r.outputs.len(),
-                r.to_bytes().len()
-            );
+            eprintln!("Incoming receipt for {}: {} output(s) you received, {} bytes.", zceipt_core::display_txid(&r.txid), r.outputs.len(), r.to_bytes().len());
             eprintln!("It shows the receiving address and these payments, and nothing else about your wallet.\n\nShare this link:");
             println!("{}", answer_link(&link_base, &text, &height.to_string()));
         }
@@ -2778,7 +3111,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 }
             }
         }
-        Cmd::Export { receipts, server, regtest, mine, records } => {
+        Cmd::Export { receipts, server, regtest, mine, records, .. } => {
             // Quoted where needed, and never read as a formula by a spreadsheet (a memo is the
             // payer's text: "=HYPERLINK(…)" must stay text).
             let csv = |f: &str| {
@@ -2874,7 +3207,7 @@ async fn run(cmd: Cmd) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
         }
-        Cmd::Inspect { receipt } => {
+        Cmd::Inspect { receipt, .. } => {
             let r = read_receipt_arg(&receipt)?;
             let u = &r.unsigned;
             println!("network:  {}", if u.coin_type == zceipt_core::COIN_TYPE_MAINNET { "mainnet" } else { "testnet or regtest" });
@@ -3008,7 +3341,14 @@ async fn pay(
             .ok_or_else(|| anyhow!("the pay link has no secret"))?;
         let (base, id, secret) = (base.as_str(), id.as_str(), secret.as_str());
         // The secret travels in a header, not the URL, so a connection error never prints it.
-        let info: serde_json::Value = reqwest::Client::new().get(format!("{base}/v1/public/requests/{id}")).header("zceipt-client-secret", secret).send().await.map_err(|e| anyhow!("could not reach the shop's server: {}", e.without_url()))?.json().await?;
+        let info: serde_json::Value = reqwest::Client::new()
+            .get(format!("{base}/v1/public/requests/{id}"))
+            .header("zceipt-client-secret", secret)
+            .send()
+            .await
+            .map_err(|e| anyhow!("could not reach the shop's server: {}", e.without_url()))?
+            .json()
+            .await?;
         if info.get("error").is_some() {
             bail!("the shop's server refused: {}", info["error"]["message"]);
         }
@@ -3334,9 +3674,9 @@ fn rusqlite_height(db: &std::path::Path) -> Option<u32> {
     c.query_row("SELECT MAX(height) FROM blocks", [], |r| r.get::<_, Option<u32>>(0)).ok().flatten()
 }
 
-fn print_deposit(report: &chain::Report, d: &zceipt_chain::deposit::Deposit, json: bool) -> anyhow::Result<()> {
+fn print_deposit(report: &chain::Report, d: &zceipt_chain::deposit::Deposit, json: bool, fetched_by: &str) -> anyhow::Result<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "receipt": report, "deposit": d.to_json() }))?);
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "receipt": report, "deposit": d.to_json(), "fetched_by": fetched_by }))?);
     } else {
         report.print();
         println!("EXCHANGE DEPOSIT (ZIP 320)");

@@ -8,9 +8,9 @@
 //! receipt offline. The server keeps running so you can open the dashboard and the verifier.
 
 use anyhow::anyhow;
-use zceipt_client::{Client, CreateRequest};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
+use zceipt_client::{Client, CreateRequest};
 
 const PAYEE: &str = "utest14te2vs2rwfe54mal8dwgejft2e9smlyasrku87ay4rq3dxnwcukp0vyck6exmjg60jttxz9y4a94772x0zc7xhj8gg7k00g4rg0zmdfa";
 const REAL_RECEIPT: &str = include_str!("../../../examples/testnet/receipt.txt");
@@ -73,7 +73,7 @@ const DEMO_HEIGHT: u32 = 4_532_976;
 
 /// `zceipt demo -m`: the public demo wallet's real payment, signed for `msg` and verified
 /// offline (examples/testnet/demo). Prints the receipt.
-pub fn sign_own(msg: &str) -> anyhow::Result<()> {
+pub fn sign_own(msg: &str, out: Option<&std::path::Path>) -> anyhow::Result<()> {
     let prepared = zceipt_core::PreparedReceipt::from_text(DEMO_PREPARED.trim())?.with_message(msg.as_bytes())?;
     let key: [u8; 32] = hex::decode(DEMO_KEY.trim())?.try_into().map_err(|_| anyhow!("demo key is not 32 bytes"))?;
     let sk = Option::from(orchard::keys::SpendingKey::from_bytes(key)).ok_or_else(|| anyhow!("bad demo key"))?;
@@ -82,8 +82,17 @@ pub fn sign_own(msg: &str) -> anyhow::Result<()> {
     let report = zceipt_chain::chain::verify_offline(&receipt, DEMO_TX, DEMO_HEIGHT, None)?;
     eprintln!("{} for testnet tx {}… (block {}), signed by the public demo wallet and checked offline:", bold("Your receipt"), &report.txid[..12], DEMO_HEIGHT);
     eprintln!("   message “{}”; the proofs were made once, the signature now, for your message.", msg);
-    eprintln!("   Check it against the chain:  zceipt verify @<file holding it>");
-    println!("{}&h={DEMO_HEIGHT}", receipt.to_text());
+    let line = format!("{}&h={DEMO_HEIGHT}", receipt.to_text());
+    println!("{line}");
+    match out {
+        Some(path) => {
+            std::fs::write(path, format!("{line}\n"))?;
+            eprintln!("   Wrote it to {}. Check it against the chain:  zceipt verify @{}", path.display(), path.display());
+        }
+        None => eprintln!(
+            "   Save the line above to a file and run: zceipt verify @file   (its &h=<block> is the block hint, so the server fetches the block, not the txid)"
+        ),
+    }
     Ok(())
 }
 
@@ -92,7 +101,12 @@ pub async fn run(wait: bool, shop: bool) -> anyhow::Result<()> {
         println!("{}: prove one shielded Zcash payment without handing over a viewing key.", bold("Zceipt demo"));
         real_receipt(1)?;
         step(2, "Next");
-        say("against the live testnet:  zceipt verify @examples/testnet/receipt-link.txt");
+        // The checkout's link file when run from one; the hosted link, same receipt, anywhere else.
+        if std::path::Path::new("examples/testnet/receipt-link.txt").is_file() {
+            say("against the live testnet:  zceipt verify @examples/testnet/receipt-link.txt");
+        } else {
+            say(&format!("against the live testnet:  zceipt verify 'https://zceipt.xyz/verify/#{}&h={REAL_HEIGHT}'", REAL_RECEIPT.trim()));
+        }
         say("sign one yourself:         zceipt demo -m \"your message\"   (a public demo wallet)");
         say("make your own:             zceipt create --ufvk @key.txt --birthday <height> --txid <txid> --unsigned r.txt");
         say("                           zceipt sign r.txt --seed-stdin   (where the seed is)");

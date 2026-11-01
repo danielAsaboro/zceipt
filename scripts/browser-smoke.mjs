@@ -17,13 +17,19 @@ if (!chrome) {
   process.exit(0);
 }
 const port = 9300 + Math.floor(Math.random() * 500);
-const proc = spawn(chrome, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "zceipt-smoke-"))}`, "about:blank"], { stdio: "ignore" });
+// Ubuntu 24.04 (GitHub's ubuntu-latest) blocks the user namespaces Chrome's sandbox needs, so
+// Chrome exits at once there; this throwaway profile only opens our own page, so drop the sandbox on Linux.
+const linux = process.platform === "linux" ? ["--no-sandbox", "--disable-dev-shm-usage"] : [];
+const proc = spawn(chrome, ["--headless=new", ...linux, `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "zceipt-smoke-"))}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+let chromeErr = "";
+proc.stderr.on("data", (d) => { chromeErr = (chromeErr + d).slice(-2000); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let failed = false;
 const check = (ok, what) => { console.log(`${ok ? "ok  " : "FAIL"} ${what}`); if (!ok) failed = true; };
 try {
   let tabs;
-  for (let i = 0; i < 50 && !tabs; i++) { try { tabs = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); } catch { await sleep(200); } }
+  for (let i = 0; i < 150 && !tabs && proc.exitCode === null; i++) { try { tabs = await (await fetch(`http://127.0.0.1:${port}/json`)).json(); } catch { await sleep(200); } }
+  if (!tabs) throw new Error(`Chrome did not start (${chrome}, exit ${proc.exitCode}): ${chromeErr.trim() || "no output"}`);
   const ws = new WebSocket(tabs.find((t) => t.type === "page").webSocketDebuggerUrl);
   await new Promise((r) => ws.addEventListener("open", r));
   let id = 0;
